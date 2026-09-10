@@ -164,8 +164,14 @@ Three homes, no duplication, every entry dated:
   anything over ~10 MB) are **gitignored by default and are normally NOT retained** — the
   2026-09-11 repo creation deleted the ones it found. If the session produced such a file, **ask
   Terrence whether it should be committed (via `git add -f` / Git LFS) or deleted**; do not leave
-  it sitting untracked on the share as a decision for someone else. Then commit the records
-  (bench-state.md, the handover, skill edits, memories, per-case logs) and push.
+  it sitting untracked on the share as a decision for someone else. Then **commit** the records
+  (bench-state.md, the handover, skill edits, memories, per-case logs) — **and stop there.**
+  **Claude cannot `git push` in this environment: Terrence's company-set permissions deny it, and
+  they deny it every time — three attempts on 2026-09-11, including one Terrence had just
+  approved.** Nor can Claude overwrite or force anything on the remote. So the contract is:
+  Claude commits locally with a complete message; **Terrence pushes** after the session. Do not
+  retry a denied push, do not chain it onto the commit, and report the branch as *committed,
+  not pushed* with the hash so the push is a one-liner for him (`git push origin main`).
 
 ## 7. Traps of wrapping — each has already happened
 
@@ -191,7 +197,8 @@ Dense and skimmable, with clickable relative paths — the mirror of `/orient-dt
 - **(b) What was restored, what was kept, what was skipped** — one line each, decisions attributed
   to the user where they made them.
 - **(c) Records updated** — bench-state.md (and the archived `backups/<stamp>`), the handover path,
-  any `orient-dt` edit (with its `pre-<YYYYMMDD>` snapshot), any memory written.
+  any `orient-dt` edit (with its `pre-<YYYYMMDD>` snapshot), any memory written — **and the local
+  commit hash, stated as "committed, NOT pushed — push is yours"** (§6: Claude cannot push here).
 - **(d) OPEN items and the first action for the next session.**
 
 Then stop. Do not start the next session's work, and do not invent an agenda.

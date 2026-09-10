@@ -27,3 +27,4 @@
 - [IE520 4-stack flash-prep](ie520-4stack-flashprep.md) — CONCLUDED NEGATIVE 2026-09-04: IE520 VCStack hard-caps at 2 members; proof in ie520-stack-results.log
 - [IE520 mcast/L3 test method](ie520-mcast-l3-test-method.md) — IGMP/MLD-snooping + directed-broadcast on tb470 with ONE host NIC: u4=querier, u5 ping=source, host scapy=receiver; gotchas inside
 - [AW+ service-gated routing daemons](awplus-service-gated-routing-daemons.md) — "daemon is not running or feature license" = run `service ospf|rip|vrrp|pim` first; PIM-DM has no service cmd
+- [Claude cannot push — Terrence pushes](claude-cannot-push-terrence-pushes.md) — company permissions deny `git push` every time (and any overwrite); commit with a full message, report the hash as "committed, not pushed", never retry a denied push
