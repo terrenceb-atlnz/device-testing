@@ -1,101 +1,162 @@
-# SESSION HANDOVER — 2026-09-11 (PAUSED, not wrapped)
+# SESSION HANDOVER — 2026-09-11 (wrapped via /wrap-dt)
 
-Terrence paused this session mid-flow: "pause this, leave a note. we will wrap it in the next
-session." So this is a **pause note**, not a `/wrap-dt` close-out — nothing on the bench has been
-restored or torn down, and the FINAL bench-state ground-truth pass has NOT been done. Run
-`/orient-dt` next session, then finish with `/wrap-dt`.
+## TL;DR
 
-## 1. What got done (deliverables)
+- **Bench is WHOLE and re-runnable.** DUT stack (u2 m1 + u3 m2) `Normal operation`, both `Ready`,
+  member 1 Active Master, virtual MAC `0000.cd37.0d6f`; u4, u5 standalone with the EPSR ring
+  **removed**. Inter-switch topology is a **loop-free vlan10 star off stack member 1**. All three
+  units flash-boot with a valid `show boot` pointer. Everything Terrence chose to keep is saved
+  to startup; nothing is running-only. Topology and addressing: `bench-setup/bench-state.md`
+  "Current state — 2026-09-11".
+- **AWPTCM T10623 (Stack Fail-over Master) COMPLETE, PASS (functional)** — three measured parts,
+  `IE520/ipv4-routing/10623.log`. Headline: `stack virtual-mac` cuts the master-failover outage
+  from **23.20 s to 2.08 s**; an OSPF neighbour on a survivor-homed uplink **never lost its
+  adjacency** across the failover.
+- **This directory became its own git repo today** (`terrenceb-atlnz/device-testing`, `main`, pushed),
+  and 27 device-testing memories moved here out of Test-cases (`MEMORY-SPLIT-2026-09-11.md`).
+- One OPEN bench-rule question for Terrence (u5's vlan1 subnet, §6). Nothing is parked or shut
+  that isn't intended.
 
-- **AWPTCM T10623 (Stack Fail-over Master) — COMPLETE, PASS (functional).**
-  `IE520/ipv4-routing/10623.log`. Three parts, all measured:
-  - Part 1, default config: master reload → stack MAC follows the master → **23.20 s** L2 outage
-    (host ARP staleness).
-  - Part 2, `stack virtual-mac` (vMAC `0000.cd37.0d6f`): MAC held across the failover → **2.08 s**.
-  - Part 2b, OSPF across the failover: traffic **2.05 s** again; u4's adjacency never dropped —
-    `Full → ExStart (+21 s) → Full (+26 s)`, no dead-timer expiry. Route table during the 5 s
-    ExStart window was NOT captured (noted in the log as inferred).
-- The other 7 ipv4-routing cases from this batch were already logged earlier (7741, 11405, 11402,
-  11762, 11773, 30403, 18945 — all PASS) in the same directory.
-- **Bench topology recorded** in `bench-setup/bench-state.md` → "Current state — 2026-09-11"
-  (prose only; the generated ```setup fences are still the stale 2026-09-03 tree).
-- Memory written: `tb470-ie520-flash-boot-reboots-ok` (flash boot + the stale boot-pointer gotcha).
-- Started (NOT executed) the memory / repo split — see §4.
+## 1. Bench state at wrap, and how to verify it
 
-## 2. Bench state AS LEFT (not restored — /wrap-dt must decide keep vs revert)
+Measured 2026-09-10 ~23:20 device clock (device clocks run ~UTC-ish; host is NZST 2026-09-11).
 
-Measured at pause time (~22:35 device clock); re-verify with `show stack` before trusting.
+```bash
+# consoles free?  (fuser on the node is the only reliable answer)
+ssh tb470 'fuser -v /dev/u*; pgrep -a -f "ckorient|drv\.py|ping -i|tcpdump" | grep -v pgrep'
+# driver scratch (tmpfs; recreate from IE520/stack-tests/2026-09-02-driver-test/console.py if gone)
+ssh tb470 'ls /tmp/ckorient/drv.py /tmp/ckorient/console.py'
+# stack (either console relays to the master once logged in; backup console has its own login)
+ssh tb470 'cd /tmp/ckorient && printf "%s\n" "show stack" "show boot" "show ip ospf neighbor" \
+  "show running-config | include virtual-mac|priority|router ospf|network |lldp run" \
+  | python3 drv.py /dev/u2 /tmp/ckorient/verify_stack.txt'
+# u4 / u5
+ssh tb470 'cd /tmp/ckorient && printf "%s\n" "show boot | include image" "show epsr" \
+  "show running-config | include epsr|shutdown|router ospf|network " | python3 drv.py /dev/u4 /tmp/ckorient/v_u4.txt'
+ssh tb470 'cd /tmp/ckorient && printf "%s\n" "show boot | include image" "show epsr" \
+  "show running-config | include epsr|shutdown" | python3 drv.py /dev/u5 /tmp/ckorient/v_u5.txt'
+# host
+ssh tb470 'for n in eth1 eth2 eth3; do echo $n carrier=$(cat /sys/class/net/$n/carrier); done; ip -br addr | grep eth'
+```
 
-- **DUT stack u2(m1)/u3(m2):** member 1 = Active Master, member 2 was rebooting/rejoining after
-  the Part 2b `reload stack-member 2` (a rejoin poller was stopped at pause; confirm
-  `Operational Status Normal operation` and both `Ready`).
-  - RUNNING + SAVED to startup (`flash:/default.cfg`): `stack virtual-mac`, `stack 2 priority 2`,
-    `boot system flash:/IE520-tb470.rel` (the boot pointer was stale → fixed), `lldp run`.
-  - RUNNING ONLY (startup still has the OLD vlan210 version): `router ospf 1` with
-    `network 10.10.10.0/27 area 0` + `network 10.38.215.0/27 area 0`; the dead `interface vlan210`
-    SVI 10.10.210.1/30 still exists. **A full stack reload reverts OSPF to vlan210 — decide:
-    save or remove.**
-  - `service epsr` present but no ring — inert.
-- **u4 (standalone):** EPSR **removed** (`no epsr ring1`, `no service epsr` pending reboot),
-  `interface sa3` + `port1.0.23` **shutdown**, `service ospf` + `router ospf 1` (router-id
-  10.10.10.2, network 10.10.10.0/27 area 0), `lldp run`. **ALL SAVED to startup.**
-- **u5 (standalone):** EPSR removed, `interface sa3` + `port2.0.23` shutdown, `lldp run`.
-  **SAVED to startup.** No OSPF on u5.
-- **Resulting topology:** loop-free vlan10 (10.10.10.0/27) star off stack **member 1**:
-  `stack 1.0.26 ↔ u4 1.0.25` and `stack 1.0.25 ↔ u5 2.0.25`; the u4↔u5 edge (sa3/sa3) and the
-  member-2 legs (u4 1.0.23, u5 2.0.23) are admin-shut. Cabling is LLDP-confirmed both ends and
-  written in bench-state.md.
-- **vlan1 SVIs untouched** (Terrence's rule): stack 10.38.215.10/27, u5 .12/27, u4 .36/27.
-- **Host tb470:** nothing persistent changed. `/tmp/ckorient/` (tmpfs, wipes on reboot) holds
-  `drv.py` + a local copy of `console.py` (see §5) and all console transcripts from today.
+Expected: stack `Normal operation`, 1 = Active Master (prio 128), 2 = Backup (prio 2), MAC
+`0000.cd37.0d6f (Virtual MAC)`, `flash:/IE520-tb470.rel (file exists)`, OSPF neighbour
+`10.10.10.2 Full/Backup vlan10`; u4/u5 `% There were no EPSR instances found`, two `shutdown`
+lines each, `(file exists)`; host eth1/2/3 carrier 1 with `.1/27`, `.33/27`, `.65/27`.
 
-## 3. Open / pending for next session
+**Which member is master moves after every failover and never pre-empts** — with member 2 at
+priority 2 it wins the *next election* (a full reboot), not before.
 
-1. **/wrap-dt** proper: ground-truth the bench, decide what of §2 stays (candidates to KEEP:
-   virtual-mac, flash boot pointer, EPSR removal + star; candidates to REMOVE: OSPF scaffolding on
-   stack + u4, the dead vlan210 SVI, `lldp run` if unwanted), then update bench-state.md's
-   current-state section and consider finally rewriting the stale ```setup fences.
-2. **T11427** (PIM-SM full table + multicast failover) — now unblocked by the working vlan10
+## 2. What was accomplished
+
+1. **T10623 Parts 1, 2, 2b** measured and logged (§3).
+2. **Bench boot made safe:** stale `show boot` pointers fixed on the stack (before its reboot) and
+   on u4/u5 (at wrap); all three now `(file exists)`.
+3. **EPSR ring removed from u4/u5** (Terrence's call) after diagnosing it as a two-transit ring with
+   no master; topology reduced to a loop-free star with no storm window; `pre-*.cfg` backups deleted
+   from all three units (Terrence: no backups wanted).
+4. **bench-state.md "Current state — 2026-09-11"** written from measurement (LLDP both ends for
+   inter-switch links; MAC learning for the three testbox edges).
+5. **Skills made move-proof:** `orient-dt` got a §0 path table and lost every bench fact (all now
+   pointers to bench-state.md); `wrap-dt` renamed/re-pointed and gained the large-file prompt.
+   Snapshots `SKILL.md.pre-20260911` in both dirs.
+6. **Memory split executed** (27 moved, 12 symlinked back, 13 deleted, 48 untouched; both indexes
+   rebuilt; project-slug links repointed) — `MEMORY-SPLIT-2026-09-11.md`.
+7. **Repo created**: `git init`, `.gitignore` (framework symlink, `__pycache__`, large/binary
+   artefacts by default), five large artefacts deleted first (83 MB GEN3 `.rel`, two tech-support
+   `.tgz`, three unreferenced x950 `.stdout`), pushed to `git@github.com:terrenceb-atlnz/device-testing.git`.
+
+## 3. Results — each run labelled
+
+| run | trigger | traffic | OSPF (u4's view) | verdict |
+| --- | --- | --- | --- | --- |
+| T10623 Part 1 — default config | `reload stack-member 2` (master); host on m1 | **23.20 s** gap (ARP staleness; stack MAC 0780→0ac0) | n/a | **clean** |
+| T10623 Part 2 — `stack virtual-mac` | same, after save + full reboot | **2.084 s** gap, 0 DUPs; MAC `0000.cd37.0d6f` held; host ARP never re-resolved | n/a | **clean** |
+| T10623 Part 2b (first attempt) | — | — | no adjacency: vlan10 partitioned by a masterless EPSR ring | **confounded** — bench, not product; led to the ring removal |
+| T10623 Part 2b — OSPF across failover | `reload stack-member 2` (master) with m1 holding host + vlan10 uplink | **2.051 s** gap | `Full` → `ExStart` at +21.3 s → `Full` at +26.3 s; never Down | **clean** |
+
+The 7 other ipv4-routing cases (7741, 11405, 11402, 11762, 11773, 30403, 18945) were logged PASS
+earlier in the same directory; nothing changed for them today.
+
+## 4. Findings
+
+**Measured**
+- Without `stack virtual-mac` the SVI MAC is the master's base MAC and changes at failover; the
+  host's ARP entry for the gateway goes stale → 23 s outage. With it the MAC is derived from the
+  chassis ID (`0000.cd37.0d6f`) and held → ~2 s (VCS promotion time). Needs save + reboot.
+- AW+ stack priority: **lowest value wins, and only at an election**; a running master is not
+  pre-empted (`reload stack-member <master>` is the way to move mastership without a full reboot).
+- OSPF process moves to the new master and re-synchronises inside the dead interval: the
+  neighbour saw a ~5 s `ExStart/Exchange` dip ~21 s after the failover, no dead-timer expiry.
+- A two-transit EPSR ring with no master never converges; each transit blocks a port and the data
+  VLAN partitions. Removal order that works: `epsr configuration` → `epsr <ring> state disabled` →
+  `no epsr <ring> datavlan <vid>` → `no epsr <ring>` → `no service epsr` (reboot to complete).
+  Break the third edge FIRST (while EPSR still blocks) so there is no loop window.
+- Asymmetric LAG (aggregated on u4/u5, not on the stack) forwards but duplicates
+  broadcast/multicast (DUP pings); reducing each leg to one active link removed the DUPs.
+- `show boot … (file not found)` while running the same-named image occurred on all three units
+  (dangling pointers to deleted `tomahawk` / `IE520-20260825` files).
+- `no interface vlanN` is refused ("Removal of interface not allowed"); `no vlan N` in `vlan
+  database` removes the SVI with the VLAN. `show mac address-table interface <port>` is invalid;
+  filter with `| include`.
+- Cabling (LLDP both ends + MAC learning) — in bench-state.md.
+
+**Inferred (not measured)**
+- Route continuity through the 5 s ExStart window: the adjacency never fell below ExStart so no
+  LSDB flush was triggered — but u4's route table was not captured during the window.
+- Whether the AW+ `show boot` pointer matters under a bootloader-configured flash default was
+  never tested (all pointers were fixed before any reload).
+
+## 5. OPEN
+
+1. **u5 vlan1 subnet vs Terrence's rule** — u5 is cabled to tb eth3 (`.64/27`) but its vlan1 is
+   `10.38.215.12/27` (eth1's /27). Reachable today only because vlan1 is bridged across all three
+   switches. Terrence to decide; not changed. (bench-state.md, Addressing.)
+2. **Generated `​```setup` fences in bench-state.md are still the 2026-09-03 tree.** The bench is now
+   whole and cleanly measured, so a rewrite is *possible* — it still needs the framework `.setup`
+   schema decisions noted in the 09-09 section (multi-node roles, `[portlink]` for the star). Not
+   attempted at wrap.
+3. **Test-cases side of the memory split is staged, not committed** (28 D · 12 T · MEMORY.md) — for
+   the Ask-CK `/wrap-ck`, which also owns `tool/check_memory_links.py` (assumed one store) and the
+   dangling `[[links]]` to the 13 deleted memories.
+4. **Files the skills still reach into Test-cases for** (`/orient-dt` §0 ¹): TESTBOX-ACCESS.md,
+   TB470-HOST-NETWORKING.md, bench_probe.py, fw_async_test.py / fw_async_chatter.py, CLAUDE.md
+   "How we work". Move or symlink into this repo — Terrence's call; `TESTBOX-ACCESS.md:49` and
+   `TB470-HOST-NETWORKING.md:14` also still cite `orient-ie520`.
+5. **T11427** (PIM-SM full table + multicast failover) — now unblocked by the working vlan10
    transit; not started.
-3. `MEMORY-SPLIT-PROPOSAL.md` + repo init — waiting on Terrence (§4).
 
-## 4. The memory / repo split — EXECUTED later the same day
+## 6. Next steps, in order
 
-Both sessions inventoried the 88 memories; Terrence settled the five contested ones. Result in
-`MEMORY-SPLIT-2026-09-11.md` (repo root): **27 moved here** (12 of them left as relative symlinks in
-Test-cases), 48 untouched there, 13 deleted. Both `MEMORY.md` indexes rebuilt. Project-slug links
-`~/.claude/projects/…-mnt-testbox-home/memory` and `…-claude-device-testing/memory` → this store.
-Moved memories had their `orient-ie520` / `IE520-testing` / `old test runs/IE520` references
-rewritten to the new names and paths. **Test-cases side: staged, NOT committed** (28 D, 12 T,
-MEMORY.md M) — for the Ask-CK `/wrap-ck`, which also owns `tool/check_memory_links.py` (assumed one
-store) and the dangling `[[links]]` to the 13 deleted files.
+1. `/orient-dt` — verify §1 above matches the hardware (roles may have moved if anyone rebooted).
+2. Settle OPEN 1 (u5 vlan1) — one `interface vlan1 / ip address` change + write if Terrence agrees.
+3. T11427 on the star: RP on the stack, u4/u5 as PIM neighbours over vlan10; for the failover part
+   keep source/receiver/uplinks on member 1 and reload member 2 (set master = member 2 first via
+   `reload stack-member 1`, exactly as Part 2b did).
+4. When the Ask-CK side has committed the split, decide OPEN 4 and update `/orient-dt` §0 once.
 
-**This directory is now a git repo** — `main`, initial commit `f75b778` (684 files, 19 MB).
-`.gitignore`: `framework` (read-only, not ours — note this also ignores the `run-*/framework/`
-copies inside `IE520/automated-bootloader/`), `__pycache__`, and **large/binary artefacts by
-default** (`*.rel *.tgz *.tar.gz *.zip *.stdout *.pcap*` + three named >10 MB logs). Deleted before
-the commit, per Terrence: the 83 MB GEN3 `.rel`, two tech-support `.tgz`, three x950 `.stdout`
-(unreferenced July x950 campaign dumps). `/wrap-dt` §6 now asks before any large file is committed.
-**Remote added but NOT pushed:** `origin = git@github.com:terrenceb-atlnz/device-testing.git` does
-not exist yet and `gh` is not installed here — Terrence creates the empty repo, then
-`git push -u origin main`.
+## 7. Recipes
 
-## 5. Gotchas learned today (candidates for /orient-dt or memory at wrap)
+**Console driver on tb470** (tmpfs `/tmp/ckorient/`, recreate if wiped):
+`cat IE520/stack-tests/2026-09-02-driver-test/console.py | ssh tb470 'mkdir -p /tmp/ckorient; cat > /tmp/ckorient/console.py'`,
+then `drv.py` = the 12-line stdin wrapper (`sys.path.insert(0,"/tmp/ckorient")`, `Console(port,
+transcript).login()`, one `c.cmd(line)` per stdin line; `#TO <secs> <cmd>` for a long command).
+Never let two processes touch one `/dev/uN`.
 
-- **The lab tree moved mid-session**: `old test runs/` and `claude/IE520-testing/` were relocated
-  under `claude/device-testing/`. Nothing lost. `drv.py`'s hardcoded NFS path broke; fixed by copying
-  `console.py` into `/tmp/ckorient/` and importing from there. If tmpfs is wiped, recreate both
-  (`console.py` source: `IE520/stack-tests/2026-09-02-driver-test/console.py`).
-- **Backup-member console needs a login** (`awplus-2 login:`); console.py's `login()` handles it
-  only from a clean prompt — if it fails with `Password:` in the tail, the port was mid-dialog;
-  send a CR and retry.
-- **`boot system` on a stack syncs the 40 MB image to the other member** — console dark ~10 min
-  (SPIFlash). Wait it out.
-- **EPSR removal order that works on this build:** `epsr configuration` → `epsr <ring> state
-  disabled` → `no epsr <ring> datavlan <vid>` → `no epsr <ring>`; then `no service epsr`
-  (reboot to take effect). Plain `no epsr <ring>` alone leaves the mode/datavlan lines.
-- **Break the loop BEFORE removing a ring**: shut the third edge while EPSR still blocks, so there
-  is no storm window. Asymmetric LAG (aggregated one end, not the other) produces DUP pings —
-  reduce to a single link.
-- **AW+ stack priority**: LOWEST value wins master; only decides at boot / next election, a
-  running master is not preempted.
+**Failover measurement** (both parts of T10623): host `timeout 130 ping -i 0.02 -D <SVI> >
+file`; on the neighbour a console loop of `show ip ospf neighbor` printing state changes with
+epochs; trigger from the *survivor's* console: `reload stack-member <master>` → `reboot stack
+master? (y/n):` → `y\r`; outage = the single gap in the `-D` timestamps > 0.1 s; correlate to the
+trigger epoch. The failing master must not carry the host port or the uplink you watch.
+
+**Whole-stack reboot:** `reload` → `Are you sure you want to reboot the whole stack? (y/n):` →
+`y\r`; back in ~3.5 min; poll `show stack` for `Operational Status`.
+
+## 8. Pointers
+
+- Bench facts: `bench-setup/bench-state.md` (2026-09-11 section; archived prior version in
+  `bench-setup/backups/`).
+- Results: `IE520/ipv4-routing/10623.log` (+ the 7 sibling logs).
+- Split record: `MEMORY-SPLIT-2026-09-11.md`; Ask-CK's inventory: `claude/Test-cases/MEMORY-SPLIT-INVENTORY.md`.
+- Skills: `.claude/skills/orient-dt/SKILL.md` (§0 = where everything lives), `.claude/skills/wrap-dt/SKILL.md`.
+- Previous handover (EPSR-ring era, now superseded): `IE520/SESSION-HANDOVER-2026-09-09.md`.

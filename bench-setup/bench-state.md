@@ -57,9 +57,18 @@ schema decisions noted in the 09-09 section, out of scope for this topology capt
 | `/dev/u5` | standalone IE520 | L3 neighbour | 264A23066 | `84e3.2787.0740` |
 
 - DUT **stack MAC is now the virtual MAC `0000.cd37.0d6f`** (`stack virtual-mac`, Virtual Chassis
-  ID 0xd6f). Member 2 (u3) is `stack 2 priority 2` (wins master at boot). After the last failover
-  test member 1 (u2) is Active Master; member 2 is Backup. (S/N 264A23066 on u5 is still the
-  suspect-hardware unit from the header item 3 — the fault tracks the S/N, now standalone.)
+  ID 0xd6f). Member 2 (u3) is `stack 2 priority 2` (wins master at boot). **At wrap (23:20
+  device clock): member 1 (u2) Active Master, member 2 Backup, both `Ready`, `Normal operation`.**
+  Roles move after every failover and never pre-empt — read `show stack`. (S/N 264A23066 on u5 is
+  still the suspect-hardware unit from the header item 3 — the fault tracks the S/N, now standalone.)
+- **Builds at wrap:** stack `awplus_main-20260910-1726` (build Wed Sep 9 12:05 UTC), same on both
+  members (S/W auto-sync On); u4 and u5 `awplus_main-20260911-1730` (build Thu Sep 10 12:05 UTC).
+  The standalones being one build newer than the stack is not a hazard (only *intra*-stack mismatch
+  splits a stack). Bootloaders differ per unit and are not a hazard either: m1 `9.1.0`,
+  m2 `master-20260822-535`, u4 `pauld`, u5 `9.1.0`. Flash: one `.rel` (`IE520-tb470.rel`, 40 MB)
+  per unit, ~65 MB free; all `pre-*.cfg` backups deleted 2026-09-11 (Terrence: no backups wanted).
+- **No new `Unexpected` reboots on either member since 2026-09-08 (m1) / 2026-09-09 19:10 (m2);**
+  every 2026-09-10 entry is an `Expected User Request` from the T10623 failover runs.
 
 ### Cabling — LLDP-confirmed BOTH ENDS, 2026-09-11
 
@@ -75,9 +84,18 @@ DUT stack (hub)                       INTER-SWITCH LINKS (all physically present
   u4 port1.0.24  <->  u5 port2.0.24   admin-shut (u4/u5 sa3)    ─┐ u4<->u5 direct
   u4 port1.0.26  <->  u5 port2.0.26   admin-shut (u4/u5 sa3)    ─┘  (the old ring's 3rd edge)
 
-Testbox edge used/proven this session:
-  tb eth1 10.38.215.1/27  <->  stack member1 port1.0.2  (untagged vlan1)  -- the failover path
+Testbox edges -- ALL THREE measured 2026-09-11 by MAC learning (host NIC MAC seen on the port
+directly, not via a trunk):
+  tb eth1 10.38.215.1/27   00f0.4d00.7716  <->  stack member1 port1.0.2   (untagged vlan1)
+  tb eth2 10.38.215.33/27  00f0.4d00.7717  <->  u4 port1.0.2              (untagged vlan1)
+  tb eth3 10.38.215.65/27  00f0.4d00.7718  <->  u5 port2.0.2              (untagged vlan1)
+  (all three copper 1000BASE-T, linked a-1000/a-full -- no forced speed/duplex needed today)
 ```
+
+**vlan1 is ONE bridged L2 domain across the stack, u4 and u5** — the inter-switch trunks carry
+vlan1 untagged as native, so each switch learns all three host NIC MACs (u4 sees eth1/eth3 via
+`sa1`, the stack sees eth2/eth3 via its u4/u5 trunks). Three different /27s share that domain;
+at L3 only same-/27 pairs talk. It is a star (hub = stack member 1), not a loop.
 
 The three edges above formed the old EPSR triangle (stack—u4—u5—stack). To make a loop-free star
 **with a single active link per leg**, both u4↔u5 links (sa3) and both redundant *member-2* legs
@@ -90,8 +108,11 @@ two links into sa1/sa2; the stack has NO channel-groups, so it flooded between t
 - **vlan10 `10.10.10.0/27`** (the inter-device transit): stack SVI `.1`, u4 `.2`, u5 `.3`. Hub =
   stack member 1. Clean pings stack→u4 and stack→u5 (0% loss, **no DUPs**, no storm).
 - **vlan1** (per Terrence's rule "native vlan1 matches the connected testbox eth port's subnet"):
-  stack `10.38.215.10/27` (host eth1 side, .0–.31), u5 `10.38.215.12/27` (same .0–.31 side),
-  u4 `10.38.215.36/27` (eth2 side, .32–.63). Do NOT reconfigure these away.
+  stack `10.38.215.10/27` (eth1's .0–.31 ✓), u4 `10.38.215.36/27` (eth2's .32–.63 ✓),
+  u5 `10.38.215.12/27` (**.0–.31 — but u5 is cabled to eth3, whose /27 is .64–.95**). Do NOT
+  reconfigure these away without Terrence. **OPEN (2026-09-11):** by the rule u5's vlan1 belongs
+  in eth3's /27 (e.g. `.66–.94`); the host can reach u5's `.12` today only because vlan1 is bridged
+  through to eth1's segment. Terrence to decide — not changed at wrap.
 - **vlan2** ("epsr-control") still exists as a named-but-unused VLAN on u4/u5 (harmless residue).
 
 ### EPSR — REMOVED 2026-09-11
@@ -104,17 +125,28 @@ state disabled` → `no epsr <ring> datavlan <vid>` → `no epsr <ring>`.
 ### Boot — FLASH (not TFTP), 2026-09-11
 
 All IE520s default-boot from a flash `.rel` (Terrence set flash default boot from the bootloader
-config). `reload` is safe; the old TFTP-boot/eth3 dependency no longer applies to a normal reload.
-**Gotcha:** the stack's `show boot` had a stale `Current boot image` pointing at a deleted
-`tomahawk` .rel while running `IE520-tb470.rel`; corrected with `boot system flash:/IE520-tb470.rel`
-(syncs the 40 MB image to the other member — console dark ~12 min) BEFORE rebooting. Always confirm
-`show boot` reads `(file exists)` first. (See memory `tb470-ie520-flash-boot-reboots-ok`.)
+config). `reload` is safe; the old TFTP-boot/eth3 dependency no longer applies to a normal reload
+(`/tftproot/IE520-tb470.rel` on tb470 still exists, refreshed 2026-09-11 07:41, but nothing boots
+from it now). **All three units' `show boot` read `Current boot image : flash:/IE520-tb470.rel
+(file exists)` as at wrap** — the stack's pointer was fixed before its reboot, u4's and u5's
+(both dangling at `flash:/IE520-20260825.rel`) at wrap, with `boot system flash:/IE520-tb470.rel`
++ `write`. On a stack that command syncs the 40 MB image to the other member (console dark
+~10–12 min). Always confirm `(file exists)` before any reload. (Memory
+`tb470-ie520-flash-boot-reboots-ok`.)
 
-### Test scaffolding currently live (may be torn down)
+### Configuration KEPT at wrap 2026-09-11 (Terrence's decisions) — all SAVED to startup
 
-- OSPF: `service ospf` + `router ospf 1` on the stack (`network 10.10.10.0/27` + `10.38.215.0/27`
-  area 0, router-id 10.38.215.10) and on u4 (`network 10.10.10.0/27` area 0, router-id 10.10.10.2).
-  Adjacency **Full** on vlan10 (stack DR, u4 BDR). Added for AWPTCM T10623 Part 2b / T11427.
+- **Stack:** `stack virtual-mac`, `stack 2 priority 2`, `boot system flash:/IE520-tb470.rel`,
+  `lldp run`, and **OSPF kept**: `service ospf`, `router ospf 1` with `network 10.10.10.0/27 area 0`
+  + `network 10.38.215.0/27 area 0` (router-id 10.38.215.10). The dead `vlan 210` / `vlan210` SVI
+  from the first Part 2b attempt was removed (`no vlan 210`; `no interface vlan210` is refused on
+  this build but removing the VLAN takes the SVI). Startup == running.
+- **u4:** EPSR removed (`no service epsr`, no ring), `sa3` + `port1.0.23` `shutdown`, `service ospf`
+  + `router ospf 1 / network 10.10.10.0/27 area 0` (router-id 10.10.10.2), `lldp run`.
+  Adjacency to the stack **Full** on vlan10 (stack DR, u4 BDR).
+- **u5:** EPSR removed, `sa3` + `port2.0.23` `shutdown`, `lldp run`. No OSPF on u5.
+- Pre-existing `service epsr` on the stack (no ring) left as found. `vlan 2 name epsr-control`
+  remains on u4/u5 as an unused named VLAN.
 
 ## Current state — 2026-09-09 (EPSR ring; SUPERSEDED 2026-09-11 — see above)
 
