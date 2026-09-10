@@ -59,23 +59,26 @@ Measured at pause time (~22:35 device clock); re-verify with `show stack` before
    transit; not started.
 3. `MEMORY-SPLIT-PROPOSAL.md` + repo init — waiting on Terrence (§4).
 
-## 4. The memory / repo split (Terrence's ask, NOT executed)
+## 4. The memory / repo split — EXECUTED later the same day
 
-Terrence wants device-testing's memories moved *physically* out of
-`claude/Test-cases/.claude/memory/` into this project, and `claude/device-testing/` turned into
-its own git repo. He is checking with a session in the Test-cases repo and will return a list of
-which memories that side does NOT need (move outright) and which it wants to keep a symlink to.
-**Do not move anything until that list arrives.**
+Both sessions inventoried the 88 memories; Terrence settled the five contested ones. Result in
+`MEMORY-SPLIT-2026-09-11.md` (repo root): **27 moved here** (12 of them left as relative symlinks in
+Test-cases), 48 untouched there, 13 deleted. Both `MEMORY.md` indexes rebuilt. Project-slug links
+`~/.claude/projects/…-mnt-testbox-home/memory` and `…-claude-device-testing/memory` → this store.
+Moved memories had their `orient-ie520` / `IE520-testing` / `old test runs/IE520` references
+rewritten to the new names and paths. **Test-cases side: staged, NOT committed** (28 D, 12 T,
+MEMORY.md M) — for the Ask-CK `/wrap-ck`, which also owns `tool/check_memory_links.py` (assumed one
+store) and the dangling `[[links]]` to the 13 deleted files.
 
-- Proposal (20 DT / 13 BOTH / 55 CK) for them to annotate: `MEMORY-SPLIT-PROPOSAL.md` (repo root).
-- Facts found: all 89 memory files are **tracked in Test-cases git**, so the move is a `git mv`/
-  `git rm` commit on the Test-cases side. Two project slugs symlink `memory` → Test-cases:
-  `~/.claude/projects/-media-terrenceb-mnt-testbox-home/memory` (the lab home — should re-point to
-  device-testing after the split) and `…-claude-Test-cases/memory` (stays).
-- Repo readiness: 364 MB, no `.git`/`.gitignore`, `.github/` empty. Five files >20 MB under
-  `old test runs/` (83 MB `.rel`, two 31 MB tech-support `.tgz`, two ~30 MB `.stdout`) → LFS or
-  gitignore. `framework -> /home/st-art/framework` (read-only, not ours) must be gitignored.
-  `git init` not run — wait for Terrence's go.
+**This directory is now a git repo** — `main`, initial commit `f75b778` (684 files, 19 MB).
+`.gitignore`: `framework` (read-only, not ours — note this also ignores the `run-*/framework/`
+copies inside `IE520/automated-bootloader/`), `__pycache__`, and **large/binary artefacts by
+default** (`*.rel *.tgz *.tar.gz *.zip *.stdout *.pcap*` + three named >10 MB logs). Deleted before
+the commit, per Terrence: the 83 MB GEN3 `.rel`, two tech-support `.tgz`, three x950 `.stdout`
+(unreferenced July x950 campaign dumps). `/wrap-dt` §6 now asks before any large file is committed.
+**Remote added but NOT pushed:** `origin = git@github.com:terrenceb-atlnz/device-testing.git` does
+not exist yet and `gh` is not installed here — Terrence creates the empty repo, then
+`git push -u origin main`.
 
 ## 5. Gotchas learned today (candidates for /orient-dt or memory at wrap)
 
