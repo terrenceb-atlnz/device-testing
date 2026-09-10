@@ -1,0 +1,66 @@
+================================================================================
+AWPTCM-T5520 (1.0)  IP directed-broadcast with all FF MAC address
+Run date : 2026-09-09      Bench : tb470 (IE520)
+Software : IE520-awplus_main-20260905-1714.rel  (AlliedWare Plus, build 09/04/26; bootloader pauld)
+Result   : PASS
+================================================================================
+
+RESULT
+  A directed-broadcast packet with destination MAC = FFFF.FFFF.FFFF is forwarded onto the
+  target subnet IDENTICALLY to one addressed to the ingress interface MAC.
+      interface-MAC (gateway) : 5/5 delivered to subnet B
+      all-FF broadcast MAC    : 5/5 delivered to subnet B      => IDENTICAL. PASS.
+
+--------------------------------------------------------------------------------
+BENCH / TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  Single L3 DUT = u4  S/N 264A23052  MAC 84e3.2787.09c0.
+      subnet A : vlan10  10.10.10.0/27  (SVI 10.10.10.2)   - sender side
+      subnet B : vlan20  10.10.20.0/27  (SVI 10.10.20.1)   - directed-broadcast target,
+                 `ip directed-broadcast` enabled
+  Host = tb470 eth2 -> u4 port1.0.2 (802.1Q trunk, vlans 10+20):
+      eth2.10 = 10.10.10.20/27 (sender, subnet A)
+      eth2.20 = 10.10.20.20/27 (receiver, subnet B)
+
+METHOD / SCOPE
+  No IXIA. The two frames are crafted with scapy on eth2.10 (subnet A): both are addressed
+  to the subnet-B directed-broadcast IP 10.10.20.31, one with L2 dst = u4's vlan10 SVI MAC
+  (84:e3:27:87:09:c0), one with L2 dst = ff:ff:ff:ff:ff:ff. Delivery onto subnet B is
+  captured with tcpdump on eth2.20. Functional test.
+
+--------------------------------------------------------------------------------
+CONFIG APPLIED   (running-config only, NOT saved to startup)
+--------------------------------------------------------------------------------
+u4#
+  interface vlan10
+   ip address 10.10.10.2/27
+  interface vlan20
+   ip address 10.10.20.1/27
+   ip directed-broadcast
+  interface port1.0.2
+   switchport mode trunk
+   switchport trunk allowed vlan add 10,20
+
+--------------------------------------------------------------------------------
+STEP 1 - Set all-FF dst MAC on the directed-broadcast packet; verify it is forwarded the
+         same as a directed broadcast to the interface MAC
+--------------------------------------------------------------------------------
+### routing sanity (unicast vlan10 -> vlan20 via the DUT) ###
+   routed unicast to 10.10.20.20 seen on eth2.20: 3        <- inter-VLAN routing is up
+
+### directed-broadcast, ip directed-broadcast ENABLED on vlan20 ###
+CASE interface-MAC (gateway)  sent 5 -> 10.10.20.31 dstMAC=84:e3:27:87:09:c0  received on subnet-B: 5
+     IP 10.10.10.20 > 10.10.20.31: ICMP echo request, id 16962, seq 0, length 14
+     IP 10.10.10.20 > 10.10.20.31: ICMP echo request, id 16962, seq 0, length 14
+
+CASE all-FF broadcast MAC     sent 5 -> 10.10.20.31 dstMAC=ff:ff:ff:ff:ff:ff  received on subnet-B: 5
+     IP 10.10.10.20 > 10.10.20.31: ICMP echo request, id 16962, seq 0, length 14
+     IP 10.10.10.20 > 10.10.20.31: ICMP echo request, id 16962, seq 0, length 14
+
+### VERDICT interface-MAC=5 all-FF=5 -> IDENTICAL (PASS) ###
+  => In both cases the DUT converted the packet destined to 10.10.20.31 into an L2 broadcast
+     on subnet B (vlan20) and delivered all 5 to the subnet-B receiver. The destination MAC
+     being all-FF vs the interface MAC made no difference, exactly as the objective states.
+     (The captured frames egress subnet B as dst 10.10.20.31 - i.e. they were routed/flooded
+     onto vlan20, not merely L2-flooded on the vlan10 ingress side.)
+================================================================================

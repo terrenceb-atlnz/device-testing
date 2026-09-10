@@ -1,0 +1,44 @@
+MAC/Phy TLV — auto-negotiation status clarification (AWPTCM-T955x campaign)
+port2.0.1 (IE520 stack member 2, AT-SP10TM 10GBASE-T copper SFP) · 2026-09-03
+
+WHAT THE MAC/Phy TLV IS
+  The LLDP IEEE-802.3 (dot3) "MAC/PHY Configuration/Status TLV" is a PER-PORT
+  advertisement of that one port's physical-layer state. It carries four things:
+    - Auto-negotiation supported?          (can the PHY autoneg at all)
+    - Auto-negotiation status               (enabled / disabled right now)
+    - Advertised capability                 (PMD bits it is advertising)
+    - Operational MAU type                  (the current running mode, encoded)
+  It is NOT device-wide and NOT the same as `show interface status`.
+  See it via:  CLI  `show lldp local-info dot3 interface <port>`
+               MIB  LLDP-EXT-DOT3  lldpXdot3LocPort{AutoNegSupported, AutoNegEnabled,
+                                   AutoNegAdvertisedCap, OperMauType}
+
+  "1000BaseTFD" = the Operational MAU type = 1000 Mbit, T = twisted-pair copper,
+  FD = full duplex. It is an LLDP/MAU-MIB encoding of speed+medium+duplex. It does NOT
+  appear verbatim in `show interface status` — that command's Type column is the SFP
+  MEDIA (here 10GBASE-TM), and its Speed/Duplex columns show a-1000/a-full. The single
+  token 1000BaseTFD lives in the MAC/Phy TLV and the MAU-MIB.
+
+MEASURED on port2.0.1 (link UP throughout):
+
+  Config                    | int status      | MAC/PHY Auto-neg    | AdvCap | Oper MAU
+  --------------------------+-----------------+---------------------+--------+---------------
+  auto / auto  (fresh)      | a-full  a-1000  | Supported, Enabled  | none   | 1000BaseTFD(30)
+  speed 1000, duplex auto   | a-full  1000    | Supported, Enabled  | none   | 1000BaseTFD(30)
+  speed 1000, duplex full   | full    1000    | Supported, DISABLED | none   | 1000BaseTFD(30)
+
+  MIB (idx 29), speed 1000 + duplex full:
+    lldpXdot3LocPortAutoNegSupported.29     = true(1)
+    lldpXdot3LocPortAutoNegEnabled.29       = false(2)      <- Disabled
+    lldpXdot3LocPortAutoNegAdvertisedCap.29 = 0x0000        <- none
+    lldpXdot3LocPortOperMauType.29          = 30            <- 1000BaseTFD
+
+CONCLUSION
+  The case's expected result (Auto-neg Supported/DISABLED, advertised cap none, MAU
+  1000BaseTFD) is produced ONLY when BOTH speed AND duplex are forced. Setting speed
+  alone (duplex left auto) keeps auto-negotiation ENABLED, because the PHY still
+  autonegotiates duplex. So the expected "Disabled" describes a FULLY FORCED port; the
+  case title "duplex=auto" is inconsistent with that expectation on AW+.
+  Forced 1000/full linked fine here (disabling autoneg did NOT drop the 1000BASE-T link),
+  so the expected combination is achievable on this hardware. Polarity/MDI-X stayed auto
+  in every case (`current polarity auto`).

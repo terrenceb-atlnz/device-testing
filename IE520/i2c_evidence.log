@@ -1,0 +1,852 @@
+================================================================================
+i2c_evidence.log — IE520 I2C bus lockup -> master hard-reset during
+                   `show tech-support`
+================================================================================
+Captured    : 2026-08-19 (NZST) on bench tb470, during the "link flapping when
+              issuing show tech-support" test request.
+Failing unit: IE520 stack member 1, S/N 264A23066, MAC 84e3.2787.0740,
+              console /dev/u5 — Active Master in event #1, BACKUP in event #2.
+Status      : REPRODUCED 2/2 — see section 6 for event #2, which pins the
+              fault to member 1 the unit and narrows the trigger command.
+Peer unit   : member 2, S/N 264A23052, MAC 84e3.2787.09c0, console /dev/u4.
+Software    : IE520-tb470.rel = IE520-tomahawk_ie520-continuous.rel
+              (sha256 09b2a5a3...33e8cf58, /tftpboot build of 2026-08-19)
+Bootloader  : 9.1.0 (U-Boot 2025.01-04844-gd2292467da4d), booting from flash.
+Uptime      : member 1 had been up 64 min 47 s at the lockup (booted 23:35:58Z).
+
+Clock note  : device syslog is UTC; the tb470-side console logger stamps NZST
+              (UTC+12). Both are given below where it matters.
+              Timestamp precision: console-logger lines are stamped by the
+              tb470-side reader (~±1 s of wall clock); device syslog lines are
+              whole-second device time.
+
+THE ONE-LINE CHAIN:
+  `show tech-support` (77 s in) -> "i2c i2c-0: mv64xxx: I2C bus locked" on the
+  master -> master's control plane wedges (TIPC keepalives stop ~3 s later) ->
+  backup declares it unreachable and fails over (+10 s) -> wedged master
+  HARD-RESETS 41 s after the lock (no shutdown sequence: watchdog-consistent) ->
+  every link on that member drops = the "link flapping" the field report saw.
+
+================================================================================
+1. PRE-EVENT CONTEXT (what the box was doing before the trigger)
+================================================================================
+Topology at the time (all links carrying steady traffic, RSTP disabled on the
+DUT, zero L2 loops by construction):
+  port1.0.1 (m1, AT-SPTXc 1000BASE-T) <- 4050, vlan611, ~1000 pps each way
+  sa2 = port1.0.9 (m1) + port2.0.1 (m2)  <- x230 LAG, vlan630, ~1000 pps each way
+  port2.0.9 (m2, AT-SPTXc)  egress-only stream ~500 pps (vlan622 dead-end)
+  port1.0.7 (m1, AT-SPSX fibre) -> port2.0.7 (m2), ~500 pps egress (vlan651/652)
+Traffic profile was CONSTANT for >30 min before the event — no load change
+anywhere near the lockup moment.
+
+Timeline of everything member 1's console printed in the preceding 35 minutes
+(from the persistent read-only logger on /dev/u5; NZST):
+
+  12:05:09  port2.0.9/port1.0.9 forwarding      (static-channel legs restored)
+  12:06:28  Pluggable[440]: Pluggable AT-SPSX inserted into port1.0.7   [NOTE A]
+  12:06:33  Pluggable[397]: Pluggable AT-SPSX inserted into port2.0.7   [NOTE A]
+  12:06:34  port2.0.7 forwarding
+  12:06:35  port1.0.7 forwarding
+  --- 34 minutes 10 seconds of TOTAL console silence (normal operation) ---
+  12:40:45.8  i2c i2c-0: mv64xxx: I2C bus locked, block: 1, time_left: 0
+
+[NOTE A] The Pluggable subsystem logged both fibre SFPs as freshly "inserted"
+when their ports were MOVED BETWEEN VLANS (no one touched the hardware). So a
+pure config action re-registers pluggables — i.e. touches the SFP/I2C
+subsystem — 34 min before the lockup. Recorded for completeness; separated
+from the lockup by a long quiet gap.
+
+NEGATIVE CONTROL, 2.5 minutes before the trigger — DDM polling alone is fine:
+  12:38:08 - 12:38:17 NZST: `show system pluggable diagnostics` issued 10x
+  back-to-back from the same relayed console session. Every iteration completed
+  in 1.0 s, all 3 DDM-capable modules (AT-SPTXc in 1.0.1, 1.0.9, 2.0.9) read
+  successfully each time (Rx Up x3), zero log events, zero console output,
+  max through-traffic gap during the burst 2.3 ms.
+  => Simple per-SFP DDM reads DO NOT reproduce the lock. Whatever tech-support
+  does differently (heavier EEPROM access, or I2C contention while the CPU is
+  saturated by collection) is required.
+
+SFP/I2C ARCHITECTURE (from member 1's own boot messages, 12:42:08):
+  i2c i2c-0: Added multiplexed i2c bus 3 .. 30
+  i2c-mux-gpmux sfp-i2c-mux: 28-port mux on mv64xxx_i2c adapter
+  => ALL 28 SFP cages hang off ONE mv64xxx I2C controller through a 28-port
+  mux. A single wedged mux transaction therefore blocks the only bus — there
+  is no per-port isolation.
+
+================================================================================
+2. TRIGGER TIMELINE (second by second)
+================================================================================
+Sources: [m1-cons] = member 1 console via read-only logger (NZST, epoch)
+         [m2-log]  = member 2 buffered syslog, survived the event (UTC)
+         [m1-perm] = member 1 PERMANENT (NVS) log, survived the reboot (UTC)
+         [driver]  = my console-driver transcript (epoch)
+
+  12:39:28.6  [driver]  `show tech-support` issued on the master (member 1)
+              (epoch 1787099968.632; session relayed from /dev/u4)
+
+  ~12:40:20 - 12:40:38  [m2-log]  tech-support's REMOTE battery running on
+  member 2 — IMISH "[SCRIPT]" entries, one spawned session per command:
+      00:40:20Z show hsl infrastructure
+      00:40:21Z show hsl infrastructure counters
+      00:40:22Z show hsl netlink
+      00:40:31Z show spanning-tree brief
+      00:40:34Z show interface brief
+      00:40:36Z show arp
+      00:40:38Z show ip route database          <- LAST remote command ever
+                                                   dispatched; the stream
+                                                   stops here, mid-battery
+  => the master was orchestrating member-2 collection right up to the wedge;
+  dispatch ceasing after 00:40:38 brackets the master's death at 00:40:39-45.
+
+  12:40:40    [m1-perm]  master's OWN collection was in the BGP section —
+  permanent log records only failures, and logs 5 in one second:
+      00:40:40Z Command [show bgp l2vpn evpn] failed
+      00:40:40Z Command [show bgp l2vpn evpn route detail] failed
+      00:40:40Z Command [show bgp l2vpn evpn vni] failed
+      00:40:40Z Command [show bgp l2vpn evpn summary] failed
+      00:40:40Z Command [show bgp frr-config] failed
+  (Failures are expected — BGP isn't configured. Value: places the master's
+  script position 5.8 s before the lock. The lock therefore occurred in
+  whatever the tech-support script runs NEXT after the BGP battery.)
+
+  12:40:45.8  [m1-cons]  i2c i2c-0: mv64xxx: I2C bus locked, block: 1, time_left: 0
+              (epoch 1787100045.840 = 00:40:45.8Z; 77.2 s after issue)
+              *** THE LOCKUP. Nothing further prints from the OS. ***
+
+TRIGGER SUMMARY:
+  - Only stimulus in the window: `show tech-support`, running for 77 s.
+  - The unit was NOT rebooting, NOT reconfiguring, NOT under changed traffic —
+    steady state for 34 min, with collection as the sole activity.
+  - Master position in the script at T-5.8 s: end of BGP battery. The locking
+    section is between "after BGP" and T+0 — consistent with tech-support's
+    hardware/pluggable collection reaching the SFP EEPROMs on the shared
+    mv64xxx+mux bus, but the exact sub-command is NOT proven (member 1's
+    buffered log, which held its own [SCRIPT] trail, died with the unit; the
+    permanent log records failures only, and no tech-support output file was
+    ever written to either flash).
+  - Bisection path to pin it exactly: run the post-BGP sections of the
+    tech-support battery individually (the [SCRIPT] trail above gives the
+    command list format; a completed tech-support file from the surviving
+    member would give the full ordered list).
+  [SUPERSEDED IN PART BY EVENT #2 — section 6: the completed battery file was
+  obtained, the pluggable/DDM commands are exonerated (they run at battery
+  START), and the locking region is `show platform` / `show platform port
+  counters` / `show platform table internalports`.]
+
+================================================================================
+3. AFTERMATH (kept brief per scope; no second lockup occurred)
+================================================================================
+  00:40:48-49Z  (inferred) m1 stops answering TIPC keepalives ~3 s after the
+                lock — first alert says "No contact for 2000ms (3/6)" at :52
+  00:40:52-54Z  [m2-log] tipc alerts, then "Member-1 not responding - resetting
+                link from member-2 to peer"
+  00:40:56Z     [m2-log] VCS: member 1 unreachable via Layer-2 traffic ->
+                HA failover -> "Contact with the Active Master has been lost"
+                -> member 2 becomes Active Master (VMAC retained 0000.cd37.0d6f)
+  12:41:26.9    [m1-cons] BootROM 1.41 banner — HARD RESET 41.0 s after the
+                lock. No shutdown messages, no panic trace, no unmount: the
+                console goes from silence straight to BootROM. Consistent with
+                a hardware watchdog firing on the wedged kernel.
+  00:42:58Z     m1 `show reboot history` records: "Unexpected System reboot"
+                (generic — no watchdog-specific reason string)
+  00:42:51-52Z  [m1-perm] normal boot; "FAT-fs (sda1): Volume was not properly
+                unmounted" (USB stick, artifact of the hard reset)
+  00:43:23Z     m1 rejoined the stack as Backup Member; reached Ready.
+  NO debug snapshot was saved for this event (newest debug-*.tgz on m1 flash
+  is 2026-08-18 19:23 duplicate-master). No exception-log entry. No partial
+  tech-support file on either member's flash.
+  NO recurrence since rejoin (single "I2C bus locked" line in the entire
+  console log; post-boot i2c lines are normal mux enumeration).
+
+================================================================================
+4. PRIOR KINDRED EVENTS — same wedge signature, hypothesis linkage
+================================================================================
+Member 1 was ejected from the stack 3 times earlier in this session (documented
+in 38385.log), ALWAYS with the identical m2-side signature (tipc 6-probe loss ->
+"unreachable via Layer-2 traffic" -> ejection), always member 1, and always
+4-5 s after a port/config operation touching member-1 ports:
+  2026-08-18 23:14:18Z  after "Configuration update completed for
+                        port1.0.1-port1.0.28" (tail of its stack join)
+  2026-08-18 23:33:49Z  4 s after `no shutdown` on port1.0.9 (+port2.0.9)
+  (a third, earlier, around its rejoin during test 38385)
+In those events member 1 was the BACKUP: it printed NOTHING on its console
+before rebooting — consistent with the same silent wedge, where the i2c line
+only prints when the mv64xxx driver's timeout expires and the unit lives long
+enough to say so.
+
+HYPOTHESIS (explicitly not proven): one underlying member-1 wedge, two visible
+outcomes — as backup it gets TIPC-ejected by the master; as master it wedges
+until the watchdog hard-resets it. If so, the field-reported "link flapping on
+show tech-support" is the from-outside view of the master wedging/resetting,
+not individual PHY flaps. Port/config operations and tech-support collection
+would then be two different doors into the same fault. Unit-specificity is
+untested: member 2 has never exhibited the wedge, but has also never run
+tech-support as master on this bench.
+
+================================================================================
+5. EVIDENCE INVENTORY (raw sources)
+================================================================================
+  ~/i2c_evidence-member1-console.log   full timestamped member-1 console log
+      (the read-only /dev/u5 logger; lines 180-181 are the 34-min-quiet ->
+      i2c lock transition; boot + mux enumeration follows)
+  tb470:/tmp/flap-eth1.pcap, /tmp/flap-eth2.pcap   rolling packet captures
+      covering baseline, phase 2 and the crash (volatile — /tmp)
+  tb470:/tmp/phase3.log                 driver transcript w/ issue timestamp
+  tb470:/tmp/ev1.log ev2.log ev3.log    CLI captures: reboot history, flash
+      listings, exception log, tipc/VCS greps, [SCRIPT] trail, permanent log
+  DUT `show log` (m2 buffered)          [SCRIPT] trail + tipc/VCS sequence
+  DUT `show log permanent` (m1 NVS)     BGP-battery failures at 00:40:40Z
+  ~/old test runs/IE520/stack-tests/38385.log (and 38395.log)   prior
+      ejection documentation with full per-event log excerpts
+  ~/ts1.txt.gz, ~/ts2.txt.gz          the two COMPLETED tech-support bundles
+      from member 2 (iter 1 during event #2, iter 2 while m1 absent) — hold
+      the full ordered 312-command battery used for the position analysis
+  tb470:/tmp/run2-eth1.pcap, run2-eth2.pcap   run-2 captures incl. the
+      185.9 s outage (volatile — /tmp)
+Bench state after capture: stack Normal operation, m2 = Active Master,
+m1 = Backup/Ready, all links up, traffic generators still running at capture
+time. Nothing about the failure was cleaned up — flash and logs left intact.
+
+================================================================================
+6. EVENT #2 — REPRODUCED, 2026-08-19 13:01 NZST (01:01Z), member 1 as BACKUP
+================================================================================
+The original flap test was re-run from the top with i2c watch armed. Same
+topology, same traffic, fresh baselines. ROLES REVERSED from event #1: member 2
+was now the Active Master (it had taken over after the first crash).
+
+Negative control repeated first: `show system pluggable diagnostics` x10 at
+00:59:05-15Z (12:59:05 NZST) — all ten 1.0 s, clean, no events.
+
+  00:59:38.4Z (12:59:38 NZST)  `show tech-support` iter 1 issued — this time
+                             the LOCAL battery runs on member 2
+  01:01:01.6Z*               [m1-cons] i2c i2c-0: mv64xxx: I2C bus locked,
+                             block: 1, time_left: 0
+                             *** MEMBER 1 AGAIN — while BACKUP. +83.2 s after
+                             issue (event #1: +77.2 s as master). ***
+  01:01:08-10Z               [m2] tipc probe loss -> "Member-1 not responding"
+  01:01:12-13Z               [m2] VCS: m1 unreachable -> HA failover ->
+                             "Member 1 has left the stack" (m2 stays master)
+  01:01:27-28Z               [m2] NSM: Port down notification for EVERY
+                             member-1 port — port1.0.1, port1.0.7, port1.0.9,
+                             port1.0.27, port1.0.28, vlan611, vlan651 —
+                             *** THIS IS THE REPORTED "LINK FLAPPING" ***
+  01:01:43.6Z                [m1-cons] BootROM banner — hard reset 42.0 s
+                             after the lock (event #1: 41.0 s — consistent,
+                             watchdog-like fixed interval)
+  01:02:46Z                  [m2] port2.0.7 down (fibre far end lost light)
+  ~01:04Z                    m1 booted from flash, rejoined, reached Ready
+  (times marked * are tb470-clock console stamps converted to device UTC)
+
+MEANWHILE THE MASTER (member 2) COMPLETED NORMALLY: iter 1 finished in 132.1 s
+and wrote flash:tech-support.txt.gz (243 KB); an iter 2 issued while m1 was
+absent also completed (tech-support-20260819010206.txt.gz). Member 2 has now
+run the full battery as master twice with zero i2c events.
+
+SCOREBOARD: tech-support issued with m1 in the stack: 2 -> m1 i2c lock 2.
+            Full battery on m2 (as master): 2 -> clean 2.
+            `show system pluggable diagnostics` on the stack: 20 -> clean 20.
+=> The fault tracks MEMBER 1 THE UNIT, not the master role. As master it
+   watchdog-resets; as backup it gets TIPC-ejected AND then watchdog-resets.
+
+TRAFFIC SEVERITY (run-2 pcaps, both directions):
+  - Between LOCK and RESET (42 s): data plane FORWARDED NORMALLY — max
+    inter-frame gap 4 ms. The wedge is control-plane only.
+  - At RESET: total outage BOTH directions for 185.9 s (m1's ports died and,
+    in this deliberately unaggregated topology, link1 to the 4050 was
+    single-homed on m1; service returned only when m1 rejoined and its ports
+    went forwarding). With the earlier dual-homed LAG topology the same event
+    cost <1 s — aggregation across members is the difference between 0.8 s
+    and 3 minutes for this failure.
+
+TRIGGER REFINEMENT — THE PLUGGABLE/DDM COMMANDS ARE EXONERATED:
+The completed tech-support file (ts1.txt.gz, saved to root) contains the full
+ordered battery: 312 show commands. Position analysis:
+  - `show system pluggable` and `show system pluggable diagnostics` run at the
+    VERY START of the battery (file lines 113/129) — they completed cleanly in
+    both events, and 20 standalone repetitions are clean.
+  - The battery order around the lock instant (master position T-5.8 s at
+    `show bgp frr-config`, file line 36846):
+        show bgp frr-config     <- last permanent-log entry before the lock
+        show bfd peer               (instant - unconfigured)
+        show bfd peer counter       (instant - unconfigured)
+        show platform           <- file line 36865
+        show clock
+        show platform port counters   (very large output)
+        show platform table internalports
+        ... (the long platform hardware battery continues)
+  => at lock time the affected path was in the `show platform` /
+     `show platform port counters` region — port/PHY hardware reads — NOT the
+     classic SFP DDM poll. Note the SFP PHYs on IE520 sit behind the same
+     shared mv64xxx + 28-port sfp-i2c-mux (section 1), so PHY/port-register
+     collection plausibly contends on that bus.
+BISECT SHORTLIST (in battery order): show platform, show platform port
+counters, show platform table internalports — run individually on a stack
+containing member 1, conslog armed, one command at a time.
+
+================================================================================
+7. BISECT RESULTS (2026-08-19 13:15-13:35 NZST) — NO SINGLE COMMAND REPRODUCES
+================================================================================
+Every candidate was executed ON MEMBER 1 (via `remote-login 1` from the master
+session, so the commands ran member-locally exactly as tech-support's remote
+battery does), with the read-only console logger armed and the i2c count
+checked after every step. Stack healthy throughout; traffic running.
+
+  CLEAN — single shot:
+    show platform                              1.0 s
+    show platform port counters                9.4 s
+    show platform table internalports          1.0 s
+  CLEAN — repetition (trio x10 = 30 executions, no settle)      all 1.0-9.5 s
+  CLEAN — section-scoped tech-support (issued on the master):
+    show tech-support system                   19.0 s
+    show tech-support stack                    30.0 s
+  CLEAN — I2C-adjacent commands, single shot on member 1:
+    show system environment / environment counters
+    show system fiber-monitoring
+    show system pluggable detail               (full EEPROM read)
+    show platform counter
+    show system hardware-errors ddr
+    show system usb
+    show platform full-debug                   37.5 s, 300 KB
+  CLEAN — sustained heavy load:
+    show platform full-debug x5 back-to-back   ~160 s continuous, all ~32 s
+  CLEAN — member-side spawned-session mechanic:
+    remote-diff all show interface brief / mac address-table / ip route  x5
+
+  LOCKS:  full `show tech-support` (all) — 2 for 2, at +77.2 s / +83.2 s.
+
+INTERPRETATION. The fault is NOT a single bad command. Everything tech-support
+runs (that is externally addressable) passes alone, repeated, and under
+sustained load. Only the complete collection context reproduces — which points
+at a RACE/CONTENTION on member 1's shared mv64xxx+mux I2C bus: the collection's
+fresh-IMISH-session-per-command pattern plus concurrent master/member batteries
+plus the kernel's periodic SFP poller colliding, with per-attempt probability
+low (single shots pass) but ~80 s of full-battery hammering making a collision
+near-certain. Consistent with both events landing at nearly the same offset
+(+77/+83 s) and with member 2's immunity being a hardware or bootloader-init
+difference rather than a software one.
+
+MEMBER DIFFERENCES (the two units, from `show system` + pluggable inventory):
+  identical: board AT-IE520-28GSX Rev X1-0 (ID 717), RAM 506728 kB, software.
+  DIFFERENT:
+    bootloader : member 1 = 9.1.0 OFFICIAL   member 2 = `pauld` DEV BUILD
+                 (U-Boot does the low-level I2C controller/mux init — a real
+                 candidate for why m2 never locks; ironic that the SUSPECT
+                 unit runs the official loader)
+    modules    : member 1 carries TWO DDM-capable AT-SPTXc (1.0.1 + 1.0.9);
+                 member 2 carries ONE (2.0.9) — more DDM targets = more
+                 kernel-poller I2C traffic on member 1.
+
+NEXT LEVERS (beyond black-box CLI):
+  - Swap test A: move member 1's AT-SPTXc modules to member 2 (or pull one of
+    m1's) and re-run tech-support — discriminates module-population from unit.
+  - Swap test B: flash the pauld bootloader onto member 1 (or 9.1.0 onto
+    member 2) and re-run — discriminates bootloader I2C init.
+  - Developer: instrument the mv64xxx driver / i2c-mux around the offload
+    path; the reproducer is cheap (one command, ~80 s, 2/2 so far).
+
+================================================================================
+8. OPEN QUESTIONS FOR THE BUG HUNT (updated after event #2 and the bisect)
+================================================================================
+  a) Which exact sub-command locks the bus? NARROWED by event #2 to the
+     `show platform` / `show platform port counters` /
+     `show platform table internalports` region (section 6). Bisect those
+     three individually against member 1.
+  b) Unit-specific? ANSWERED YES by event #2: member 1 locks 2/2 in either
+     role; member 2 has run the full battery clean twice as master. Next
+     question is WHY member 1 — hardware fault on its I2C mux/PHY, or
+     module-population difference (its port1.0.7 AT-SPSX is 2019 vintage vs
+     member 2's 2011 — both non-DDM).
+  c) Why did phase 2's 10x DDM polls pass while tech-support locked the bus?
+     (Contention vs access-pattern: tech-support reads under full collection
+     load, possibly overlapping the kernel's own periodic SFP poller.)
+  d) Does the known i2c bug (per Terrence) cover the mv64xxx + 28-port
+     sfp-i2c-mux lockup-to-watchdog path, or only the bus lock itself?
+
+================================================================================
+9. RUN 3 — CLEAN SERIES ON THE HEALTHY UNIT + REBOOT-HISTORY CORRELATION
+   (2026-08-19 14:00-14:15 NZST; member 1 POWERED OFF for the series)
+================================================================================
+Purpose: answer the ORIGINAL test request — does `show tech-support` flap
+links on a healthy unit — fully de-confounded from the member-1 crash, and
+with far wider SFP coverage.
+
+Setup changes for this series:
+  - Member 1 physically powered off (PDU) -> member 2 standalone Active Master.
+  - Terrence populated member 2 to 17 SFP cages: adds 4x SFP LOOPBACK V2
+    (2.0.6/2.0.8/2.0.14/2.0.16 — link-up), 4x AT-SP10SR, AT-SP10T, 2x AT-SPSX.
+  - Loopback ports isolated one-VLAN-each (641-644) — REQUIRED with RSTP
+    disabled: several loopbacks sharing a vlan re-multiply any flooded frame
+    into a self-sustaining storm. Isolated, the reflection dies at the port.
+  - Each loopback port given a routed egress stream (~500 pps) via static ARP
+    to a fictitious next-hop, so all four carry live traffic whose interruption
+    would be measurable. Through-path re-homed all-member-2:
+    eth1 -> 4050 -> port2.0.9 (vlan611) -> routed -> sa2/port2.0.1 -> x230 -> eth2.
+  - Detectors CALIBRATED with a deliberate shut/no-shut on port2.0.16: NSM
+    logged both the down and up notification. (The 4050/x230 logs proved
+    useless as witnesses — they do not record link transitions even for
+    member-1's two hard resets; DUT NSM log + pcaps are the valid detectors.)
+
+RESULT — `show tech-support` x3 on standalone member 2, 17 cages, ~4500 pps:
+  iter 1: completed  65.1 s   iter 2: 73.1 s   iter 3: 55.0 s
+  - i2c events ............................ 0
+  - NSM link events during the runs ....... 0 (only my own sweep commands
+    appear in the 02:04-02:08Z window)
+  - worst traffic gap, any run, either direction ... 6.8 ms
+    (72k-80k frames delivered per direction per run; loopback and egress
+    streams uninterrupted)
+
+VERDICT ON THE ORIGINAL TEST REQUEST:
+  On this build, `show tech-support` does NOT flap links on a healthy IE520 —
+  0 link events and <7 ms worst-case forwarding disturbance across 3 runs,
+  17 populated cages, 5 concurrent traffic streams. Scoreboard for the whole
+  investigation: 5 completed tech-support executions on member 2 (2 as stacked
+  master, 3 standalone) — zero link events attributable to the command.
+  The ONLY link impact ever observed is the member-1 i2c-lock -> watchdog
+  reset, which drops every port on that member at once. "Link flapping when
+  issuing show tech-support" is that crash seen from outside.
+  Aggregation note: with cross-member LAGs the crash costs <1 s of traffic;
+  with single-homed links it cost 186 s. Aggregated ports are NOT equally
+  affected — they are the mitigation.
+
+REBOOT-HISTORY CORRELATION (member 1, read after re-power; device UTC):
+  02:08:21 Unexpected System reboot  = the PDU power-off/on by Terrence
+                                       (power loss logs as the same generic
+                                       string — NOT a crash)
+  01:03:18 Unexpected System reboot  = i2c EVENT #2 (lock 01:01:01.6Z as
+                                       backup; watchdog reset 01:01:43.6Z)
+  00:42:58 Unexpected System reboot  = i2c EVENT #1 (lock 00:40:45.8Z as
+                                       master; watchdog reset 00:41:26.9Z)
+  23:35:58 Unexpected System reboot  = TIPC ejection #2 (Aug 18; 4 s after
+                                       `no shutdown` port1.0.9 — 38385.log)
+  23:16:38 Unexpected System reboot  = TIPC ejection #1 (Aug 18; seconds
+                                       after member-1 config-update completed)
+  20:30-20:36 two Unexpected         = bootloader netboot TFTP boot-loop era
+  19:23:58 VCS duplicate master      = 17688-era resiliency-link defect
+  (earlier Aug 17-18 entries: bootloader/build test churn incl. two
+   "Bootup failed, rebooting." pairs)
+
+TWO TAKEAWAYS FROM THE HISTORY:
+  1. "Unexpected System reboot" is one generic label covering at least FOUR
+     distinct causes on this unit (i2c-watchdog crash, TIPC-ejection reboot,
+     power pull, netboot-loop restart). Reboot history alone cannot
+     discriminate; it needs console/syslog correlation. No watchdog-specific
+     reason string ever appears, so the watchdog mechanism is inferred from
+     the 41/42 s lock-to-BootROM interval, not from this record.
+  2. THE UNIT CONTRAST IS STARK: member 1 shows ~20 Unexpected reboots across
+     Aug 17-19. Member 2's entire retained history is THREE entries, all
+     "Expected User Request" — zero unexpected reboots ever. Whatever is
+     wrong here lives in member 1.
+
+EVENT-2 GAP CLOSED AS FAR AS POSSIBLE: member 1's permanent log holds NOTHING
+between boot-up entries and the event-2 window (01:00-01:01Z empty) — its
+remote battery hit no failing command before the lock, so the in-flight
+command for event #2 remains unknowable from surviving records (contrast
+event #1's BGP-battery trail).
+
+Files added to root: (none this section — pcaps run3-eth1/eth2 remain on
+tb470:/tmp, volatile). Bench at section end: stack reformed, m1 Backup/Ready,
+m2 Active Master; port1.0.1 moved to vlan 622 BEFORE m1 re-powered to prevent
+a vlan611 loop through the 4050 (RSTP is still disabled); vlan611 remains on
+port2.0.9. Traffic generators still running.
+
+================================================================================
+10. ISOLATION RUNS — THE LOCK REQUIRES SFP MODULES ON MEMBER 1'S BUS
+    (2026-08-19 15:15-15:40 NZST; member 2 POWERED OFF throughout)
+================================================================================
+Two solo-member-1 experiments, member 2 dark (PDU), member 1 standalone Active
+Master, driven directly on its own console /dev/u5 so kernel printk (the i2c
+lock line) lands in-band in the session transcript.
+
+EVENT #3 — SOLO LOCK, modules in (all five as in events #1/#2):
+  `show tech-support` issued 03:17:46Z (epoch 1787109466.139):
+    -> "i2c i2c-0: mv64xxx: I2C bus locked" in-band at +57.1 s
+    -> watchdog reset -> reboot history "2026-08-19 03:21:00 Unexpected
+    System reboot" -> rebooted, standalone master again.
+  => STACK CONTEXT IS NOT REQUIRED. No remote battery, no TIPC, no second
+  unit — member 1 alone, running its own collection, locks its own bus.
+  Lock offsets now: +77.2 s (stacked master), +83.2 s (stacked backup),
+  +57.1 s (solo). 3 for 3 with modules fitted.
+
+ZERO-MODULE SERIES — Terrence pulled ALL FIVE of member 1's pluggables
+(AT-SPTXc 1.0.1, AT-SPSX 1.0.7, AT-SPTXc 1.0.9, and both TE stack PHYs
+1.0.27/1.0.28; `show system pluggable` returned an empty list). Same unit,
+same solo state, same command:
+    run 1: completed  ~67 s  (tech-support-20260819032833.txt.gz written)
+    run 2: completed  76.1 s
+    run 3: completed  53.0 s
+    run 4: completed  52.0 s
+  Zero i2c events, zero reboots (history unchanged after 03:21:00).
+  FIRST-EVER clean tech-support executions on member 1 — 4 in a row.
+
+THE ISOLATION MATRIX:
+  member 1, stacked, 5 modules, master role .... LOCK  (+77.2 s)
+  member 1, stacked, 5 modules, backup role .... LOCK  (+83.2 s)
+  member 1, solo,    5 modules ................. LOCK  (+57.1 s)
+  member 1, solo,    0 modules ................. CLEAN x4
+  member 2, any role, up to 17 modules ......... CLEAN x5
+
+CONCLUSION: the lock requires SFP MODULES PRESENT ON MEMBER 1'S I2C BUS.
+Not stack context, not role, not collection load alone (zero-module runs
+carry the identical CPU load), and not modules generically (member 2 ran
+17 modules — including 4 loopbacks, 4x 10G-SR, DDM copper — clean five
+times). What remains is the interaction of member 1's I2C controller/mux
+path with module traffic under collection load: either one of its five
+specific physical modules misbehaves on the bus, or member 1's
+controller/mux (or its bootloader-programmed init — 9.1.0 vs member 2's
+pauld dev build) mishandles bus traffic that member 2 tolerates.
+
+REMAINING DISCRIMINATOR (not yet run): reinsert member 1's modules ONE at a
+time and re-run per module. A single-module lock names a culprit module (or,
+if any lone module locks it, indicts the unit's bus/controller); all-clean
+singles with a multi-module lock would point at bus loading/arbitration.
+Cross-check available afterwards: move the "culprit" module to member 2 —
+if m2 stays clean with it, the unit (not the module) owns the fault.
+
+Note on method: with member 2 dark, both data links were down during the
+zero-module series (all m1 connectivity is SFP-based), so those runs had no
+through-traffic. Traffic was constant across all three LOCK events and both
+module states are compared under identical solo/no-traffic-dependence
+conditions (event #3 locked WITH traffic flowing; the clean runs differ from
+it only by module removal).
+
+================================================================================
+11. MODULE BISECT — HOW MANY / WHAT KIND OF SFPs ARE NEEDED
+    (2026-08-19 15:55-16:30+ NZST; member 2 still dark; all runs solo member 1,
+     driven on /dev/u5 with in-band i2c detection; modules returned to their
+     ORIGINAL cages each step so module and port stay paired)
+================================================================================
+Protocol: per configuration, one 3-iteration `show tech-support` series
+(a lock aborts the series; three cleans ~ 4 min). Inventory verified by
+`show system pluggable` before every series.
+
+  step 1  AT-SPTXc (DDM copper) alone in 1.0.1 ..... CLEAN 3/3 (62/53/53 s)
+  step 2  AT-SPSX (non-DDM SX) alone in 1.0.7 ...... CLEAN 3/3 (53/53/52 s)
+  step 3  TE stack PHY alone in 1.0.27 ............. CLEAN 3/3 (53/53/53 s)
+  step 4  BOTH AT-SPTXc (1.0.1 + 1.0.9) ............ iter1 CLEAN 63 s
+                                                     iter2 CLEAN 53 s
+                                                     iter3 *** I2C LOCK at
+                                                     +43.0 s *** -> watchdog
+                                                     reset (EVENT #4)
+
+EVENT #4 (lock epoch 1787112773.454 = 04:12:53Z): fourth reproduction, and
+the most informative:
+  - TWO DDM AT-SPTXc modules are SUFFICIENT. No SPSX, no stack PHYs, no
+    stack, no traffic — just the two DDM coppers and the collection run.
+  - FIRST DIRECT EVIDENCE THE TRIGGER IS PROBABILISTIC: two clean iterations
+    preceded the lock. With 5 modules the lock always hit on iteration 1
+    (3/3); with 2 modules it took 3 runs. Per-run lock probability scales
+    with module count — exactly what the bus-collision model predicts.
+  - Statistical caveat this introduces: 3 clean runs on a single module
+    bounds its per-run probability loosely (p < ~0.5 at modest confidence);
+    the singles are "not individually sufficient within 3 tries", not
+    absolutely exonerated.
+
+  step 5  non-DDM pair (SPSX 1.0.7 + PHY 1.0.27) ... CLEAN 6/6
+          (71/82/53/52/52/52 s — DOUBLE the series length, respecting the
+          probabilistic trigger; zero locks, zero reboots)
+
+BISECT CONCLUSION — "how many / what kind":
+  THE LOCK REQUIRES AT LEAST TWO DDM-CAPABLE MODULES on member 1's bus, and
+  the per-run probability scales with (DDM) module count:
+     0 modules ............ 0/4      (p ~= 0)
+     any single module .... 0/3 each (p small; not individually sufficient
+                                      within 3 tries)
+     SPSX + stack PHY ..... 0/6      (p ~= 0 without DDM devices)
+     2x DDM AT-SPTXc ...... 1st lock on run 3   (p ~= 1/3 per run)
+     full population ...... locked run 1, 3/3   (p ~= 1 by +80 s)
+  MECHANISM READ: the kernel's periodic DDM poller generates ongoing I2C
+  traffic only to DDM-capable modules. With >=2 such modules, poller
+  transactions interleave across mux channels and collide with
+  tech-support's burst reads — and member 1's mv64xxx/mux path loses the
+  race in a way member 2's does not (member 2 ran the same battery clean
+  5x, including runs with a DDM SPTXc + 16 other modules fitted).
+  UNTESTED REFINEMENT: a mixed pair (1 DDM + 1 non-DDM) would separate
+  "two DDM required" from "one DDM plus any second bus occupant".
+
+================================================================================
+12. MODULE ISOLATED — AT-SPTXc S/N A10217F213300006 IS THE COMMON FACTOR
+    (2026-08-19 evening - 2026-08-20 morning NZST; all runs solo member 1)
+================================================================================
+Continuation of the section-11 bisect. Three further discriminating configs:
+
+  step 6  MIXED pair: SPTXc ...006 (1.0.9) + SPSX (1.0.7)
+          iter1 clean 67 s; iter2 *** I2C LOCK +65.1 s *** -> watchdog reset
+          (EVENT #5, lock 1787165411.6). One DDM + one non-DDM SUFFICES —
+          "two DDM required" is dead.
+  step 7  TIGHTENING: SPTXc ...006 ALONE in its home cage 1.0.9
+          iter1 clean 70 s; iter2 *** I2C LOCK +67.1 s *** (EVENT #6,
+          lock 1787166261.6). ONE MODULE ALONE SUFFICES. This retroactively
+          reclassifies step 2/step 1 logic: the single-module "exonerations"
+          at 3 runs were within luck for a ~1/2-1/3 per-run probability.
+  step 8  MODULE-vs-CAGE: SPTXc ...006 ALONE moved to cage 1.0.1
+          iter1 *** I2C LOCK +55.1 s *** (EVENT #7, lock 1787166649.7).
+          THE FAULT TRAVELS WITH THE MODULE, not the cage/mux channel.
+
+COMPOSITION TABLE — every configuration ever run on member 1:
+  contains ...006?  config                              result
+  yes               full 5-module population            LOCK 3/3 (events 1-3)
+  yes               2x DDM SPTXc                        LOCK run 3 (event 4)
+  yes               SPTXc ...006 + SPSX                 LOCK run 2 (event 5)
+  yes               ...006 alone, cage 1.0.9            LOCK run 2 (event 6)
+  yes               ...006 alone, cage 1.0.1            LOCK run 1 (event 7)
+  no                SPTXc ...012 alone (cage 1.0.1)     clean 3/3
+  no                SPSX alone / PHY alone              clean 3/3 each
+  no                SPSX + PHY (non-DDM pair)           clean 6/6
+  no                empty cages                         clean 4/4
+  => 7 locks in 7 configs containing the module (12 locking runs of 15);
+     0 locks in 22 runs without it.
+
+ISOLATED CULPRIT (pending one last cross-check): AT-SPTXc, S/N
+A10217F213300006, EEPROM datecode 210809, DDM-capable, historically fitted
+in member 1 port 1.0.9. Note the sibling AT-SPTXc ...012 (EEPROM datecode
+221226) is clean alone; Terrence reports the physical label on ...012 also
+reads as 2021 manufacture — label vs EEPROM datecode discrepancy noted, but
+the isolation is by SERIAL, not vintage.
+
+REMAINING CROSS-CHECK (in progress): seat ...006 in MEMBER 2 (the unit that
+is 5/5 clean, incl. 17-module populations) and re-run.
+  m2 locks  -> pure module fault; member 1 exonerated as a unit; the
+               9.1.0-vs-pauld bootloader difference retires as coincidence.
+  m2 clean  -> interaction: a marginal module only member 1's controller/
+               init fails to tolerate; both module and unit named.
+Safety sequencing for the cross-check: member 1's stack PHYs are pulled, so
+both units powered simultaneously = two standalone masters sharing VMAC
+0000.cd37.0d6f (the 17688 duplicate-master condition). Member 1 is powered
+OFF before member 2 comes up.
+
+SIDE OBSERVATION (unattributed): member 1 logged one spontaneous
+"2026-08-19 09:24:03 Unexpected System reboot" overnight while sitting IDLE
+with only the NON-DDM pair fitted and no collection running. Nothing
+precedes it in the permanent log. Not attributable to this mechanism on
+present evidence; consistent with the unit's longer history of spontaneous
+resets (~20 across Aug 17-19). Kept separate from the i2c tally.
+
+Reboot-history anchors added this section (member 1, device UTC):
+  04:15:22 = event #4    09:24:03 = the unattributed overnight reset
+  18:52:47 = event #5    (events #6/#7 boot records follow the same pattern)
+
+================================================================================
+13. CROSS-CHECK — SUSPECT MODULE ...006 MOVED TO MEMBER 2 (2026-08-20)
+================================================================================
+Question: does AT-SPTXc A10217F213300006 lock member 2's i2c bus too?
+  m2 LOCKS  -> pure module fault; member 1 exonerated as a unit; the
+               9.1.0-vs-pauld bootloader difference retires as coincidence.
+  m2 CLEAN  -> interaction: a marginal module only member 1's controller/
+               init path fails to tolerate; both module and unit named.
+
+Setup (user powered m1 OFF, m2 ON — duplicate-master hazard avoided):
+  m2 up as "Standalone unit". Pre-seat inventory: 17 modules, suspect NOT
+  yet present; cage 2.0.2 free.
+
+Pre-seat DDM census on member 2 (show system pluggable diagnostics),
+doubles as the run baseline. DDM-capable (5):
+  2.0.5   AT-SP10SR  A05160R191700431  190423
+  2.0.9   AT-SPTXc   A10217F224400102  221020  <- sibling SPTXc, Oct-2022
+  2.0.11  AT-SP10SR  A05160R231400831  230321
+  2.0.13  AT-SP10SR  A05160R191700237  190423
+  2.0.17  AT-SP10SR  A05160R202800633  200703
+All 12 others report "Diagnostics information is not supported by device",
+INCLUDING port 2.0.19 AT-SP10T A05330R185000464 datecode 18122001 (Dec 2018)
+— old, but NOT DDM-capable, so it generates no DDM poll traffic. This
+answers the port-19 question: age yes, DDM no.
+
+CONTROL ALREADY IN HAND: 2.0.9 is an AT-SPTXc (same product family as the
+suspect, one year newer, DDM-capable) and has been aboard member 2 through
+every clean m2 run — same family + DDM on m2's bus does NOT lock it. The
+cross-check therefore isolates the individual ...006 module, not the SPTXc
+family, on this unit.
+
+NEXT: seat ...006 in cage 2.0.2, re-inventory to confirm detection, then
+run the tech-support series on m2 (/dev/u4, in-band i2c watch, up to 6
+iterations if clean — matching the tightening-run standard of evidence).
+
+--- §13 RESULT: MEMBER 2 LOCKED — EVENT #8 ---
+Suspect ...006 confirmed detected in cage 2.0.2 (show system pluggable).
+Series: iter1 CLEAN 84.1 s, 0 NSM port-down lines.
+        iter2 *** I2C LOCK +71.1 s *** (lock seen in-band on m2's own
+        console at 1787167540.359; EVENT #8 — the FIRST ever on member 2,
+        after 5 clean full-battery runs + solo series without ...006).
+Timing envelope matches every member-1 event (+57..+71 s, iter <= 2).
+
+VERDICT: PURE MODULE FAULT. AT-SPTXc S/N A10217F213300006 (datecode
+210809) locks the i2c bus of WHICHEVER IE520 hosts it. Member 1 is
+exonerated as a unit; the 9.1.0-vs-pauld bootloader difference retires as
+coincidence. Control: m2's own AT-SPTXc sibling (2.0.9, datecode 221020,
+DDM) rode through every clean run — the fault is this individual module,
+not the SPTXc family.
+Score: 8 locks in 8 configurations containing ...006 (13 locking runs of
+16); 0 locks in 22+ runs without it, across two different units.
+(Aftermath of event #8 — watchdog reset, partial tech-support file on m2
+flash — to be appended once the unit recovers.)
+
+================================================================================
+14. LOCALISING THE TRIGGER — WHICH PART OF THE BATTERY IS IN FLIGHT
+    (2026-08-20; member 2 = locking unit, member 1 = clean reference)
+================================================================================
+GOAL (Terrence): the driver's "I2C bus locked" message trails the actual
+wedge, so name the command that holds the smoking gun.
+
+FILE ARCHAEOLOGY IS IMPOSSIBLE — ESTABLISHED, NOT ASSUMED:
+A locked run leaves NO tech-support file on flash at all. Verified twice:
+event #8 (run 19:23:06) and event #9 (run 19:38:01) — neither filename
+appears in "dir flash:*.txt.gz" after recovery. The hard watchdog reset
+discards UBIFS writes that were never synced, so there is no truncated
+bundle to read a last-command from. (The 145424-byte file initially taken
+for a partial is in fact the COMPLETE clean iteration-1 bundle.)
+Corollary: no network path is needed, and none exists — both units
+reverted to startup-config on reboot, killing the lab topology; DUT cannot
+ARP tb470 (10.38.215.33), no LLDP neighbours, empty ARP table.
+NOTE: member 2 carries a USB stick (usb:, 28.8G free) — a file escape
+route if physical retrieval is ever wanted.
+
+INSTRUMENT ADOPTED: the CLI prints a progress dot as it advances through
+the battery. Timestamping every dot gives a network-free position index.
+Structure is reproducible ACROSS UNITS and module populations:
+  clean m1 (9 dots, 67.04 s total):
+    0.03  4.78  10.96  15.25  24.28  42.98  52.01  56.27  63.99
+  locking m2 (EVENT #10, lock +57.25 s, 8 dots):
+    0.04  5.20  11.41  16.19  25.27  44.39  49.16  54.21  [LOCK]
+Dots 1-6 align within ~1 s. EVENT #10 therefore wedged in CHUNK 9 — the
+work between dot 8 and dot 9 (clean-run window 56.27-63.99 s).
+Dots are neither sections (54) nor commands (330): full battery = 9 dots,
+"show tech-support system" alone = 4 dots.
+
+BATTERY REFERENCE (extracted from complete bundle ts1.txt.gz; each command
+is echoed inside the file as "awplus#<command>"): 330 commands in 54
+sections. Section 1 "General debug information" holds 61 commands and
+includes the i2c-heavy trio at positions 5-7: show system pluggable,
+show system pluggable diagnostics, show system fiber-monitoring.
+
+EVENT #9 (accidental, disclosed): probing "show tech-support ?" for the
+section list left the command staged on the CLI and the driver's newline
+executed it. Locked +43 s, unit reset. Operator error, no lasting harm;
+help-probes are now kept off the live console.
+
+SINGLE-SECTION DATA POINT: "show tech-support system" — which contains the
+pluggable/DDM commands — ran CLEAN on the bad-module unit (1 run, weak).
+IN PROGRESS: (a) per-keyword duration/dot map on member 1 (20 sections),
+(b) multi-event dot-index distribution on member 2, to convert "chunk N"
+into a named span of the battery.
+
+--- §14 RESULTS: THE PLUGGABLE/DDM COMMANDS ARE EXONERATED ---
+BATTERY POSITION OF EVERY i2c-TOUCHING COMMAND (from cmdmap of ts1.txt.gz):
+   3  show system environment          6  show system pluggable diagnostics
+   4  show system environment counters 7  show system fiber-monitoring
+   5  show system pluggable
+All five sit at positions 3-7 OF 330, inside the block that finishes by
+~15 s. Confirmed two ways:
+  (a) "show tech-support system" alone = 17.4 s / 4 dots ending 15.4 s,
+      matching the full battery's 4th dot at 15.25 s;
+  (b) that same keyword run CLEAN on the bad-module unit.
+Every lock lands at +43 s or later. The pluggable/DDM commands are NOT
+the trigger.
+
+SECTION-KEYWORD SWEEP (member 1, 20 keywords): every keyword except
+"system" runs 2.7-3.6 s with 2 dots; "system" 17.4 s with 4 dots
+(0.0/7.4/12.3/15.4). Full battery = 9 dots / 67.04 s.
+
+TWO INSTRUMENTED LOCK EVENTS, dot-indexed:
+  clean m1:   0.03 4.78 10.96 15.25 24.28  ---  42.98 52.01 56.27 63.99 (end 67.04)
+  EVENT #10:  0.04 5.20 11.41 16.19 25.27  ---  44.39 49.16 54.21 [LOCK +57.25]
+  EVENT #11:  0.03 4.64 10.85 15.26 24.33 29.33 42.97 47.24 52.62 [LOCK +55.71]
+LOCK-MESSAGE LAG IS ~3.05 s, NOT 8 s: gap from last dot to message was
+3.04 s and 3.09 s. Consistent with the mv64xxx transfer timeout expiring
+("time_left: 0" = full timeout consumed), so the true wedge instant is the
+last dot itself. NOTE: 3.05 s is measured; the driver's configured timeout
+value has NOT been read from the source and remains inferred.
+
+COMMAND-TIME MAP (method): replaying all 330 commands with output
+suppressed via "| include ZZQQXX" removes the 115200-baud console
+transfer cost and reproduces battery pacing closely — 62.37 s replayed vs
+67.04 s real (within 7%). (A first attempt timing commands with console
+output was invalid: "show memory allocations" alone took 22 s of pure
+serial transfer.) Scaling by 1.075 puts the two wedge instants at
+battery-time 52.62 s and 54.21 s = commands ~150-190:
+  141 show platform port (2.05 s)   154 show platform mem
+  145 show mac address-table        155-177 ip mroute/igmp/pim block
+  146-149 hsl fib / infrastructure  178-193 ipv6 mroute/mld/pim block
+  198-206 lacp / etherchannel / static-channel-group
+NONE of these read the SFP i2c bus. Uncertainty is +-3-4 s, so the
+leading named candidate is command 141 "show platform port" (the one
+command in the window that plausibly touches port/module hardware state);
+it is under direct loop test.
+
+PHYSICAL DEFECT SIGNATURE FOUND IN THE MODULE'S OWN DDM:
+  port2.0.9  AT-SPTXc ...102 (healthy, 221020):  Vcc 3.3185 V   normal
+  port2.0.2  AT-SPTXc ...006 (SUSPECT, 210809):  Vcc 3.4167 V   *** High
+                                          warning, threshold 3.4000 ***
+The faulty module runs its supply rail ~100 mV high enough to trip the
+DDM warning. Both report Tx Bias 131.07 / powers 6.5535 (0xFFFF saturated
+- normal for copper SPTXc). This is an objective screening signature: a
+field engineer can flag this module with "show system pluggable
+diagnostics" without reproducing the crash.
+Fibre-monitoring is NOT configured on any port ("show system
+fiber-monitoring" empty), so it is not the polling agent.
+
+WORKING CONCLUSION (to be confirmed by the loop test): no single
+tech-support command reads the bus at the moment it wedges. The battery
+supplies sustained CPU/bus contention; the actual i2c actor at the wedge
+instant is the background pluggable/DDM poller transacting with the
+marginal module. That is consistent with the earlier command-level bisect
+finding that NO single command reproduces the lock standalone.
+
+================================================================================
+15. *** SINGLE-COMMAND REPRODUCER FOUND: "show platform port" ***
+    (2026-08-20; member 2 hosting suspect ...006 in cage 2.0.2)
+================================================================================
+  member 2 (...006 fitted):  LOCK at iteration 1, +2.6 s   <- run A
+  member 2 (...006 fitted):  LOCK at iteration 1, +2.6 s   <- run B (after
+                             watchdog reset and full reboot; identical)
+  member 1 (no modules):     60 iterations CLEAN in 118.5 s (control)
+
+This is the smoking gun Terrence asked for. It is far more potent than the
+full battery (2.6 s vs ~55 s to lock), so a chance collision with the
+background poller is not a credible explanation.
+
+IT FITS THE BATTERY TIMING EXACTLY:
+"show platform port" is command 141 of 330, executing at battery-time
+~49.0-51.1 s (duration ~2.05 s). The two instrumented wedge instants were
+52.62 s (EVENT #11) and 54.21 s (EVENT #10) — both within the +-3-4 s
+uncertainty of that command's execution window. Combined with the constant
+~3.05 s driver-timeout lag, the chain is consistent end to end.
+
+THE OBVIOUS SUSPECTS ARE EXONERATED: "show system pluggable" (position 5)
+and "show system pluggable diagnostics" (position 6) complete inside the
+first 15 s, and "show tech-support system" — which contains both — ran
+clean on the bad-module unit.
+
+CONTROL STILL OUTSTANDING: member 1's control had NO modules fitted, so it
+proves "harmless with an empty chassis", not "harmless with healthy
+modules". Member 2's own history covers the gap indirectly (5 clean full
+batteries with its 17 healthy modules before ...006 arrived). The decisive
+control is either (a) "show platform port" looped on member 2 with ...006
+pulled and nothing else changed — needs hands on the bench, or (b) the
+per-port form "show platform port port2.0.N", which isolates the cage in
+software alone. (b) IS IN PROGRESS.
+
+--- §15 CLOSED AT TERRENCE'S CALL (2026-08-20) ---
+Testing stopped here. The per-port control ("show platform port
+port2.0.N") was staged but NOT run, so the cage-level isolation remains
+open. It is a software-only test if anyone wants to close it later.
+
+BENCH STATE AT STOP:
+  member 1 (/dev/u5): up, standalone, NO pluggables fitted, running-config
+                      reverted to startup (38393-era) by its reboots.
+  member 2 (/dev/u4): rebooting after the second "show platform port"
+                      lock; suspect ...006 STILL SEATED IN CAGE 2.0.2.
+                      17 healthy modules also fitted.
+  Both units reverted to startup-config; nothing was ever written with
+  "write". No DUT config changes were made during section 14/15 work.
+  Stack PHYs still pulled from member 1 (cages 1.0.27/1.0.28) — the units
+  are two standalone masters sharing VMAC 0000.cd37.0d6f, so DO NOT bring
+  both up on the same L2 domain until the stack links are restored.
+  All test scripts on tb470 stopped; no console holders left.
+
+RESTORATION CHECKLIST (unchanged, still outstanding):
+  - decide fate of ...006 (recommend quarantine as Exhibit A; it is the
+    proven fault and it carries the Vcc High signature)
+  - member 1's modules back to their home cages
+  - stack PHYs re-seated in 1.0.27/1.0.28
+  - revert port1.0.1 from vlan611 (or port2.0.9) BEFORE the stack reforms
+    — loop hazard with RSTP disabled
+  - kill tcpreplay generators rt-a/rt-b on tb470 eth1/eth2 if still up

@@ -1,0 +1,601 @@
+#!/usr/bin/python
+__author__ = 'Daniel Olynsma'
+
+import sys
+from time import strftime, sleep, time
+
+try:
+    # noinspection PyUnresolvedReferences
+    from framework import Setup
+    # noinspection PyUnresolvedReferences
+    from framework.ATDrivers import ATSwitch
+except ImportError:
+    print('Could not find the required framework directory')
+    print('Please use the following command to get it.')
+    print('[git clone ssh://git.atlnz.lc/data/git/systest/framework.git]')
+
+
+def initialise_devices_from_setup_file(setup_file, debug=False):
+    list_of_port_links = []
+    log('Loading setup file: %s' % setup_file)
+    setup = Setup.LoadSetup(setup_file, debug)
+    log('Device initialisation started')
+    for current_initialisation_type in sorted(setup.setupDict):
+        if debug:
+            log('Current initialisation type: %s' % current_initialisation_type)
+        # Check if there are any items of this type before trying to do anything
+        setup_dict_of_current_initialisation_type = setup.setupDict[current_initialisation_type]
+        if setup_dict_of_current_initialisation_type:
+            for current_item in sorted(setup_dict_of_current_initialisation_type):
+                try:
+                    if debug:
+                        log('Initialising: [%s]' % current_item)
+                    if current_initialisation_type is 'ixias':
+                        if not setup.init_ixia(current_item):
+                            raise Exception
+                        # do not process down any further.  Just move on to next item
+                        continue
+                    if current_initialisation_type is 'stacks':
+                        stack_object = setup.init_stk(current_item)
+                        if not stack_object:
+                            raise Exception
+                        # Process resiliency links if any
+                        if debug:
+                            log('\tInitialising any resiliency-links')
+                        if setup.init_reslink(stack_object) and debug:
+                            log('\tresiliency-links initialised')
+                        # do not process down any further.  Just move on to next item
+                        continue
+                    if current_initialisation_type is 'switches':
+                        if not setup.init_swi(current_item):
+                            raise Exception
+                        if setup_dict_of_current_initialisation_type[current_item]['portlink']:
+                            dict_of_port_links_on_switch = setup_dict_of_current_initialisation_type[current_item]['portlink']
+                            for current_port_link in dict_of_port_links_on_switch:
+                                list_of_port_links.append([current_item, dict_of_port_links_on_switch[current_port_link]['toDev']])
+                        # do not process down any further.  Just move on to next item
+                        continue
+                    if current_initialisation_type is 'tb':
+                        if not setup.init_tb():
+                            raise Exception
+                        # do not process down any further.  Just move on to next item
+                        continue
+                    if current_initialisation_type is 'heatchambers':
+                        if not setup.init_heatchamber(current_item):
+                            raise Exception
+                        # do not process down any further.  Just move on to next item
+                        continue
+                except Exception:
+                    raise Exception('Unable to initialise [%s]' % current_item)
+        else:
+            if debug:
+                log('Move along. Nothing to see here')
+    # Get all the initialised device objects
+    # This is also called in __post_init()
+    device_dictionary = setup.get_devDict()
+    # Now process the port-links that were discovered during the 'switch' section.  If any.
+    for current_item in list_of_port_links:
+        if any(endPoint.startswith('hub') or endPoint.startswith('tb') for endPoint in current_item):
+            if debug:
+                log('Skip initialising port-link: [%s]' % '-'.join(current_item))
+        else:
+            if debug:
+                log('Initialising port-link: [%s]' % '-'.join(current_item))
+            if not setup.init_portlink(device_dictionary[current_item[0]], device_dictionary[current_item[1]]):
+                raise Exception('Unable to initialise port-link: [%s]' % current_item)
+    log('Device initialisation complete')
+    return device_dictionary
+
+
+# #####################################################################################################
+## Log related methods
+def initialise_log(log_filename):
+    global logFilename
+    logFilename = log_filename
+    # Initialise log file to ''
+    log_file = open(logFilename, 'w')
+    log_file.close()
+
+
+def log(string):
+    try:
+        # Uses the global variable logFilename
+        log_file = open(logFilename, 'a')
+        log_file.write('%s: %s\n' % (strftime('%Y-%m-%d %H:%M:%S'), string))
+        log_file.close()
+        print(string)
+    except NameError:
+        raise NameError('ERROR: Log not initialised.  Make sure to call initialise_log()')
+
+
+def write_formatted_error_messages_to_log(list_of_strings):
+    log('%s\n--------' % '\n--------\n'.join(list_of_strings))
+
+
+def log_command_line_arguments(arguments_object):
+    # Log the commandline and options
+    dictionary_of_arguments = vars(arguments_object)
+    padding = len(max(dictionary_of_arguments.keys(), key=len)) + 5
+    cli_program_and_arguments = '\n'.join(['%s%s' % (('%s:' % key).ljust(padding), value) for key, value in dictionary_of_arguments.items()])
+    write_formatted_error_messages_to_log(['PROGRAM ARGUMENTS', cli_program_and_arguments, ' '.join(sys.argv)])
+
+
+def compare_command_outputs(switch_object, command_to_compare, output_to_compare_with, sleep_time=10, max_attempts=3):
+    attempt = 1
+    mismatch_seen = False
+    cmd_response = ''
+    log('Checking [%s]' % command_to_compare)
+    while attempt <= max_attempts:
+        mismatch_seen = False
+        cmd_response = switch_object.cmd(command_to_compare)
+        if len(cmd_response) > len(output_to_compare_with):
+            mismatch_seen = True
+        if (attempt < max_attempts) and mismatch_seen:
+            log("\tSleep for [%d] seconds to see if output changes." % sleep_time)
+            sleep(sleep_time)
+            attempt += 1
+        else:
+            attempt = max_attempts + 1
+    if mismatch_seen:
+        log('\tOUTPUT MISMATCH SEEN')
+
+    return mismatch_seen, cmd_response
+
+
+def check_logs_for_errors_warnings_or_user_messages(switch_object, log_strings_to_check_for):
+    current_message_count = 0
+    for current_log in ('show log', 'show log permanent'):
+        for currentSearchString in log_strings_to_check_for:
+            log_command = '%s | include "%s"' % (current_log, currentSearchString)
+            cmd_response = switch_object.cmd(log_command)
+            if (cmd_response.count(currentSearchString) - cmd_response.count(log_command)) >= 1:
+                write_formatted_error_messages_to_log(['[%s] contained [%s] messages' % (current_log, currentSearchString), cmd_response])
+                current_message_count += 1
+            else:
+                log('[%s] contained NO [%s] messages' % (current_log, currentSearchString))
+                #write_formatted_error_messages_to_log(['[%s] contained NO [%s] messages' % (currentLog, currentSearchString),
+                #                                       response])
+    return current_message_count
+
+
+def get_devices_and_their_port_dict(device_dictionary, device_type, debug=False):
+    device_port_dictionary = {}
+    for current_device in sorted(device_dictionary):
+        if device_type in current_device:
+            try:
+                if debug:
+                    log('Ports are %s' % sorted(device_dictionary[current_device].portDict.keys()))
+                device_port_dictionary[current_device] = device_dictionary[current_device].portDict
+            except AttributeError:
+                log('[%s] device type does not have a portDict attribute' % device_type)
+    return device_port_dictionary
+
+
+######################################################################################################
+## Ixia related methods
+# Possibly need to update the return of this function to be a dictionary
+def read_tx_rate_from_ixia_ports(overall_device_dictionary, dict_of_ixias_and_their_ports, debug=False):
+    current_results_list = []
+    for current_ixia in sorted(dict_of_ixias_and_their_ports):
+        current_ixia_object = overall_device_dictionary[current_ixia]
+        for current_ixia_port in sorted(dict_of_ixias_and_their_ports[current_ixia]):
+            tx_packet_rate_value = str(current_ixia_object.getTxPktRate(dict_of_ixias_and_their_ports[current_ixia][current_ixia_port]))
+            if debug:
+                log('%s: %s' % (current_ixia_port, tx_packet_rate_value))
+            current_results_list.append(tx_packet_rate_value)
+    return current_results_list
+
+
+# Possibly need to update the return of this function to be a dictionary
+def read_rx_rate_from_ixia_ports(overall_device_dictionary, dict_of_ixias_and_their_ports, debug=False):
+    current_results_list = []
+    for current_ixia in sorted(dict_of_ixias_and_their_ports):
+        current_ixia_object = overall_device_dictionary[current_ixia]
+        for current_ixia_port in sorted(dict_of_ixias_and_their_ports[current_ixia]):
+            rx_packet_rate_value = str(current_ixia_object.getRxPktRate(dict_of_ixias_and_their_ports[current_ixia][current_ixia_port]))
+            if debug:
+                log('%s: %s' % (current_ixia_port, rx_packet_rate_value))
+            current_results_list.append(rx_packet_rate_value)
+    return current_results_list
+
+
+def read_rx_rate_from_ixia_ports_2(overall_device_dictionary, dict_of_ixias_and_their_ports, debug=False):
+    current_results_dictionary = {}
+    for current_ixia in sorted(dict_of_ixias_and_their_ports):
+        current_ixia_object = overall_device_dictionary[current_ixia]
+        for current_ixia_port in sorted(dict_of_ixias_and_their_ports[current_ixia]):
+            rx_packet_rate_value = str(current_ixia_object.getRxPktRate(dict_of_ixias_and_their_ports[current_ixia][current_ixia_port]))
+            if debug:
+                log('%s: %s' % (current_ixia_port, rx_packet_rate_value))
+            current_results_dictionary[current_ixia_port] = rx_packet_rate_value
+    return current_results_dictionary
+
+
+def read_rx_rate_from_ixia_ports_write_to_file(device_dictionary, number_of_reads=0, results_to_csv=False, quiet=False):
+    try:
+        # Initialise csv file
+        csv_filename = 'ixia_port_rx_data-%s.csv' % strftime('%Y-%m-%d_%H-%M')
+
+        ixia_port_dictionary = get_devices_and_their_port_dict(device_dictionary, 'ixia')
+
+        # Construct a header line
+        header_line_list = []
+        for current_ixia in sorted(ixia_port_dictionary):
+            for current_ixia_port in sorted(ixia_port_dictionary[current_ixia]):
+                header_line_list.append(current_ixia_port)
+        # Output the header line
+        if quiet:
+            if number_of_reads > 0:
+                log('Conducting [%d] reads from Ixia[s]')
+            else:
+                log('Conducting continuous reads from Ixia[s]')
+            log('Press CTRL-C to Halt at anytime')
+        else:
+            log('\t%s' % '\t'.join(header_line_list))
+        if results_to_csv:
+            csv_file_handle = open(csv_filename, 'a')
+            csv_file_handle.write('Date,Time,%s\r\n' % ','.join(header_line_list))
+            csv_file_handle.close()
+
+        # Get the actual data and output it
+        bln_keep_reading = True
+        counter = 1
+
+        while bln_keep_reading:
+            current_result_line_list = read_rx_rate_from_ixia_ports(device_dictionary, ixia_port_dictionary)
+            # Output the current line of readings
+            if not quiet:
+                log('\t%s' % '\t'.join(current_result_line_list))
+            if results_to_csv:
+                csv_file_handle = open(csv_filename, 'a')
+                csv_file_handle.write('%s,%s\r\n' % (strftime('%Y-%m-%d,%H:%M:%S'), ','.join(current_result_line_list)))
+                csv_file_handle.close()
+            if counter == number_of_reads:
+                bln_keep_reading = False
+                log('Stopped after [%d] reads' % counter)
+            counter += 1
+    except KeyboardInterrupt:
+        log('################  Saw Keyboard Interrupt - Stopping read  ################')
+        raise
+
+
+def compare_ixia_reads(baseline_results_dictionary, current_results_dictionary, percentage_tolerance):
+    lower_tolerance = 1.0 - (float(percentage_tolerance) / 100)
+    upper_tolerance = 1.0 + (float(percentage_tolerance) / 100)
+    log('%.1f %.1f' % (lower_tolerance, upper_tolerance))
+    bad_ports_list = []
+    overall_reads_good = True
+    try:
+        for current_ixia_port in sorted(baseline_results_dictionary):
+            current_port_baseline_value = int(baseline_results_dictionary[current_ixia_port])
+            current_port_last_read_value = int(current_results_dictionary[current_ixia_port])
+            bad_value = True
+            if current_port_last_read_value < (current_port_baseline_value * lower_tolerance):
+                log("[%s] Current ixia rate [%d] is below %d percent of the expected/Baseline [%d]" %
+                    (current_ixia_port, current_port_last_read_value, int(lower_tolerance * 100), current_port_baseline_value))
+            elif current_port_last_read_value > (current_port_baseline_value * upper_tolerance):
+                log('[%s] Current ixia rate [%d] is above %d percent of the expected/Baseline [%d]' %
+                    (current_ixia_port, current_port_last_read_value, int(upper_tolerance * 100), current_port_baseline_value))
+            else:
+                log('[%s] - Good' % current_ixia_port)
+                bad_value = False
+            if bad_value:
+                bad_ports_list.append(current_ixia_port)
+                overall_reads_good = False
+    except KeyError:
+        log('ERROR: Dictionary looks to be empty')
+    except Exception:
+        log('doh')
+    else:
+        return overall_reads_good, bad_ports_list
+
+
+######################################################################################################
+## Stack related methods
+def check_all_stack_members_ready(switch_object, size_of_stack, timeout_time):
+    log('Check output of [show stack] to see if all members are [ready]')
+    while True:
+        number_of_members_ready = switch_object.cmd('show stack').count('Ready')
+        # If the number of lines containing ready match the size of the member keys.  then this is okay
+        if number_of_members_ready == size_of_stack:
+            log('\tStack is ready')
+            return True
+        elif time() >= timeout_time:
+            log('\tStack was NOT ready within timeout period')
+            return False
+        else:
+            sleep(10)
+
+
+def get_master_id(devices_in_stack_dict, old_master_key=''):
+    """
+    This function searches through the devices in the stack and attempts to find the master.
+    If a master is found.  It's Key value is returned
+    If a master is not found then None is returned
+
+    Required parameters:
+    devicesInStackDict - Dictionary: Contains all the keys and objects of members of the stack.
+
+    Optional keyword parameters:
+    oldMasterKey - String: Key for the old Master of the stack
+
+    returns - String: The key for the new master.  If found.  Else None, or in an extreme case the key to the old Master
+    """
+    import re
+
+    available_slaves_dict = devices_in_stack_dict.copy()
+    list_expected_responses_and_indicators = ['login:', 'Password:', '#', '>']
+    cmd_timeout = 5
+    log('Attempting to find the stack Master')
+    # Remove the old master key for the list of valid choices.  Only if there was an oldMasterKey value input
+    if old_master_key != '':
+        log('\tThere was an old master')
+        try:
+            del available_slaves_dict[old_master_key]
+        except KeyError:
+            log('\tKey|member not found.  This should not happen')
+            return None
+    for member_key in sorted(available_slaves_dict.keys()):
+        log('\tTesting if [%s] is the stack master' % member_key)
+        get_new_master_id_member = available_slaves_dict[member_key]
+        attempt = 0
+        get_new_master_id_response = ''
+        total_response = ''
+        # noinspection PyPep8Naming
+        get_new_master_id_member.preCmdBuf = ''
+        while attempt < 3:
+            if not get_new_master_id_response:
+                get_new_master_id_response = get_new_master_id_member.send('\n', waitTime=cmd_timeout,
+                                                                           strList=list_expected_responses_and_indicators)
+                total_response += get_new_master_id_response
+            if 'login:' in get_new_master_id_response:
+                get_new_master_id_match = re.search('\r(.*?)login:', get_new_master_id_response, re.DOTALL)
+                if get_new_master_id_match:
+                    first_match = get_new_master_id_match.group(1)
+                    # Check here to not false positive on valid host names with '-' in the middle
+                    if '-' in first_match:
+                        # Split the string by the '-' into an array.  Then test the last item if it is a number
+                        dash_separated_hostname_list = first_match.strip().split('-')
+                        dash_separated_hostname_list.reverse()
+                        # Check that the string after the '-' is a digit.  If so then is a slave
+                        if dash_separated_hostname_list[0].isdigit():
+                            attempt = 5
+                            log('\t\tNot the master: Saw [%s]' % first_match.strip('\r\n '))
+                            continue
+                    log('\t\tThis is the master: %s' % member_key)
+                    return member_key
+            elif ('#' in get_new_master_id_response) or ('>' in get_new_master_id_response):
+                get_new_master_id_response = get_new_master_id_member.send('quit\n', waitTime=cmd_timeout,
+                                                                           strList=list_expected_responses_and_indicators)
+                total_response += get_new_master_id_response
+            else:
+                get_new_master_id_response = ''
+            attempt += 1
+            # If get here.  The output has been totally unexpected.
+        if attempt == 3:
+            log('[%s] Gave unexpected responses\n%s' % (member_key, total_response))
+    # If the function makes it this far, there is a problem.  So return the original masterKey
+    log('getNewMasterId() got into a weird state')
+    if old_master_key != '':
+        log('\tReturning old MasterKey [%s]' % old_master_key)
+        return old_master_key
+    else:
+        return None
+
+
+def read_member_console_for_string(member_key, member_object, list_of_read_strings, read_time_out):
+    log("\tReading [%s] asyn for [%d] or until see one of the following:" % (member_key, read_time_out))
+    log("\t%s" % list_of_read_strings)
+    # Clear the preReadBuf
+    # noinspection PyPep8Naming
+    member_object.console.preReadBuf = ''
+    bln_string_seen_in_pre_read_buffer = False
+    read_thread_object = member_object.read(read_time_out, list_of_read_strings)
+    # Check the preRead buffer to see if was in console waiting between last read and now.
+    for current_Read_String in list_of_read_strings:
+        if current_Read_String in member_object.console.preReadBuf:
+            log('\tString seen in preReadBuf')
+            bln_string_seen_in_pre_read_buffer = True
+            break
+    if bln_string_seen_in_pre_read_buffer:
+        read_thread_object.stop()
+    else:
+        # Put this sleep in here because of false positives on the following threading event.
+        sleep(1)
+        # Wait for the read() thread to complete.
+        try:
+            while not read_thread_object.has_finished():
+                sleep(0.5)
+        except KeyboardInterrupt:
+            log('\tStopping read() on [%s] due to keyboard interrupt' % member_key)
+            read_thread_object.stop()
+            raise KeyboardInterrupt
+    log('\tRead() Thread has completed.  Checking results')
+    # If the a whole string of any of the match strings were seen in the actual read.  Return
+    if read_thread_object.is_keyword_found():
+        return True
+    # If did not see any of the whole strings in the read.  Combine the preReadBuf and the read buffer to look for result.
+    output_from_read = member_object.console.preReadBuf + member_object.console.buffer
+    member_object.log('read output:\n%s' % output_from_read)
+    for current_Read_String in list_of_read_strings:
+        if current_Read_String in output_from_read:
+            return True
+    return False
+
+
+def set_stack_master(devices_in_stack_dict):
+    switch_master_key = get_master_id(devices_in_stack_dict)
+    if switch_master_key is not None:
+        stack_master_switch_object = devices_in_stack_dict[switch_master_key]
+        log('[%s] is the master of stack' % switch_master_key)
+        return switch_master_key, stack_master_switch_object
+    else:
+        raise Exception('NO MASTER WAS FOUND.  TEST ABORTED')
+
+
+def check_for_stack_audit_inconsistencies(switch_object, number_of_stack_members, sleep_time=10, max_attempts=3):
+    current_audit_inconsistency_count = 0
+    found_audit_inconsistencies = False
+    for consistency_cmd in ('remote-diff all show interface brief', 'remote-diff all show hsl infrastructure'):
+        attempt = 1
+        consistency_cmd_response = ''
+        log('Checking [%s] for inconsistencies' % consistency_cmd)
+        while attempt <= max_attempts:
+            found_audit_inconsistencies = False
+            consistency_cmd_response = switch_object.cmd(consistency_cmd)
+            if consistency_cmd_response.count('Results are identical') != (number_of_stack_members - 1):
+                # Only do these checks if is the 'show hsl infrastructure' command
+                if 'show hsl infrastructure' in consistency_cmd:
+                    for currentLine in consistency_cmd_response.splitlines():
+                        if currentLine.startswith('+') and not currentLine.startswith('+Unit'):
+                            found_audit_inconsistencies = True
+                            break
+                else:
+                    found_audit_inconsistencies = True
+            else:
+                if found_audit_inconsistencies:
+                    log('\tInconsistencies resolved')
+                    found_audit_inconsistencies = False
+            if (attempt < max_attempts) and found_audit_inconsistencies:
+                log("\tSleep for [%d] seconds to see if state changes." % sleep_time)
+                sleep(sleep_time)
+                attempt += 1
+            else:
+                attempt = max_attempts + 1
+        # If the remote-diff command found actual inconsistencies then up the loop counter
+        if found_audit_inconsistencies:
+            list_of_strings_for_error_log = ['\tINCONSISTENCIES SEEN', consistency_cmd_response]
+            # Only do something if able to get to the start-shell and only do it once
+            if current_audit_inconsistency_count == 0:
+                list_of_strings_for_error_log.append(get_contents_of_file_and_any_rotated_versions(switch_object, '/var/log/trace'))
+            write_formatted_error_messages_to_log(list_of_strings_for_error_log)
+            current_audit_inconsistency_count += 1
+        else:
+            log('\tNO inconsistencies seen')
+    return current_audit_inconsistency_count
+
+
+def reboot_stack_to_load_release(switch_object, stack_members_dict, stack_reboot_successful_strings, sleep_time):
+    reboot_was_good = False
+    log('Doing reboot to load release set by binary search script')
+    output_from_reboot = switch_object.reboot()
+    for current_list_item in stack_reboot_successful_strings:
+        if output_from_reboot.find(current_list_item) > -1:
+            reboot_was_good = True
+            log('Reboot successful.  Saw [%s] string in reboot output' % current_list_item)
+            break
+    if not reboot_was_good:
+        raise Exception('################  INITIAL/SETUP REBOOT FAILED  ################\n-----\n%s\n-----' % output_from_reboot)
+    # Purge the consoles of all the members.
+    log("Purging the asyn ports of stack")
+    for memberKey in sorted(stack_members_dict.keys()):
+        log("\tPurging the asyn of [%s]" % memberKey)
+        stack_members_dict[memberKey].send('', 2)
+    # Check that the master member has not changed after the reboot.
+    stack_master_key, stack_master_object = set_stack_master(stack_members_dict)
+    log('Sleep for %d seconds' % sleep_time)
+    sleep(sleep_time)
+    return stack_master_key, stack_master_object
+
+
+######################################################################################################
+def get_detailed_memory_figures(switch, log_directory, host_name, time_string):
+    # Grab some memory information for the developers
+    log_file = open('%s%s_%s_mem_info.log' % (log_directory, host_name, time_string), 'a')
+    log_file.write(switch.cmd('sh clock'))
+    log_file.write(switch.cmd('sh mem'))
+    log_file.write(switch.cmd('sh mem kernel'))
+    log_file.write(switch.cmd('sh mem pools'))
+    log_file.write(switch.cmd('sh mem alloc'))
+    if switch.is_marvell():
+        log_file.write(switch.cmd('show platform swtable MemoryPools'))
+        log_file.write(switch.cmd('show platform swtable MemoryAllocations'))
+    if switch.mode(']#'):
+        log_file.write(switch.cmd('corosync-objctl'))
+        log_file.write(switch.cmd('cat /proc/slabinfo'))
+        switch.mode('#')
+    log_file.close()
+
+
+def remove_console_paging_and_timeout(switch_object, write_changes=False):
+    # Make sure that the console exec timeout and length have been removed.
+    if 'line con 0\r\n exec-timeout 0 0\r\n length 0' not in switch_object.cmd('show run'):
+        switch_object.mode(')#')
+        switch_object.cmd('line console 0')
+        switch_object.cmd('length 0')
+        switch_object.cmd('exec-timeout 0')
+        switch_object.cmd('end')
+        # write to startup-config if required.
+        if write_changes:
+            switch_object.cmd('wr')
+        switch_object.cmd('exit')
+        # Log back in
+        switch_object.mode('#')
+
+
+def get_process_memory_allocations_and_pools(switch_object, process_name, write_to_filename=''):
+    time_stamp = strftime('%Y-%m-%d %H:%M:%S')
+    if 'exfx' in process_name:
+        process_memory_pools_info = switch_object.cmd('show platform swtable MemoryPools')
+        process_memory_allocations_info = switch_object.cmd('show platform swtable MemoryAllocations')
+    elif 'corosync' in process_name:
+        # Only do something if able to get to the start-shell
+        if switch_object.mode(']#'):
+            process_memory_pools_info = switch_object.cmd('corosync-objctl')
+            switch_object.mode('#')
+        # If not able to get to start shell.
+        else:
+            process_memory_pools_info = 'ERROR: Was not able to go to start-shell.  Corosync checking was unsuccessful'
+        process_memory_allocations_info = ''
+    else:
+        process_memory_pools_info = switch_object.cmd('show memory pools %s' % process_name)
+        process_memory_allocations_info = switch_object.cmd('show memory allocation %s' % process_name)
+
+    if write_to_filename:
+        detailed_process_memory_logfile = open(write_to_filename, 'a')
+        detailed_process_memory_logfile.write('%s ====================================\n%s\n\n\n%s\n' % (time_stamp, process_memory_pools_info,
+                                                                                                         process_memory_allocations_info))
+        detailed_process_memory_logfile.close()
+
+    return process_memory_allocations_info, process_memory_pools_info
+
+
+def get_host_name(switch):
+    switch.mode('#')
+    return switch.cmd('').lstrip().rstrip('#')
+
+
+def get_contents_of_file_and_any_rotated_versions(switch_object, filename_interested_in):
+    """
+    Get the directory listing of trace* files.
+    Cat each present file
+    [root@x610-6stk /flash]# ls -lrt /var/log/trace*
+    -rw-r--r--    1 root     root         10408 Apr  7 14:18 /var/log/trace.1
+    -rw-r--r--    1 root     root           955 Apr  7 14:18 /var/log/trace
+    [root@x610-6stk /flash]
+    """
+    complete_log_information = 'NO INFO: Was not able to get to start-shell'
+    if switch_object.mode(']#'):
+        complete_log_information = ''
+        cmd_response_line_list = switch_object.cmd('ls -lrt --color=never %s*' % filename_interested_in).splitlines()[1:-1]
+        # split out the relevant column from each line and then work through the list
+        for current_line in cmd_response_line_list:
+            current_log_filename = current_line.split()[8].strip()
+            complete_log_information += switch_object.cmd('cat %s' % current_log_filename, maxWait=15)
+        switch_object.mode('#')
+    return complete_log_information
+
+
+def diff_multiline_strings(expected, actual, debug=False):
+    """
+    Helper function. Returns a string containing the unified diff of two multiline strings.
+    """
+    from difflib import Differ
+
+    d = Differ()
+    result = list(d.compare(expected.splitlines(), actual.splitlines()))
+    if debug:
+        from pprint import pprint
+
+        pprint(result)
+    return '\n'.join(result)

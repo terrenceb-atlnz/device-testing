@@ -1,0 +1,112 @@
+================================================================================
+AWPTCM-T38136 (1.0)  Standard test - IGMPv2
+Run date : 2026-09-09      Bench : tb470 (IE520)
+Software : IE520-awplus_main-20260905-1714.rel  (AlliedWare Plus, build 09/04/26; bootloader pauld)
+Result   : PASS  (steps 1-3)
+================================================================================
+
+RESULT
+  Step 1  Register IGMPv2 group report ......... PASS   group learned on DUT, querier v2
+  Step 2  Traffic forwarded, no loss ........... PASS   60/60 rx, 0% loss @ 1 pps
+  Step 3  IGMPv2 leave clears the group ........ PASS   show ip igmp groups empties
+  DUT is the IGMP querier; membership created by a real IGMPv2 report, torn down by leave.
+
+--------------------------------------------------------------------------------
+BENCH / TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  DUT / querier : u4  S/N 264A23052  MAC 84e3.2787.09c0   (IGMP snooping querier, L3 IGMP)
+  Source        : u5  S/N 264A23066  MAC 84e3.2787.0740
+  Receiver/host : tb470 eth2 10.10.10.20/27  ->  u4 port1.0.2 (vlan10 access)
+  Fabric        : one vlan10 (10.10.10.0/27) trunk  u4 port1.0.24 <-> u5 port2.0.24.
+                  The 2nd u4<->u5 link (port*.0.26) is held shutdown so vlan10 is loop-free.
+
+METHOD / SCOPE (read this)
+  This bench has NO hardware traffic generator (no IXIA). Substitutions:
+    - RECEIVER  = the tb470 host, which sends a REAL, correctly-checksummed IGMPv2
+      membership report (scapy, src 10.10.10.20 so it passes the DUT's source-address
+      check) and counts received frames with tcpdump on eth2.
+    - SOURCE    = u5 originates the multicast stream with AW+ `ping <group>` at 1 pps.
+  So this proves IGMPv2 join -> DUT forwards the group to the joined port -> leave prunes
+  it. It is NOT a line-rate throughput test (1 pps, ICMP), per the agreed scope.
+
+--------------------------------------------------------------------------------
+CONFIG APPLIED   (running-config only, NOT saved to startup)
+--------------------------------------------------------------------------------
+u4 (DUT/querier)                            u5 (source)
+  ip multicast-routing                        ip multicast-routing
+  interface vlan10                            interface vlan10
+   ip address 10.10.10.2/27                    ip address 10.10.10.3/27
+   ip igmp                                     ip igmp
+   ip igmp version 2                          (IGMP snooping globally enabled - default)
+  (IGMP snooping enabled on vlan10 - default)
+
+u4# show ip igmp interface vlan10
+ IGMP Enabled, Active, Querier, Configured for version 2
+ IGMP Snooping is enabled on this interface
+
+--------------------------------------------------------------------------------
+STEP 1 - Check multicast traffic is forwarded when the IGMPv2 group request is received
+--------------------------------------------------------------------------------
+u4# show ip igmp groups
+                                             <- baseline: no membership
+
+>>> host: IGMPv2 membership report (type 0x16) src=10.10.10.20 gaddr=239.2.2.2
+
+u4# show ip igmp groups
+IGMP Connected Group Membership
+Group Address    Interface            Uptime   Expires  Last Reporter
+239.2.2.2        vlan10               00:00:03 00:04:17 10.10.10.20
+
+u4# show ip igmp groups 239.2.2.2 detail
+Interface:      vlan10
+Group:          239.2.2.2
+Flags:
+Uptime:         00:00:04
+Group mode:     Exclude (Expires: 00:04:16)
+Last reporter:  10.10.10.20
+Source list is empty
+  => DUT registered the IGMPv2 report; group is Exclude mode, last reporter = host.
+
+--------------------------------------------------------------------------------
+STEP 2 - Leave traffic running (membership maintained, no traffic loss)
+--------------------------------------------------------------------------------
+u5# ping 239.2.2.2 source 10.10.10.3 repeat 60 interval 1
+PING 239.2.2.2 (239.2.2.2) from 10.10.10.3 : 56(84) bytes of data.
+--- 239.2.2.2 ping statistics ---
+60 packets transmitted, 0 received, 100% packet loss, time 61349ms
+   (0 ICMP replies is expected - nothing answers a ping to a group; receipt is measured
+    on the receiver, below.)
+
+host# tcpdump -tni eth2 host 239.2.2.2 and icmp   => 60 frames received of 60 sent (0.0% loss)
+   IP 10.10.10.3 > 239.2.2.2: ICMP echo request, id 10359, seq 1, length 64
+   IP 10.10.10.3 > 239.2.2.2: ICMP echo request, id 10359, seq 2, length 64
+   IP 10.10.10.3 > 239.2.2.2: ICMP echo request, id 10359, seq 3, length 64
+
+u4# show ip igmp groups 239.2.2.2 detail   (membership maintained across the run)
+Group:          239.2.2.2
+Group mode:     Exclude (Expires: 00:04:07)
+Last reporter:  10.10.10.20
+  => 60/60 forwarded to the receiver, 0% loss; membership held throughout (the host
+     re-reported at the query interval).
+  SCOPE: 60 s / 1 pps is a representative sample of the 5-minute maintenance step, not
+  the full 5 minutes, and not line rate.
+
+--------------------------------------------------------------------------------
+STEP 3 - Send IGMP leave  (stream stops, group table clears)
+--------------------------------------------------------------------------------
+>>> host: IGMPv2 leave group (type 0x17) src=10.10.10.20 gaddr=239.2.2.2
+
+u4# show ip igmp groups
+                                             <- group cleared
+
+u5# ping 239.2.2.2 source 10.10.10.3 repeat 5 interval 1   (after leave)
+--- 239.2.2.2 ping statistics ---
+5 packets transmitted, 0 received, 100% packet loss, time 4180ms
+host# after leave => 1 frames received (expect 0)
+  => `show ip igmp groups` empties on the IGMPv2 leave. The single residual frame is the
+     one already in flight when the hardware pruned the port. PASS.
+  NOTE on `show platform table ipmulti`: it stays at its baseline link-scope entry
+  (224.0.0.0/24, no downstream) because source and receiver are in the SAME vlan10 - the
+  group is L2-bridged by snooping, not L3-routed, so no (S,G) mroute is programmed. The
+  hardware L2 multicast membership tracks `show ip igmp groups`.
+================================================================================

@@ -1,0 +1,173 @@
+---
+name: wrap-ie520
+description: Close out a tb470 IE520 bench session — stop what you started, restore what you changed on the DUTs and the host, ground-truth the FINAL bench state and record it in bench-state.md, write the dated session handover, fold durable lessons into /orient-ie520 and memory, then brief the user and stop. Use at the end of any session that touched the IE520 bench, or when asked to "wrap up", "hand over", "leave the bench", or "record where we got to". Pairs with /orient-ie520, which reads these same records at the start of the next session.
+---
+
+# Wrap — tb470 IE520 bench
+
+Leave the bench **re-runnable** and the records **true**, then stop. Pairs with `/orient-ie520`,
+which reads the same three records at the start of the next session — bench-state.md, the dated
+`SESSION-HANDOVER`, and the skill itself — so those records, never memory, are the handoff.
+
+**Scope: tb470 only.** Same as orient. `tb504` is not ours to touch.
+
+**Design rule for this file.** Every fact that can rot is a *lookup*, not a literal: no consoles,
+serials, outlets, addresses, builds or cable maps are written here — they live in
+`~/claude/IE520-testing/bench-setup/bench-state.md` and you read them from the hardware. What this
+file holds is the **order of operations** and the **traps**, each of which has already cost a
+session. **One fact, one home:** bench facts → bench-state.md; platform mechanics and framework
+traps → `orient-ie520`; durable non-obvious lessons → a memory file; everywhere else links.
+
+Working style is `claude/Test-cases/CLAUDE.md` §"How we work": report what you *did*, not what
+you intended; a step you skipped is reported as skipped; **ask** before any restore or revert that
+is a decision rather than a cleanup.
+
+---
+
+## 1. Stop what YOU started — and only what you started
+
+Nothing below is safe while a background job of yours still holds a console or a NIC.
+
+```bash
+# your own background jobs (harness task list, ssh'd monitors, sniffers, senders)
+sock=/run/user/1971/keyring/ssh
+SSH_AUTH_SOCK=$sock ssh tb470 'fuser -v /dev/u2 /dev/u3 /dev/u4 /dev/u5; ls /var/lock/LCK..* 2>/dev/null'
+SSH_AUTH_SOCK=$sock ssh tb470 'pgrep -a -f "tcpdump|AsyncSniffer|python3 .*ckprobe" | grep -v "pgrep"'
+```
+
+- **`fuser` on the device node is the only reliable "is the console held" answer.** `pgrep -f`
+  matches its own ssh wrapper even with the `[b]racket` trick (2026-09-09), and `pkill -f
+  <script>` over ssh kills your own session. If you must kill by name, kill by **PID** after
+  `ps -o user,lstart,cmd -p <pid>`.
+- **Identify the owner before killing anything you didn't start.** A `bench_probe.py` holding four
+  consoles for 45 minutes was Terrence's (2026-09-09). Ask; do not assume a stale job.
+- Leaving a sniffer or a sender running is how the next session's traffic test measures yours.
+
+## 2. Restore what you changed on the DUTs
+
+Read your own session for every `configure terminal` you sent. For each change decide — and say
+which — **keep, revert, or record**:
+
+- **Session-scoped settings always revert:** `terminal no monitor`, and **`end` on every console
+  you touched.** A console left in `configure terminal` answers every plain `show` with
+  `% Invalid input detected at '^' marker` and reads as a dead unit to the next session (u5,
+  2026-09-09 — declared dead for an hour). Console mode persists across serial sessions.
+- **Temporary addressing and test config** (a scratch SVI, an `access vlan` you moved a port into,
+  a `channel-group`, a forced `speed`/`duplex`) — these are **decisions**: some are the bench's
+  new intended state, some are debris. Do not guess. List them to the user with keep/revert per
+  item; anything kept goes into bench-state.md; anything reverted is reverted *and* confirmed by
+  a re-read, not by the absence of an error.
+- **`write` only what is meant to survive a reboot**, and say so. Unsaved config is not "safe" —
+  a member that reboots (or netboots) comes back without it, silently.
+- **Do not "tidy" a live stack's ring or aggregation config on the way out.** If it is wrong, it
+  is a finding for the handover, not a wrap-time fix.
+
+## 3. Restore what you changed on the host (tb470)
+
+The host is shared infrastructure and it is also the DUTs' **boot server**.
+
+- **Undo every `ethtool` pinning** you made, above all on the NIC that serves TFTP boot
+  (`orient-ie520` §1): a NIC left at `advertise 0x20` (1000-only) cannot negotiate with the
+  bootloader's 10/100-class ASIX dongle, so **the next member that reboots boot-loops**
+  (`Failed to load tftp://…` → `Restarting system in 5..`). Restore with
+  `ethtool -s ethN autoneg on advertise 0x2f` (10/100/1000) and **read the multi-line
+  "Advertised link modes" back** — a one-line `grep` truncates it and reports 10baseT only.
+- Remove temporary IPs, routes and ARP entries you added; leave the DHCP/TFTP services as you
+  found them (`TB470-HOST-NETWORKING.md` is the reference).
+- `/tmp/ckprobe/` and the session scratchpad die with the session — **that is correct**. Anything
+  worth running twice becomes a repo tool; anything worth running once is already gone; the
+  *recipe* goes into the handover (§5). Never leave a `.py` in Terrence's lab tree
+  ([[no-stray-scripts]] — enforced by a hook, Bash heredocs included).
+
+## 4. Ground-truth the FINAL state and record it — this is the handoff
+
+Recorded state is always stale; the next session's `/orient-ie520` will re-read the hardware, but
+it needs to know what you *left*, and why. Read, don't recall:
+
+- Every IE520 console: `show stack` (members `Ready`? who is master? — it moves after every
+  failover and never pre-empts), `show epsr summary`, `show system` **build date on BOTH
+  members against each other** (a mismatch is the split hazard, and `show boot` will not show
+  it), `show reboot history` (any new entries since your start), free flash (`dir`).
+- **Power state of every unit** — a member you powered off to stop a boot-loop **must be
+  written down**; to the next person it is a dead unit. Same for anything left `shutdown`.
+- Host: `cat /sys/class/net/eth{1,2,3}/carrier`, `ip -br addr`, and whether the TFTP path
+  (`/tftproot/IE520-tb470.rel`, the serving NIC up) is currently usable.
+
+Then update **`bench-state.md`** — the "Current state — <date>" section, dated, **measured facts
+only**; label anything inferred as inferred and anything open as OPEN. Run
+`./bench_setup.py apply` in that directory:
+
+- Prose-only edits change nothing on the box but **still archive the superseded record** to
+  `backups/<stamp>.bench-state.md` — that is the point of running it.
+- **`check` saying `IN SYNC` means the box matches the *record*, not that the record is
+  *current*.** On 2026-09-09 all three hashes matched while the record still described a bench
+  that no longer existed. Sync is not truth.
+- Only rewrite the `​```setup` fences from a **whole, cleanly measured** bench — never from one
+  that is mid-campaign, split, or missing a member. A half-measured topology written into the
+  generator is exactly the stale-mapping trap the file warns about. If the bench is not whole,
+  say so in the prose and leave the fences flagged stale.
+- `apply` **refuses** if the live `.setup` drifted from the last snapshot (someone hand-edited the
+  box). Reconcile that into bench-state.md first; `--force` only with the user's say-so.
+
+## 5. Write the session handover
+
+`~/old test runs/IE520/SESSION-HANDOVER-<YYYY-MM-DD>.md` — the established location (look at the
+previous one for shape). It must be **self-contained**: the next session has none of your
+scratchpad, so every command sequence it will need is written in, not referenced.
+
+Sections that earn their place: **TL;DR** (where things are, and whether the bench is whole or
+*parked*); **current bench state and how to verify it** in one command block; **what was
+accomplished**; **results** — with each run labelled *clean* or *confounded, and why* (a flow
+sourced on the member that failed measures nothing; an outage that includes a member that could
+not reboot is not a failover number); **findings**, separated into *measured* and *inferred*;
+**OPEN questions** as questions, with the evidence path; **ordered next steps**; **recipes**;
+**pointers**. Link bench-state.md for the topology rather than duplicating it.
+
+Deliverables follow the house rule: for an individual lab test case the per-case `<case-id>.log`
+**is** the deliverable; an `after-action-<suite>.md` is for a whole campaign, written from that
+run's own logs, and only when it is a campaign or Terrence asks.
+
+## 6. Fold durable lessons into the records that outlive the session
+
+Three homes, no duplication, every entry dated:
+
+- **`orient-ie520`** gets *mechanics and traps* — platform behaviour, driver behaviour, framework
+  behaviour, diagnosis signatures. **Snapshot first** (`cp -p SKILL.md SKILL.md.pre-<date>`, the
+  directory's convention), date every claim, and mark observed-vs-inferred. It does **not** get
+  bench facts; if a table there has gone stale, replace it with a dated hint and a pointer to
+  bench-state.md.
+- **`bench-state.md`** gets *bench facts* (§4).
+- **Memory** gets the *non-obvious, cross-session* lesson — the kind that would otherwise be
+  re-learned at hardware cost. Check for an existing file first and update it rather than adding a
+  twin; keep the `MEMORY.md` index line under ~200 chars (the index has already exceeded its size
+  limit once, so prefer detail in the topic file). Never a credential in a memory. Memories live
+  in the Test-cases repo and are committed by the Ask-CK `/wrap`, not from here — **this
+  directory is not a git repository; there is nothing to commit or push here.**
+
+## 7. Traps of wrapping — each has already happened
+
+| Trap | What it looked like | What to do instead |
+|---|---|---|
+| **Declaring a unit dead that is in config mode** | `% Invalid input at '^'` on every `show` | `end` / `disable` / `enable` raw, then re-read. Always `end` before you leave a console. |
+| **Leaving the TFTP-serving NIC pinned 1000-only** | Nothing — until the next member reboots and boot-loops | §3. Restore `advertise 0x2f`, read the multi-line advert back. |
+| **Powering a member off and not writing it down** | A "dead" unit next session | §4: power state is part of the recorded final state. |
+| **Trusting `bench_setup.py check` = record is current** | `IN SYNC` over a record describing a bench that no longer exists | Sync ≠ truth. Update the prose; only touch fences from a whole, measured bench. |
+| **Writing a *confounded* run up as a result** | A "failover outage" that was really a member that could not reboot; a "slave-failure" flow sourced on the slave | Label every run *clean* or *confounded — because …*. A confounded run still teaches; it does not grade. |
+| **Recording an inference as a fact** | "The FDB is split across members" from one exactly-half observation | Date it, write *observed* and *cause inferred*, and say what would prove it. |
+| **Hand-editing the `.setup` on the box** | Fixed until the next `apply` silently discards it | Edit bench-state.md, run `apply`. Never a `.bak` beside the live file. |
+| **`pkill -f` / `pgrep -f` over ssh** | Your own session dies; or a "still running" that is your own wrapper | `fuser` on device nodes; kill by PID after inspecting the owner. |
+| **Reporting a step as done that you skipped** | The next session builds on it | "Skipped" is a status. Say it. |
+
+## 8. Brief the user, then stop
+
+Dense and skimmable, with clickable relative paths — the mirror of `/orient-ie520` §9:
+
+- **(a) Bench left as** — whole or *parked*, and per unit: power, role, stack/ring state, anything
+  still `shutdown` or unrecovered; host NICs and the TFTP path. From §4's reads, not from memory.
+- **(b) What was restored, what was kept, what was skipped** — one line each, decisions attributed
+  to the user where they made them.
+- **(c) Records updated** — bench-state.md (and the archived `backups/<stamp>`), the handover path,
+  any `orient-ie520` edit (with its `pre-<date>` snapshot), any memory written.
+- **(d) OPEN items and the first action for the next session.**
+
+Then stop. Do not start the next session's work, and do not invent an agenda.

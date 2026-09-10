@@ -1,0 +1,156 @@
+
+######## SETUP — transit topology + QoS enabled ########
+QoS enabled globally: `mls qos enable` (prompts "Traffic will stop while configuration
+is applied. Continue? (y/n)" - answered y+CR). Stack UNAFFECTED: both members Ready,
+Operational Status "Normal operation", VMAC 0000.cd37.0d6f retained.
+CoS lives in the 802.1Q tag, so the untagged access ports of 38394 could not show it.
+Reconfigured to a TRANSIT path with tagged egress:
+    vlan3010 "qos-transit" : port1.0.1(t)  port2.0.1(t)   both trunk, native vlan none
+    tb470 eth2 <-> port2.0.1 (member 2 = MASTER)
+    tb470 eth3 <-> port1.0.1 (member 1 = BACKUP)
+    rx/tx VLAN offload disabled on eth2+eth3 so 802.1Q tags survive capture
+Driven as a pure L2 test - tcpreplay injects tagged frames on the wire, tcpdump reads
+them off the far side - so Linux IP routing cannot shortcut between tb470's two NICs.
+Traffic: 10.10.10.1 = MATCH source, 10.10.10.2 = NO-MATCH source, both sent at prio 0.
+
+######## CONTROL — no policy applied ########
+  02:00:00:00:00:01 ... vlan 3010, p 0 ... 10.10.10.1.1000 > 10.10.10.99.2000
+  02:00:00:00:00:02 ... vlan 3010, p 0 ... 10.10.10.2.1000 > 10.10.10.99.2000
+=> Both sources transit the stack and arrive with p 0. Any later CoS change is
+   therefore the policy acting, not a pre-existing marking.
+
+######## STEP 1 (38386 BACKUP) - CoS policy: set cos 3 on src 10.10.10.1, applied to port1.0.1 ########
+
+===== configure terminal =====
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+awplus(config)#
+===== access-list hardware acl-qos-b =====
+access-list hardware acl-qos-b
+awplus(config-ip-hw-acl)#
+===== permit ip 10.10.10.1/32 any =====
+permit ip 10.10.10.1/32 any
+awplus(config-ip-hw-acl)#
+===== exit =====
+exit
+awplus(config)#
+===== class-map cm-qos-b =====
+class-map cm-qos-b
+awplus(config-cmap)#
+===== match access-group acl-qos-b =====
+match access-group acl-qos-b
+awplus(config-cmap)#
+===== exit =====
+exit
+awplus(config)#
+===== policy-map pm-qos-b =====
+policy-map pm-qos-b
+awplus(config-pmap)#
+===== class cm-qos-b =====
+class cm-qos-b
+awplus(config-pmap-c)#
+===== set cos 3 =====
+set cos 3
+awplus(config-pmap-c)#
+===== exit =====
+exit
+awplus(config-pmap)#
+===== exit =====
+exit
+awplus(config)#
+===== interface port1.0.1 =====
+interface port1.0.1
+awplus(config-if)#
+===== service-policy input pm-qos-b =====
+service-policy input pm-qos-b
+awplus(config-if)#
+===== end =====
+end
+awplus#
+===== show policy-map pm-qos-b =====
+show policy-map pm-qos-b
+
+  POLICY-MAP-NAME: pm-qos-b
+    Interfaces: port1.0.1
+    Default class-map action: permit
+
+    CLASS-MAP-NAME: default
+
+    CLASS-MAP-NAME: cm-qos-b
+      QOS-ACCESS-LIST-NAME: acl-qos-b
+      Set CoS: 3
+awplus#
+######## STEPS 1-2 RESULT (38386, BACKUP port1.0.1) — PASS ########
+access-list hardware acl-qos-b : permit ip 10.10.10.1/32 any
+class-map  cm-qos-b            : match access-group acl-qos-b
+policy-map pm-qos-b / class cm-qos-b : set cos 3   (deliberately different from the
+                                       master's 5 so the two results cannot be confused)
+interface port1.0.1            : service-policy input pm-qos-b
+  show policy-map pm-qos-b -> Interfaces: port1.0.1 ; Set CoS: 3
+
+Sent 20 tagged frames (prio 0) eth3 -> port1.0.1 (BACKUP), captured on eth2:
+     10  src=10.10.10.1  prio=3     <- MATCHES policy, CoS CHANGED 0 -> 3
+     10  src=10.10.10.2  prio=0     <- does NOT match, CoS UNCHANGED
+=> STEPS 1-2 PASS on the BACKUP member, identical behaviour to the MASTER (38388).
+   Policies are ingress-only and independent: the master's policy on port2.0.1 had no
+   effect on traffic ingressing port1.0.1.
+
+######## STEP 3 (38386 BACKUP) - policing: single-rate 20000kbps CIR on port1.0.1 ########
+
+===== configure terminal =====
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+awplus(config)#
+===== policy-map pm-qos-b =====
+policy-map pm-qos-b
+awplus(config-pmap)#
+===== class cm-qos-b =====
+class cm-qos-b
+awplus(config-pmap-c)#
+===== police single-rate 20000 20000 40000 action drop-red =====
+police single-rate 20000 20000 40000 action drop-red
+awplus(config-pmap-c)#
+===== police counters =====
+police counters
+awplus(config-pmap-c)#
+===== end =====
+end
+awplus#
+===== show policy-map pm-qos-b =====
+show policy-map pm-qos-b
+
+  POLICY-MAP-NAME: pm-qos-b
+    Interfaces: port1.0.1
+    Default class-map action: permit
+
+    CLASS-MAP-NAME: default
+
+    CLASS-MAP-NAME: cm-qos-b
+      QOS-ACCESS-LIST-NAME: acl-qos-b
+      Policer single-rate action drop-red:
+       average rate(20000 kbps)  minimum burst(20000 B) maximum burst(40000 B)
+      Policer counters enabled
+      Set CoS: 3
+awplus#
+######## ⚠️ MEASUREMENT ARTEFACT (see 38388.log for the full diagnosis) ########
+Throughput measured via rx_bytes reads 0.00 Mbps unless frames are addressed to the
+receiving NIC's real MAC - the NIC hardware-filters everything else, and it looks
+exactly like total packet loss. Proven not to be the DUT by re-running with NO policy
+applied (still 0.00) and by the switch's own egress counters showing it forwarding
+30,013 packets. Pcaps were rebuilt with the real NIC MACs before any result below.
+
+######## STEPS 3-4 RESULT (38386, BACKUP port1.0.1) — PASS ########
+policy-map pm-qos-b / class cm-qos-b:
+    police single-rate 20000 20000 40000 action drop-red
+    police counters
+  A DIFFERENT CIR (20 Mbps) from the master's (10 Mbps) was used deliberately, so the
+  result demonstrates the policer honours the CONFIGURED value rather than converging
+  on some fixed behaviour.
+
+  CONTROL, no policy : offered 49.99 Mbps -> received 48.68 Mbps
+  WITH 20 Mbps policer: offered 49.99 Mbps -> received 19.60 Mbps  (CIR = 20.00 Mbps)
+=> Ingress traffic limited to the configured rate, within ~2% of CIR. STEPS 3-4 PASS.
+
+######## VERDICT 38386 (BACKUP): PASS — all four steps ########
+Identical behaviour to the MASTER (38388). QoS marking and policing show no
+master/backup difference; policies are ingress-only and independent per port.

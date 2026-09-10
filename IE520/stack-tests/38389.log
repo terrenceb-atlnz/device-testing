@@ -1,0 +1,164 @@
+==== TEST 38389: hardware ACL (permit + deny) on a MASTER member port ====
+started 2026-08-18T09:58:41+12:00
+bench   : tb470, AT-IE520-28GSX stack, chassis-id 3439, VMAC 0000.cd37.0d6f
+          software IE520-tb470.rel tomahawk_ie520-continuous, Build Fri Aug 14 2026
+          member 1 = 264A23066 / 84e3.2787.0740 / console /dev/u5
+          member 2 = 264A23052 / 84e3.2787.09c0 / console /dev/u4
+target  : MASTER = stack member 2, ingress port port2.0.1
+path    : tb470 eth2  ->  port2.0.1   (direct, isolated from the shared lab segment)
+dest    : 10.38.215.34  (stack VLAN interface)
+sources : 10.38.215.33  = expected PERMIT (explicit permit rule)
+          10.38.215.35 = expected DENY   (explicit deny rule)
+KEY SEMANTIC (from ck.db CLI ref, ipv4_hw_acl_cmd/accesslist_hardware_named_bi.html):
+  Hardware ACLs will permit access unless explicitly denied by an ACL action.
+  => the implicit action is PERMIT, not deny. A permit rule alone proves nothing, so
+     this test measures the DENY rule and requires COUNTER HITS on BOTH rules as
+     positive evidence rather than relying on 'traffic got through'.
+  the ACL will only apply to incoming data packets  => ingress only.
+NOTE: software ACLs cannot be applied to a port on this platform (access-group offers
+      hardware lists only; 'ip access-group' is unrecognised on port and VLAN
+      interfaces; 'access-class' unrecognised on line vty). Hardware ACL is the only
+      option, consistent with the test title.
+
+######## PRE-ACL CONTROL — all four source/dest pairs reachable, NO ACL applied ########
+tb470 secondary source addresses added: eth2 +10.38.215.35/27, eth3 +10.38.215.67/27
+  10.38.215.33 -> 10.38.215.34   MASTER permit-src    0% packet loss
+  10.38.215.35 -> 10.38.215.34   MASTER deny-src      0% packet loss
+  10.38.215.65 -> 10.38.215.66   BACKUP permit-src    0% packet loss
+  10.38.215.67 -> 10.38.215.66   BACKUP deny-src      0% packet loss
+=> Every path works BEFORE any ACL exists. Any later failure is therefore attributable
+   to the ACL and not to an unreachable source, a missing route or a dead path.
+
+######## STEP 1 - configure hardware ACLs and apply to master + backup ports ########
+
+===== configure terminal =====
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+awplus(config)#
+===== access-list hardware acl-master =====
+access-list hardware acl-master
+awplus(config-ip-hw-acl)#
+===== permit icmp 10.38.215.33/32 10.38.215.34/32 =====
+permit icmp 10.38.215.33/32 10.38.215.34/32
+awplus(config-ip-hw-acl)#
+===== deny icmp 10.38.215.35/32 10.38.215.34/32 =====
+deny icmp 10.38.215.35/32 10.38.215.34/32
+awplus(config-ip-hw-acl)#
+===== exit =====
+exit
+awplus(config)#
+===== access-list hardware acl-backup =====
+access-list hardware acl-backup
+awplus(config-ip-hw-acl)#
+===== permit icmp 10.38.215.65/32 10.38.215.66/32 =====
+permit icmp 10.38.215.65/32 10.38.215.66/32
+awplus(config-ip-hw-acl)#
+===== deny icmp 10.38.215.67/32 10.38.215.66/32 =====
+deny icmp 10.38.215.67/32 10.38.215.66/32
+awplus(config-ip-hw-acl)#
+===== exit =====
+exit
+awplus(config)#
+===== interface port2.0.1 =====
+interface port2.0.1
+awplus(config-if)#
+===== access-group acl-master =====
+access-group acl-master
+awplus(config-if)#
+===== exit =====
+exit
+awplus(config)#
+===== interface port1.0.1 =====
+interface port1.0.1
+awplus(config-if)#
+===== access-group acl-backup =====
+access-group acl-backup
+awplus(config-if)#
+===== end =====
+end
+awplus#
+===== show access-list =====
+show access-list
+Hardware IP access list acl-backup
+    4 permit icmp 10.38.215.65/32 10.38.215.66/32
+    8 deny icmp 10.38.215.67/32 10.38.215.66/32
+Hardware IP access list acl-master
+    4 permit icmp 10.38.215.33/32 10.38.215.34/32
+    8 deny icmp 10.38.215.35/32 10.38.215.34/32
+awplus#
+===== show running-config interface port2.0.1 =====
+show running-config interface port2.0.1
+!
+interface port2.0.1
+ switchport
+ switchport mode access
+ switchport access vlan 3002
+ access-group acl-master
+!
+awplus#
+===== show running-config interface port1.0.1 =====
+show running-config interface port1.0.1
+!
+interface port1.0.1
+ switchport
+ switchport mode access
+ switchport access vlan 3001
+ access-group acl-backup
+!
+awplus#
+######## STEP 2 EVIDENCE - ACL rule counters ########
+
+===== show access-list counters =====
+show access-list counters
+Hardware ACL Packet Counters
+
+Name: acl-master
+
+	Rule: permit icmp 10.38.215.33/32 10.38.215.34/32
+	Packet Hits: 4
+
+
+	Rule: deny icmp 10.38.215.35/32 10.38.215.34/32
+	Packet Hits: 4
+
+Name: acl-backup
+
+	Rule: permit icmp 10.38.215.65/32 10.38.215.66/32
+	Packet Hits: 4
+
+
+	Rule: deny icmp 10.38.215.67/32 10.38.215.66/32
+	Packet Hits: 4
+
+awplus#
+######## STEP 1 RESULT — ACL configured and applied ########
+access-list hardware acl-master
+    4 permit icmp 10.38.215.33/32 10.38.215.34/32
+    8 deny   icmp 10.38.215.35/32 10.38.215.34/32
+interface port2.0.1  ->  access-group acl-master      [stack member 2 = MASTER]
+(sequence numbers auto-assigned as multiples of 4, per the CLI reference)
+
+######## STEP 2 RESULT — traffic follows the ACL rules ########
+                                              expected   observed
+  10.38.215.33 -> 10.38.215.34   (matches PERMIT)    pass       0% packet loss
+  10.38.215.35 -> 10.38.215.34   (matches DENY)      blocked  100% packet loss
+Compare against the PRE-ACL CONTROL above, where BOTH sources reached the target at
+0% loss. The only change is the ACL, so the 100% loss is the deny rule acting.
+
+POSITIVE EVIDENCE — show access-list counters (4 echo requests sent per source):
+  Name: acl-master
+      Rule: permit icmp 10.38.215.33/32 10.38.215.34/32
+      Packet Hits: 4
+      Rule: deny icmp 10.38.215.35/32 10.38.215.34/32
+      Packet Hits: 4
+Both rules register EXACTLY the 4 packets sent. This matters because hardware ACLs
+implicitly PERMIT: without a counter hit, "traffic got through" would be equally
+consistent with the permit rule never matching at all. The hit count rules that out.
+
+######## VERDICT: PASS ########
+Traffic followed the ACL rules on the MASTER member's port. Both the explicit permit
+and the explicit deny behaved as specified, each confirmed by rule counters.
+
+CROSS-REFERENCE: run jointly with TEST 38387 (BACKUP member port) in the same
+session, same stack, same software, same procedure. Both members produced IDENTICAL
+results - hardware ACL enforcement shows no master/backup difference.

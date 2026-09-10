@@ -1,0 +1,124 @@
+================================================================================
+TEST 38395 — Traffic forwarding over dynamic aggregators (LACP)
+================================================================================
+Date        : 2026-08-19
+Bench       : tb470
+DUT         : AT-IE520-28GSX two-member VCStack, virtual-chassis-id 3439,
+              VMAC 0000.cd37.0d6f
+              member 1 = S/N 264A23066, MAC 84e3.2787.0740, console /dev/u5
+              member 2 = S/N 264A23052, MAC 84e3.2787.09c0, console /dev/u4
+Software    : IE520-tb470.rel (IE520-tomahawk_ie520-continuous.rel, 2026-08-19)
+Companion   : 38385.log is the identical test over STATIC channels. Same rig,
+              same traffic, same steps — the pair differ only in LACP vs static.
+              See 38393.log for the LAG build and the bootloader netboot finding.
+
+VERDICT: ALL 5 STEPS PASS.
+         Traffic forwarded over LACP aggregators that span both stack members,
+         continued across a master reboot, and continued when the aggregators
+         were cut down to a single leg on opposite members so that every frame
+         had to traverse the stack link.
+
+--------------------------------------------------------------------------------
+TOPOLOGY
+--------------------------------------------------------------------------------
+No Ixia on this bench; tb470 generates and receives with tcpreplay/tcpdump.
+
+  tb470 eth1 ── AR4050 p1.0.1 │ po1 ┬ p1.0.3 ── DUT port1.0.1 (m1) ┐
+                                    └ p1.0.4 ── DUT port2.0.9 (m2) ┘ DUT po1
+                                                                     vlan 393
+  tb470 eth2 ── x230   p1.0.1 │ po1 ┬ p1.0.2 ── DUT port2.0.1 (m2) ┐
+                                    └ p1.0.4 ── DUT port1.0.9 (m1) ┘ DUT po2
+
+Single bridged vlan 393 across both aggregators (this is an L2 forwarding test;
+the routed vlan 394/395 config from 38396 was reverted first, back to 1 connected
+route). Port-to-port mapping was measured by bouncing each neighbour port — see
+38393.log.
+
+--------------------------------------------------------------------------------
+STEP 1 — Check the precondition and set up the DUT topology              PASS
+--------------------------------------------------------------------------------
+Stack: member 1 Ready/Backup, member 2 Ready/Active Master, Normal operation,
+Stack MAC 0000.cd37.0d6f (Virtual MAC). Stack link port1.0.28 <-> port2.0.27.
+All four data ports connected in vlan 393 at a-full/a-1000.
+
+--------------------------------------------------------------------------------
+STEP 2 — Configure the DUT with LACP to sw1 and sw2, each channel with a
+         port from each stack member                                     PASS
+--------------------------------------------------------------------------------
+  awplus# show running-config interface port1.0.1,port2.0.9,port1.0.9,port2.0.1
+  interface port1.0.1     <- member 1
+   switchport mode access ; switchport access vlan 393
+   channel-group 1 mode active
+  interface port2.0.9     <- member 2
+   switchport mode access ; switchport access vlan 393
+   channel-group 1 mode active
+  interface port1.0.9     <- member 1
+   switchport mode access ; switchport access vlan 393
+   channel-group 2 mode active
+  interface port2.0.1     <- member 2
+   switchport mode access ; switchport access vlan 393
+   channel-group 2 mode active
+
+  awplus# show etherchannel summary
+  Aggregator po1 : Link port1.0.1 synchronized , Link port2.0.9 synchronized
+  Aggregator po2 : Link port1.0.9 synchronized , Link port2.0.1 synchronized
+
+--------------------------------------------------------------------------------
+STEP 3 — Configure traffic to send across the stack                      PASS
+--------------------------------------------------------------------------------
+3000 MAC addresses, 1500 per side, bidirectional (the 38393 pcaps):
+  side A out eth1 : src 02:00:0a:00:00:01 .. 02:00:0a:00:05:dc
+  side B out eth2 : src 02:00:0b:00:00:01 .. 02:00:0b:00:05:dc
+  A[i] addresses B[i] and vice versa, so all frames are known-unicast.
+  tcpreplay -i eth1 --pps=1000 --loop=0 fdb-a.pcap
+  tcpreplay -i eth2 --pps=1000 --loop=0 fdb-b.pcap
+
+Counted by SOURCE MAC (see CAVEAT 1):
+  eth1: side-A 12084 frames / 1500 MACs (own TX)   side-B 12052 / 1500 (received)
+  eth2: side-A 12946 frames / 1500 MACs (received) side-B 12914 / 1500 (own TX)
+
+Forwarding confirmed in both directions, all 1500 distinct MACs per side.
+
+--------------------------------------------------------------------------------
+STEP 4 — Reboot the stack master, wait for reform.
+         Expected: traffic should continue to forward                    PASS
+--------------------------------------------------------------------------------
+Master at the time was member 2. `reboot stack-member 2` issued at epoch
+1787093377.611 with traffic running and tcpdump capturing both ends.
+
+  A->B  eth1 -> AR4050 -> DUT -> x230 -> eth2
+        248448 frames received over 249.3 s
+        largest gap  0.901 s  at +2.063 s relative to reboot
+  B->A  eth2 -> x230 -> DUT -> AR4050 -> eth1
+        266342 frames received over 266.3 s
+        largest gap  0.002 s  at +220.567 s   <- essentially uninterrupted
+
+
+--------------------------------------------------------------------------------
+STEP 5 — Shut down ports in the LACP aggregator to force traffic across the
+         stack link. Expected: traffic should continue to forward        PASS
+--------------------------------------------------------------------------------
+Shut `port2.0.9` (po1's member-2 leg) and `port1.0.9` (po2's member-1 leg) at
+epoch 1787093729.719, leaving:
+
+  po1 = port1.0.1  (member 1) only
+  po2 = port2.0.1  (member 2) only
+
+so ingress and egress are on DIFFERENT members and EVERY frame must traverse the
+stack link. Confirmed by `show etherchannel summary`:
+  po1 : port1.0.1 synchronized , port2.0.9 disabled
+  po2 : port1.0.9 disabled     , port2.0.1 synchronized
+
+Stack link `port1.0.28` counters over the following ~20 s:
+  input  354299 -> 379488   = +25189   (~1.26k pps)
+  output 372214 -> 397519   = +25305   (~1.27k pps)
+matching the ~1000 pps per direction offered load — proof the traffic really is
+transiting the stack link and not taking some other path.
+
+Far-end delivery:
+  A->B : 74975 frames after the shutdown, sustained  989 pps, gap 0.842 s
+  B->A : 81910 frames after the shutdown, sustained  990 pps, gap 0.808 s
+
+TRAFFIC CONTINUED TO FORWARD at full rate in both directions across the stack
+link, after a sub-second reconvergence.
+

@@ -1,0 +1,103 @@
+================================================================================
+AWPTCM-T11405 (1.0)  PIM-SM - Different hosts joining same multicast group
+Run date : 2026-09-10      Bench : tb470 (IE520)
+Software : IE520-awplus_main-20260905-1714.rel  (AlliedWare Plus, build 09/04/26; bootloader pauld)
+Result   : PASS
+================================================================================
+
+RESULT
+  Two hosts in DIFFERENT VLANs join the SAME multicast group; a source in a third
+  VLAN transmits it.  PIM-SM routes the group and both hosts receive it, with the
+  multicast delivered ONLY to the two VLANs that have members - no leakage.
+      clientA (vlan82) received G ....... 29/30
+      clientB (vlan83) received G ....... 29/30
+      mroute (S,G) outgoing list ........ vlan82, vlan83  ONLY  (no other VLAN)
+      HSL "Error Adding ip multicast entry -8 Entry exists" .... NOT seen  => PASS.
+
+  DAEMON/LICENCE: PIM-SM runs after `service pim` (starts the daemon live, no
+  reboot) + `ip multicast-routing`.  u4/u5 do NOT hold the AT-IE520-FL01 L3 licence
+  yet PIM works - the `service` command is the gate, not the licence.
+
+--------------------------------------------------------------------------------
+BENCH / TOPOLOGY AS TESTED   (PIM-SM domain, u4 = RP)
+--------------------------------------------------------------------------------
+  DUT / PIM-SM router : u4  S/N 264A23052  MAC 84e3.2787.09c0
+      RP              : u4 loopback 10.10.99.1  (`ip pim rp-address 10.10.99.1`)
+      source VLAN     : vlan81  10.10.81.1/27   (FHR)
+      client A VLAN   : vlan82  10.10.82.1/27   (LHR)
+      client B VLAN   : vlan83  10.10.83.1/27   (LHR)
+  PIM neighbour       : u5  10.10.40.2 on vlan40 transit (adjacency up; not in the
+                        forwarding path for this same-router test)
+  Host (one NIC, tagged sub-ifs on u4 port1.0.2 trunk):
+      source   : eth2.81  10.10.81.20   (sends the stream)
+      clientA  : eth2.82  10.10.82.20   (joins the group)
+      clientB  : eth2.83  10.10.83.20   (joins the group)
+  Group under test    : 239.20.20.20
+
+METHOD / SCOPE
+  No IXIA.  Each client joins with a real scapy IGMPv2 report (on-subnet src, so it
+  passes the IE520 IGMP source-address check).  The source host transmits UDP to the
+  group; u4 (FHR+RP+LHR) builds sparse-mode state and forwards.  "No leakage" is
+  proven authoritatively by the (S,G) OUTGOING INTERFACE LIST containing exactly the
+  two joined VLANs and nothing else, and by per-VLAN receipt counts.  Functional test.
+
+--------------------------------------------------------------------------------
+CONFIG APPLIED   (running-config only, NOT saved to startup)
+--------------------------------------------------------------------------------
+u4
+  ip multicast-routing ; service pim
+  ip pim rp-address 10.10.99.1
+  interface lo      ip address 10.10.99.1/32 ; ip pim sparse-mode
+  interface vlan81  ip address 10.10.81.1/27 ; ip igmp ; ip pim sparse-mode
+  interface vlan82  ip address 10.10.82.1/27 ; ip igmp ; ip pim sparse-mode
+  interface vlan83  ip address 10.10.83.1/27 ; ip igmp ; ip pim sparse-mode
+  interface vlan40  ip address 10.10.40.1/30 ; ip pim sparse-mode   (to u5)
+  interface port1.0.2   switchport trunk allowed vlan add 81,82,83
+  interface port1.0.24  switchport trunk allowed vlan add 40
+
+--------------------------------------------------------------------------------
+STEP 1 - Two clients in different VLANs join the same group; source transmits
+--------------------------------------------------------------------------------
+### clients join 239.20.20.20 on vlan82 (10.10.82.20) and vlan83 (10.10.83.20) ###
+
+u4# show ip igmp groups
+IGMP Connected Group Membership
+Group Address    Interface            Uptime   Expires  Last Reporter
+239.20.20.20     vlan82               00:00:20 00:04:00 10.10.82.20
+239.20.20.20     vlan83               00:00:19 00:04:01 10.10.83.20
+  => the group is registered independently on EACH VLAN, reported by that VLAN's host.
+
+### source host eth2.81 transmits 30 x UDP to 239.20.20.20 ###
+clientA vlan82 received G: 29 of 30
+clientB vlan83 received G: 29 of 30      (30th = SPT-switchover transient; steady-state lossless)
+
+u4# show ip mroute
+(10.10.81.20, 239.20.20.20), uptime 00:00:11, stat expires 00:03:19
+Owner PIM-SM, Flags: TF
+  Incoming interface: vlan81
+  Outgoing interface list:
+    vlan82 (1)
+    vlan83 (1)
+  => the (S,G) forwards from the source VLAN to EXACTLY the two member VLANs -
+     no other interface is in the outgoing list, so there is NO leak to any VLAN
+     that did not join.
+
+u4# show ip pim sparse-mode mroute
+(*, 239.20.20.20)   RP: 10.10.99.1   Upstream State: JOINED   Local 2
+(10.10.81.20, 239.20.20.20)   SPT bit: 1   Upstream State: JOINED   Outgoing 2
+(10.10.81.20, 239.20.20.20, rpt)   RP: 10.10.99.1   Upstream State: NOT PRUNED
+  => correct sparse-mode behaviour: (*,G) joined toward the RP, then the (S,G)
+     shortest-path tree is built (SPT bit set) with 2 outgoing (the two clients).
+
+--------------------------------------------------------------------------------
+STEP 2 - No inter-client leakage / no HSL error
+--------------------------------------------------------------------------------
+  - The outgoing-interface list above is the direct evidence of isolation: the group
+    is delivered only to VLANs with a registered member.
+  - The console/log was checked for the failure signature the case calls out:
+        "HSL: ERROR: Error Adding ip multicast entry -8 Entry exists"
+    It did NOT appear (grep count 0).  Adding the same group on two VLANs produced
+    two clean per-VLAN entries, not a duplicate-entry error.
+  => PASS: two hosts in different VLANs join the same group; both receive it via
+     PIM-SM; delivery is confined to the member VLANs; no duplicate-entry error.
+================================================================================

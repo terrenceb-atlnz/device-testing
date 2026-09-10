@@ -1,0 +1,1180 @@
+================================================================================
+IE520 / 5700 BOOTLOADER SUITE - EDIT INVENTORY AND OUTPUT-DIVERGENCE ANALYSIS
+================================================================================
+Compiled       : 2026-08-12  (Part A re-verified against a second bootloader
+                 the same day - see "BOOTLOADERS TESTED" below)
+Platform       : IE520 (IE520-28GSX)
+Software       : IE520-tb470.rel / IE520-tb504.rel,
+                 build IE520-tomahawk_ie520-continuous (master-20260717-518)
+
+BOOTLOADERS TESTED
+  (1) "9.1.0"  - the build all the analysis below was originally written against.
+                 Reports itself on the console as raw "U-Boot 2025.01-04843-
+                 g6eaac4e1fcad" / "-04844-gd2292467da4d".
+  (2) "pauld"  - IE520-bootloader-pauld.kwb, a developer build placed in
+                 tb470:/tftproot on 2026-08-12 10:41, built from
+                 /usr/src/output/IE520/u-boot/new/install/.
+                 Underlying source: U-Boot 2025.01-04842-g81cb0281f160-dirty
+                 (Aug 11 2026 - 22:39:06 +0000).
+                 sha256 a65d0bae2e283592732751d11f5e186f1e76fb8b0b56d1983e9c8a6beefc3df6
+                 Tested live on tb470 /dev/u4 (S/N 264A23052) on 2026-08-12.
+                 Captures: new-bootloader-pauld-20260812/
+
+  VERDICT ON (2): the ROOT CAUSE (A0) is FIXED - all raw U-Boot output is now
+  suppressed and the AT-standard banner form is restored. D2, D3 and D4 are
+  FIXED. D1 and D5 remain BROKEN, and for the same single reason: the U-Boot
+  noise was removed but the Allied Telesis status messages were never added in
+  its place, on either the success path or the failure path.
+Benches        : tb470 /dev/u4 (S/N 264A23052), tb470 /dev/u5 (S/N 264A23066),
+                 tb504 /dev/ttyUSB0
+Control        : x230v2, 2026-02-19, build awplus_main-20260218-1237,
+                 same 5700 suite, same framework
+                 -> raw-data/test_scripts/5700_bootloader/
+
+PURPOSE
+  The 5700 bootloader suite encodes the expected console verbiage of AW+ products.
+  Other platforms pass it. The IE520 did not. This document separates:
+    (A) edits that ACCOMMODATE different IE520 output   -> product questions
+    (B) edits that fix genuine cross-platform test bugs -> correctly ours to fix
+
+HEADLINE
+  Total edits made to run the suite on IE520 ......... 26  (13 defects, 6 files)
+    (A) IE520 output divergence ..................... 12  ( 5 defects)
+    (B) Genuine cross-platform test bugs ............ 14  ( 8 defects)
+
+  x230v2 control baseline (same suite, effectively all-pass):
+    suite 2002 ...... 16 PASS /  3 FAIL /  7 UNSUPPORTED
+    suite 2003 ...... 13 PASS /  0 FAIL /  2 UNSUPPORTED
+    suite 2005 ......  8 PASS /  0 FAIL /  0 UNSUPPORTED
+
+  Every gate string the IE520 tripped on PASSES on x230v2. That is the basis for
+  classifying 12 of the 26 edits as accommodation rather than repair.
+
+  DIVERGENCE OCCURRENCE SUMMARY (device output only, whole campaign)
+  Full triggers and breakdowns in Part A.
+
+    ID   Divergence                          Trigger (Boot Menu)      x230v2  IE520
+    ---  ----------------------------------  -----------------------  ------  -----
+    D1   No release-verification stage       any release load             95      0
+         (IE520 prints U-Boot FIT instead)   option 9 to reproduce         0    495
+    D2   Raw filesystem listing leaks
+         ahead of the selection menu         option 1 or 2                 0     63
+    D3   "Saving settings..." split          option 2                     32*   100
+    D4   "Restoring default settings..."
+         split                               option 7                      2      3
+    D5   No platform-compat rejection
+         message                             option 1, foreign .rel        1      1**
+
+    *  x230v2 D3: 32 of 33 contiguous; the 1 outlier is a console-read
+       truncation, not an interleave. IE520: 0 of 100 contiguous.
+    ** D5 counts are per-message and mutually exclusive - see Part A. Neither
+       platform has ever emitted the other's text.
+
+  STATUS AGAINST THE "pauld" BUILD (tb470 u4, 2026-08-12)
+
+    ID   Status on pauld build
+    ---  ------------------------------------------------------------------
+    A0   FIXED    - all raw U-Boot output suppressed; AT banner form restored
+    D1   BROKEN   - noise gone, but NO marker added: the window is now SILENT
+    D2   FIXED    - listing is byte-for-byte the x230v2 format
+    D3   FIXED    - "Saving settings... Complete" contiguous
+    D4   FIXED    - "Restoring default settings... Complete" contiguous
+    D5   BROKEN   - WORSE: no error text at all, and now misreads as a success
+
+  THE REMAINING ASK IS SINGULAR:
+    The suppression work is complete and correct. What is missing is the
+    Allied Telesis status message layer, on BOTH paths:
+      success path  -> "Verifying release... OK"  (D1)
+      failure path  -> "Error: This release file is not intended for this
+                        device."                  (D5)
+
+  Supporting evidence for the common root cause (Part A, section A0):
+    "U-Boot 2025.01" banner ...................... x230v2 = 0    IE520 = 995
+    "Bootloader 6.2.37 loaded" ................... x230v2 = 432  IE520 = 0
+    "Bootloader 9.1.0 loaded" .................... x230v2 = 0    IE520 = 112
+    "Saving Environment to SPIFlash" ............. x230v2 = 0    IE520 = 142
+
+
+================================================================================
+PART A - IE520 OUTPUT DIVERGENCES (5 defects) - PRODUCT QUESTIONS
+================================================================================
+These are NOT test bugs. The test string is live on other platforms. The IE520
+emits something different. Each gate below was widened or replaced so the IE520
+would pass; that masks a product-side difference and should be escalated, not
+ported.
+
+Each entry gives the TRIGGER (the operator action that reproduces it), WHERE IT
+FIRES (suite and case), and OCCURRENCES across the whole campaign on both
+platforms.
+
+HOW THE COUNTS WERE TAKEN
+  Corpus:
+    x230v2  5 logs   swi_a_2001..2005.log            (2026-02-19)
+    IE520   8 logs   run-20260810/swi_a_2001..2005,
+                     run-20260810/2005-run1-cases123/swi_a_2005,
+                     run-20260811-tb470-2002/swi_a_2002,
+                     run-20260811-tb470-2003/swi_a_2003
+  DEVICE OUTPUT ONLY. The framework logs its own strList, so every count below is
+  taken after dropping lines matching
+      ^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}:
+  Without that filter you match OUR text and conclude the device emitted a string
+  it never printed. Also: grep reads these logs as BINARY - use grep -a or every
+  count comes back 0.
+
+--------------------------------------------------------------------------------
+A0  PROBABLE COMMON ROOT CAUSE - THE IE520 IS RUNNING MAINLINE U-BOOT
+--------------------------------------------------------------------------------
+    D1 through D5 are very likely NOT five findings. They are one, observed at
+    five different places.
+
+    BOOTLOADER BANNERS, device output, whole campaign:
+
+      x230v2    "Bootloader 6.2.37 loaded" .................. 432
+                any U-Boot banner ............................. 0
+
+      IE520     "U-Boot 2025.01-04843-g6eaac4e1fcad" ........ 883
+                "U-Boot 2025.01-04844-gd2292467da4d" ........ 112
+                "U-Boot 2025.01" (total) .................... 995
+                "Bootloader 9.1.0 loaded" ................... 112
+
+    x230v2 NEVER shows a U-Boot banner. The IE520 shows one 995 times, against
+    only 112 showings of the AT bootloader banner.
+
+    SUPPORTING STRING - U-Boot's own environment-save output:
+
+      "Saving Environment to SPIFlash"    x230v2 = 0     IE520 = 142
+
+    Zero occurrences on x230v2 in any suite. That string is verbatim mainline
+    U-Boot env_save() output from the SPI-flash environment driver, and it is
+    what splits D3 and D4.
+
+    INFERENCE (strongly supported by the above; NOT proven from source):
+      The IE520 runs mainline U-Boot 2025.01 with a thin Allied Telesis
+      bootloader layer over it that does not suppress U-Boot's console output.
+      x230v2's Bootloader 6.2.37 fully wraps U-Boot and never leaks it.
+
+    If that holds, every entry below is the same leak seen at a different point:
+      D1  FIT loader output instead of the AT release-verification line
+      D2  U-Boot's filesystem listing ahead of the AT selection menu
+      D3  U-Boot env_save() progress inside an AT message pair
+      D4  U-Boot env_save() progress inside an AT message pair
+      D5  U-Boot FIT config-node lookup instead of the AT platform check
+
+    THE QUESTION FOR THE BOOTLOADER TEAM IS THEREFORE SINGULAR:
+      "Is the IE520 intended to run mainline U-Boot with a reduced AT bootloader
+       layer, and if so, is the leaked U-Boot console output intended?"
+    Everything in Part A follows from the answer.
+
+    *** A0 CONFIRMED, AND FIXED ON THE "pauld" BUILD (2026-08-12) ***
+
+    The inference above was correct. The pauld build suppresses the leak
+    completely. Measured on tb470 u4, device output, full boot:
+
+                                          9.1.0 build      pauld build
+      "U-Boot 2025.01" banner .........        995               0
+      "Verifying Hash Integrity" ......        495               0
+      "Booting image ..." .............      present             0
+      "Using ... configuration" .......      present             0
+      "Trying ... subimage" ...........      present             0
+      "Probing SPI flash" .............      present             0
+      "Waiting for Ethernet" ..........      present             0
+      "Using asix_eth device" .........      present             0
+      "TFTP from server" ..............      present             0
+      "Bytes transferred" .............      present             0
+      "Saving Environment to SPIFlash"         142               0
+
+    And the banner is back to the AT-standard FORM, matching x230v2:
+
+      x230v2 :  Bootloader 6.2.37 loaded
+      pauld  :  Bootloader pauld loaded
+      9.1.0  :  U-Boot 2025.01-04843-g6eaac4e1fcad   (raw, no AT banner)
+
+    This confirms the leak was a SUPPRESSION problem, exactly as inferred, and
+    that it is fixable without changing the underlying U-Boot base (the pauld
+    build is still U-Boot 2025.01).
+
+    *** BUT: SUPPRESSION ALONE IS NOT THE FIX ***
+    Removing the U-Boot output did not restore the AT messages that the tests
+    actually gate on. Both D1 (success path) and D5 (failure path) are now
+    SILENT rather than wrong. See the per-item status blocks below.
+
+    NEW ITEM - the version string is a developer name:
+      show system  ->  Bootloader version : pauld
+    2002 case 70 ("Check bootloader version") asserts the bootloader version
+    appears in system information, so it is now comparing against "pauld"
+    rather than a version number.
+
+--------------------------------------------------------------------------------
+D1  NO RELEASE-VERIFICATION STAGE
+--------------------------------------------------------------------------------
+    TRIGGER
+      Boot the device so that it loads a release - ANY release load will do.
+      Simplest manual reproduction: from the Boot Menu select
+        "9. Quit and continue booting"
+      and watch the console between the TFTP/flash load and the kernel starting.
+      x230v2 prints two AT lines there. The IE520 prints the raw U-Boot FIT
+      loader transcript instead.
+
+    WHERE IT FIRES
+      Everywhere a release is loaded, so effectively every boot in every suite.
+      Cases whose PASS/FAIL verdict depends on it: 7
+        2002 case  70   Check bootloader version
+        2002 case  80   Restart from boot menu
+        2002 case  90   Boot from backup (b)
+        2003 case   1   Diagnostics menu option 0, Restart
+        2003 case   8   Diagnostics option 9, Quit and continue rebooting
+        2003 case   9   Stage 2, option 0, Restart
+        2003 case  15   Stage 2, option 9, Quit and continue booting
+
+    OCCURRENCES (device output, whole campaign)
+                                       x230v2      IE520
+      "Verifying release" ...........      95          0
+      "Verifying Hash Integrity" ....       0        495
+
+      Neither string ever appears on the other platform. This is a clean
+      95-to-0 / 0-to-495 split with no overlap in either direction.
+
+    *** STATUS ON "pauld" BUILD (2026-08-12): STILL BROKEN - NOW SILENT ***
+
+      The U-Boot noise is gone, but no AT marker was added in its place. The
+      stretch where x230v2 prints two lines is now empty:
+
+        x230v2 (reference)              pauld build
+        ------------------              -----------
+        Loading tftp://...rel           Loading tftp://...IE520-tb470.rel
+                                            (nothing)
+        Verifying release... OK
+        Booting...
+                                        [Allied Telesis ASCII banner]
+
+      Counts on the pauld build:  "Verifying release" = 0,  "Booting..." = 0.
+
+      THIS ALSO BREAKS OUR OWN ACCOMMODATION. The BOOT_MARKERS list added to
+      library_5700.py to work around the 9.1.0 build has lost 3 of its 4
+      markers on this build:
+
+        marker                        pauld build
+        "Verifying Hash Integrity"          0
+        "Booting kernel"                    0
+        "Starting kernel"                   0
+        "login:"                            1     <- only survivor
+
+      "login:" is the LAST line of a completed boot, so the gate still passes
+      but every early-detection property is gone - it now waits out the full
+      boot every time.
+
+      What IS present and usable on this build: "Mounting" (5) and
+      "Initializing" (1) - which is what the original RCA recommended
+      (["Mounting", "Booting", "Initializing"], the framework's own bootup
+      keyword set). If BOOT_MARKERS is revised, those are the anchors to use.
+
+    DEVICE OUTPUT - x230v2
+      Loading tftp://10.37.101.1/x230v2-tb101.rel via switchport 2...
+
+      Verifying release... OK
+      Booting...
+
+    DEVICE OUTPUT - IE520
+      Loading tftp://10.38.249.33/IE520-tb504.rel via 'eth0' interface...
+      Waiting for Ethernet connection... done.
+      Using asix_eth device
+      TFTP from server 10.38.249.33; our IP address is 10.38.249.34
+      Filename 'IE520-tb504.rel'.
+      Load address: 0x4000000
+      Loading: *#################################################################
+      Bytes transferred = 41015155 (271d773 hex)
+      Probing SPI flash... Complete
+      Booting image 04000000#IE520-28GSX ...
+         Using 'IE520-28GSX' configuration
+         Trying 'kernel' kernel subimage
+           Hash algo:    sha1
+           Hash value:   f73da2cd274cc8a67fed9e5a58df383cedc4cfed
+         Verifying Hash Integrity ... sha1+ OK
+
+    ANALYSIS
+      The IE520 exposes raw U-Boot/FIT loader output. The AT bootloader's
+      abstracted "Verifying release... OK" + "Booting..." pair is absent
+      entirely.
+
+    CODE BEFORE
+      output = dut.send('9', strList=["Verifying release... OK"])
+      if 'Verifying release' in output:
+          self.passed("Device booted and loaded the release file successfully")
+
+    CODE AFTER
+      BOOT_MARKERS = ['login:', 'Booting kernel', 'Starting kernel',
+                      'Verifying Hash Integrity']
+
+      def wait_for_release_boot(self, dut, key, waitTime=600):
+          output = dut.send(key, strList=BOOT_MARKERS, waitTime=waitTime,
+                            interval=0.05)
+          return output, any(marker in output for marker in BOOT_MARKERS)
+
+--------------------------------------------------------------------------------
+D2  RAW FILESYSTEM LISTING PRECEDES THE SELECTION MENU
+--------------------------------------------------------------------------------
+    TRIGGER
+      From the Boot Menu select either
+        "1. Perform one-off boot from alternate source"   or
+        "2. Change the default boot source (for advanced users)"
+      then choose a medium (flash / USB). Watch the console between
+      "Reading filesystem..." and "Listing of usable files (root directory only)".
+      x230v2 goes straight from one to the other. The IE520 prints the whole
+      filesystem - sizes, directories, and an "N file(s), N dir(s)" summary -
+      in between.
+
+    WHERE IT FIRES
+      Every media selection. Cases affected: 6
+        2002 cases 22, 42, 60, 62, 100, 102
+
+    OCCURRENCES (device output, whole campaign)
+                                                        x230v2      IE520
+      "Listing of usable files" shown ................      20         63
+        - menu immediately follows "Reading filesystem"      20          0
+        - raw listing intervenes ........................      0         63
+      "N file(s), N dir(s)" summary line .............       0         37
+
+      100% separation: 20 of 20 clean on x230v2, 63 of 63 polluted on IE520.
+      The "file(s)," summary appears only for removable media, which is why it
+      is 37 rather than 63; the flash-media listings leak in a dated `dir` format
+      instead but are equally present.
+
+    *** STATUS ON "pauld" BUILD (2026-08-12): FIXED ***
+
+      Byte-for-byte the x230v2 format. No raw listing, no sizes, no
+      "N file(s), N dir(s)" summary. Verified on BOTH media types:
+
+        USB (Boot Menu 1 -> 6):            Flash (Boot Menu 2 -> 1):
+          Reading filesystem...              Reading filesystem...
+
+        Listing of usable files            Listing of usable files
+        (root directory only)              (root directory only)
+
+          1. usb:IE520-tb470.rel             1. flash:mainrelease.rel
+          2. usb:---w-z-03-09-a-y---.rel     2. flash:backuprelease.rel
+
+        Enter selection (1-2, 0 to         Enter selection (1-2, 0 to
+        cancel) and press enter ==>        cancel) and press enter ==>
+
+      The flash case matters independently: on the 9.1.0 build that path leaked
+      a dated `dir`-style dump (with <DIR> entries and .cfg files) ahead of the
+      menu; it is now clean.
+
+      Note the fixed parse (endswith(':<filename>')) still works, and so would
+      the ORIGINAL buggy parse, since there is no longer a raw listing for it
+      to land on. The defect is genuinely gone rather than merely worked around.
+
+    DEVICE OUTPUT - x230v2
+        Reading filesystem...
+
+      Listing of usable files (root directory only)
+
+        1. card:---w-z-03-09-a-y---.rel
+
+      Enter selection (1-1, 0 to cancel) and press enter ==>
+
+    DEVICE OUTPUT - IE520
+        Reading filesystem...
+
+       41104167   ---w-z-03-09-a-y---.rel
+        1572864   IE520-bootloader-9.1.0.kwb
+                  .Trash-1906/
+       41103815   IE520-tb470.rel
+
+      3 file(s), 1 dir(s)
+
+      Listing of usable files (root directory only)
+
+        1. usb:IE520-tb470.rel
+        2. usb:---w-z-03-09-a-y---.rel
+
+      Enter selection (1-2, 0 to cancel) and press enter ==>
+
+    ANALYSIS
+      The IE520 prints the filesystem contents under "Reading filesystem..."
+      before the numbered menu; x230v2 goes straight to the menu. The original
+      parse took the first line CONTAINING the filename - correct on x230v2. On
+      IE520 it lands on the raw listing, so token 0 is the file SIZE:
+      "41015155"[:-1] -> 4101515, typed at a prompt offering (1-2, 0 to cancel).
+      Slicing a string never raises, so the except (ValueError, IndexError) was
+      DEAD CODE and the failure was silent - it surfaced 30 min later as a
+      timeout. Both releases are the same size, so it returned the SAME wrong
+      index whichever file was requested.
+
+    CODE BEFORE
+      lines = output.splitlines()
+      for line in lines:
+          if filename in line:
+              try:
+                  number = line.split()[0][:-1]
+                  ...
+              except (ValueError, IndexError):
+                  pass
+
+    CODE AFTER
+      menuLines = [x.strip() for x in output.splitlines()
+                   if x.strip().endswith(':{}'.format(filename))]
+      for line in menuLines:
+          try:
+              number = int(line.split()[0].replace('.', ''))
+          except (ValueError, IndexError):
+              continue
+
+--------------------------------------------------------------------------------
+D3  "Saving settings... Complete" SPLIT BY SPI-FLASH PROGRESS
+--------------------------------------------------------------------------------
+    *** THE BEST-EVIDENCED ITEM IN PART A - 100 IE520 observations, 0 contiguous.
+
+    TRIGGER
+      From the Boot Menu select
+        "2. Change the default boot source (for advanced users)"
+      pick a medium and a file, and let the selection commit. The bootloader
+      confirms the write. On x230v2 that confirmation is a single line. On the
+      IE520 the confirmation is split around U-Boot's environment write.
+      Any completed boot-source change reproduces it.
+
+    WHERE IT FIRES
+      Every boot-source change, so suite 2002 hits it constantly; 2003 and 2005
+      hit it incidentally.
+        2002 (Aug-10 run) .... 63        2002 (Aug-11 run) .... 26
+        2003 (both runs) ......  7        2005 (both runs) .....  6
+
+    OCCURRENCES (device output, whole campaign)
+                                              x230v2      IE520
+      "Saving settings" total .............       33        100
+        - contiguous "... Complete" .......       32          0
+        - split / truncated ...............        1        100
+
+      x230v2 is 32 of 33 contiguous. The single outlier is a console-read
+      truncation ("Saving settings... <EOS>"), not a split message - the read
+      buffer chunked mid-line. There is no x230v2 case of genuine interleaving.
+      The IE520 is 0 of 100 contiguous. Every single occurrence is split.
+
+    DEVICE OUTPUT - x230v2
+      Saving settings... Complete
+
+    DEVICE OUTPUT - IE520
+      Saving settings... Saving Environment to SPIFlash... Erasing SPI
+        flash...Writing to SPI flash...done
+      OK
+      Complete
+
+    NOTE
+      This defect was invisible for the entire prior campaign because D2 meant
+      execution never reached it. Fixing one bug exposed the next.
+
+    CODE BEFORE
+      keywords = [KEYWORD_SAVING_SETTINGS]   # 'Saving settings... Complete'
+      if not any(keyword in output for keyword in keywords):
+          bootSet = False
+
+    CODE AFTER
+      _head, _sep, _tail = output.partition('Saving settings...')
+      if not (_sep and 'Complete' in _tail):
+          bootSet = False
+
+    *** STATUS ON "pauld" BUILD (2026-08-12): FIXED ***
+
+      Reproduced via Boot Menu option 2 -> Flash -> commit. Device output:
+
+          Saving settings... Complete
+
+      Contiguous, exactly as x230v2. Marker counts for that operation:
+          "Saving settings"                 1
+          "Saving settings... Complete"     1
+          "Saving Environment to SPIFlash"  0
+          "Erasing SPI flash"               0
+
+      The env-save interleave is entirely gone. The original single-literal
+      match (KEYWORD_SAVING_SETTINGS) would now succeed unmodified.
+
+--------------------------------------------------------------------------------
+D4  "Restoring default settings... Complete" SPLIT BY SPI-FLASH PROGRESS
+--------------------------------------------------------------------------------
+    *** SMALL SAMPLE - 3 IE520 observations vs 2 on x230v2. See note below.
+
+    TRIGGER
+      From the Boot Menu select
+        "7. Restore Bootloader factory settings"
+      and answer "y" to the "Are you sure?" confirmation. The restore message is
+      one line on x230v2 and is split around TWO U-Boot environment writes on
+      the IE520.
+
+    WHERE IT FIRES
+      Only TWO call sites exist in the entire 5700 suite, both in 2005:
+        2005 TestCase_2  "Set Security Level 2"   (test-5700.2005.py:208)
+        2005 TestCase_3  "Set Security Level 3"   (test-5700.2005.py:371)
+      Nothing else in the suite invokes option 7. That is why the sample is
+      small - the operation is rare, not the defect.
+
+    OCCURRENCES (device output, whole campaign)
+                                              x230v2      IE520
+      "Restoring default settings" ........        2          3
+        - contiguous "... Complete" .......        2          0
+        - split ...........................        0          3
+
+      IE520 breakdown: 2 in the Aug-10 run (cases 1-3), 1 in the Aug-11 re-run
+      (cases 3-8, which runs TestCase_3 only). x230v2: both calls, both runs of
+      the pair, both contiguous.
+
+    NOTE ON SAMPLE SIZE - READ BEFORE DISCOUNTING THIS ITEM
+      n=3 vs n=2 is small in isolation. However:
+        - variance is zero within each platform (3/3 split, 2/2 contiguous);
+        - the interleaving text is BYTE-IDENTICAL to D3's, which has 100 IE520
+          observations and 0 contiguous;
+        - both are the same mechanism (U-Boot env_save leaking into an AT
+          message pair) from the same root cause (A0).
+      D4 should be read as a second observation point for D3's mechanism, not as
+      an independent finding standing on 3 samples.
+
+    DEVICE OUTPUT - x230v2
+      Restoring default settings... Complete
+
+    DEVICE OUTPUT - IE520
+      Restoring default settings... Saving Environment to SPIFlash... Erasing
+        SPI flash...Writing to SPI flash...done
+      OK
+      Saving Environment to SPIFlash... Erasing SPI flash...Writing to SPI
+        flash...done
+      OK
+      Complete
+
+    CODE BEFORE
+      expectedMsg = 'Restoring default settings... Complete'
+      if expectedMsg not in output:
+          self.failed(f'Did not see expected "{expectedMsg}":')
+
+    CODE AFTER
+      startMsg = 'Restoring default settings'
+      doneMsg  = 'Complete'
+      restored = startMsg in output and doneMsg in output.split(startMsg, 1)[-1]
+      if not restored:
+          self.failed(f'Did not see expected "{startMsg} ... {doneMsg}":')
+
+    *** STATUS ON "pauld" BUILD (2026-08-12): FIXED ***
+
+      Reproduced via Boot Menu option 7 -> y. Device output:
+
+          Are you sure? (Y/N) ==> y
+
+            Restoring default settings... Complete
+
+            The device is rebooting with the default baud rate of 9600 baud.
+            Your terminal's baud rate is currently set to 115200 baud. Please
+            change it now and press "ENTER"...
+
+      Contiguous, exactly as x230v2. Marker counts:
+          "Restoring default settings"              1
+          "Restoring default settings... Complete"  1
+          "Saving Environment to SPIFlash"          0
+          "Erasing SPI flash"                       0
+
+      TWO SIDE EFFECTS OF OPTION 7 WORTH KNOWING (both observed, neither is a
+      defect, but both will break automation that does not expect them):
+
+      (a) IT REVERTS THE CONSOLE BAUD RATE and tells you so, then WAITS for you
+          to follow it down before continuing. 9600 is the factory default; a
+          non-default rate is a stored setting (Boot Menu option 4, "Adjust the
+          console baud rate"). Anything driving the console must reopen the port
+          at 9600 and send ENTER, or the boot appears to hang.
+
+      (b) IT CLEARS THE STORED NETWORK SETTINGS. The one-off-boot TFTP dialogue
+          loses its defaults:
+              before option 7:  ... to download from (eth0-eth0) [eth0]:
+              after  option 7:  ... to download from (eth0-eth0) []:
+          With an empty default a bare ENTER no longer accepts anything - it
+          ABORTS back to the device menu. Scripts that "Enter through" those
+          prompts will silently fall out of the dialogue on any unit that has
+          had a factory restore, which is exactly the state 2005 cases 2 and 3
+          leave behind.
+
+--------------------------------------------------------------------------------
+D5  NO PLATFORM-COMPATIBILITY REJECTION MESSAGE  *** STILL OPEN - LIVE FAILURE ***
+--------------------------------------------------------------------------------
+    TRIGGER
+      Put a release built for a DIFFERENT platform on the device (the suite uses
+      x540-5.5.3-2.1.rel on the IE520; x230v2 used TQ7403R-5.5.3-2.1.rel), then
+      from the Boot Menu select
+        "1. Perform one-off boot from alternate source"
+      and choose that file. Both devices correctly REFUSE to boot it. They report
+      the refusal completely differently, at different layers.
+
+    WHERE IT FIRES
+      One case, once per suite run:
+        2002 case 30  "Try release for different platform"  (AWP2684)
+
+    OCCURRENCES (device output, whole campaign)
+                                                      x230v2      IE520
+      "This release file is not intended for
+       this device." ..............................        1          0
+      "Could not find configuration node" .........        0          1
+      "can't get kernel image" ....................        0          1
+
+      n=1 per platform because the case executes once per run. The counts are
+      low by design, not by chance - but the messages are mutually exclusive:
+      neither platform has EVER emitted the other's text.
+
+    x230v2 result: PASS.   IE520 result: FAIL (2026-08-11).
+
+    DEVICE OUTPUT - x230v2
+      Verifying release... Error: This release file is not intended for this
+      device.
+
+    DEVICE OUTPUT - IE520
+      Booting image 04000000#IE520-28GSX ...
+      ## Loading kernel from FIT Image at 04000000 ...
+      Could not find configuration node
+      ERROR -2: can't get kernel image!
+      Restarting system in ...  5
+
+    ANALYSIS
+      x230v2 rejects the foreign release at the AT release-verification stage
+      with a purpose-built message that matches the test's 'Error' keyword. The
+      IE520 has no such stage (same root cause as D1) and falls through to a raw
+      U-Boot FIT config-node lookup, emitting upper-case ERROR.
+      The IE520 BEHAVED CORRECTLY - it refused to boot a foreign release. The
+      message is a different mechanism at a different layer.
+
+    CURRENT GATE (unfixed)
+      send('1\n', 360, ['Error', 'Verifying release... OK', 'Mounting',
+                        'Booting', 'Allied Telesis Inc.', 'Initializing'])
+        - 'Booting' matches "Booting image 04000000#IE520-28GSX ..." which is an
+          ATTEMPT marker printed before the load fails. send() returns on first
+          match, so it stopped reading before the error arrived.
+        - 'Error' never matches "ERROR -2:" - the keyword list is
+          case-sensitive and the bootloader emits upper case.
+
+    PROPOSED FIX
+      Match 'could not find configuration node' and "can't get kernel image"
+      CASE-INSENSITIVELY. Do not treat 'Booting image' as success; require a
+      post-load marker (Mounting / Initializing) before concluding the device
+      booted.
+
+    REQUIREMENT STATUS
+      AWP2684 has NO trustworthy verdict on any bench:
+        tb504 2026-08-07 : false PASS (inverted assertion, passed in 33 s)
+        tb470 2026-08-11 : false FAIL (assertion fixed, detection still broken)
+        tb470 2026-08-12 : still no verdict on the pauld build - see below
+
+    *** STATUS ON "pauld" BUILD (2026-08-12): STILL BROKEN - AND NOW WORSE ***
+
+      Reproduced by one-off boot (Boot Menu 1) from TFTP of x540-tb470.rel onto
+      an IE520. Full device output:
+
+          Loading tftp://10.38.215.65/x540-tb470.rel via 'eth0' interface...
+
+
+          Restarting system in ...  5 4 3 2 1 0
+
+          resetting ...
+          Bootloader pauld loaded
+          Press <Ctrl+B> for the Boot Menu
+          Loading flash:mainrelease.rel...
+          [boots normally]
+
+      THE DEVICE BEHAVES CORRECTLY - it refuses the foreign release. But it
+      emits NO ERROR MESSAGE AT ALL. Marker counts on the pauld build:
+          "Verifying release"                    0
+          "not intended for this device"         0
+          "Could not find configuration node"    0
+          "can't get kernel image"               0
+          "ERROR" / "Error"                      0
+          "Restarting system"                    1
+
+      Three-way comparison of how each reports the SAME correct refusal:
+          x230v2      Verifying release... Error: This release file is not
+                      intended for this device.
+          9.1.0       Could not find configuration node
+                      ERROR -2: can't get kernel image!
+          pauld       (silence - countdown and reset)
+
+      WHY THIS IS WORSE THAN THE 9.1.0 BUILD
+      The 9.1.0 build at least printed a diagnosable error and failed the gate
+      only on case sensitivity ('Error' vs 'ERROR'). The pauld build gives the
+      test nothing to match, and then actively MISLEADS it. Against the real
+      gate:
+
+          badSelectionKeywords  = ['Error']
+          goodSelectionKeyWords = ['Verifying release... OK', 'Mounting',
+                                   'Booting', 'Allied Telesis Inc.',
+                                   'Initializing']
+
+      After the silent reset the device reboots normally and prints
+      "Allied Telesis Inc.", "Mounting" and "Initializing" - all in the GOOD
+      list. send() returns on first match, so booting=True and the test
+      concludes THE FOREIGN RELEASE BOOTED SUCCESSFULLY. The case still fails,
+      but for the opposite reason to the truth.
+
+      NOTE ON THE CASE ITSELF: TestCase_30.testCaseMethod says "perform a one
+      off TFTP boot", but the code calls
+      perform_one_off_boot_from_alternate_source_with_output() WITHOUT a
+      `source` argument, which defaults to 'flash' - configure() pre-stages the
+      foreign release on flash instead. The documented method and the actual
+      behaviour disagree. (The TFTP route was used for the 2026-08-12 test
+      because the DUT's AW+ side had no route to the TFTP server -
+      "% Network is unreachable" - while the bootloader's own USB-NIC path
+      works.)
+
+
+================================================================================
+PART B - GENUINE CROSS-PLATFORM TEST BUGS (14 edits, 8 defects)
+================================================================================
+These would bite any platform. Fixing them was correct.
+
+--------------------------------------------------------------------------------
+B1  'Password Successfully updated' NEVER EMITTED - ON ANY PLATFORM
+    Sites: 1     library_5700.py:849
+--------------------------------------------------------------------------------
+    EVIDENCE
+      x230v2: 18 hits, ALL framework echoes; the gate logs "wait time reached".
+      IE520 : 0 device lines in 74k lines of console output.
+      x230v2's suite 2005 case 4 passed anyway - by accident of the timeout,
+      because the assertion below it tested whatever had accumulated by then.
+
+    CODE BEFORE
+      output = dut.send("\n", strList=['Password Successfully updated'],
+                        waitTime=20)
+
+    CODE AFTER
+      output = dut.send("\n", strList=[
+          f'The security Level is currently set to {str_menu_text}',
+          'Error: Passwords mismatch',
+          'Password Successfully updated'], waitTime=20)
+
+    NOTE ON ORDERING
+      Do NOT anchor on 'Security Settings menu' - the device prints it TWO LINES
+      EARLIER than the security-level line, which would truncate the output and
+      convert a slow pass into a failure. Verify a replacement gate against
+      ORDERING, not just presence.
+
+--------------------------------------------------------------------------------
+B2  dir *.rel EXISTENCE CHECK COULD NEVER MATCH
+    Sites: 1     library_5700.py:583   createFlashBootImages()
+--------------------------------------------------------------------------------
+    EVIDENCE - output format is the same shape on BOTH platforms
+      x230v2:  31218867 -rw- Feb 19 2026 08:31:36  flash:/mainrelease.rel
+      IE520 :  41104167 -rw- Aug 11 2026 03:07:50  flash:/mainrelease.rel
+
+    ANALYSIS
+      Two independent reasons the check never matched:
+        1. 'dir *.rel' prefixes each name with 'flash:/' (a bare 'dir' does not)
+        2. names carry ANSI colour escapes - \x1b[32m...\x1b[0m
+      It also swept up the echoed command and the prompt as "files". Result:
+      every configure() re-downloaded both releases - 82 MB and 12+ min of
+      SPIFlash time per suite, per run. x230v2 re-downloaded too; it just cost
+      less on a faster 31 MB flash.
+
+    CODE BEFORE
+      output = dut.cmd(f'dir *{self.SUFFIX}')
+      existing_files = [line.split()[-1] for line in output.splitlines()
+                        if line.split()]
+      for filename in filenames:
+          if filename not in existing_files:
+              download_file_from_tftp(self, dut, localFileName=filename)
+
+    CODE AFTER
+      # First use in a run is ALWAYS a fresh download; after that, check.
+      testSet = self.testSet if hasattr(self, 'testSet') else self
+      freshlyFetched = testSet.__dict__.setdefault('_freshlyFetched', set())
+      for filename in filenames:
+          fetchKey = (dut.name, filename)
+          if fetchKey not in freshlyFetched:
+              download_file_from_tftp(self, dut, localFileName=filename)
+              freshlyFetched.add(fetchKey)
+          elif 'no such file or directory' in dut.cmd(f'dir {filename}').lower():
+              download_file_from_tftp(self, dut, localFileName=filename)
+          else:
+              pass   # already fetched this run and still present
+
+    RATIONALE (Terrence, 2026-08-11)
+      "regardless of whats there, the first should be a fresh download. that way,
+      we can trust what IS there, because we got it."
+
+--------------------------------------------------------------------------------
+B3  BARE sys.exit() KILLS THE WHOLE TESTSET AND EXITS 0
+    Sites: 1     library_5700.py (setSecurityLevel abort path)
+--------------------------------------------------------------------------------
+    ANALYSIS
+      SystemExit is not a subclass of Exception, so ATTestCase's handlers cannot
+      catch it. It kills the TestSet process, skips _post_tear_down() and the
+      power-cycle recovery, and (being a bare exit) returns code 0 - so an
+      abandoned run is indistinguishable from a clean pass. This is why 6 of 8
+      cases in suite 2005 never ran.
+
+    CODE BEFORE
+      self.failed(f"Security Level {str_level} setting not aborted - aborting "
+                  f"test as the device is in an unknown state")
+      # ABORT TEST SET
+      sys.exit()
+
+    CODE AFTER
+      self.failed(f"Security Level {str_level} setting not aborted - aborting "
+                  f"this TestCase as the device is in an unknown state",
+                  forceAbort=True)
+
+--------------------------------------------------------------------------------
+B4  FRAMEWORK MANUFACTURES FAILURES ON THE ABORT PATH
+    Sites: 3     framework/ATTestCase.py  _post_tear_down()
+--------------------------------------------------------------------------------
+    ANALYSIS
+      _post_tear_down() is gated by doConfCheck in __run (~line 993), but
+      __handle_exception_in_test_run() calls it UNCONDITIONALLY - deliberately,
+      "because we need to go back to the TestSet configuration". So a case built
+      as TestCase_N(confCheck=False) - which suite 2005 does for the cases that
+      erase flash on purpose - never ran _save_configs, yet on any exception
+      still tried to restore and COMPARE a config that was never saved.
+      That turned suite 2005 case 3's ONE real failure into THREE:
+        !!FAIL: exception in TestCase main, aborting test        <- real
+        !!FAIL: TestSet configuration file ... missing from swi_a <- manufactured
+        !!FAIL: Could not compare configuration ... start-shell   <- manufactured
+
+    EDIT 1 - suppress the false FAIL
+      BEFORE
+        elif 'does not exist or is inaccessible' in output:
+            testCase.failed('TestSet configuration file {} missing from {}'
+                            .format(testSetCfg, hostname))
+            testCase.testSet.testSetConfigurationFileMissing = True
+      AFTER
+        elif 'does not exist or is inaccessible' in output:
+            if testCase.doConfCheck:
+                testCase.failed('TestSet configuration file {} missing from {}'
+                                .format(testSetCfg, hostname))
+                testCase.testSet.testSetConfigurationFileMissing = True
+            else:
+                testCase.log('INFO : TestSet configuration file {} is not '
+                             'present on {}, which is expected because this '
+                             'TestCase ran with confCheck=False'
+                             .format(testSetCfg, hostname))
+
+    EDITS 2 and 3 - skip save-and-compare (non-wireless and wireless branches)
+      ADDED (both branches, keeping the restore, which is wanted)
+        if not testCase.doConfCheck:
+            testCase.log('Skipping tear_down configuration comparison on %s: '
+                         'this TestCase ran with confCheck=False, so no TestSet '
+                         'configuration was saved to compare against' % swi.name)
+            return
+
+--------------------------------------------------------------------------------
+B5  NO BOOTLOADER ESCAPE - A FAILED BOOT-SOURCE CHANGE STRANDS THE DUT
+    Sites: 1     framework/ATDrivers/ATBootLoader.py
+--------------------------------------------------------------------------------
+    ANALYSIS
+      Every failure path left the DUT sitting INSIDE the bootloader menus. The
+      caller's next dut.mode('#') then polled for an AW+ prompt that can never
+      appear, and DEFAULT_COMMAND_WAIT is a flat 1800 s wall-clock timeout
+      ("INFINITE LOOP DETECTED" is NOT loop detection) - so 30 min, then
+      tear_down() drove the same stranded console for another 30.
+      Measured gaps on tb504: 16:26:35->16:56:35, 18:06:31->18:36:34,
+      22:41:29->23:11:32.
+      Rated in the RCA ABOVE the parser fix: "This second change alone would
+      have saved ~5 hours and prevented the entire cascade."
+
+    CRITICAL - A BLIND 0/0/9 IS WRONG
+      Captured menu depths:
+        file selection  "Enter selection (1-2, 0 to cancel)"  -> 0 cancels
+        Select device    0. Return to previous menu            -> 0 goes up one
+        Boot Menu        0. RESTART            <-- NOT "back"
+                         9. Quit and continue booting
+      At the top level 0 is RESTART. Failures occur at three different depths,
+      so a blind 0/0/9 from a shallow one REBOOTS the DUT rather than releasing
+      it. Read what the console is showing and send one key per level.
+      The read buffer ACCUMULATES, so identify the current menu by whichever
+      anchor appears LAST (rfind), not by a plain substring test.
+
+    ADDED
+      KEYWORD_CANCEL_SELECTION = '0 to cancel'
+      ESCAPE_MENU_WAIT = 30    # bounded: never inherit DEFAULT_COMMAND_WAIT
+
+      def _escape_bootloader_menus(self, swi, goodBootupKeyWords,
+                                   maxSteps=4, waitTime=ESCAPE_MENU_WAIT):
+          anchors = ((KEYWORD_CANCEL_SELECTION,        '0\n', 'file-selection'),
+                     (KEYWORD_RETURN_TO_PREVIOUS_MENU, '0',   'Select device'),
+                     (KEYWORD_QUIT_AND_CONTINUE,       '9',   'Boot Menu'))
+          ...
+          position, key, where = max((output.rfind(anchor), key, where)
+                                     for anchor, key, where in anchors)
+
+      # called on every failure path:
+      if not bootSet:
+          _escape_bootloader_menus(self, swi, goodBootupKeyWords)
+
+    STATUS
+      Never fired on hardware across any run (0 occurrences). UNPROVEN.
+
+--------------------------------------------------------------------------------
+B6  UNDER-SIZED TIMEOUT BUDGETS
+    Sites: 3
+--------------------------------------------------------------------------------
+    PRINCIPLE
+      waitTime is a CEILING - send() returns as soon as strList matches - so a
+      generous value costs nothing on a healthy run. Operations on this platform
+      run LONGER than linear: never size a budget from an "n/50 blocks" progress
+      counter on a run that timed out. That is exactly how the too-small values
+      got there, and it produced false failures on operations that were working.
+
+    B6.1  library_5700.py:647   resetBootSecurityLevel()
+          BEFORE  waitTime=780
+          AFTER   waitTime=3000
+          MEASURED END-TO-END (both runs completed, tb504 2026-08-10):
+            2005.2  Level 2 -> 1   14:15:14 -> 14:50:57  = 2143 s
+            2005.3  Level 3 -> 1   15:41:18 -> 16:17:08  = 2150 s
+          Agree within 7 s -> reproducible, not load-dependent.
+          The 780 s budget covered 36% of the operation, so the framework
+          power-cycled the DUT mid-erase and the level was NEVER CLEARED - which
+          is what left tb504 stuck at Level 2 and locked suites 2002/2003/2005
+          out of the boot menu entirely.
+          An earlier ~1700 s estimate came from extrapolating the block counter
+          linearly from two TIMED-OUT runs. Do not re-derive it that way.
+
+    B6.2  test-5700.2003.py:443  case 10, stage-2 Test FLASH
+          BEFORE  waitTime=3600
+          AFTER   waitTime=10800
+          STILL INSUFFICIENT. Measured 2026-08-11: 10800 s bought all of test
+          1/2 plus ~16% of test 2/2 -> ~9300 s per test, ~18,600 s for both.
+          A ceiling of ~21,000 s is required for this case to complete.
+          Device reported "Result for test 1/2 (pass 1): PASS" - a full 128 MB
+          erase/write/read cycle with pseudorandom data, no FAIL or Error
+          anywhere. Result is UNMEASURED, not failed. Do not report AWP2763 as
+          a product failure.
+          SECOND FINDING: the case gates solely on
+          'Result for test 2/2 (pass 1): PASS', so test 1's device-reported PASS
+          is DISCARDED. Asserting per-test would bank that coverage even when
+          the clock beats it - worth more than raising the budget to ~6 hours.
+
+    B6.3  test-5700.2003.py:514  case 11, stage-2 Erase FLASH
+          BEFORE  waitTime=1200
+          AFTER   waitTime=3000
+          On 2026-08-07 the 1200 s ceiling returned with only 36/50 blocks
+          erased, so the case reported "device erase flash failed" on an
+          operation that was simply still running. With 3000 s it PASSES in
+          ~27 minutes. The operation was never failing.
+
+--------------------------------------------------------------------------------
+B7  log_device_output() CALLED WITHOUT self
+    Sites: 2     library_5700.py (runRestoreFactorySettings, 2 call sites)
+--------------------------------------------------------------------------------
+    def log_device_output(self, output):   <- signature takes self
+    BEFORE   log_device_output(output)
+    AFTER    log_device_output(self, output)
+    Blinded every failure on that path.
+
+--------------------------------------------------------------------------------
+B8  AWP2684 INVERTED / UNGUARDED ASSERTION
+    Sites: 1     test-5700.2002.py case 30
+--------------------------------------------------------------------------------
+    ANALYSIS
+      The polarity of `booting` was right, but the "did we actually try?" guard
+      sat on the booting==True branch, where it cannot protect the PASS. So
+      `not booting` passed UNCONDITIONALLY - and `not booting` is also what you
+      get when the DUT never reached the file menu at all. On 2026-08-07 this
+      "passed" 12 s after power-on (16:10:47 on -> 16:10:59 PASS) while the
+      device was still booting. The requirement was never exercised but counted
+      as verified coverage.
+      Masked on x230v2 only because that device DID emit the expected error.
+
+    CODE BEFORE
+      if not booting:
+          self.passed("correct error loading an invalid release")
+
+    CODE AFTER
+      if booting:
+          self.failed(f"no error loading an invalid release, "
+                      f"{dut.incorrectfilename}")
+          log_device_output(self, output)
+      elif dut.incorrectfilename not in output:
+          self.failed(f"inconclusive: never saw {dut.incorrectfilename} offered "
+                      f"in the one-off boot selection, so 'correctly rejected' "
+                      f"cannot be distinguished from 'never got that far':")
+          log_device_output(self, output)
+      else:
+          self.passed("correct error loading an invalid release")
+
+    NOTE
+      This fix is correct and is NOT the reason case 30 fails. It faithfully
+      reports a failure from a wrong input - see D5.
+
+--------------------------------------------------------------------------------
+B9  SUITE 2005 REMOVES ITS OWN LAST BOOT PATH
+    Sites: 1     test-5700.2005.py  setUp()
+--------------------------------------------------------------------------------
+    ANALYSIS
+      Cases 2 and 3 step 17 run 'Restore Bootloader factory settings', which
+      clears the bootloader's TFTP override. With 'no boot system' also in force
+      the DUT then has NO boot path at all:
+        Loading file '.release' ... Error: There is no primary release file set
+        Loading file '.backup'  ... Error: There is no backup release file set
+        ERROR: Boot failed. Please recover the system using the Boot Menu
+      That cost ~1 h of reboot-looping (678 cycles) on 2026-08-07.
+
+    ADDED
+      dut.mode(')#')
+      dut.cmd(f'boot system {self.MAIN_RELEASE}')
+      dut.cmd(f'boot system backup {self.BACKUP_RELEASE}')
+      dut.mode('#')
+
+    Nothing in suite 2005 asserts on boot images, so pointing them at the flash
+    releases created in setUp is safe and gives the factory restore something to
+    fall back to.
+
+
+================================================================================
+PART C - FILE-BY-FILE DIFFSTAT
+================================================================================
+  File                                    Hunks    Added  Removed  Edit sites
+  --------------------------------------  -----  -------  -------  ----------
+  library_5700.py                             8     +156      -35           9
+  framework/ATDrivers/ATBootLoader.py         4     +141      -14           3
+  framework/ATTestCase.py                     1      +38       -2           3
+  test-5700.2003.py                           -        -        -           6
+  test-5700.2002.py                           -        -        -           4
+  test-5700.2005.py                           1      +15       -0           1
+  --------------------------------------  -----  -------  -------  ----------
+  TOTAL                                                                    26
+
+  test-5700.2002.py and test-5700.2003.py have no .orig alongside them, so their
+  counts are derived from the in-file "# Was:" annotations rather than a diff.
+  Pristine originals for both are in raw-data/test_scripts/5700_bootloader/.
+
+  Classification by defect class:
+    Word/string parsing ....... 6 defects, 14 sites   (12 divergence, 2 rot)
+    Timeout budgets ........... 1 defect,   3 sites
+    Structural ................ 4 defects,  8 sites
+    Assertion logic ........... 1 defect,   1 site
+    Call arity ................ 1 defect,   2 sites
+
+  Provenance: all patches are confined to
+    claude/IE520-testing/automated-bootloader/  and its per-run framework/ copies.
+    /home/st-art/framework was never written (read-only, and a DIFFERENT version).
+    ck.db was never written.
+    raw-data/test_scripts/5700_bootloader/ was read only.
+    The createFlashBootImages fix (B2) exists ONLY in the staging library_5700.py
+    - it is not in ck.db and not in any framework tree.
+
+
+================================================================================
+PART D - METHOD, AND A TRAP THAT PRODUCES FALSE CONCLUSIONS
+================================================================================
+HOW TO CLASSIFY A FAILING GATE
+  1. grep -a the string in the CONTROL platform's console logs
+     (raw-data/test_scripts/5700_bootloader/swi_a_2*.log)
+  2. Live there -> IE520 DIVERGENCE. Escalate. Do not widen the gate.
+  3. Absent there too -> genuine rot, and fixing it is correct.
+  4. Filter framework echoes either way: drop lines matching
+     ^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}:
+     The framework logs its own strList, so without this filter you match OUR
+     text and conclude the device emits a string it never printed.
+
+*** grep READS THESE CONSOLE LOGS AS BINARY ***
+  swi_a_*.log on BOTH platforms contain control bytes. Plain grep prints nothing
+  and grep -c returns 0 - INDISTINGUISHABLE FROM A REAL ABSENCE. Always use
+  grep -a. During this analysis that produced a false "0 occurrences on both
+  platforms" for five separate strings before it was caught.
+
+NEVER call a gate "rot" from one platform's logs alone. Doing so converts a
+product finding into a test change.
+
+CONSOLE READS SPLIT STRINGS MID-TOKEN
+  The read buffer chunks arbitrarily - "... sha1<EOS>" in one read, "+ OK" in
+  the next - so matching a full literal is a coin flip even when the string IS
+  correct. Gate on short atomic markers, and always pass an explicit waitTime.
+
+VERIFY A REPLACEMENT GATE AGAINST ORDERING, NOT JUST PRESENCE
+  See B1: anchoring on a string the device prints two lines EARLIER truncates the
+  output before the line the assertion needs, converting a slow pass into a
+  failure.
+
+
+================================================================================
+PART E - RESULTS OF THE 2026-08-11 RUNS, AND WHAT REMAINS
+================================================================================
+2026-08-11 RUN RESULTS (all three, rc=1 in each case)
+
+  Suite 2002  tb470 /dev/u4  15:03:09 -> 19:33:16  (4 h 30 m)
+    18 PASS / 1 FAIL / 7 UNSUPPORTED, 160 assertions
+    prior bench (tb504, 2026-08-07): 8 PASS / 14 FAIL / 7 UNSUP, 10 h 11 m
+    The single FAIL is case 30 / AWP2684 = D5 above (tooling, not product).
+
+  Suite 2003  tb470 /dev/u5  14:36:08 -> 19:40:07  (5 h 04 m)
+    10 PASS / 3 FAIL / 2 UNSUPPORTED, 36 assertions
+    prior bench (tb504, 2026-08-08): 8 PASS / 8 FAIL / 2 UNSUP
+    FAILs: cases 7 and 14 (diagnostics option 8 - excluded from this analysis,
+    see below); case 10 (Test FLASH, UNMEASURED - hit its ceiling, see B6.2).
+
+  Suite 2005  tb504 /dev/ttyUSB0  10:15:12 -> 23:34:41  (13 h 19 m), cases 3-8
+    5 PASS / 1 FAIL, 350 assertions passed
+      case 3  Set Security Level 3 .................. PASS  (30)   was FAIL 08-10
+      case 4  Password length limits >5 and <24 ..... FAIL  (39/1)
+      case 5  Valid password characters ............. PASS  (225)
+      case 6  Security level in show boot ........... PASS  (19)
+      case 7  Password timeout after 60 s ........... PASS  (14)
+      case 8  Levels 2 & 3 block Start-Shell ....... PASS  (23)
+    Case 4's failure is a FRAMEWORK ABORT, not a product failure. After 39 clean
+    assertions it died at 14:12:53 in:
+      resetBootSecurityLevel -> createFlashBootImages -> dut.mode('#')
+      -> AWPConsoleCore.py:976 -> Exception: INFINITE LOOP DETECTED
+    i.e. the flat 1800 s timeout, consistent with the known "unit goes completely
+    dark during slow SPIFlash writes" behaviour. The post-abort power-cycle then
+    hit "swi_a port1.0.1 failed to be brought up within 120 seconds".
+
+WHAT THE RUNS PROVED
+  All six D2 parser victims (2002: 22, 42, 60, 62, 100, 102) PASS.
+  All five teardown-cascade victims (2002: 110, 112, 119, 120, 122) PASS.
+  Suite 2003 cases 1, 8, 9, 15 PASS in minutes - but via widened boot markers
+  (D1), so those four are ACCOMMODATED, not independently verified.
+  Erase FLASH (2003 case 11) PASSES - was never failing, only under-budgeted.
+
+OPEN ITEMS
+  1. D1/D5 - PRODUCT QUESTION FOR THE BOOTLOADER TEAM. Does the IE520 implement
+     the AT release-verification stage at all? If it should, this is a product
+     defect and several 2002/2003 passes are passes against the wrong output.
+     If the IE520 is intentionally a raw-U-Boot platform, the suite needs a
+     platform-conditional expected-output set, not a widened keyword list.
+     Highest priority - it gates the validity of the other results.
+  2. D2/D3/D4 - lower-severity divergence questions, same escalation path.
+  3. 2003 case 10 - re-budget to ~21,000 s AND assert per-test (B6.2).
+  4. The bootloader escape (B5) has never fired on hardware. Unproven.
+  5. 2002 case 113 (YMODEM) unexercised - excluded at 9600 baud; needs a
+     standalone run.
+  6. "Error, no UBI device selected!" on one-off-boot-from-flash in 2002.110/120.
+     Pre-existing (7 occurrences in the 2026-08-07 run, 8 in ours), so not caused
+     by any fix. If it survives a run with D3 fixed it becomes a second product
+     question.
+  7. No after-action document exists for suite 2005.
+
+PERMANENT PLATFORM LIMITS (not bench gaps, not fixable)
+  No SD card slot at all -> 2002 cases 1, 21, 41, 61, 101, 111, 121 and 2003
+    case 12 are PERMANENTLY UNSUPPORTED. The prior RCA recommendation to "fit an
+    SD card to tb504 - converts 6 UNSUPPORTED into real coverage" is NOT
+    achievable on IE520 hardware and is WITHDRAWN.
+  No battery-backed RAM / NVS -> 2003 case 4 (AWP2757) permanently UNSUPPORTED.
+  Console is 9600 and cannot be raised (AWPConsoleCore opens the port once and
+    never renegotiates; the generated default.cfg pins no console speed).
+
+EXCLUDED FROM THIS ANALYSIS
+  Diagnostics menu option 8 ("Quit to U-Boot shell"), absent from both the stage-1
+  and stage-2 IE520 diagnostics menus while Ctrl+U still reaches U-Boot.
+  Terrence's determination, 2026-08-12: it has been removed for a while and does
+  NOT count as a finding. Recorded for completeness only: x230v2 passed suite 2003
+  cases 7 and 14 in Feb 2026 and "Quit to U-Boot shell" appears 54 times in its
+  console logs, so if withdrawn it was withdrawn after that build or on IE520
+  specifically. Not pursued.
+
+BENCH STATE LEFT BEHIND (2026-08-11) - AFFECTS THE NEXT USER
+  tb470 /dev/u5 : flash filesystem EMPTY, boot image Not set, config wiped to
+                  hostname 'awplus'. Netboots from tb470's TFTP ONLY. Expected -
+                  cases 11 and 10 erase flash by design - but the unit cannot
+                  boot without tb470 serving TFTP. Re-image before moving it.
+  tb504 DUT     : Current boot image Not set, flash:/default.cfg not found.
+                  Security level IS back to none, so no lockout.
+  tb470 /dev/u4 : USB stick carries leftover ---w-z-03-09-a-y---.rel (41 MB) from
+                  case 22. 29 GB free so not urgent, but this class of leftover
+                  previously filled u4's flash and caused a silent failure.
+
+  Note: neither Erase FLASH nor Test FLASH restores the filesystem afterwards, so
+  any suite ending on them leaves the DUT netboot-dependent. A re-image step
+  belongs in their teardown - a menu selection is not enough. The same applies to
+  any case that clears a security level.
+
+================================================================================
+END OF DOCUMENT
+================================================================================

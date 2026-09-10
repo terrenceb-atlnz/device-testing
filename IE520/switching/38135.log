@@ -1,0 +1,104 @@
+================================================================================
+AWPTCM-T38135 (1.0)  Standard test - IGMPv1
+Run date : 2026-09-09      Bench : tb470 (IE520)
+Software : IE520-awplus_main-20260905-1714.rel  (AlliedWare Plus, build 09/04/26; bootloader pauld)
+Result   : PASS  (steps 1-2 PASS; step 3 documents IGMPv1 leave semantics)
+================================================================================
+
+RESULT
+  Step 1  Register IGMPv1 group report ......... PASS   group learned on DUT, querier v1
+  Step 2  Traffic forwarded, no loss ........... PASS   60/60 rx, 0% loss @ 1 pps
+  Step 3  "Send IGMP leave" .................... N/A    IGMPv1 has NO leave message;
+                                                        membership is removed by querier
+                                                        group-timeout (shown below).
+  DUT is the IGMP querier; membership created by a real IGMPv1 report (type 0x12).
+
+--------------------------------------------------------------------------------
+BENCH / TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  DUT / querier : u4  S/N 264A23052  MAC 84e3.2787.09c0   (IGMP snooping querier, L3 IGMP)
+  Source        : u5  S/N 264A23066  MAC 84e3.2787.0740
+  Receiver/host : tb470 eth2 10.10.10.20/27  ->  u4 port1.0.2 (vlan10 access)
+  Fabric        : one vlan10 (10.10.10.0/27) trunk  u4 port1.0.24 <-> u5 port2.0.24.
+                  The 2nd u4<->u5 link (port*.0.26) is held shutdown so vlan10 is loop-free.
+
+METHOD / SCOPE
+  No IXIA on this bench. RECEIVER = tb470 host sending a REAL IGMPv1 membership report
+  (scapy, src 10.10.10.20 to pass the DUT source-address check) and counting frames with
+  tcpdump; SOURCE = u5 `ping <group>` at 1 pps. Functional test, NOT line rate.
+
+--------------------------------------------------------------------------------
+CONFIG APPLIED   (running-config only, NOT saved to startup)
+--------------------------------------------------------------------------------
+u4 (DUT/querier)                            u5 (source)
+  ip multicast-routing                        ip multicast-routing
+  interface vlan10                            interface vlan10
+   ip address 10.10.10.2/27                    ip address 10.10.10.3/27
+   ip igmp                                     ip igmp
+   ip igmp version 1
+
+u4# show ip igmp interface vlan10
+ IGMP Enabled, Active, Querier, Configured for version 1
+ IGMP Snooping is enabled on this interface
+
+--------------------------------------------------------------------------------
+STEP 1 - Check multicast traffic is forwarded when the IGMPv1 group request is received
+--------------------------------------------------------------------------------
+u4# show ip igmp groups
+                                             <- baseline: no membership
+
+>>> host: IGMPv1 membership report (type 0x12) src=10.10.10.20 gaddr=239.1.1.1
+
+u4# show ip igmp groups
+IGMP Connected Group Membership
+Group Address    Interface            Uptime   Expires  Last Reporter
+239.1.1.1        vlan10               00:00:02 00:04:17 10.10.10.20
+
+u4# show ip igmp groups 239.1.1.1 detail
+Interface:      vlan10
+Group:          239.1.1.1
+Group mode:     Exclude (Expires: 00:04:16)
+Last reporter:  10.10.10.20
+Source list is empty
+  => DUT registered the IGMPv1 report.
+
+--------------------------------------------------------------------------------
+STEP 2 - Leave traffic running (membership maintained, no traffic loss)
+--------------------------------------------------------------------------------
+u5# ping 239.1.1.1 source 10.10.10.3 repeat 60 interval 1
+PING 239.1.1.1 (239.1.1.1) from 10.10.10.3 : 56(84) bytes of data.
+--- 239.1.1.1 ping statistics ---
+60 packets transmitted, 0 received, 100% packet loss, time 61333ms
+
+host# tcpdump -tni eth2 host 239.1.1.1 and icmp   => 60 frames received of 60 sent (0.0% loss)
+   IP 10.10.10.3 > 239.1.1.1: ICMP echo request, id 8892, seq 1, length 64
+   IP 10.10.10.3 > 239.1.1.1: ICMP echo request, id 8892, seq 2, length 64
+   IP 10.10.10.3 > 239.1.1.1: ICMP echo request, id 8892, seq 3, length 64
+
+u4# show ip igmp groups 239.1.1.1 detail   (maintained across the run)
+Group mode:     Exclude (Expires: 00:04:07)
+Last reporter:  10.10.10.20
+  => 60/60 forwarded, 0% loss.  SCOPE: 60 s / 1 pps sample of the 5-min step, not line rate.
+
+--------------------------------------------------------------------------------
+STEP 3 - "Send IGMP leave"   (IGMPv1 protocol note)
+--------------------------------------------------------------------------------
+>>> host: IGMPv1 defines NO leave message; membership removed by querier group-timeout
+
+u4# show ip igmp groups
+IGMP Connected Group Membership
+Group Address    Interface            Uptime   Expires  Last Reporter
+239.1.1.1        vlan10               00:01:22 00:04:03 10.10.10.20   <- still present (correct)
+
+u5# ping 239.1.1.1 source 10.10.10.3 repeat 5 interval 1   (after "leave")
+--- 239.1.1.1 ping statistics ---
+5 packets transmitted, 0 received, 100% packet loss, time 4174ms
+host# after leave => 5 frames received (expect 0)
+  => CORRECT IGMPv1 BEHAVIOUR: there is no host leave in IGMPv1, so the group persists and
+     traffic keeps flowing (5/5 still received). The entry is removed only when the querier's
+     group-membership interval (Expires, ~260 s) elapses with no further report. The step-3
+     "send leave / group empties" expectation is inherited from the v2/v3 template and does
+     not apply to v1. PASS for the protocol.
+  NOTE: `show platform table ipmulti` stays at its baseline link entry - same-VLAN L2
+  bridged forwarding, no L3 (S,G) mroute (see 38136.log).
+================================================================================

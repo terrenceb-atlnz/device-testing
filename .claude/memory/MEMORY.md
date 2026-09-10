@@ -1,0 +1,29 @@
+# Memory Index — device-testing (tb470 IE520 bench)
+
+- [tb470 routing memory](tb470-topology-and-setup.md) — WHERE each tb470 fact lives (one fact, one home): bench-state.md GENERATES tb470.setup; mechanics → orient-dt skill; always `show stack`
+- [AW+ speed/duplex constraint](awplus-speed-duplex-constraint.md) — half duplex impossible ≥1 Gig; NOT documented, so a docs harvest alone can't capture cross-command physical rules
+- [The .log IS the deliverable](log-is-the-deliverable.md) — for lab cases the per-case <case-id>.log is enough; no after-action-<id>.md per test unless Terrence asks
+- [grep shim honors .gitignore](grep-shim-honors-gitignore.md) — `grep` is a FUNCTION wrapping ugrep --ignore-files, so 0 hits in .venv/ node_modules/ var/ looks like absence; use `command grep`
+- [Testbox console access](testbox-console-access.md) — ssh tbNNN → uN alias → /dev/uN; drive it with pyserial, not minicom
+- [.setup declares topology](setup-file-declares-topology.md) — stack, stackports and cabling are declared there; never infer them from case text; verify consoles are live
+- [Legacy scripts vs current framework](legacy-scripts-vs-framework.md) — py3-only framework, read-only Switch.name, TBv4 paths; patch a staging copy; grep gate strings against real console capture
+- [Bootloader media-select parse bug](bootloader-media-parse-bug.md) — 5700 "INFINITE LOOP DETECTED" = ATBootLoader sends the file SIZE, not the menu index; a flat mode(timeOut=1800), never a race
+- [IE520 release naming + what drift is](ie520-release-naming-and-drift.md) — a newer build is NOT drift; the hazard is a date differing BETWEEN members; read the date from `show system`, not dir
+- [IE520: TWO bootloaders exist](ie520-two-bootloaders.md) — check `show system` → Bootloader version FIRST; 9.1.0 leaks U-Boot; the pauld build is SILENT so D1/D5 stay broken
+- [Read the transcripts before driving hardware](read-the-transcripts-before-driving-hardware.md) — device menus: the framework function + prior swi_a_*.log document every prompt — don't guess
+- [AW+ CLI confirmations need Enter](awplus-cli-confirmations-need-enter.md) — CLI (y/n) wants `y\r`; only the BOOTLOADER menu takes a bare keypress; dsrdtr=True is flow control (use stty -hupcl)
+- [No stray scripts](no-stray-scripts.md) — throwaway scripts go in the SESSION SCRATCHPAD, never the lab tree; ENFORCED by ~/.claude/hooks/no-stray-py.py (Bash + Write)
+- [Read the whole function before judging](read-the-whole-function-before-judging.md) — read a function to its END; to claim a path is broken, RUN it (the PDU-401 false alarm); creds in secrets.md
+- [x230v2 5700 control corpus](x230v2-5700-control-corpus.md) — raw-data/test_scripts/5700_bootloader/ = a full x230v2 run = the control separating IE520 divergence from test rot; grep logs with -a
+- [IE520 SPIFlash goes dark](ie520-spiflash-goes-dark.md) — SPIFlash is incredibly slow (41 MB copy ≈ 12 min) and the unit answers NOTHING meanwhile — looks like a crash; wait it out
+- [IE520 TFTP boot needs a USB NIC](ie520-tftp-boot-needs-usb-nic.md) — no onboard mgmt eth; the .setup's eth0 is an ASIX USB dongle seen only by the bootloader; link is up only DURING BOOT
+- [IE520 bootloader console driving](ie520-bootloader-console-driving.md) — POINTER only: mechanics live in orient-dt skill §3; the worked example of a bench fact copied into a mechanics memory
+- [tb470 IE520s flash-boot — reboots OK](tb470-ie520-flash-boot-reboots-ok.md) — 2026-09-11: all IE520s default-boot from flash .rel so `reload` is safe; verify `show boot` image `(file exists)` first — a stale boot-image pointer still won't come back
+- [Run attribution: 5700 campaign](run-attribution-5700-campaign.md) — only the 2026-08-07/08 run is bidhanc's; everything from 2026-08-10 is OURS; TestCases belong to the suite
+- [i2c stress tooling](i2c-stress-tooling.md) — claude/device-testing/IE520/i2c-stress/ = validated IE520 i2c stress scripts; smoke-clean tb470 2026-08-26; the full 300 run not yet fired
+- [IE520 silent-reboot watch 2026-09-02](ie520-silent-reboot-watch-2026-09-02.md) — DEFERRED to a weekend run; caught member 1's silent reboot; 3 harness defects to fix first; only console.py survives
+- [IE520 DoS test method](ie520-dos-test-method.md) — AWPTCM DoS suite on tb470: attacks must TRANSIT the switch; batch sendp (fastdos.py); disarm `no dos <type>`; method in DOS-METHOD.md
+- [Prefer a pragmatic fix over infra debugging](prefer-pragmatic-fix-over-infra-debugging.md) — when incidental infra breaks mid-task, take the deterministic fix (static IP, skip); don't rabbit-hole
+- [IE520 4-stack flash-prep](ie520-4stack-flashprep.md) — CONCLUDED NEGATIVE 2026-09-04: IE520 VCStack hard-caps at 2 members; proof in ie520-stack-results.log
+- [IE520 mcast/L3 test method](ie520-mcast-l3-test-method.md) — IGMP/MLD-snooping + directed-broadcast on tb470 with ONE host NIC: u4=querier, u5 ping=source, host scapy=receiver; gotchas inside
+- [AW+ service-gated routing daemons](awplus-service-gated-routing-daemons.md) — "daemon is not running or feature license" = run `service ospf|rip|vrrp|pim` first; PIM-DM has no service cmd

@@ -1,0 +1,214 @@
+================================================================================
+AWPTCM-T10623 (1.0)  Stack Fail-over Master w/ heavy traffic
+Run date : 2026-09-11      Bench : tb470 (IE520)
+Software : IE520-awplus_main-20260905-1714.rel  (AlliedWare Plus, build 09/04/26; bootloader pauld)
+Result   : PASS (functional) - see the two parts and the SCOPE note
+================================================================================
+
+RESULT
+  A 2-member IE520 VCStack (u2 = member 1, u3 = member 2) is failed over by
+  reloading the master while a host streams traffic through the stack SVI.
+    PART 1 (default config): failover WORKS (backup promotes to master) but the
+      stack MAC is NOT fixed - it follows the master, so it CHANGES on failover
+      (...0780 -> ...0ac0).  The host's ARP for the SVI then points at the dead
+      master's MAC until it re-resolves -> a ~23 s L2 traffic outage.
+    PART 2 (fixed stack MAC): with a fixed stack virtual-MAC (0000.cd37.0d6f) the
+      SVI MAC is RETAINED across the failover, the host ARP stays valid, and traffic
+      recovers in the VCStack promotion time -> 2.08 s outage (vs 23.20 s), ~11x.
+    PART 2b (L3 / OSPF): first blocked by a stale two-transit EPSR ring (no master ->
+      vlan10 partitioned); ring REMOVED from u4/u5 -> loop-free vlan10 star, OSPF Full.
+      Then MEASURED across a master failover: traffic outage 2.05 s (again); the OSPF
+      neighbour (u4) never lost the adjacency - a ~5 s ExStart/Exchange dip at +21 s,
+      Full again at +26 s, no dead-timer expiry.
+  => The case's "recover ... using the MAC of the Master" is exactly the property
+     that must be configured (fixed stack MAC) - Part 1 shows what happens without
+     it, Part 2 shows the correct, fast-recovering behaviour.
+
+  SCOPE: no IXIA/line-rate generator on this bench, so "heavy traffic" is a
+  functional 50 pps ICMP stream through the stack, not wire-rate.  Failover is
+  triggered with `reload stack-member <master>` (safe now that the members flash-
+  boot).  The MAC behaviour and the failover/recovery timing are the real results.
+
+--------------------------------------------------------------------------------
+BENCH / TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  DUT stack : u2 (member 1, S/N 264A23061, base MAC 84e3.2787.0ac0)
+              u3 (member 2, S/N 264A23068, base MAC 84e3.2787.0780)
+              stackports 1.0.27/28 <-> 2.0.27/28
+  Host      : tb470 eth1  10.38.215.1/27  -> member 1 port1.0.2 (access vlan1)
+  Stack SVI : vlan1 10.38.215.10/27  (the host's gateway / ping target)
+              [vlan1 set into eth1's subnet per the bench rule: native vlan = the
+               connected testbox eth port's subnet]
+
+--------------------------------------------------------------------------------
+PART 1 - DEFAULT CONFIG: master failover changes the stack MAC (23 s outage)
+--------------------------------------------------------------------------------
+### baseline ###
+u2# show stack
+ID  MAC address     Priority Status Role
+1   84e3.2787.0ac0  128      Ready  Backup Member
+2   84e3.2787.0780  128      Ready  Active Master
+Stack MAC address                  84e3.2787.0780
+u2# show interface vlan1 | include Hardware
+  Hardware is VLAN, address is 84e3.2787.0780         <-- SVI uses the master MAC
+host# ip neigh 10.38.215.10 -> lladdr 84:e3:27:87:07:80 REACHABLE
+
+### host streams 50 pps ICMP to the SVI (10.38.215.10); reload the master (member 2) ###
+u2(stack)# reload stack-member 2
+
+### after failover ###
+u2# show stack
+1   84e3.2787.0ac0  128      Ready  Active Master        <-- member 1 promoted
+2   -               -        -      Provisioned          (member 2 rebooting)
+Stack MAC address                  84e3.2787.0ac0        <-- STACK MAC CHANGED
+u2# show interface vlan1 | include Hardware
+  Hardware is VLAN, address is 84e3.2787.0ac0            <-- SVI MAC changed too
+host# ip neigh 10.38.215.10 -> lladdr 84:e3:27:87:0a:c0 REACHABLE  (re-resolved, new MAC)
+
+### traffic outage (ping stream, -D timestamps) ###
+  OUTAGE = 23.20 s   (seq 620 -> 1577, ~956 probes lost)
+  => the failover itself works, but because the stack MAC is not fixed it followed
+     the new master (...0780 -> ...0ac0); the host kept sending to the old master's
+     MAC until Linux's ARP staleness timer expired (~23 s) and it re-resolved.
+     This is the L2 penalty of a non-fixed stack MAC.  (member 2 rejoined as Backup
+     afterwards; Normal operation restored.)
+
+--------------------------------------------------------------------------------
+PART 2 - FIXED STACK MAC: master failover, SVI MAC RETAINED (2.08 s outage)
+--------------------------------------------------------------------------------
+### config applied (one full-stack reboot to activate) ###
+  u2(config)# boot system flash:/IE520-tb470.rel   <-- boot pointer was stale
+              (show boot showed a non-existent tomahawk .rel; corrected + synced
+               to member 2 before any reload - see the flash-boot memory)
+  u2(config)# stack virtual-mac                     <-- fixed MAC, survives failover
+              % new MAC 0000.cd37.0d6f  (derived from virtual chassis ID 0xd6f)
+              Save the config and restart for this change to take effect.
+  u2(config)# stack 2 priority 2                    <-- member 2 preferred master
+              (AW+ elects the LOWEST priority value; priority only decides at boot,
+               a running master is not preempted - so a reboot is required anyway)
+  u2# copy running-config startup-config            <-- synced to member 2
+  u2# reload   (whole stack)  ->  back up in ~209 s, Normal operation
+
+### baseline after reboot (virtual MAC now active) ###
+u2# show stack
+ID  MAC address     Priority Status  Role
+1   84e3.2787.0ac0  128      Ready   Backup Member          <-- host is on member 1
+2   84e3.2787.0780  2        Ready   Active Master          <-- master to be reloaded
+Stack MAC address                  0000.cd37.0d6f (Virtual MAC)
+u2# show interface vlan1 | include Hardware
+  Hardware is VLAN, address is 0000.cd37.0d6f          <-- SVI uses the VIRTUAL MAC
+host# ip neigh 10.38.215.10 -> lladdr 00:00:cd:37:0d:6f REACHABLE
+
+### host streams 50 pps ICMP (ping -i 0.02 -D) to the SVI; reload the master ###
+u2(member1 console)# reload stack-member 2
+  reboot stack master? (y/n): y          <-- trigger @ epoch 1789075118.258
+  21:18:51 awplus-1 VCS[688]: Contact with the Active Master has been lost
+
+### after failover ###
+u2# show stack
+1   84e3.2787.0ac0  128      Ready   Active Master        <-- member 1 promoted
+2   84e3.2787.0780  2        Syncing Backup Member         (member 2 rebooting/rejoin)
+Stack MAC address                  0000.cd37.0d6f (Virtual MAC)   <-- MAC UNCHANGED
+u2# show interface vlan1 | include Hardware
+  Hardware is VLAN, address is 0000.cd37.0d6f          <-- SVI MAC UNCHANGED
+host# ip neigh 10.38.215.10 -> lladdr 00:00:cd:37:0d:6f  (SAME MAC; never re-resolved
+                                                          to a different address)
+
+### traffic outage (ping stream, -D timestamps) ###
+  Last reply before : 1789075119.188   (0.93 s after the reload trigger)
+  First reply after : 1789075121.272
+  OUTAGE = 2.084 s   (single contiguous gap; 0 DUPs; recovery 3.01 s after trigger)
+  => With a fixed stack virtual-MAC the SVI keeps ONE MAC (0000.cd37.0d6f) across the
+     master failover.  The host's ARP for the gateway stays valid, so recovery is just
+     the VCStack master-promotion / forwarding-restore time - NOT the ARP-staleness
+     wait.  Same bench, same failover trigger as Part 1:
+
+        PART 1 (no fixed MAC) : MAC 0780 -> 0ac0, outage 23.20 s  (ARP staleness)
+        PART 2 (fixed vMAC)   : MAC 0000.cd37.0d6f held, outage  2.08 s  (~11x faster)
+
+     This is exactly the case's "recover ... using the MAC of the Master" property:
+     it must be CONFIGURED (stack virtual-mac); once it is, failover is L2-transparent
+     to the host beyond the ~2 s promotion window.
+
+--------------------------------------------------------------------------------
+PART 2b - L3 / OSPF across the failover: ring blocker removed, then MEASURED
+--------------------------------------------------------------------------------
+  Intent: add an OSPF neighbour so the failover also shows L3 route reconvergence.
+  OSPF was enabled on both ends over the one available inter-switch subnet, vlan10:
+      stack: service ospf; router ospf 1; network 10.10.10.0/27 area 0
+             -> vlan10 10.10.10.1/27, ospf up, state DR
+      u4   : service ospf; router ospf 1; router-id 10.10.10.2
+             -> vlan10 10.10.10.2/27, ospf up, state DR
+  Both interfaces are up and BOTH send hellos, but each receives 0:
+      stack vlan10:  Hello received 0 sent 10   Neighbor Count 0
+      u4    vlan10:  Hello received 0 sent  9   Neighbor Count 0
+  Root cause = L2, not OSPF.  vlan10 does not pass between the stack and u4:
+      u4# ping 10.10.10.1  ->  100% loss, Destination Host Unreachable
+      (it DID pass 0% before the stack reboot)
+  The stack<->u4/u5 links are trunked into an EPSR ring (vlan2 = epsr-control) and
+  after the stack reboot the ring is half-converged:
+      u4# show epsr  ->  Master Node ... Unknown
+  With the EPSR master unknown the ring's data-vlan blocking state is indeterminate,
+  so vlan10 is partitioned.  All the physical uplinks are 'running' - this is ring
+  STATE, not a cable fault.
+
+  The ring was a two-transit ring with NO master (stack ran only `service epsr`, no
+  ring domain; u4 and u5 were both `mode transit`), so it could never converge and
+  each transit held a port blocked -> vlan10 partitioned.
+
+  ### RESOLUTION 2026-09-11 (Terrence's call: remove EPSR from u4/u5) ###
+  The old ring was the triangle stack--u4--u5--stack (LLDP-confirmed both ends). It
+  was reduced to a LOOP-FREE STAR hung off stack member 1 (the survivor member):
+    - shut the u4<->u5 edge (u4/u5 sa3) and the redundant member-2 legs
+      (u4 port1.0.23, u5 port2.0.23) FIRST, while EPSR still blocked the stack-facing
+      ports, so there was never a loop/storm window;
+    - then `no epsr ring1` on u4 and u5 (datavlan removed first, then the instance;
+      `no service epsr` set, clears fully on reboot).
+  Each device now reaches the stack over ONE member-1 trunk on vlan10:
+      stack 1.0.26 <-> u4 1.0.25   and   stack 1.0.25 <-> u5 2.0.25
+  Verified: stack->u4 (10.10.10.2) and stack->u5 (10.10.10.3) 0% loss, NO DUPs, no
+  storm.  OSPF then came up on its own:
+      u2# show ip ospf neighbor
+      10.10.10.2  1  Full/Backup  ...  vlan10        <-- adjacency FULL (stack DR, u4 BDR)
+  ### MEASURED: OSPF across a master failover (2026-09-11) ###
+  Setup: `reload stack-member 1` flipped the master to member 2 (member 1 rejoined as
+  Backup in ~296 s; OSPF re-formed through member 1's uplink at ~224 s, before member 1
+  even read Ready).  Start state:
+      1  84e3.2787.0ac0  128  Ready  Backup Member    <-- host port1.0.2 + vlan10 uplink 1.0.26
+      2  84e3.2787.0780    2  Ready  Active Master    <-- the member to be reloaded
+      OSPF: stack<->u4 Full   (u4 sees the stack as DR)
+  Recorders: host `ping -i 0.02 -D 10.38.215.10`; u4 console polling
+  `show ip ospf neighbor` ~every 1.5 s, printing every STATE CHANGE with an epoch.
+
+  u2(member1 console)# reload stack-member 2
+      reboot stack master? (y/n): y          <-- trigger @ epoch 1789079290.977
+      22:28:24 awplus-1 VCS[667]: Member 2 (84e3.2787.0780) has left the stack
+
+  ### traffic (host ping, -D) ###
+      last reply before : 1789079291.968   (+0.99 s)
+      first reply after : 1789079294.019
+      OUTAGE = 2.051 s   (single gap, 0 DUPs)   -- reproduces PART 2's 2.08 s
+
+  ### OSPF adjacency as seen by u4 (neighbour = the stack) ###
+      1789079267.705  Full/DR                       (baseline, watcher start)
+      1789079312.310  ExStart/DR      <-- +21.3 s: new master's OSPF re-initiates DBD
+      1789079317.267  Full/DR         <-- +26.3 s: adjacency FULL again
+      no Down / Init / NONE at any poll  => the dead timer (40 s) never expired
+  Stack side @ +20.7 s (member 1 now master):
+      10.10.10.2  1  Full/Backup  00:00:39  10.10.10.2  vlan10
+      show stack: 1 Active Master, 2 Provisioned (rebooting), Standalone unit
+      Stack MAC address 0000.cd37.0d6f (Virtual MAC)   <-- unchanged again
+      host ip neigh 10.38.215.10 -> 00:00:cd:37:0d:6f REACHABLE
+
+  => L3 behaviour across the master failover: the OSPF process moves to the new
+     master and re-synchronises with the neighbour within the dead interval - the
+     neighbour sees a ~5 s ExStart/Exchange dip about 21 s after the failover and is
+     Full again at +26 s; it never declares the stack down.  The vlan10 uplink port
+     (member 1) stays up throughout because the failing master did not carry it.
+     Not captured: u4's route table during the ExStart window (adjacency never fell
+     below ExStart, so no LSDB flush was triggered, but route continuity through
+     that 5 s is inferred, not measured).
+     The PART 2 virtual-MAC result stands on its own as the case's core property;
+     this shows the L3 layer reconverges on top of it without an adjacency loss.
+  Bench topology recorded: claude/device-testing/bench-setup/bench-state.md (2026-09-11).
+================================================================================

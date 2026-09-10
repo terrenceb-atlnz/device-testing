@@ -1,0 +1,1228 @@
+================================================================================
+TEST 38378 - CYCLE 293: ACTIVE MASTER WEDGE + WATCHDOG RESET
+CONSOLIDATED EVIDENCE WINDOW
+================================================================================
+
+WINDOW (identical for every source in this file)
+    2026-08-25 22:33:00Z  ->  2026-08-25 22:36:15Z        (device clocks, UTC)
+  = 2026-08-26 10:33:00    ->  2026-08-26 10:36:15         (NZST, UTC+12)
+
+BENCH
+  tb470, AT-IE520-28GSX two-member VCStack
+  virtual-chassis-id 3439 (0xd6f), VMAC 0000.cd37.0d6f
+  member 1 = S/N 264A23066, MAC 84e3.2787.0740, console /dev/u5   <- WEDGED (was Active Master)
+  member 2 = S/N 264A23052, MAC 84e3.2787.09c0, console /dev/u4   <- survivor (was Backup Member)
+  Stacking: TWO pairs -- port1.0.28<->port2.0.27 and port1.0.27<->port2.0.28
+            (both TE Connectivity 1-2127931-2 1xCOPPER PAS direct-attach)
+  No resiliency link configured (both pairs are stackports).
+
+SOFTWARE
+  IE520-tomahawk_ie520-continuous.rel, build 08/19/26 02:20:43
+  Booted from flash:/IE520-20260825.rel (sha256 8d699ce8...2bb6bb0)
+  Bootloader 9.1.0 / U-Boot 2025.01-04844-gd2292467da4d (Jul 22 2026)
+
+CLOCKS -- read this before comparing timestamps
+  * Both switches log in UTC.
+  * The test harness on tb470 logs in NZST (UTC+12).
+  * The serial console capture has NO timestamps at all -- it is a raw byte
+    stream. It is therefore anchored BY CONTENT, not by clock; see SOURCE A.
+
+WHAT HAPPENED (one paragraph, evidence below)
+  Cycle 293 shut stacking pair port1.0.27/port2.0.28. The first shutdown
+  (port1.0.27) downed BOTH ends of that pair. A second, redundant shutdown was
+  then issued against port2.0.28, already in disabled state. That is the last
+  command member 1 ever acknowledged. Its CLI stopped echoing entirely, member 2
+  lost TIPC contact ~22:33:27-29, HA failover completed correctly at 22:33:34,
+  and member 1 spontaneously reset (BootROM) roughly two minutes later with no
+  panic, oops, stack trace or shutdown sequence emitted.
+
+*** CRITICAL EVIDENCE GAP -- STATED UP FRONT ***
+  MEMBER 1 RETAINED NO LOG OF ITS OWN WEDGE. Its earliest surviving record of
+  any kind is 22:35:34Z, i.e. AFTER the reset, when syslog-ng restarted. This
+  was confirmed across four independent files pulled from it
+  (messages.1, stacking.1, vcs-awplus-messages.2, startup_messages) -- all four
+  begin at or after 22:35:34Z. There is no messages.2 on member 1.
+  The hard reset gave syslog no opportunity to flush.
+  => The ONLY record covering the wedge itself is SOURCE A (the tb470-side
+     console capture) and the member 2 sources (B-F), which observe member 1
+     from outside. No core file, crash dump or exception-log entry exists on
+     either unit; that was checked and is a genuine absence, not an unread file.
+
+================================================================================
+SOURCE INDEX
+================================================================================
+  A  Serial console capture of MEMBER 1        - tb470 pyserial, no timestamps
+  B  Stack permanent log (both members)        - device, UTC
+  C  member 2 stacking trace (STK TRACE)       - device, UTC
+  D  member 2 VCS/licensing messages           - device, UTC
+  E  member 2 TIPC probe captures              - device, UTC
+  F  member 2 HA-failover snapshot bundle      - device, UTC
+  G  member 1 post-reset boot logs             - device, UTC (boot only)
+  H  Test harness verdict log                  - tb470, NZST
+================================================================================
+
+================================================================================
+SOURCE A - SERIAL CONSOLE CAPTURE OF MEMBER 1 (the unit that wedged)
+================================================================================
+  Captured by : tb470, pyserial reader in console.py, writing every byte as it
+                arrived (never buffered-until-success, so a timeout cannot
+                discard the bytes needed to diagnose it).
+  Device      : member 1, console /dev/u5 (ttyUSB1), 115200 8N1
+  File        : 38378-console-full.log  (1,360,311 bytes, whole 300-cycle run)
+  Excerpt     : lines 34490-35115, reproduced verbatim below with `cat -v`
+  Timestamps  : NONE. This is a raw serial byte stream.
+  ANCHORING   : the excerpt is anchored by content, not clock --
+                  line 34517 = first command with NO echo and no reply
+                               (this is the wedge)
+                  line 34521 = BootROM 1.41 banner (the reset)
+                  line 35100 = FAT-fs (sda1) dirty-mount warning (post-reset)
+                Correlate to UTC via SOURCE B: member 2 first reports lost
+                contact at 22:33:29Z, and member 1's syslog restarts 22:35:34Z.
+                The silence between console lines 34515 and 34521 therefore
+                spans approximately 22:33:2xZ -> 22:35:2xZ.
+  NOTE        : `>>>` lines are the harness echoing what IT sent; everything
+                else is what the DEVICE emitted. Absence of a device echo after
+                34515 is the finding.
+
+ 34490  awplus#
+ 34491  >>> configure terminal
+ 34492  configure terminal^M^M
+ 34493  Enter configuration commands, one per line.  End with CNTL/Z.^M
+ 34494  awplus(config)#
+ 34495  >>> interface port1.0.27
+ 34496  interface port1.0.27^M^M
+ 34497  % port1.0.27 is currently configured as a stack-port. Use caution when altering its config^M
+ 34498  ^M
+ 34499  awplus(config-if)#
+ 34500  >>> shutdown
+ 34501  shutdown^M^M
+ 34502  switch: port 1(port1.0.27) entered disabled state^M
+ 34503  switch: port 47(port2.0.28) entered disabled state^M
+ 34504  % Warning: "shutdown" command is not saved to configuration for stackports^M
+ 34505  awplus(config-if)#switch: port 1(port1.0.27) entered disabled state^M
+ 34506  
+ 34507  >>> interface port2.0.28
+ 34508  interface port2.0.28^M^M
+ 34509  % port2.0.28 is currently configured as a stack-port. Use caution when altering its config^M
+ 34510  ^M
+ 34511  awplus(config-if)#
+ 34512  >>> shutdown
+ 34513  shutdown^M^M
+ 34514  % Warning: "shutdown" command is not saved to configuration for stackports^M
+ 34515  awplus(config-if)#switch: port 47(port2.0.28) entered disabled state^M
+ 34516  
+ 34517  >>> end
+ 34518  
+ 34519  >>> show stack
+ 34520  
+ 34521  ^MBootROM 1.41
+ 34522  ^MBooting from SPI flash
+ 34523  ^M
+ 34524  ^M
+ 34525  ^MGeneral initialization - Version: 1.0.0
+ 34526  ^MSerdes initialization - Version: 1.0.2
+ 34527  ^MPEX: pexIdx 0, detected no link
+ 34528  ^MDDR3 Training Sequence - Ver TIP-1.55.0
+ 34529  ^MDDR3 Training Sequence - Switching XBAR Window to FastPath Window 
+ 34530  ^MDDR3 Training Sequence - Ended Successfully
+ 34531  ^MBootROM: Image checksum verification PASSED
+ 34532  ^M^M
+ 34533  ^M
+ 34534  U-Boot 2025.01-04844-gd2292467da4d (Jul 22 2026 - 03:04:21 +0000)^M
+ 34535  ^M
+ 34536  SoC:   98DX3336-A1 at 800 MHz^M
+ 34537  Model: IE520^M
+ 34538  Board: Allied Telesis IE520^M
+ 34539  DRAM:  512 MiB (800 MHz, 16-bit, ECC not enabled)^M
+ 34540  Core:  22 devices, 15 uclasses, devicetree: separate^M
+ 34541  Loading Environment from SPIFlash... SF: Detected w25q01jvfim with page size 256 Bytes, erase size 64 KiB, total 128 MiB^M
+ 34542  OK^M
+ 34543  ^M
+ 34544  Bootloader 9.1.0 loaded^M
+ 34545  Press <Ctrl+B> for the Boot Menu^M
+ 34546  Net:   No ethernet found.^M
+ 34547  ^M
+ 34548  Warning: System has been forced to boot from a non-standard location^M
+ 34549  To restore the system to default behaviour, enter the Boot Menu,^M
+ 34550  	Choose option 2, then option 9^M
+ 34551  ^M
+ 34552  Bus usb@50000: USB EHCI 1.00^M
+ 34553  scanning bus usb@50000 for devices... ^M
+ 34554  Warning: asix_eth MAC addresses don't match:^M
+ 34555  Address in DT is		08:be:ac:37:7b:84^M
+ 34556  Address in environment is	08:be:ac:37:7b:86^M
+ 34557  5 USB Device(s) found^M
+ 34558  Loading tftp://10.38.215.33/IE520-tb470.rel via 'eth0' interface...^M
+ 34559  Waiting for Ethernet connection... done.^M
+ 34560  Using asix_eth device^M
+ 34561  TFTP from server 10.38.215.33; our IP address is 10.38.215.39^M
+ 34562  Filename 'IE520-tb470.rel'.^M
+ 34563  Load address: 0x4000000^M
+ 34564  Loading: *^H#################################################################^M
+ 34565  	 #################################################################^M
+ 34566  	 #################################################################^M
+ 34567  	 #################################################################^M
+ 34568  	 #################################################################^M
+ 34569  	 #################################################################^M
+ 34570  	 #################################################################^M
+ 34571  	 #################################################################^M
+ 34572  	 #################################################################^M
+ 34573  	 #################################################################^M
+ 34574  	 #################################################################^M
+ 34575  	 #################################################################^M
+ 34576  	 #################################################################^M
+ 34577  	 #################################################################^M
+ 34578  	 #################################################################^M
+ 34579  	 #################################################################^M
+ 34580  	 #################################################################^M
+ 34581  	 #################################################################^M
+ 34582  	 #################################################################^M
+ 34583  	 #################################################################^M
+ 34584  	 #################################################################^M
+ 34585  	 #################################################################^M
+ 34586  	 #################################################################^M
+ 34587  	 #################################################################^M
+ 34588  	 #################################################################^M
+ 34589  	 #################################################################^M
+ 34590  	 #################################################################^M
+ 34591  	 #################################################################^M
+ 34592  	 #################################################################^M
+ 34593  	 #################################################################^M
+ 34594  	 #################################################################^M
+ 34595  	 #################################################################^M
+ 34596  	 #################################################################^M
+ 34597  	 #################################################################^M
+ 34598  	 #################################################################^M
+ 34599  	 #################################################################^M
+ 34600  	 #################################################################^M
+ 34601  	 #################################################################^M
+ 34602  	 #################################################################^M
+ 34603  	 #################################################################^M
+ 34604  	 #################################################################^M
+ 34605  	 #################################################################^M
+ 34606  	 #################################################################^M
+ 34607  	 #####^M
+ 34608  	 3 MiB/s^M
+ 34609  done^M
+ 34610  Bytes transferred = 41103575 (27330d7 hex)^M
+ 34611  ^M
+ 34612  Probing SPI flash... Complete^M
+ 34613  Booting image 04000000#IE520-28GSX ...^M
+ 34614  ## Loading kernel from FIT Image at 04000000 ...^M
+ 34615     Using 'IE520-28GSX' configuration^M
+ 34616     Trying 'kernel' kernel subimage^M
+ 34617       Description:  linux^M
+ 34618       Created:      2026-08-19   2:20:43 UTC^M
+ 34619       Type:         Kernel Image^M
+ 34620       Compression:  uncompressed^M
+ 34621       Data Start:   0x0400019c^M
+ 34622       Data Size:    4421672 Bytes = 4.2 MiB^M
+ 34623       Architecture: ARM^M
+ 34624       OS:           Linux^M
+ 34625       Load Address: 0x00008000^M
+ 34626       Entry Point:  0x00008000^M
+ 34627       Hash algo:    sha1^M
+ 34628       Hash value:   409307de91c3f066efe58eb728219c19a6d0636c^M
+ 34629     Verifying Hash Integrity ... sha1+ OK^M
+ 34630  ## Loading ramdisk from FIT Image at 04000000 ...^M
+ 34631     Using 'IE520-28GSX' configuration^M
+ 34632     Trying 'ramdisk' ramdisk subimage^M
+ 34633       Description:  ramdisk^M
+ 34634       Created:      2026-08-19   2:20:43 UTC^M
+ 34635       Type:         RAMDisk Image^M
+ 34636       Compression:  uncompressed^M
+ 34637       Data Start:   0x04437aa4^M
+ 34638       Data Size:    36659200 Bytes = 35 MiB^M
+ 34639       Architecture: ARM^M
+ 34640       OS:           Linux^M
+ 34641       Load Address: unavailable^M
+ 34642       Entry Point:  unavailable^M
+ 34643       Hash algo:    sha1^M
+ 34644       Hash value:   f0d3c6af8d22ba7cbcbe0bf253b10d62efcd7e06^M
+ 34645     Verifying Hash Integrity ... sha1+ OK^M
+ 34646  ## Loading fdt from FIT Image at 04000000 ...^M
+ 34647     Using 'IE520-28GSX' configuration^M
+ 34648     Trying 'IE520-28GSX-fdt' fdt subimage^M
+ 34649       Description:  IE520-28GSX-fdt^M
+ 34650       Created:      2026-08-19   2:20:43 UTC^M
+ 34651       Type:         Flat Device Tree^M
+ 34652       Compression:  uncompressed^M
+ 34653       Data Start:   0x0672db74^M
+ 34654       Data Size:    21420 Bytes = 20.9 KiB^M
+ 34655       Architecture: ARM^M
+ 34656       Hash algo:    crc32^M
+ 34657       Hash value:   70de2e46^M
+ 34658     Verifying Hash Integrity ... crc32+ OK^M
+ 34659     Booting using the fdt blob at 0x672db74^M
+ 34660  Working FDT set to 672db74^M
+ 34661     Loading Kernel Image to 8000^M
+ 34662     Loading Ramdisk to 0dd0a000, end 10000000 ... OK^M
+ 34663     Loading Device Tree to 0dd01000, end 0dd093ab ... OK^M
+ 34664  Working FDT set to dd01000^M
+ 34665  ^M
+ 34666  Starting kernel ...^M
+ 34667  ^M
+ 34668  Booting Linux on physical CPU 0x0^M
+ 34669  Linux version 6.12.98 (maker@maker37-build) (arm-unknown-linux-gnueabi-gcc (crosstool-NG 1.26.0_dirty) 13.2.0, GNU ld (crosstool-NG 1.26.0_dirty) 2.40) #1 SMP PREEMPT Wed Aug 19 02:13:27 UTC 2026^M
+ 34670  CPU: ARMv7 Processor [562f5842] revision 2 (ARMv7), cr=10c5387d^M
+ 34671  CPU: div instructions available: patching division code^M
+ 34672  CPU: PIPT / VIPT nonaliasing data cache, PIPT instruction cache^M
+ 34673  OF: fdt: Machine model: IE520-28GSX^M
+ 34674  Memory policy: Data cache writealloc^M
+ 34675  Zone ranges:^M
+ 34676    Normal   [mem 0x0000000000000000-0x000000001fffffff]^M
+ 34677  Movable zone start for each node^M
+ 34678  Early memory node ranges^M
+ 34679    node   0: [mem 0x0000000000000000-0x000000001fffffff]^M
+ 34680  Initmem setup node 0 [mem 0x0000000000000000-0x000000001fffffff]^M
+ 34681  OF: reserved mem: 0x1a000000..0x1a01ffff (128 KiB) map non-reusable ramoops@1a000000^M
+ 34682  percpu: Embedded 12 pages/cpu s19788 r8192 d21172 u49152^M
+ 34683  pcpu-alloc: s19788 r8192 d21172 u49152 alloc=12*4096^M
+ 34684  pcpu-alloc: [0] 0 [0] 1 ^M
+ 34685  Kernel command line: console=ttyS0,115200 root=/dev/ram0 releasefile=IE520-tb470.rel bootversion=9.1.0 loglevel=9 securitylevel=1 mtdoops.record_size=16384^M
+ 34686  Unknown kernel command line parameters "releasefile=IE520-tb470.rel bootversion=9.1.0 securitylevel=1", will be passed to user space.^M
+ 34687  Dentry cache hash table entries: 65536 (order: 6, 262144 bytes, linear)^M
+ 34688  Inode-cache hash table entries: 32768 (order: 5, 131072 bytes, linear)^M
+ 34689  Built 1 zonelists, mobility grouping on.  Total pages: 131072^M
+ 34690  mem auto-init: stack:all(zero), heap alloc:off, heap free:off^M
+ 34691  SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=2, Nodes=1^M
+ 34692  rcu: Preemptible hierarchical RCU implementation.^M
+ 34693  rcu: 	RCU event tracing is enabled.^M
+ 34694  rcu: 	RCU restricting CPUs from NR_CPUS=4 to nr_cpu_ids=2.^M
+ 34695  	Trampoline variant of Tasks RCU enabled.^M
+ 34696  	Tracing variant of Tasks RCU enabled.^M
+ 34697  rcu: RCU calculated value of scheduler-enlistment delay is 10 jiffies.^M
+ 34698  rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=2^M
+ 34699  RCU Tasks: Setting shift to 1 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=2.^M
+ 34700  RCU Tasks Trace: Setting shift to 1 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=2.^M
+ 34701  NR_IRQS: 16, nr_irqs: 16, preallocated irqs: 16^M
+ 34702  L2C: DT/platform modifies aux control register: 0x1a08e700 -> 0x1a38e702^M
+ 34703  Aurora cache controller enabled, 8 ways, 512 kB^M
+ 34704  Aurora: CACHE_ID 0x00000100, AUX_CTRL 0x1a38e702^M
+ 34705  rcu: srcu_init: Setting srcu_struct sizes based on contention.^M
+ 34706  clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 19112604462750000 ns^M
+ 34707  CPU freq select unsupported 5^M
+ 34708  Switching to timer-based delay loop, resolution 40ns^M
+ 34709  sched_clock: 32 bits at 25MHz, resolution 40ns, wraps every 85899345900ns^M
+ 34710  clocksource: armada_370_xp_clocksource: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 76450417870 ns^M
+ 34711  Calibrating delay loop (skipped), value calculated using timer frequency.. 50.00 BogoMIPS (lpj=250000)^M
+ 34712  CPU: Testing write buffer coherency: ok^M
+ 34713  pid_max: default: 32768 minimum: 301^M
+ 34714  Mount-cache hash table entries: 1024 (order: 0, 4096 bytes, linear)^M
+ 34715  Mountpoint-cache hash table entries: 1024 (order: 0, 4096 bytes, linear)^M
+ 34716  CPU0: thread -1, cpu 0, socket 0, mpidr 80000000^M
+ 34717  Setting up static identity map for 0x100000 - 0x100060^M
+ 34718  mvebu-soc-id: MVEBU SoC ID=0xF400, Rev=0x4^M
+ 34719  mvebu-pmsu: Initializing Power Management Service Unit^M
+ 34720  rcu: Hierarchical SRCU implementation.^M
+ 34721  rcu: 	Max phase no-delay instances is 1000.^M
+ 34722  smp: Bringing up secondary CPUs ...^M
+ 34723  CPU1: thread -1, cpu 1, socket 0, mpidr 80000001^M
+ 34724  smp: Brought up 1 node, 2 CPUs^M
+ 34725  SMP: Total of 2 processors activated (100.00 BogoMIPS).^M
+ 34726  CPU: All CPU(s) started in SVC mode.^M
+ 34727  Memory: 468744K/524288K available (9216K kernel code, 267K rwdata, 1896K rodata, 1024K init, 159K bss, 54384K reserved, 0K cma-reserved)^M
+ 34728  devtmpfs: initialized^M
+ 34729  VFP support v0.3: implementor 56 architecture 2 part 20 variant 9 rev 6^M
+ 34730  futex hash table entries: 512 (order: 3, 32768 bytes, linear)^M
+ 34731  pinctrl core: initialized pinctrl subsystem^M
+ 34732  NET: Registered PF_NETLINK/PF_ROUTE protocol family^M
+ 34733  DMA: preallocated 256 KiB pool for atomic coherent allocations^M
+ 34734  thermal_sys: Registered thermal governor 'step_wise'^M
+ 34735  pstore: Using crash dump compression: deflate^M
+ 34736  pstore: Registered ramoops as persistent store backend^M
+ 34737  ramoops: using 0x20000@0x1a000000, ecc: 16^M
+ 34738  SCSI subsystem initialized^M
+ 34739  usbcore: registered new interface driver usbfs^M
+ 34740  usbcore: registered new interface driver hub^M
+ 34741  usbcore: registered new device driver usb^M
+ 34742  pps_core: LinuxPPS API ver. 1 registered^M
+ 34743  pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>^M
+ 34744  PTP clock support registered^M
+ 34745  EDAC MC: Ver: 3.0.0^M
+ 34746  clocksource: Switched to clocksource armada_370_xp_clocksource^M
+ 34747  NET: Registered PF_INET protocol family^M
+ 34748  IP idents hash table entries: 8192 (order: 4, 65536 bytes, linear)^M
+ 34749  tcp_listen_portaddr_hash hash table entries: 16384 (order: 5, 131072 bytes, linear)^M
+ 34750  Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)^M
+ 34751  TCP established hash table entries: 16384 (order: 4, 65536 bytes, linear)^M
+ 34752  TCP bind hash table entries: 16384 (order: 6, 262144 bytes, linear)^M
+ 34753  TCP: Hash tables configured (established 16384 bind 16384)^M
+ 34754  UDP hash table entries: 256 (order: 1, 8192 bytes, linear)^M
+ 34755  UDP-Lite hash table entries: 256 (order: 1, 8192 bytes, linear)^M
+ 34756  NET: Registered PF_UNIX/PF_LOCAL protocol family^M
+ 34757  RPC: Registered named UNIX socket transport module.^M
+ 34758  RPC: Registered udp transport module.^M
+ 34759  RPC: Registered tcp transport module.^M
+ 34760  RPC: Registered tcp-with-tls transport module.^M
+ 34761  RPC: Registered tcp NFSv4.1 backchannel transport module.^M
+ 34762  PCI: CLS 0 bytes, default 64^M
+ 34763  Trying to unpack rootfs image as initramfs...^M
+ 34764  rootfs image is not initramfs (invalid magic at start of compressed archive); looks like an initrd^M
+ 34765  workingset: timestamp_bits=30 max_order=17 bucket_order=0^M
+ 34766  squashfs: version 4.0 (2009/01/31) Phillip Lougher^M
+ 34767  jffs2: version 2.2. (NAND) M-BM-) 2001-2006 Red Hat, Inc.^M
+ 34768  fuse: init (API version 7.41)^M
+ 34769  Freeing initrd memory: 35800K^M
+ 34770  Block layer SCSI generic (bsg) driver version 0.4 loaded (major 249)^M
+ 34771  io scheduler mq-deadline registered^M
+ 34772  io scheduler kyber registered^M
+ 34773  armada-xp-pinctrl f1018000.pin-ctrl: registered pinctrl driver^M
+ 34774  gpio gpiochip0: Static allocation of GPIO base is deprecated, use dynamic allocation.^M
+ 34775  gpio gpiochip1: Static allocation of GPIO base is deprecated, use dynamic allocation.^M
+ 34776  Serial: 8250/16550 driver, 4 ports, IRQ sharing disabled^M
+ 34777  printk: legacy console [ttyS0] disabled^M
+ 34778  f1012000.serial: ttyS0 at MMIO 0xf1012000 (irq = 27, base_baud = 12500000) is a 16550A^M
+ 34779  printk: legacy console [ttyS0] enabled^M
+ 34780  brd: module loaded^M
+ 34781  loop: module loaded^M
+ 34782  mtdoops: mtd device (mtddev=name/number) must be supplied^M
+ 34783  4 fixed-partitions partitions found on MTD device spi0.0^M
+ 34784  Creating 4 MTD partitions on "spi0.0":^M
+ 34785  0x000000000000-0x000000180000 : "u-boot"^M
+ 34786  0x000000180000-0x0000001c0000 : "u-boot-env"^M
+ 34787  0x0000001c0000-0x0000001d0000 : "idprom"^M
+ 34788  0x000000800000-0x000008000000 : "user"^M
+ 34789  tun: Universal TUN/TAP device driver, 1.6^M
+ 34790  usbcore: registered new interface driver asix^M
+ 34791  usbcore: registered new interface driver ax88179_178a^M
+ 34792  usbcore: registered new interface driver cdc_ether^M
+ 34793  usbcore: registered new interface driver smsc75xx^M
+ 34794  usbcore: registered new interface driver r8153_ecm^M
+ 34795  orion-ehci f1050000.usb: EHCI Host Controller^M
+ 34796  orion-ehci f1050000.usb: new USB bus registered, assigned bus number 1^M
+ 34797  orion-ehci f1050000.usb: irq 34, io mem 0xf1050000^M
+ 34798  orion-ehci f1050000.usb: USB 2.0 started, EHCI 1.00^M
+ 34799  usb usb1: New USB device found, idVendor=1d6b, idProduct=0002, bcdDevice= 6.12^M
+ 34800  usb usb1: New USB device strings: Mfr=3, Product=2, SerialNumber=1^M
+ 34801  usb usb1: Product: EHCI Host Controller^M
+ 34802  usb usb1: Manufacturer: Linux 6.12.98 ehci_hcd^M
+ 34803  usb usb1: SerialNumber: f1050000.usb^M
+ 34804  hub 1-0:1.0: USB hub found^M
+ 34805  hub 1-0:1.0: 1 port detected^M
+ 34806  usbcore: registered new interface driver usb-storage^M
+ 34807  i2c_dev: i2c /dev entries driver^M
+ 34808  i2c i2c-0: using pinctrl states for GPIO recovery^M
+ 34809  i2c i2c-0: using generic GPIOs for recovery^M
+ 34810  rtc-s35390a 0-0030: registered as rtc0^M
+ 34811  rtc-s35390a 0-0030: setting system clock to 2026-08-25T22:34:54 UTC (1787697294)^M
+ 34812  pca953x 0-003b: using no AI^M
+ 34813  pca953x 0-003c: using no AI^M
+ 34814  pca953x 0-003d: using no AI^M
+ 34815  pca953x 0-0026: using no AI^M
+ 34816  pca953x 0-0020: using no AI^M
+ 34817  pca953x 0-0021: using no AI^M
+ 34818  pca953x 0-0038: using no AI^M
+ 34819  pca953x 0-0022: using no AI^M
+ 34820  pca953x 0-0023: using no AI^M
+ 34821  pca953x 0-0039: using no AI^M
+ 34822  pca953x 0-0024: using no AI^M
+ 34823  pca953x 0-0025: using no AI^M
+ 34824  pca953x 0-003a: using no AI^M
+ 34825  restart-gpio gpio-restart: setup of GPIO (default) failed: -524^M
+ 34826  restart-gpio gpio-restart: Could not get reset GPIO^M
+ 34827  restart-gpio gpio-restart: probe with driver restart-gpio failed with error -524^M
+ 34828  hwmon hwmon0: temp1_input not attached to any thermal zone^M
+ 34829  lm75 0-004f: hwmon0: sensor 'lm75'^M
+ 34830  orion_wdt: Initial timeout 171 sec^M
+ 34831  gpio-mux sfp-mux-controller: 32-way mux-controller registered^M
+ 34832  ipip: IPv4 and MPLS over IPv4 tunneling driver^M
+ 34833  IPv4 over IPsec tunneling driver^M
+ 34834  Initializing XFRM netlink socket^M
+ 34835  IPsec XFRM device driver^M
+ 34836  NET: Registered PF_INET6 protocol family^M
+ 34837  Segment Routing with IPv6^M
+ 34838  In-situ OAM (IOAM) with IPv6^M
+ 34839  sit: IPv6, IPv4 and MPLS over IPv4 tunneling driver^M
+ 34840  NET: Registered PF_PACKET protocol family^M
+ 34841  NET: Registered PF_KEY protocol family^M
+ 34842  l2tp_core: L2TP core driver, V2.0^M
+ 34843  l2tp_ip: L2TP IP encapsulation support (L2TPv3)^M
+ 34844  l2tp_netlink: L2TP netlink interface^M
+ 34845  l2tp_eth: L2TP ethernet pseudowire support (L2TPv3)^M
+ 34846  l2tp_ip6: L2TP IP encapsulation support for IPv6 (L2TPv3)^M
+ 34847  8021q: 802.1Q VLAN Support v1.8^M
+ 34848  Registering SWP/SWPB emulation handler^M
+ 34849  registered taskstats version 1^M
+ 34850  i2c i2c-0: Added multiplexed i2c bus 1^M
+ 34851  i2c i2c-0: Added multiplexed i2c bus 2^M
+ 34852  i2c i2c-0: Added multiplexed i2c bus 3^M
+ 34853  i2c i2c-0: Added multiplexed i2c bus 4^M
+ 34854  i2c i2c-0: Added multiplexed i2c bus 5^M
+ 34855  i2c i2c-0: Added multiplexed i2c bus 6^M
+ 34856  i2c i2c-0: Added multiplexed i2c bus 7^M
+ 34857  i2c i2c-0: Added multiplexed i2c bus 8^M
+ 34858  i2c i2c-0: Added multiplexed i2c bus 9^M
+ 34859  i2c i2c-0: Added multiplexed i2c bus 10^M
+ 34860  i2c i2c-0: Added multiplexed i2c bus 11^M
+ 34861  i2c i2c-0: Added multiplexed i2c bus 12^M
+ 34862  i2c i2c-0: Added multiplexed i2c bus 13^M
+ 34863  i2c i2c-0: Added multiplexed i2c bus 14^M
+ 34864  i2c i2c-0: Added multiplexed i2c bus 15^M
+ 34865  i2c i2c-0: Added multiplexed i2c bus 16^M
+ 34866  i2c i2c-0: Added multiplexed i2c bus 17^M
+ 34867  i2c i2c-0: Added multiplexed i2c bus 18^M
+ 34868  i2c i2c-0: Added multiplexed i2c bus 19^M
+ 34869  i2c i2c-0: Added multiplexed i2c bus 20^M
+ 34870  i2c i2c-0: Added multiplexed i2c bus 21^M
+ 34871  i2c i2c-0: Added multiplexed i2c bus 22^M
+ 34872  i2c i2c-0: Added multiplexed i2c bus 23^M
+ 34873  i2c i2c-0: Added multiplexed i2c bus 24^M
+ 34874  i2c i2c-0: Added multiplexed i2c bus 25^M
+ 34875  i2c i2c-0: Added multiplexed i2c bus 26^M
+ 34876  i2c i2c-0: Added multiplexed i2c bus 27^M
+ 34877  i2c i2c-0: Added multiplexed i2c bus 28^M
+ 34878  i2c-mux-gpmux sfp-i2c-mux: 28-port mux on mv64xxx_i2c adapter adapter^M
+ 34879  clk: Disabling unused clocks^M
+ 34880  RAMDISK: squashfs filesystem found at block 0^M
+ 34881  RAMDISK: Loading 35798KiB [1 disk] into ram disk... |^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H^M
+ 34882  usb 1-1: new high-speed USB device number 2 using orion-ehci^M
+ 34883  |^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H^M
+ 34884  -^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H^M
+ 34885  |^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H^M
+ 34886  -^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H^M
+ 34887  usb 1-1: New USB device found, idVendor=0bda, idProduct=5411, bcdDevice= 0.01^M
+ 34888  |^H^M
+ 34889  usb 1-1: New USB device strings: Mfr=1, Product=2, SerialNumber=0^M
+ 34890  /^H^M
+ 34891  usb 1-1: Product: USB2.1 Hub^M
+ 34892  -^H^M
+ 34893  usb 1-1: Manufacturer: Generic^M
+ 34894  \^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H^M
+ 34895  hub 1-1:1.0: USB hub found^M
+ 34896  \^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H^M
+ 34897  hub 1-1:1.0: 4 ports detected^M
+ 34898  |^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^H-^H\^H|^H/^Hdone.^M
+ 34899  VFS: Mounted root (squashfs filesystem) readonly on device 1:0.^M
+ 34900  devtmpfs: mounted^M
+ 34901  Freeing unused kernel image (initmem) memory: 1024K^M
+ 34902  Run /sbin/init as init process^M
+ 34903    with arguments:^M
+ 34904      /sbin/init^M
+ 34905    with environment:^M
+ 34906      HOME=/^M
+ 34907      TERM=linux^M
+ 34908      releasefile=IE520-tb470.rel^M
+ 34909      bootversion=9.1.0^M
+ 34910      securitylevel=1^M
+ 34911  usb 1-1.4: new high-speed USB device number 3 using orion-ehci^M
+ 34912  usb 1-1.4: New USB device found, idVendor=0bda, idProduct=5411, bcdDevice= 0.01^M
+ 34913  usb 1-1.4: New USB device strings: Mfr=1, Product=2, SerialNumber=0^M
+ 34914  usb 1-1.4: Product: USB2.1 Hub^M
+ 34915  usb 1-1.4: Manufacturer: Generic^M
+ 34916  hub 1-1.4:1.0: USB hub found^M
+ 34917  hub 1-1.4:1.0: 4 ports detected^M
+ 34918  loop0: detected capacity change from 0 to 26784^M
+ 34919  usb 1-1.4.1: new high-speed USB device number 4 using orion-ehci^M
+ 34920  usb 1-1.4.1: New USB device found, idVendor=154b, idProduct=6000, bcdDevice= 1.00^M
+ 34921  usb 1-1.4.1: New USB device strings: Mfr=1, Product=2, SerialNumber=3^M
+ 34922  usb 1-1.4.1: Product: USB Flash Drive^M
+ 34923  usb 1-1.4.1: Manufacturer: PNY^M
+ 34924  usb 1-1.4.1: SerialNumber: A7362335DEE36726^M
+ 34925  usb-storage 1-1.4.1:1.0: USB Mass Storage device detected^M
+ 34926  scsi host0: usb-storage 1-1.4.1:1.0^M
+ 34927  usb 1-1.4.2: new high-speed USB device number 5 using orion-ehci^M
+ 34928  usb 1-1.4.2: New USB device found, idVendor=0b95, idProduct=772b, bcdDevice= 0.01^M
+ 34929  usb 1-1.4.2: New USB device strings: Mfr=1, Product=2, SerialNumber=3^M
+ 34930  usb 1-1.4.2: Product: AX88772B^M
+ 34931  usb 1-1.4.2: Manufacturer: ASIX Elec. Corp.^M
+ 34932  usb 1-1.4.2: SerialNumber: 377B84^M
+ 34933  scsi 0:0:0:0: Direct-Access     PNY      USB Flash Drive  8.00 PQ: 0 ANSI: 4^M
+ 34934  sd 0:0:0:0: [sda] 60506112 512-byte logical blocks: (31.0 GB/28.9 GiB)^M
+ 34935  sd 0:0:0:0: [sda] Write Protect is off^M
+ 34936  sd 0:0:0:0: [sda] Mode Sense: 23 00 00 00^M
+ 34937  sd 0:0:0:0: [sda] Write cache: disabled, read cache: enabled, doesn't support DPO or FUA^M
+ 34938   sda: sda1^M
+ 34939  sd 0:0:0:0: [sda] Attached SCSI removable disk^M
+ 34940  systemd[1]: systemd 254 running in system mode (-PAM -AUDIT -SELINUX -APPARMOR -IMA -SMACK -SECCOMP -GCRYPT -GNUTLS +OPENSSL -ACL +BLKID -CURL -ELFUTILS -FIDO2 -IDN2 -IDN -IPTC +KMOD -LIBCRYPTSETUP -LIBFDISK -PCRE2 -PWQUALITY -P11KIT -QRENCODE -TPM2 -BZIP2 -LZ4 -XZ -ZLIB -ZSTD -BPF_FRAMEWORK -XKBCOMMON +UTMP -SYSVINIT default-hierarchy=hybrid)^M
+ 34941  systemd[1]: Detected architecture arm.^M
+ 34942  systemd[1]: Detected first boot.^M
+ 34943  ^M
+ 34944   ^[[0;32m^M
+ 34945             ______________   ____ ^M
+ 34946          /\ \            / /______\ ^M
+ 34947        /   \ \_      __/ /| ______ |^M
+ 34948      /      \ |     |  /  | ______ |^M
+ 34949    /         \ \   / /     \ ____ /^M
+ 34950  /______/\____\ \/ /____________/^M
+ 34951  ^M
+ 34952  Allied Telesis Inc.^M
+ 34953  AlliedWare Plus (TM) v0.0.0-0.0^M
+ 34954  Built: Wed Aug 19 02:20:43 UTC 2026^[[0m^M
+ 34955  ^M
+ 34956  systemd[1]: Hostname set to <awplus>.^M
+ 34957  systemd[1]: Initializing machine ID from random generator.^M
+ 34958  asix 1-1.4.2:1.0 (unnamed net_device) (uninitialized): PHY [usb-001:005:10] driver [Asix Electronics AX88772C] (irq=POLL)^M
+ 34959  Asix Electronics AX88772C usb-001:005:10: attached PHY driver (mii_bus:phy_addr=usb-001:005:10, irq=POLL)^M
+ 34960  asix 1-1.4.2:1.0 eth0: register 'asix' at usb-f1050000.usb-1.4.2, ASIX AX88772B USB 2.0 Ethernet, 08:be:ac:37:7b:84^M
+ 34961  systemd[1]: Populated /etc with preset unit settings.^M
+ 34962  systemd[1]: Created slice Slice /system/modprobe.^M
+ 34963  [^[[0;32m  OK  ^[[0m] Created slice ^[[0;1;39mSlice /system/modprobe^[[0m.^M
+ 34964  systemd[1]: Started Dispatch Password Requests to Console Directory Watch.^M
+ 34965  [^[[0;32m  OK  ^[[0m] Started ^[[0;1;39mDispatch Password Requests to Console Directory Watch^[[0m.^M
+ 34966  systemd[1]: Started Forward Password Requests to Wall Directory Watch.^M
+ 34967  [^[[0;32m  OK  ^[[0m] Started ^[[0;1;39mForward Password Requests to Wall Directory Watch^[[0m.^M
+ 34968  systemd[1]: Reached target Network is Online.^M
+ 34969  [^[[0;32m  OK  ^[[0m] Reached target ^[[0;1;39mNetwork is Online^[[0m.^M
+ 34970  systemd[1]: Reached target Preparation for Network.^M
+ 34971  [^[[0;32m  OK  ^[[0m] Reached target ^[[0;1;39mPreparation for Network^[[0m.^M
+ 34972  systemd[1]: Reached target Path Units.^M
+ 34973  [^[[0;32m  OK  ^[[0m] Reached target ^[[0;1;39mPath Units^[[0m.^M
+ 34974  systemd[1]: Reached target Slice Units.^M
+ 34975  [^[[0;32m  OK  ^[[0m] Reached target ^[[0;1;39mSlice Units^[[0m.^M
+ 34976  systemd[1]: Reached target Swaps.^M
+ 34977  [^[[0;32m  OK  ^[[0m] Reached target ^[[0;1;39mSwaps^[[0m.^M
+ 34978  systemd[1]: Listening on Syslog Socket.^M
+ 34979  [^[[0;32m  OK  ^[[0m] Listening on ^[[0;1;39mSyslog Socket^[[0m.^M
+ 34980  systemd[1]: Listening on Journal Socket (/dev/log).^M
+ 34981  [^[[0;32m  OK  ^[[0m] Listening on ^[[0;1;39mJournal Socket (/dev/log)^[[0m.^M
+ 34982  systemd[1]: Listening on Journal Socket.^M
+ 34983  [^[[0;32m  OK  ^[[0m] Listening on ^[[0;1;39mJournal Socket^[[0m.^M
+ 34984  systemd[1]: Listening on udev Control Socket.^M
+ 34985  [^[[0;32m  OK  ^[[0m] Listening on ^[[0;1;39mudev Control Socket^[[0m.^M
+ 34986  systemd[1]: Listening on udev Kernel Socket.^M
+ 34987  [^[[0;32m  OK  ^[[0m] Listening on ^[[0;1;39mudev Kernel Socket^[[0m.^M
+ 34988  systemd[1]: Huge Pages File System was skipped because of an unmet condition check (ConditionPathExists=/sys/kernel/mm/hugepages).^M
+ 34989  systemd[1]: POSIX Message Queue File System was skipped because of an unmet condition check (ConditionPathExists=/proc/sys/fs/mqueue).^M
+ 34990  systemd[1]: Mounting Kernel Debug File System...^M
+ 34991           Mounting ^[[0;1;39mKernel Debug File System^[[0m...^M
+ 34992  systemd[1]: Kernel Trace File System was skipped because of an unmet condition check (ConditionPathExists=/sys/kernel/tracing).^M
+ 34993  systemd[1]: Starting Synchronise Hardware Clock to System Clock...^M
+ 34994           Starting ^[[0;1;39mSynchronise Hardware Clock to System Clock^[[0m...^M
+ 34995  systemd[1]: Starting Load Kernel Module configfs...^M
+ 34996           Starting ^[[0;1;39mLoad Kernel Module configfs^[[0m...^M
+ 34997  systemd[1]: Starting Load Kernel Module fuse...^M
+ 34998           Starting ^[[0;1;39mLoad Kernel Module fuse^[[0m...^M
+ 34999  systemd[1]: Starting Journal Service...^M
+ 35000           Starting ^[[0;1;39mJournal Service^[[0m...^M
+ 35001  systemd-journald[98]: Collecting audit messages is disabled.^M
+ 35002  systemd[1]: Starting Load Kernel Modules...^M
+ 35003           Starting ^[[0;1;39mLoad Kernel Modules^[[0m...^M
+ 35004  systemd[1]: Starting Remount Root and Kernel File Systems...^M
+ 35005           Starting ^[[0;1;39mRemount Root and Kernel File Systems^[[0m...^M
+ 35006  systemd[1]: Starting Coldplug All udev Devices...^M
+ 35007           Starting ^[[0;1;39mColdplug All udev Devices^[[0m...^M
+ 35008  systemd[1]: Starting Rule-based Manager for Device Events and Files...^M
+ 35009           Starting ^[[0;1;39mRule-based Manager for Device Events and Files^[[0m...^M
+ 35010  systemd[1]: Mounted Kernel Debug File System.^M
+ 35011  [^[[0;32m  OK  ^[[0m] Mounted ^[[0;1;39mKernel Debug File System^[[0m.^M
+ 35012  systemd[1]: Finished Synchronise Hardware Clock to System Clock.^M
+ 35013  [^[[0;32m  OK  ^[[0m] Finished ^[[0;1;39mSynchronise Hardware Clock to System Clock^[[0m.^M
+ 35014  systemd[1]: modprobe@configfs.service: Deactivated successfully.^M
+ 35015  systemd[1]: Finished Load Kernel Module configfs.^M
+ 35016  [^[[0;32m  OK  ^[[0m] Finished ^[[0;1;39mLoad Kernel Module configfs^[[0m.^M
+ 35017  systemd[1]: Started Journal Service.^M
+ 35018  [^[[0;32m  OK  ^[[0m] Started ^[[0;1;39mJournal Service^[[0m.^M
+ 35019  [^[[0;32m  OK  ^[[0m] Finished ^[[0;1;39mLoad Kernel Module fuse^[[0m.^M
+ 35020  [^[[0;32m  OK  ^[[0m] Finished ^[[0boardinfo: loading out-of-tree module taints kernel.^M
+ 35021  ;1;39mRemount Root and Kernel File Systems^[[0m.^M
+ 35022  [^[[0;32m  OK  ^[[0m] Reached target ^[[0;1;39mPreparation for Local File Systems^[[0m.^M
+ 35023           Mounting ^[[0;1;39m/mnt^[[0m...^M
+ 35024           Mounting ^[[0;1;39m/net^[[0m...^M
+ 35025           Mounting ^[[0;1;39mFUSE Control File System^[[0m...^M
+ 35026           Mounting ^[[0;1;39m/tmp^[[0m...^M
+ 35027           Starting ^[[0;1;39mFlush Journal to Persistent Storage^[[0m...^M
+ 35028           Starting ^[[0;1;39mRecord System Boot/Shutdown in UTMP^[[0m...^M
+ 35029  [^[[0;32m  OK  ^[[0m] Mounted ^[[0;1;39m/mnt^[[0m.^M
+ 35030  [^[[0;32m  OK  ^[[0m] Mounted ^[[0;1;39m/net^[[0m.^M
+ 35031  [^[[0;32m  OK  ^[[0m] Mounted ^[[0;1;39m/tmp^[[0m.^M
+ 35032           Starting ^[[0;1;39mMount logging FS^[[0m...^M
+ 35033  [^[[0;32m  OK  ^[[0m] Mounted ^[[0;1;39mFUSE Control File System^[[0m.^M
+ 35034  Registering boards  AT-IE520-28GSX^M
+ 35035  systemd-journald[98]: Received client request to flush runtime journal.^M
+ 35036  [^[[0;32m  OK  ^[[0m] Finished ^[[0;1;39mFlush Journal to Persistent Storage^[[0m.^M
+ 35037  [^[[0;32m  OK  ^[[0m] Finished ^[[0;1;39mRecord System Boot/Shutdown in UTMP^[[0m.^M
+ 35038  [^[[0;32m  OK  ^[[0m] Finished ^[[0;1;39mColdplug All udev Devices^[[0m.^M
+ 35039  [^[[0;32m  OK  ^[[0m] Finished ^[[0;1;39mMount logging FS^[[0m.^M
+ 35040           Starting ^[[0;1;39mMount local FS^[[0m...^M
+ 35041  [^[[0;32m  OK  ^[[0m] Started ^[[0;1;39mRule-based Manager for Device Events and Files^[[0m.^M
+ 35042  atl_cage sfpcage@1: using polling timer for detection^M
+ 35043  atl_cage sfpcage@1: atl_cage sfp2 successfully probed^M
+ 35044  atl_cage sfpcage@2: using polling timer for detection^M
+ 35045  atl_cage sfpcage@2: atl_cage sfp1 successfully probed^M
+ 35046  atl_cage sfpcage@3: using polling timer for detection^M
+ 35047  atl_cage sfpcage@3: atl_cage sfp4 successfully probed^M
+ 35048  atl_cage sfpcage@4: using polling timer for detection^M
+ 35049  atl_cage sfpcage@4: atl_cage sfp3 successfully probed^M
+ 35050  atl_cage sfpcage@5: using polling timer for detection^M
+ 35051  atl_cage sfpcage@5: atl_cage sfp6 successfully probed^M
+ 35052  atl_cage sfpcage@6: using polling timer for detection^M
+ 35053  atl_cage sfpcage@6: atl_cage sfp5 successfully probed^M
+ 35054  atl_cage sfpcage@7: using polling timer for detection^M
+ 35055  atl_cage sfpcage@7: atl_cage sfp8 successfully probed^M
+ 35056  atl_cage sfpcage@8: using polling timer for detection^M
+ 35057  atl_cage sfpcage@8: atl_cage sfp7 successfully probed^M
+ 35058  atl_cage sfpcage@9: using polling timer for detection^M
+ 35059  atl_cage sfpcage@9: atl_cage sfp10 successfully probed^M
+ 35060  atl_cage sfpcage@10: using polling timer for detection^M
+ 35061  atl_cage sfpcage@10: atl_cage sfp9 successfully probed^M
+ 35062  atl_cage sfpcage@11: using polling timer for detection^M
+ 35063  atl_cage sfpcage@11: atl_cage sfp12 successfully probed^M
+ 35064  atl_cage sfpcage@12: using polling timer for detection^M
+ 35065  atl_cage sfpcage@12: atl_cage sfp11 successfully probed^M
+ 35066  atl_cage sfpcage@13: using polling timer for detection^M
+ 35067  atl_cage sfpcage@13: atl_cage sfp14 successfully probed^M
+ 35068  atl_cage sfpcage@14: using polling timer for detection^M
+ 35069  atl_cage sfpcage@14: atl_cage sfp13 successfully probed^M
+ 35070  atl_cage sfpcage@15: using polling timer for detection^M
+ 35071  atl_cage sfpcage@15: atl_cage sfp16 successfully probed^M
+ 35072  atl_cage sfpcage@16: using polling timer for detection^M
+ 35073  atl_cage sfpcage@16: atl_cage sfp15 successfully probed^M
+ 35074  atl_cage sfpcage@17: using polling timer for detection^M
+ 35075  atl_cage sfpcage@17: atl_cage sfp18 successfully probed^M
+ 35076  atl_cage sfpcage@18: using polling timer for detection^M
+ 35077  atl_cage sfpcage@18: atl_cage sfp17 successfully probed^M
+ 35078  atl_cage sfpcage@19: using polling timer for detection^M
+ 35079  atl_cage sfpcage@19: atl_cage sfp20 successfully probed^M
+ 35080  atl_cage sfpcage@20: using polling timer for detection^M
+ 35081  atl_cage sfpcage@20: atl_cage sfp19 successfully probed^M
+ 35082  atl_cage sfpcage@21: using polling timer for detection^M
+ 35083  atl_cage sfpcage@21: atl_cage sfp22 successfully probed^M
+ 35084  atl_cage sfpcage@22: using polling timer for detection^M
+ 35085  atl_cage sfpcage@22: atl_cage sfp21 successfully probed^M
+ 35086  atl_cage sfpcage@23: using polling timer for detection^M
+ 35087  atl_cage sfpcage@23: atl_cage sfp24 successfully probed^M
+ 35088  atl_cage sfpcage@24: using polling timer for detection^M
+ 35089  atl_cage sfpcage@24: atl_cage sfp23 successfully probed^M
+ 35090  atl_cage sfpcage@25: using polling timer for detection^M
+ 35091  atl_cage sfpcage@25: atl_cage sfp26 successfully probed^M
+ 35092  atl_cage sfpcage@26: using polling timer for detection^M
+ 35093  atl_cage sfpcage@26: atl_cage sfp25 successfully probed^M
+ 35094  atl_cage sfpcage@27: using polling timer for detection^M
+ 35095  atl_cage sfpcage@27: atl_cage sfp28 successfully probed^M
+ 35096  atl_cage sfpcage@28: using polling timer for detection^M
+ 35097  atl_cage sfpcage@28: atl_cage sfp27 successfully probed^M
+ 35098  ubi0: attaching mtd3^M
+ 35099  input: gpio-keys as /devices/platform/gpio-keys/input/input0^M
+ 35100  FAT-fs (sda1): Volume was not properly unmounted. Some data may be corrupt. Please run fsck.^M
+ 35101  Registered boardinfo device 00^M
+ 35102  idprom: Attached board_index 0 to MTD device 2^M
+ 35103  tipc: Activated (version 2.0.0)^M
+ 35104  NET: Registered PF_TIPC protocol family^M
+ 35105  tipc: Started in single node mode^M
+ 35106  NET: Registered PF_LACP protocol family^M
+ 35107  ubi0: scanning is finished^M
+ 35108  NET: Registered PF_STP protocol family^M
+ 35109  NET: Registered PF_EAPOL protocol family^M
+ 35110  NET: Registered PF_GARP protocol family^M
+ 35111  NET: Registered PF_IGMP_SNOOP protocol family^M
+ 35112  NET: Registered PF_EPSR protocol family^M
+ 35113  NET: Registered PF_LDF protocol family^M
+ 35114  NET: Registered PF_LLDP protocol family^M
+ 35115  NET: Registered PF_TESTD protocol family^M
+
+================================================================================
+SOURCE B - STACK PERMANENT LOG (both members)
+================================================================================
+  Captured by : `show log permanent | include Aug 25 22:2` and `... 22:3`
+                run over the console of the CURRENT master (member 2, /dev/u4).
+  Why this one: the permanent log survives reboots and rotation, so unlike the
+                debug: files it cannot roll off while being collected.
+  File        : stack-permanent-log-2226-to-2239.txt
+  Timestamps  : device UTC.
+
+  72026 Aug 25 22:35:40 kern.warning awplus kernel: boardinfo: loading out-of-tree module taints kernel.
+  2026 Aug 25 22:35:40 kern.warning awplus kernel: FAT-fs (sda1): Volume was not properly unmounted. Some data may be corrupt. Please run fsck.
+  2026 Aug 25 22:36:08 user.crit awplus-1 VCS[709]: Member 2 (84e3.2787.09c0) has joined the stack
+  2026 Aug 25 22:36:08 user.crit awplus-1 VCS[709]: Member 2 (84e3.2787.09c0) has become the Active Master
+  2026 Aug 25 22:36:08 user.crit awplus-1 VCS[709]: Stack Virtual MAC is 0000.cd37.0d6f
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'URL Filtering (Kaspersky)', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Application Control (Procera)', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Web Control (Digital Arts)', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'IP Reputation (Proofpoint)', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'IP Reputation (LAC)', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Malware Protection (Kaspersky)', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Anti-virus (Kaspersky)', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Anti-spam (Kaspersky)', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AMF Controller', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AMF Master', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AMF Guest', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'OpenFlow', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'SES', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AMF Application Proxy', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AWC', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AWC Channel Blanket', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AWC Smart Connect', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'UTM Offload', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'MACsec', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Firewall', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'VPN', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Base AW+', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'OpenText', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Proofpoint ETpro', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AMFPLUS Controller', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AMFPLUS Master', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Bandwidth Limit', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AMF Intermediate Node', has rejoined the stack
+  2026 Aug 25 22:36:14 daemon.warning awplus-1 chronyd[1405]: System clock wrong by -7.122649 seconds
+  2026 Aug 25 22:36:07 daemon.warning awplus-1 chronyd[1405]: System clock was stepped by -7.122649 seconds
+  2026 Aug 25 22:33:29 kern.alert awplus-2 kernel: tipc: No contact from member-1 for 2000ms (3/6 probes timed out)
+  2026 Aug 25 22:33:30 kern.alert awplus-2 kernel: tipc: No contact from member-1 for 2500ms (4/6 probes timed out)
+  2026 Aug 25 22:33:32 kern.warning awplus-2 kernel: tipc: Member-1 not responding - resetting link from member-2 to peer
+  2026 Aug 25 22:33:33 user.err awplus-2 VCS[786]: HA monitoring detected failure of stack member 1
+  2026 Aug 25 22:33:33 user.crit awplus-2 VCS[786]: High-availability failover has occurred for stack member 1
+  2026 Aug 25 22:33:34 user.crit awplus-2 VCS[786]: Contact with the Active Master has been lost
+  2026 Aug 25 22:33:34 user.crit awplus-2 VCS[786]: Member 2 (84e3.2787.09c0) has become the Active Master
+  2026 Aug 25 22:33:34 daemon.err awplus-2 almond[735]: Synchronization of almonn 'alarm statuses' failed (ret = -3)
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'URL Filtering (Kaspersky)', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'Application Control (Procera)', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'Web Control (Digital Arts)', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'IP Reputation (Proofpoint)', has left the stack
+  2026 Aug 25 22:33:34 user.warning awplus-2 MSTP[989]: xSTP network downtime of 6126ms detected
+  2026 Aug 25 22:33:34 user.warning awplus-2 MSTP[989]: Initiating slow master failover to avoid potential network disruption
+  2026 Aug 25 22:33:34 user.crit awplus-2 VCS[786]: Stack Virtual MAC is 0000.cd37.0d6f
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'IP Reputation (LAC)', has left the stack
+  2026 Aug 25 22:33:34 daemon.err awplus-2 almond[735]: Synchronization of almonn 'alarm statuses' failed (ret = -3)
+  2026 Aug 25 22:33:35 daemon.err awplus-2 almond[343]: Last message 'Synchronization of a' repeated 25 times, suppressed by syslog-ng on awplus-2
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'Malware Protection (Kaspersky)', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'Anti-virus (Kaspersky)', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'Anti-spam (Kaspersky)', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AMF Controller', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AMF Master', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AMF Guest', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'OpenFlow', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'SES', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AMF Application Proxy', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AWC', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AWC Channel Blanket', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AWC Smart Connect', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'UTM Offload', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'MACsec', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'Firewall', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'VPN', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'Base AW+', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'OpenText', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'Proofpoint ETpro', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AMFPLUS Controller', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AMFPLUS Master', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'Bandwidth Limit', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AMF Intermediate Node', has left the stack
+  2026 Aug 25 22:33:34 user.crit awplus-2 VCS[786]: Member 1 (84e3.2787.0740) has left the stack
+  2026 Aug 25 22:33:43 local6.warning awplus EXFX[790]: Disabling switchports briefly due to slow failover
+  2026 Aug 25 22:33:44 local6.warning awplus EXFX[790]: Re-enable switchports after slow failover
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AMF Application Proxy', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AWC', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AWC Channel Blanket', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AWC Smart Connect', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'UTM Offload', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'MACsec', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'Firewall', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'VPN', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'Base AW+', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'OpenText', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'Proofpoint ETpro', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AMFPLUS Controller', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AMFPLUS Master', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'Bandwidth Limit', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AMF Intermediate Node', has left the stack
+  2026 Aug 25 22:33:45 user.crit awplus NSM[742]: Removal event on unit 1.0 has been completed
+  2026 Aug 25 22:33:47 local6.warning awplus EXFX[790]: Link flapping detected on port2.0.1, check connection/configuration
+  2026 Aug 25 22:36:01 user.crit awplus VCS[786]: Member 1 (84e3.2787.0740) has joined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'URL Filtering (Kaspersky)', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Application Control (Procera)', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Web Control (Digital Arts)', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'IP Reputation (Proofpoint)', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'IP Reputation (LAC)', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Malware Protection (Kaspersky)', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Anti-virus (Kaspersky)', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Anti-spam (Kaspersky)', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AMF Controller', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AMF Master', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AMF Guest', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'OpenFlow', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'SES', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AMF Application Proxy', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AWC', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AWC Channel Blanket', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AWC Smart Connect', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'UTM Offload', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'MACsec', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Firewall', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'VPN', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Base AW+', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'OpenText', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Proofpoint ETpro', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AMFPLUS Controller', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AMFPLUS Master', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Bandwidth Limit', has rejoined the stack
+  2026 Aug 25 22:36:03 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AMF Intermediate Node', has rejoined the stack
+  2026 Aug 25 22:36:10 user.crit awplus IMI[737]: All users returned to config mode while switch synchronization is in progress.
+  2026 Aug 25 22:36:16 user.crit awplus NSM[742]: Insertion event on unit 1.0 has been completed
+  2026 Aug 25 22:36:37 user.crit awplus IMI[737]: Configuration update completed for port1.0.1-port1.0.28
+
+================================================================================
+SOURCE C - MEMBER 2 STACKING TRACE (STK TRACE), covers the wedge
+================================================================================
+  Captured by : copy debug:/stacking.1 -> tftp, from the master console.
+  Device      : member 2 (survivor). File spans 22:24:07Z -> 22:33:43Z, so it
+                is the one device-side file that brackets the wedge itself.
+  File        : m2-stacking.1
+  Timestamps  : device UTC.
+
+  2026 Aug 25 22:33:32 user.debug awplus-2 VCS[786]: STK TRACE: TIPC L2 withdrawn event for member 1
+  2026 Aug 25 22:33:33 daemon.info awplus-2 corosync[1639]:   [CLM   ] ../../openais/services/clm.c:586 Members Left:
+  2026 Aug 25 22:33:33 daemon.info awplus-2 corosync[1639]:   [CLM   ] ../../openais/services/clm.c:589 	r(0) ip(192.168.255.1) 
+  2026 Aug 25 22:33:33 daemon.info awplus-2 corosync[1639]:   [CPG   ] cpg.c:778 chosen downlist: sender r(0) ip(192.168.255.2) ; members(old:2 left:1)
+  2026 Aug 25 22:33:33 daemon.info awplus-2 corosync[1639]:   [MAIN  ] main.c:305 Completed service synchronization, ready to provide service.
+  2026 Aug 25 22:33:33 user.debug awplus-2 VCS[786]: HA monitoring detected member-1 left stack
+  2026 Aug 25 22:33:33 user.err awplus-2 VCS[786]: HA monitoring detected failure of stack member 1
+  2026 Aug 25 22:33:33 user.crit awplus-2 VCS[786]: High-availability failover has occurred for stack member 1
+  2026 Aug 25 22:33:34 user.info awplus-2 VCS[786]: Member 1 (84e3.2787.0740) is leaving the stack (High-Availability failure)
+  2026 Aug 25 22:33:34 user.debug awplus-2 VCS[786]: STK TRACE: Xbar update event is queued.
+  2026 Aug 25 22:33:34 user.debug awplus-2 VCS[786]: STK TRACE: Node 1 is NOT reachable
+  2026 Aug 25 22:33:34 user.debug awplus-2 VCS[786]: STK TRACE: Member 1 has left stack, link to Member 2 no longer valid
+  2026 Aug 25 22:33:34 user.info awplus-2 VCS[786]: Beginning neighbor discovery on link port2.0.27
+  2026 Aug 25 22:33:34 user.notice awplus-2 VCS[786]: Link between Member 2 and Member 1 is down
+  2026 Aug 25 22:33:34 user.crit awplus-2 VCS[786]: Contact with the Active Master has been lost
+  2026 Aug 25 22:33:34 user.debug awplus-2 VCS[786]: STK TRACE: Beginning stack master election
+  2026 Aug 25 22:33:34 user.debug awplus-2 VCS[786]: STK TRACE: Link port2.0.27: N/A 
+  2026 Aug 25 22:33:34 user.debug awplus-2 VCS[786]: STK TRACE: Link port2.0.28: N/A 
+  2026 Aug 25 22:33:34 user.debug awplus-2 VCS[786]: STK TRACE: ID  MAC address     Priority  Status  Role
+  2026 Aug 25 22:33:34 user.debug awplus-2 VCS[786]: STK TRACE:  1  84e3.2787.0740  128        Ready  Active Master
+  2026 Aug 25 22:33:34 user.debug awplus-2 VCS[786]: STK TRACE:  2  84e3.2787.09c0  128        Ready  Backup Member
+  2026 Aug 25 22:33:34 user.info awplus-2 VCS[786]: Master election selected member 2 (84e3.2787.09c0)
+  2026 Aug 25 22:33:34 user.crit awplus-2 VCS[786]: Member 2 (84e3.2787.09c0) has become the Active Master
+  2026 Aug 25 22:33:34 user.debug awplus-2 VCS[786]: STK TRACE: Member 1 (84e3.2787.0740) state Active Master --> Backup Member
+  2026 Aug 25 22:33:34 user.debug awplus-2 VCS[786]: STK TRACE: Member 2 (84e3.2787.09c0) state Backup Member --> Active Master
+  2026 Aug 25 22:33:34 user.debug awplus-2 VCS[786]: STK TRACE: Node-2 now has Stack mastership capability
+  2026 Aug 25 22:33:34 user.info awplus-2 VCS[786]: System stack role has changed from Backup Member to Active Master
+  2026 Aug 25 22:33:34 user.debug awplus-2 VCS[786]: STK TRACE: Member-2 became Active Master at Tue Aug 25 22:33:34 2026
+  2026 Aug 25 22:33:34 user.crit awplus-2 VCS[786]: Stack Virtual MAC is 0000.cd37.0d6f
+  2026 Aug 25 22:33:34 user.debug awplus-2 VCS[786]: STK TRACE: Member 1 (84e3.2787.0740) state Backup Member --> Leaving
+  2026 Aug 25 22:33:34 user.crit awplus-2 VCS[786]: Member 1 (84e3.2787.0740) has left the stack
+  2026 Aug 25 22:33:34 user.debug awplus-2 VCS[786]: STK TRACE: Disabling TIPC interface on vlan4094
+  2026 Aug 25 22:33:34 user.debug awplus-2 VCS[786]: STK TRACE: Stack topology has changed - updating stack H/W routes for L2 connectivity
+  2026 Aug 25 22:33:34 user.debug awplus VCS[786]: STK TRACE: stack H/W route update complete
+  2026 Aug 25 22:33:34 user.debug awplus VCS[786]: STK TRACE: Changing hostname to: awplus
+  2026 Aug 25 22:33:34 user.debug awplus VCS[786]: STK TRACE: Resetting resiliency-link healthchecks
+  2026 Aug 25 22:33:34 user.debug awplus VCS[786]: STK TRACE: Stopping RECEIVING (DMM Enabled) resiliency-link healthchecks.
+  2026 Aug 25 22:33:34 user.debug awplus VCS[786]: STK TRACE: Starting SEND/RECV (DMM Enabled) resiliency-link healthchecks over vlan4093
+  2026 Aug 25 22:33:34 user.debug awplus VCS[786]: STK TRACE: Created dedicated healthcheck thread (1941959712)
+  2026 Aug 25 22:33:34 user.debug awplus VCS[786]: STK TRACE: Starting healthcheck receiving over vlan4093 hc_socket = 47
+  2026 Aug 25 22:33:34 user.debug awplus VCS[786]: STK TRACE: TCP L2 is NOT reachable event for member 1
+  2026 Aug 25 22:33:34 local6.debug awplus VCS[786]: CMSG(349).tport.stkd.heart.udp[[ff02::114:114]:9542]: UDP send failed ff02::114:114 Network is unreachable
+  2026 Aug 25 22:33:34 local6.debug awplus VCS[786]: CMSG(349).tport.stkd.heart.udp[[ff02::114:114]:9542]: UDP send failed ff02::114:114 Network is unreachable
+  2026 Aug 25 22:33:34 local7.debug awplus VCS[786]: CMSG(1536).stkd.heart.udp[[ff02::114:114]:9542]: Client send failed (method: im_here), Network is unreachable
+  2026 Aug 25 22:33:35 user.debug awplus VCS: Shutting down access to member-1's file system
+  2026 Aug 25 22:33:35 local6.debug awplus VCS[786]: CMSG(349).tport.stkd.heart.udp[[ff02::114:114]:9542]: UDP send failed ff02::114:114 Network is unreachable
+  2026 Aug 25 22:33:35 local6.debug awplus VCS[786]: CMSG(349).tport.stkd.heart.udp[[ff02::114:114]:9542]: UDP send failed ff02::114:114 Network is unreachable
+  2026 Aug 25 22:33:35 local7.debug awplus VCS[786]: CMSG(1536).stkd.heart.udp[[ff02::114:114]:9542]: Client send failed (method: im_here), Network is unreachable
+  2026 Aug 25 22:33:35 user.debug awplus VCS[786]: STK TRACE: > Txd Hello msg on port2.0.27 (Forward nbr ?): 
+  2026 Aug 25 22:33:36 user.debug awplus VCS[786]: STK TRACE: > Txd Hello msg on port2.0.27 (Forward nbr ?): 
+  2026 Aug 25 22:33:34 user.crit awplus-2 VCS[786]: Member 1 (84e3.2787.0740) has left the stack
+  2026 Aug 25 22:33:43 user.debug awplus VCS[786]: STK TRACE: Timestamp[0] stop stkd_comm_cpu_mail_send: 1787697223.187, elapsed 6615 ms
+
+================================================================================
+SOURCE D - MEMBER 2 VCS / LICENSING MESSAGES
+================================================================================
+  Captured by : copy debug:/vcs-awplus-2-messages -> tftp.
+  Device      : member 2. Records the instant member 1 was declared gone.
+  File        : m2-vcs-awplus-2-messages
+  Timestamps  : device UTC.
+
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AMF Application Proxy', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AWC', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AWC Channel Blanket', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AWC Smart Connect', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'UTM Offload', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'MACsec', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'Firewall', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'VPN', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'Base AW+', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'OpenText', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'Proofpoint ETpro', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AMFPLUS Controller', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AMFPLUS Master', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'Bandwidth Limit', has left the stack
+  2026 Aug 25 22:33:34 local6.warning awplus-2 licensing[739]: Stack member 1, the source of entitlements for 'AMF Intermediate Node', has left the stack
+  2026 Aug 25 22:33:34 user.crit awplus-2 VCS[786]: Member 1 (84e3.2787.0740) has left the stack
+
+  -- and member 2's general messages across the window (m2-messages.2):
+  #147147 2026-08-25T22:34:07+00:00 daemon.notice awplus HTTP: HTTP server restarted
+  #147157 2026-08-25T22:34:11+00:00 user.notice awplus MSTP[989]: CIST po1 now forwarding, propagating TC to other ports
+  #147162 2026-08-25T22:34:20+00:00 local6.notice awplus VCS[786]: Link down event on stack link port2.0.27
+  #147164 2026-08-25T22:34:20+00:00 user.notice awplus NSM[742]: Port down notification received for port2.0.27 
+  #147175 2026-08-25T22:36:00+00:00 local6.notice awplus VCS[786]: Link up event on stack link port2.0.27
+  #147178 2026-08-25T22:36:00+00:00 user.notice awplus NSM[742]: Port up notification received for port2.0.27 
+  #147184 2026-08-25T22:36:01+00:00 user.crit awplus VCS[786]: Member 1 (84e3.2787.0740) has joined the stack
+  #147188 2026-08-25T22:36:01+00:00 user.notice awplus VCS[786]: Link between Member 2 and Member 1 is up
+  #147204 2026-08-25T22:36:02+00:00 syslog.notice awplus syslog-ng[343]: Configuration reload request received, reloading configuration;
+  #147205 2026-08-25T22:36:02+00:00 syslog.notice awplus syslog-ng[343]: Configuration reload finished;
+  #147237 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'URL Filtering (Kaspersky)', has rejoined the stack
+  #147238 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Application Control (Procera)', has rejoined the stack
+  #147239 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Web Control (Digital Arts)', has rejoined the stack
+  #147240 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'IP Reputation (Proofpoint)', has rejoined the stack
+  #147241 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'IP Reputation (LAC)', has rejoined the stack
+  #147242 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Malware Protection (Kaspersky)', has rejoined the stack
+  #147243 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Anti-virus (Kaspersky)', has rejoined the stack
+  #147244 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Anti-spam (Kaspersky)', has rejoined the stack
+  #147245 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AMF Controller', has rejoined the stack
+  #147246 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AMF Master', has rejoined the stack
+  #147247 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AMF Guest', has rejoined the stack
+  #147248 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'OpenFlow', has rejoined the stack
+  #147249 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'SES', has rejoined the stack
+  #147250 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AMF Application Proxy', has rejoined the stack
+  #147251 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AWC', has rejoined the stack
+  #147252 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AWC Channel Blanket', has rejoined the stack
+  #147254 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AWC Smart Connect', has rejoined the stack
+  #147255 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'UTM Offload', has rejoined the stack
+  #147256 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'MACsec', has rejoined the stack
+  #147257 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Firewall', has rejoined the stack
+  #147258 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'VPN', has rejoined the stack
+  #147259 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Base AW+', has rejoined the stack
+  #147270 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'OpenText', has rejoined the stack
+  #147271 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Proofpoint ETpro', has rejoined the stack
+  #147272 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AMFPLUS Controller', has rejoined the stack
+  #147273 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AMFPLUS Master', has rejoined the stack
+  #147274 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'Bandwidth Limit', has rejoined the stack
+  #147275 2026-08-25T22:36:03+00:00 local6.warning awplus licensing[739]: Stack member 1, the source of entitlements for 'AMF Intermediate Node', has rejoined the stack
+  #147381 2026-08-25T22:36:10+00:00 user.crit awplus IMI[737]: All users returned to config mode while switch synchronization is in progress.
+  #147497 2026-08-25T22:36:14+00:00 user.notice awplus NSM[742]: port1.0.1 port mode access updated VLAN
+  #147499 2026-08-25T22:36:14+00:00 user.notice awplus NSM[742]: port1.0.1 updated vlans
+  #147500 2026-08-25T22:36:14+00:00 user.notice awplus NSM[742]: port1.0.1 VLAN mode set to access
+  #147503 2026-08-25T22:36:14+00:00 user.notice awplus NSM[742]: port1.0.2 port mode access updated VLAN
+  #147505 2026-08-25T22:36:14+00:00 user.notice awplus NSM[742]: port1.0.2 updated vlans
+  #147507 2026-08-25T22:36:14+00:00 user.notice awplus NSM[742]: port1.0.2 VLAN mode set to access
+  #147509 2026-08-25T22:36:14+00:00 user.notice awplus NSM[742]: port1.0.3 port mode access updated VLAN
+  #147511 2026-08-25T22:36:14+00:00 user.notice awplus NSM[742]: port1.0.3 updated vlans
+  #147512 2026-08-25T22:36:14+00:00 user.notice awplus NSM[742]: port1.0.3 VLAN mode set to access
+  #147515 2026-08-25T22:36:14+00:00 user.notice awplus NSM[742]: port1.0.4 port mode access updated VLAN
+  #147517 2026-08-25T22:36:14+00:00 user.notice awplus NSM[742]: port1.0.4 updated vlans
+  #147519 2026-08-25T22:36:14+00:00 user.notice awplus NSM[742]: port1.0.4 VLAN mode set to access
+  #147521 2026-08-25T22:36:14+00:00 user.notice awplus NSM[742]: port1.0.5 port mode access updated VLAN
+  #147523 2026-08-25T22:36:14+00:00 user.notice awplus NSM[742]: port1.0.5 updated vlans
+  #147525 2026-08-25T22:36:14+00:00 user.notice awplus NSM[742]: port1.0.5 VLAN mode set to access
+  #147527 2026-08-25T22:36:14+00:00 user.notice awplus NSM[742]: port1.0.6 port mode access updated VLAN
+  #147529 2026-08-25T22:36:14+00:00 user.notice awplus NSM[742]: port1.0.6 updated vlans
+  #147530 2026-08-25T22:36:14+00:00 user.notice awplus NSM[742]: port1.0.6 VLAN mode set to access
+  #147533 2026-08-25T22:36:14+00:00 user.notice awplus NSM[742]: port1.0.7 port mode access updated VLAN
+  #147535 2026-08-25T22:36:14+00:00 user.notice awplus NSM[742]: port1.0.7 updated vlans
+  #147537 2026-08-25T22:36:14+00:00 user.notice awplus NSM[742]: port1.0.7 VLAN mode set to access
+  #147539 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.8 port mode access updated VLAN
+  #147541 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.8 updated vlans
+  #147543 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.8 VLAN mode set to access
+  #147545 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.9 port mode access updated VLAN
+  #147547 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.9 updated vlans
+  #147549 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.9 VLAN mode set to access
+  #147551 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.10 port mode access updated VLAN
+  #147553 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.10 updated vlans
+  #147555 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.10 VLAN mode set to access
+  #147557 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.11 port mode access updated VLAN
+  #147559 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.11 updated vlans
+  #147560 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.11 VLAN mode set to access
+  #147563 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.12 port mode access updated VLAN
+  #147565 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.12 updated vlans
+  #147566 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.12 VLAN mode set to access
+  #147569 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.13 port mode access updated VLAN
+  #147571 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.13 updated vlans
+  #147572 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.13 VLAN mode set to access
+  #147575 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.14 port mode access updated VLAN
+  #147577 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.14 updated vlans
+  #147579 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.14 VLAN mode set to access
+  #147581 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.15 port mode access updated VLAN
+  #147583 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.15 updated vlans
+  #147584 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.15 VLAN mode set to access
+  #147587 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.16 port mode access updated VLAN
+  #147589 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.16 updated vlans
+  #147590 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.16 VLAN mode set to access
+  #147593 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.17 port mode access updated VLAN
+  #147595 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.17 updated vlans
+  #147596 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.17 VLAN mode set to access
+  #147599 2026-08-25T22:36:15+00:00 user.notice awplus NSM[742]: port1.0.18 port mode access updated VLAN
+  #147601 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.18 updated vlans
+  #147602 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.18 VLAN mode set to access
+  #147605 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.19 port mode access updated VLAN
+  #147607 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.19 updated vlans
+  #147608 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.19 VLAN mode set to access
+  #147611 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.20 port mode access updated VLAN
+  #147613 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.20 updated vlans
+  #147614 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.20 VLAN mode set to access
+  #147617 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.21 port mode access updated VLAN
+  #147619 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.21 updated vlans
+  #147621 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.21 VLAN mode set to access
+  #147623 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.22 port mode access updated VLAN
+  #147625 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.22 updated vlans
+  #147627 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.22 VLAN mode set to access
+  #147629 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.23 port mode access updated VLAN
+  #147631 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.23 updated vlans
+  #147632 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.23 VLAN mode set to access
+  #147635 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.24 port mode access updated VLAN
+  #147637 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.24 updated vlans
+  #147639 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.24 VLAN mode set to access
+  #147641 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.25 port mode access updated VLAN
+  #147643 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.25 updated vlans
+  #147644 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.25 VLAN mode set to access
+  #147647 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.26 port mode access updated VLAN
+  #147649 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.26 updated vlans
+  #147650 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: port1.0.26 VLAN mode set to access
+  #147653 2026-08-25T22:36:16+00:00 user.crit awplus NSM[742]: Insertion event on unit 1.0 has been completed
+  #147655 2026-08-25T22:36:16+00:00 user.notice awplus NSM[742]: Port up notification received for port1.0.28 
+  #147881 2026-08-25T22:36:19+00:00 user.notice awplus NSM[742]: port1.0.1 port mode access updated VLAN
+  #147909 2026-08-25T22:36:19+00:00 user.notice awplus NSM[742]: port1.0.9 port mode access updated VLAN
+  #148046 2026-08-25T22:36:37+00:00 user.crit awplus IMI[737]: Configuration update completed for port1.0.1-port1.0.28
+  #148074 2026-08-25T22:36:42+00:00 user.notice awplus NSM[742]: Port up notification received for port1.0.1 
+
+================================================================================
+SOURCE E - MEMBER 2 TIPC PROBE CAPTURES
+================================================================================
+  Captured by : copy debug:/probe-2000ms.1 and debug:/probe-2500ms.1 -> tftp.
+  Device      : member 2. Written automatically when TIPC keepalives to
+                member 1 began timing out. These are the earliest machine
+                record of member 1 going silent.
+  Files       : probe-2000ms.1 , probe-2500ms.1
+  Timestamps  : device UTC, in the file header line.
+  NOTE        : the interface counters below are member 2's own vlan4094 (the
+                stack management VLAN, 192.168.255.2). RX errors 0 -- the
+                stacking link itself was healthy; member 1 simply stopped
+                transmitting.
+
+  ---------- probe-2000ms.1 ----------
+  Probe 2000 ms timeout for member-1: Tue Aug 25 22:33:29 UTC 2026
+  
+  vlan4094  Link encap:Ethernet  HWaddr 84:E3:27:87:09:C0  
+            inet addr:192.168.255.2  Bcast:192.168.255.31  Mask:255.255.255.224
+            inet6 addr: fe80::86e3:27ff:fe87:9c0/64 Scope:Link
+            UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+            RX packets:3000960 errors:0 dropped:0 overruns:0 frame:0
+            TX packets:2826369 errors:0 dropped:1 overruns:0 carrier:0
+            collisions:0 txqueuelen:1000 
+            RX bytes:371459718 (354.2 MiB)  TX bytes:596614175 (568.9 MiB)
+  
+  vlan4094 info          Pkts       Bytes
+  Non-VCS on mgmt queue: 0          0
+  Rx AIS:                0          0
+  ---------- probe-2500ms.1 ----------
+  Probe 2500 ms timeout for member-1: Tue Aug 25 22:33:30 UTC 2026
+  
+  vlan4094  Link encap:Ethernet  HWaddr 84:E3:27:87:09:C0  
+            inet addr:192.168.255.2  Bcast:192.168.255.31  Mask:255.255.255.224
+            inet6 addr: fe80::86e3:27ff:fe87:9c0/64 Scope:Link
+            UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+            RX packets:3000960 errors:0 dropped:0 overruns:0 frame:0
+            TX packets:2826374 errors:0 dropped:1 overruns:0 carrier:0
+            collisions:0 txqueuelen:1000 
+            RX bytes:371459718 (354.2 MiB)  TX bytes:596614788 (568.9 MiB)
+  
+  vlan4094 info          Pkts       Bytes
+  Non-VCS on mgmt queue: 0          0
+  Rx AIS:                0          0
+
+================================================================================
+SOURCE F - MEMBER 2 HA-FAILOVER SNAPSHOT BUNDLE
+================================================================================
+  Captured by : the switch itself, automatically, into debug:/hafailover/ the
+                moment member 2 detected the master had failed. Pulled to tb470
+                by copy -> tftp.
+  Device      : member 2 (survivor). NOTE: this bundle describes the SURVIVOR's
+                own state, not the wedged unit's. It does not show why member 1
+                wedged.
+  Files/mtimes: hafailover-monitor            22:33:35Z
+                hafailover-mgmtvlan (on-box)  22:33:35Z
+                hafailover-cpu                22:33:36Z
+                hafailover-platform_counters  22:33:44Z
+  Timestamps  : file mtimes, device UTC.
+
+  ---------- hafailover-cpu : first 12 lines (load at the failover instant) ----------
+  Mem: 333616K used, 173112K free, 13580K shrd, 16K buff, 104328K cached
+  CPU: 68.5% usr 31.4% sys  0.0% nic  0.0% idle  0.0% io  0.0% irq  0.0% sirq
+  Load average: 2.61 2.26 2.22 10/521 8641
+    PID  PPID USER     STAT   VSZ %VSZ %CPU COMMAND
+    343     1 root     R    28676  5.6 14.2 /usr/sbin/syslog-ng -F -f /etc/syslog-ng.conf
+      1     0 root     R    15072  2.9 11.4 {systemd} /sbin/real_init
+    332     1 root     S     491m 99.1  8.5 /usr/bin/apteryxd -b -r /var/run/apteryxd.run -p /run/apteryx.pid
+    790     1 root     S     431m 86.9  5.7 /usr/sbin/exfx
+    738     1 root     R     337m 68.0  5.7 /usr/sbin/hsl
+   8619   106 root     S    11788  2.3  5.7 (udev-worker)
+   8608   106 root     S    11788  2.3  5.7 (udev-worker)
+    106     1 root     R    11784  2.3  5.7 /lib/systemd/systemd-udevd
+
+  ---------- hafailover-monitor : interrupt rows of interest ----------
+   24:    6619501    6619528      MPIC   5 Level     armada_370_xp_per_cpu_tick
+   26:    3667363          0      MPIC  31 Level     mv64xxx_i2c
+   27:       1013          0      MPIC  41 Level     ttyS0
+   29:          0          0      MPIC  38 Level     f1020300.watchdog
+   33:          0          0      MPIC  93 Level     f1020300.watchdog
+   34:       1020          0      MPIC  45 Level     ehci_hcd:usb1
+   41:    2732142          0      MPIC  33 Level     mvPP
+
+================================================================================
+SOURCE G - MEMBER 1 POST-RESET BOOT LOGS  (begins AFTER the reset)
+================================================================================
+  Captured by : copy debug:/<file> -> flash: on member 1 via `remote-login 1`,
+                then copy awplus-1/flash:/<file> -> tftp from the master.
+                (A backup member cannot copy to a remote filesystem directly:
+                 "% Copying to/from remote file systems is only supported from
+                  the stack master".)
+  Device      : member 1 (the unit that wedged).
+  Files       : m1-messages-prereboot.log   (debug:/messages.1)
+                m1-startup_messages         (debug:/startup_messages)
+                m1-stacking.1               (debug:/stacking.1)
+                m1-vcs-awplus-messages.2    (debug:/vcs-awplus-messages.2)
+  Timestamps  : device UTC.
+  *** The filename m1-messages-prereboot.log is a MISNOMER kept for continuity:
+      it contains the POST-reset boot, not pre-reboot content. Member 1 retained
+      nothing from before 22:35:34Z. ***
+
+  ---------- earliest surviving line in each member-1 file ----------
+  m1-messages-prereboot.log        2026-08-25T22:35:34
+  m1-startup_messages              Aug 25 22:35:40
+  m1-stacking.1                    Aug 25 22:35:56
+  m1-vcs-awplus-messages.2         Aug 25 22:36:03
+
+  ---------- member 1, the reset and the dirty USB mount ----------
+  #1 2026-08-25T22:35:34+00:00 syslog.notice awplus syslog-ng[347]: syslog-ng starting up; version='4.9.0'
+  #51 2026-08-25T22:35:40+00:00 kern.notice awplus kernel: scsi 0:0:0:0: Direct-Access     PNY      USB Flash Drive  8.00 PQ: 0 ANSI: 4
+  #52 2026-08-25T22:35:40+00:00 kern.notice awplus kernel: sd 0:0:0:0: [sda] 60506112 512-byte logical blocks: (31.0 GB/28.9 GiB)
+  #53 2026-08-25T22:35:40+00:00 kern.notice awplus kernel: sd 0:0:0:0: [sda] Write Protect is off
+  #55 2026-08-25T22:35:40+00:00 kern.notice awplus kernel: sd 0:0:0:0: [sda] Write cache: disabled, read cache: enabled, doesn't support DPO or FUA
+  #57 2026-08-25T22:35:40+00:00 kern.notice awplus kernel: sd 0:0:0:0: [sda] Attached SCSI removable disk
+  #98 2026-08-25T22:35:40+00:00 kern.warning awplus kernel: boardinfo: loading out-of-tree module taints kernel.
+  #157 2026-08-25T22:35:40+00:00 kern.notice awplus kernel: ubi0: attaching mtd3
+  #159 2026-08-25T22:35:40+00:00 kern.warning awplus kernel: FAT-fs (sda1): Volume was not properly unmounted. Some data may be corrupt. Please run fsck.
+  #166 2026-08-25T22:35:40+00:00 kern.notice awplus kernel: ubi0: scanning is finished
+  #187 2026-08-25T22:35:40+00:00 kern.notice awplus kernel: ubi0: attached mtd3 (name "user", size 120 MiB)
+  #188 2026-08-25T22:35:40+00:00 kern.notice awplus kernel: ubi0: PEB size: 65536 bytes (64 KiB), LEB size: 65408 bytes
+  #189 2026-08-25T22:35:40+00:00 kern.notice awplus kernel: ubi0: min./max. I/O unit sizes: 1/256, sub-page size 1
+  #190 2026-08-25T22:35:40+00:00 kern.notice awplus kernel: ubi0: VID header offset: 64 (aligned 64), data offset: 128
+  #191 2026-08-25T22:35:40+00:00 kern.notice awplus kernel: ubi0: good PEBs: 1920, bad PEBs: 0, corrupted PEBs: 0
+  #192 2026-08-25T22:35:40+00:00 kern.notice awplus kernel: ubi0: user volume: 1, internal volumes: 1, max. volumes count: 128
+  #193 2026-08-25T22:35:40+00:00 kern.notice awplus kernel: ubi0: max/mean erase counter: 3/0, WL threshold: 4096, image sequence number: 1117579393
+  #194 2026-08-25T22:35:40+00:00 kern.notice awplus kernel: ubi0: available PEBs: 0, total reserved PEBs: 1920, PEBs reserved for bad PEB handling: 0
+  #195 2026-08-25T22:35:40+00:00 kern.notice awplus kernel: ubi0: background thread "ubi_bgt0d" started, PID 202
+  #196 2026-08-25T22:35:40+00:00 kern.notice awplus kernel: UBIFS (ubi0:0): Mounting in unauthenticated mode
+  #197 2026-08-25T22:35:40+00:00 kern.notice awplus kernel: UBIFS (ubi0:0): background thread "ubifs_bgt0_0" started, PID 212
+  #200 2026-08-25T22:35:40+00:00 kern.notice awplus kernel: UBIFS (ubi0:0): recovery needed
+
+================================================================================
+SOURCE H - TEST HARNESS VERDICT LOG  (tb470, NZST)
+================================================================================
+  Captured by : test_38378.py on tb470.
+  Timestamps  : NZST (UTC+12). Subtract 12 h to compare with the device logs.
+  File        : 38378.log
+  Cycle 293 is the failing cycle. Cycles 294-300 are UNMEASURED for a TOOLING
+  reason, not a product one: the harness has no mid-run re-login, so after
+  member 1 rebooted it was typing into a login prompt.
+
+  2026-08-26 10:22:54  cycle 290/300  PASS       287.9s  pass=290 fail=0 unmeas=0  elapsed=62767s eta=2164s
+  2026-08-26 10:26:13  cycle 291/300  PASS       198.7s  pass=291 fail=0 unmeas=0  elapsed=62966s eta=1947s
+  2026-08-26 10:29:31  cycle 292/300  PASS       198.7s  pass=292 fail=0 unmeas=0  elapsed=63164s eta=1731s
+  2026-08-26 10:34:39  cycle 293/300  UNMEASURED 307.3s  pass=292 fail=0 unmeas=1  elapsed=63472s eta=1516s
+  2026-08-26 10:34:39      -> no stack reading with ('port1.0.27', 'port2.0.28') shut
+  2026-08-26 10:36:09  cycle 294/300  UNMEASURED  90.1s  pass=292 fail=0 unmeas=2  elapsed=63562s eta=1297s
+  2026-08-26 10:36:09      -> could not read stack before cycle
+  2026-08-26 10:37:39  cycle 295/300  UNMEASURED  90.0s  pass=292 fail=0 unmeas=3  elapsed=63652s eta=1079s
+  2026-08-26 10:37:39      -> could not read stack before cycle
+  2026-08-26 10:39:09  cycle 296/300  UNMEASURED  90.2s  pass=292 fail=0 unmeas=4  elapsed=63742s eta=861s
+  2026-08-26 10:39:09      -> could not read stack before cycle
+  2026-08-26 10:40:40  cycle 297/300  UNMEASURED  90.0s  pass=292 fail=0 unmeas=5  elapsed=63833s eta=645s
+  2026-08-26 10:40:40      -> could not read stack before cycle
+  2026-08-26 10:42:10  cycle 298/300  UNMEASURED  90.2s  pass=292 fail=0 unmeas=6  elapsed=63923s eta=429s
+  2026-08-26 10:42:10      -> could not read stack before cycle
+  2026-08-26 10:43:40  cycle 299/300  UNMEASURED  90.0s  pass=292 fail=0 unmeas=7  elapsed=64013s eta=214s
+  2026-08-26 10:43:40      -> could not read stack before cycle
+  2026-08-26 10:45:10  cycle 300/300  UNMEASURED  90.0s  pass=292 fail=0 unmeas=8  elapsed=64103s eta=0s
+  2026-08-26 10:45:10      -> could not read stack before cycle
+
+================================================================================
+END OF WINDOW
+================================================================================

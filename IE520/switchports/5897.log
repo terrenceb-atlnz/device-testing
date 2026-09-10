@@ -1,0 +1,99 @@
+AWPTCM-T5897 (1.0) — DHCP Snooping: Database entries
+tb470 IE520 stack (DUT = snooper) · 2026-09-03 · clean flat-vlan1 bench
+
+RESULT: PASS (all 3 steps, real downstream-client binding, actual command outputs below).
+
+Roles / topology (flat vlan1 .64/27, loop-free tree — see bench-state.md 2026-09-03):
+  DHCP server : tb470 (ISC dhcpd on eth3, 10.38.215.65, range .68-.94)
+  Snooper/DUT : IE520 stack (swi_a), snooping on vlan1
+  DHCP client : x230 (swi_d), vlan1 = ip address dhcp   <-- a REAL downstream host
+  Server reached via IE520 port1.0.1 (TRUSTED); client on IE520 port2.0.9 (UNTRUSTED).
+  Links LLDP-confirmed both ends; tb->IE520 leg host-confirmed (see bench-probe-2026-09-03/).
+
+================================================================================
+STEP 1 — Configure DHCP Snooping and trusted port toward the DHCP server
+================================================================================
+Config applied on the IE520:
+  service dhcp-snooping
+  no ip dhcp snooping agent-option            (no Option 82; server is isc-dhcpd)
+  interface vlan1   -> ip dhcp snooping
+  interface port1.0.1 -> ip dhcp snooping trust   (faces tb470, the server)
+  interface port2.0.9 -> (untrusted, default)     (faces the x230, the client)
+
+--- show ip dhcp snooping ---
+DHCP Snooping Information:
+  DHCP Snooping service ............. Enabled
+  Option 82 insertion ............... Disabled
+  Option 82 on untrusted ports ...... Not allowed
+  Binding delete by client .......... Enabled
+  Binding delete by link down ....... Disabled
+  Verify MAC address ................ Enabled
+  SNMP DHCP Snooping trap ........... Disabled
+  DHCP Snooping database:
+    Database location ............... nvs
+    Number of entries in database ... 1
+  DHCP Snooping VLANs:
+    vlan1 .............. Enabled
+
+--- show ip dhcp snooping interface  (excerpt) ---
+ Port         Status     Full Leases  Max Leases
+ port1.0.1    Trusted    0            1
+ port2.0.9    Untrusted  1            1
+ (all other ports Untrusted, 0 leases)
+VERIFY: server-facing port1.0.1 Trusted; client-facing port2.0.9 Untrusted. PASS.
+
+================================================================================
+STEP 2 — DHCP client on the NON-trusted port gets an IP
+================================================================================
+The x230, on untrusted IE520 port2.0.9, leased through the DUT from tb470:
+
+--- x230  show dhcp lease ---
+Interface vlan1
+  IP Address:              10.38.215.71
+  Expires:                 3 Sep 2026 00:39:41
+  Renew:                   3 Sep 2026 00:35:17
+  Rebind:                  3 Sep 2026 00:38:43
+  Options:
+    subnet-mask            255.255.255.224
+    routers                10.38.215.65
+    dhcp-lease-time        460
+    dhcp-server-identifier 10.38.215.65
+    domain-name            example.org
+
+--- x230  show ip interface brief ---
+Interface   IP-Address         Status     Protocol
+vlan1       10.38.215.71/27    admin up   running
+VERIFY: client on an untrusted port obtained an address (10.38.215.71 from server .65). PASS.
+
+================================================================================
+STEP 3 — Binding database contains correct information
+================================================================================
+--- IE520  show ip dhcp snooping binding ---
+DHCP Snooping Bindings:
+Client IP       MAC Address     Server IP       VLAN  Port         Expiry(s) Type
+--------------------------------------------------------------------------------
+10.38.215.71    001a.eb91.cca1  10.38.215.65    1     port2.0.9    389       Dyn
+
+Total number of bindings in database: 1
+
+Every field correct for the topology:
+  Client IP 10.38.215.71  = the address tb470 leased the x230
+  MAC 001a.eb91.cca1      = the x230's base MAC (the real client)
+  Server IP 10.38.215.65  = tb470 (the DHCP server)
+  VLAN 1 / Port port2.0.9 = the UNTRUSTED access port the client sits behind
+  Expiry ~389s            = counts down from the tb470 lease
+  Type Dyn                = learned by snooping (not a static binding)
+VERIFY: binding database has correct values. PASS.
+
+================================================================================
+NOTES
+================================================================================
+- Binding is CREATED when the snooper pairs the client's REQUEST ingressing an untrusted
+  port with the server's ACK arriving on the trusted port. The switch's OWN SVI client
+  would lease but NOT bind (its lease lives in `show dhcp lease`, not the snooping table) —
+  which is why a genuine downstream host (the x230) is required for Step 3.
+- On first attempt the stale vlan50 binding from an earlier isolated-island run persisted
+  in nvs and the fresh lease raced the interface read; `clear ip dhcp snooping binding`
+  plus a clean re-lease produced the correct single vlan1 entry above.
+- All config is running-config only (reverts on reload). Snooping is a transient test
+  overlay on the clean bench; bench-state.md/tb470.setup record the clean baseline itself.

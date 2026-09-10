@@ -1,0 +1,480 @@
+================================================================================
+LLDP TLV FUNCTIONAL VERIFICATION — TEST LOG
+================================================================================
+Date            : 2026-08-10 (NZST)
+Operator        : terrenceb
+Bench           : tb470
+DUT             : /dev/u4  (setup role swi_a)
+Test scope from : customer configuration (VinGroup CCTV deployment, IE510-28)
+                  supplied for scope determination only; NOT loaded onto the DUT.
+
+--------------------------------------------------------------------------------
+1. DEVICE UNDER TEST
+--------------------------------------------------------------------------------
+Board Name          : AT-IE520-28GSX
+Board ID / Rev      : 717 / X1-0
+Serial number       : 264A23052
+Software version    : tomahawk_ie520-continuous
+Build date          : Wed Aug 5 01:13:47 UTC 2026
+Bootloader version  : 9.1.0
+Boot config         : flash:/default.cfg (file exists)
+Stack member        : 1 (standalone)
+System Name         : awplus
+Chassis MAC         : 84e3.2787.09c0
+Management address  : 10.38.215.69  (vlan1, DHCP)
+
+NOTE ON PLATFORM DIVERGENCE
+  The customer device is an IE510-28; the DUT is an IE520-28GSX. Both are AlliedWare
+  Plus, but they are NOT the same platform. Results below are valid for the IE520
+  and should be re-confirmed on IE510 hardware before being reported to the customer
+  as platform behaviour.
+
+--------------------------------------------------------------------------------
+2. TOPOLOGY
+--------------------------------------------------------------------------------
+Declared in /home/st-art/st-art/configs/tb470.setup, verified live 2026-08-10.
+
+  [switch]  swi_a = /dev/u4     (DUT, IE520-28GSX)
+            swi_b = /dev/u5     (peer IE520, sys name "u5", chassis 84e3.2787.0740)
+            swi_c = /dev/u1     (AR4050S, "4050-5g")
+            swi_d = /dev/u0     (x230)
+
+  [portlink]
+            tb-swi_a     = eth3-port1.0.23        <-- CAPTURE POINT
+            swi_a-swi_b  = port1.0.1-port1.0.1    (copper, 10GBASE-TM)
+            swi_a-swi_b  = port1.0.7-port1.0.7    (fibre,  1000BASE-SX)
+
+  Link state at test time (show interface status):
+            port1.0.1   connected  vlan 100  a-full a-1000  10GBASE-TM
+            port1.0.7   connected  vlan   1  a-full a-1000  1000BASE-SX
+            port1.0.23  connected  trunk     a-full a-1000  1000BASE-T
+
+--------------------------------------------------------------------------------
+3. METHOD
+--------------------------------------------------------------------------------
+Transmit path is asserted against the WIRE, not against device 'show' output.
+
+  Console control : pyserial on tb470, /dev/u4 @ 115200, read-only 'show' plus the
+                    scoped config changes listed in section 4.
+  Frame capture   : tcpdump on tb470 eth3, BPF filter 'ether proto 0x88cc',
+                    -U (flush per packet), bounded by 'timeout'.
+  Frame decode    : tshark -V / -T fields.
+  Captures        : retained alongside this log (see section 14). Original paths on
+                    tb470 were /tmp/lldp-eth3-cc.pcap, /tmp/lldp-eth3-all.pcap and
+                    /tmp/lldp-neg.pcap; those are volatile and may be gone.
+
+RATIONALE FOR WIRE-BASED ASSERTION
+  'show lldp local-info' prints the device's LOCAL DATABASE — every TLV the device
+  could advertise — regardless of what tlv-select actually permits on the wire.
+  Asserting TLV functionality from that command alone yields a FALSE PASS on every
+  optional TLV. This was demonstrated directly; see section 5.
+
+--------------------------------------------------------------------------------
+4. CONFIGURATION APPLIED TO THE DUT
+--------------------------------------------------------------------------------
+Mirrors the LLDP-relevant intent of the customer config on the one port that can be
+packet-captured (port1.0.23). Applied to running-config ONLY — never written to
+startup-config, so a reload fully reverts the DUT.
+
+  configure terminal
+  vlan database
+   vlan 72,74,76,78,255 state enable
+   vlan 255 name VLAN_MGMT
+   exit
+  interface port1.0.23
+   description to_port1.0.5_DISTRIBUTION_CCTV-02
+   switchport trunk allowed vlan add 72,74,76,78,255
+   lldp tlv-select all
+   exit
+  end
+
+All commands accepted with no error output.
+'lldp run' was already enabled globally on the DUT prior to test.
+
+--------------------------------------------------------------------------------
+5. BASELINE — DEFAULT TLV BEHAVIOUR  [reference measurement]
+--------------------------------------------------------------------------------
+Purpose: establish what the DUT transmits BEFORE any tlv-select configuration.
+
+  show lldp interface port1.0.23   (before change)
+   Port     Rx/Tx  Notif  Management Addr  Base       802.1    802.3    MED
+   1.0.23   Rx Tx  -- --  10.38.215.69     ---------- -------- -------- McNpLoPe--
+
+  Captured frames on eth3 (30 s interval, matching 'Tx Timer Interval 30 secs'):
+   15:04:55.369456  LLDP, length 50
+   15:05:25.668862  LLDP, length 50
+
+  Decode of frame 1:
+   Ethernet Src 86:e3:27:87:09:c0 -> Dst 01:80:c2:00:00:0e (LLDP_Multicast)
+   TLV 1   Chassis Id     : MAC address 84:e3:27:87:09:c0
+   TLV 2   Port Id        : Interface name "port1.0.23"
+   TLV 3   Time To Live   : 120 sec
+   TLV 127 Org Specific   : OUI e0:1a:ea (Allied Telesis), subtype 2, len 20,
+                            payload 2d561ddfbd8f4cd69f9c94b9c51dc64b  [proprietary]
+   TLV 0   End of LLDPDU
+
+CONTRAST WITH 'show lldp local-info interface port1.0.23', which at the same moment
+reported Port Description, System Name, System Description, System Capabilities,
+Management Address, Port VLAN ID, Port & Protocol VLAN, VLAN Names, Protocol IDs,
+MAC/PHY Auto-negotiation and Link Aggregation as present.
+
+  RESULT: Only the four mandatory TLVs (1,2,3,0) plus one Allied Telesis proprietary
+          TLV are transmitted by default. NONE of the optional TLVs reach the wire.
+          The customer's per-port 'lldp tlv-select all' is therefore load-bearing —
+          without it, an LLDP-based discovery/NMS sees chassis, port and TTL only.
+
+--------------------------------------------------------------------------------
+6. TEST P1 (POSITIVE) — lldp tlv-select all
+--------------------------------------------------------------------------------
+Config    : interface port1.0.23 / lldp tlv-select all
+Expected  : all base, 802.1 and 802.3 optional TLVs appear on the wire.
+
+  show lldp interface port1.0.23   (after change)
+   1.0.23   Rx Tx  -- --  10.38.215.69     PdSnSdScMa PvPpVnPi MpPoLaMf McNpLoPe--
+
+  Captured frames:
+   15:08:27  length  50   (last pre-change frame)
+   15:08:51  length 547   <-- change in effect
+   15:09:22  length 547
+   15:09:52  length 547
+
+  TLV type sequence (frame length 561 on wire incl. Ethernet header):
+   1,2,3,4,5,6,7,8, 127 x28, 0        total 37 TLVs
+
+  Base TLVs decoded:
+   TLV 4  Port Description   : "to_port1.0.5_DISTRIBUTION_CCTV-02"   <-- matches config
+   TLV 5  System Name        : "awplus"
+   TLV 6  System Description : "Allied Telesis router/switch, Software
+                                (AlliedWare Plus) Version tomahawk_ie520-continuous"
+   TLV 7  System Capabilities: Bridge, Router (supported and enabled)
+   TLV 8  Management Address : 10.38.215.69, Interface Number 301
+
+  IEEE 802.1 org-specific TLVs decoded:
+   Subtype 0x01 Port VLAN ID          : PVID 1     (native VLAN of the trunk)
+   Subtype 0x02 Port & Protocol VLAN  : Supported=Yes, Enabled=No, VID 0
+   Subtype 0x03 VLAN Name  x7         : 1=default     72=VLAN0072   74=VLAN0074
+                                        76=VLAN0076   78=VLAN0078  100=VLAN0100
+                                        255=VLAN_MGMT
+   Subtype 0x04 Protocol Identity     : present (multiple instances)
+
+  IEEE 802.3 org-specific TLVs decoded:
+   Subtype 0x01 MAC/PHY Config/Status : Auto-Negotiation Supported + Enabled
+                                        PMD advertised 0x0401, incl. 1000BASE-T FD
+   Subtype 0x02 Power Via MDI         : Port Class PSE, PSE MDI Power NOT supported,
+                                        Disabled, Power Class 0
+   Subtype 0x03 Link Aggregation      : Capability Yes, Status Disabled, Port Id 0
+                                        (tshark flags this TLV as deprecated by IEEE)
+   Subtype 0x04 Maximum Frame Size    : 1500
+
+  RESULT: PASS. All 5 base, all 4 IEEE 802.1 and all 4 IEEE 802.3 optional TLVs are
+          transmitted. Port Description carries the configured description string
+          verbatim. LLDPDU grew 50 -> 547 octets.
+
+  SUB-RESULT (negative, obtained without extra configuration):
+          VLAN 200 exists on the DUT (STATIC/ACTIVE) but has NO member ports and is
+          NOT in port1.0.23's allowed VLAN list. No VLAN Name TLV was emitted for
+          VLAN 200. VLAN Name TLV scoping to port membership is therefore CORRECT.
+
+  OBSERVATION (customer-relevant, not a defect):
+          The customer names only VLAN 255. VLANs 72/74/76/78 are advertised with
+          auto-generated names VLAN0072..VLAN0078. Their NMS will display those
+          generated names, not friendly ones, unless the VLANs are explicitly named.
+
+--------------------------------------------------------------------------------
+7. NEGATIVE TEST SWEEP — SETUP
+--------------------------------------------------------------------------------
+Global 'lldp timer' temporarily reduced 30 -> 10 s so each phase captures multiple
+frames. This changes transmission cadence and TTL only; it does not affect TLV
+content. Confirmed in capture: TTL reported 40 s throughout the sweep
+(timer 10 x hold-time multiplier 4 = 40), vs 120 s at the default timer 30.
+Timer restored to 30 at end of run.
+
+Exact CLI keyword set confirmed on-device before use ('lldp tlv-select ?'):
+  all, link-aggregation, mac-phy-config, management-address, max-frame-size,
+  port-and-protocol-vlans, port-description, port-vlan, power-management,
+  protocol-ids, system-capabilities, system-description, system-name, vlan-names
+
+--------------------------------------------------------------------------------
+8. NEGATIVE TEST RESULTS
+--------------------------------------------------------------------------------
+
+N1 — WITHDRAW ALL OPTIONAL TLVs
+    Config   : interface port1.0.23 / no lldp tlv-select all
+    Expected : transmission reverts to mandatory TLVs only.
+    Window   : 15:17:17.7 - 15:17:46.2   (epoch 1786331837.736 - 1786331866.240)
+
+    show lldp interface port1.0.23
+     1.0.23   Rx Tx  -- --  10.38.215.69     ---------- -------- -------- McNpLoPe--
+
+    Captured frames:
+     15:17:08.6  len  64  total_tlv=5  org127=1  nonorg=[1,2,3,0]  ttl=40
+     15:17:18.7  len  64  total_tlv=5  org127=1  nonorg=[1,2,3,0]  ttl=40
+     15:17:28.8  len  64  total_tlv=5  org127=1  nonorg=[1,2,3,0]  ttl=40
+     15:17:38.9  len  64  total_tlv=5  org127=1  nonorg=[1,2,3,0]  ttl=40
+     15:17:49.0  len  64  total_tlv=5  org127=1  nonorg=[1,2,3,0]  ttl=40
+
+    RESULT: PASS. Every optional TLV withdrawn from the wire; frame returned to the
+            50-octet mandatory-only form. The Allied Telesis proprietary TLV (127)
+            persists and is NOT governed by tlv-select.
+
+N2 — SELECTIVE ENABLE (two TLVs only, applied incrementally)
+    Config   : interface port1.0.23 / lldp tlv-select port-description
+                                    / lldp tlv-select system-name
+    Expected : exactly and only the selected TLVs appear.
+    Window   : 15:18:05.5 - 15:18:34.0   (epoch 1786331885.458 - 1786331913.961)
+
+    show lldp interface port1.0.23
+     1.0.23   Rx Tx  -- --  10.38.215.69     PdSn------ -------- -------- McNpLoPe--
+
+    Captured frames:
+     15:17:53.0  len  99  total_tlv=6  nonorg=[1,2,3,4,0]      <-- after port-description
+     15:17:56.1  len 107  total_tlv=7  nonorg=[1,2,3,4,5,0]    <-- after system-name
+     15:18:06.1  len 107  total_tlv=7  nonorg=[1,2,3,4,5,0]
+     15:18:16.2  len 107  total_tlv=7  nonorg=[1,2,3,4,5,0]
+     15:18:26.3  len 107  total_tlv=7  nonorg=[1,2,3,4,5,0]
+     15:18:36.4  len 107  total_tlv=7  nonorg=[1,2,3,4,5,0]
+
+    RESULT: PASS. Per-TLV selection is exact and incremental — TLV 4 appeared alone
+            after the first command, TLV 5 joined it after the second, and no other
+            optional TLV leaked in. Frame grew 64 -> 99 -> 107 octets accordingly.
+
+N3 — WITHDRAW ONE TLV FROM A FULL SET
+    Config   : interface port1.0.23 / lldp tlv-select all
+                                    / no lldp tlv-select vlan-names
+    Expected : VLAN Name TLVs removed; all other TLVs, incl. Port VLAN ID, retained.
+    Window   : 15:18:53.2 - 15:19:21.7   (epoch 1786331933.179 - 1786331961.683)
+
+    show lldp interface port1.0.23
+     1.0.23   Rx Tx  -- --  10.38.215.69     PdSnSdScMa PvPp--Pi MpPoLaMf McNpLoPe--
+                                                            ^^ Vn cleared, Pv/Pp/Pi intact
+
+    Captured frames:
+     15:18:40.5  len 561  total_tlv=37  org127=28  vlan_names=default,VLAN0072,
+                                        VLAN0074,VLAN0076,VLAN0078,VLAN0100,VLAN_MGMT
+     15:18:44.5  len 442  total_tlv=30  org127=21  vlan_names=(none)
+     15:18:54.6  len 442  total_tlv=30  org127=21  vlan_names=(none)
+     15:19:04.7  len 442  total_tlv=30  org127=21  vlan_names=(none)
+     15:19:14.8  len 442  total_tlv=30  org127=21  vlan_names=(none)
+
+    Arithmetic check:
+      org TLV count  28 - 21 = 7 removed  == 7 VLAN Name TLVs previously present.
+      frame length  561 - 442 = 119 octets removed.
+      Predicted     7 x (2 hdr + 3 OUI + 1 subtype + 2 VID + 1 len) = 63 octets
+                    + name payload (7+8+8+8+8+8+9) = 56 octets
+                    = 119 octets.  MATCHES EXACTLY.
+
+    RESULT: PASS. Withdrawal is surgical — precisely the 7 VLAN Name TLVs were
+            removed, byte-for-byte, with all base, remaining 802.1 and all 802.3
+            TLVs left intact. Port VLAN ID (PVID) survived, confirming that
+            'vlan-names' and 'port-vlan' are independently controlled.
+
+N4 — GLOBAL LLDP DISABLE
+    Config   : configure terminal / no lldp run
+    Expected : transmission ceases entirely.
+    Window   : 15:19:31.3 - 15:19:59.8   (epoch 1786331971.291 - 1786331999.794)
+
+    Captured frames:
+     15:19:24.9  len  60  total_tlv=4  org127=0  nonorg=[1,2,3,0]  ttl=0
+     (no further frames for the remainder of the capture)
+
+    RESULT: PASS, with a correct-behaviour note. The DUT emitted exactly ONE final
+            LLDPDU carrying Time To Live = 0 before going silent. This is the
+            shutdown LLDPDU required by IEEE 802.1AB, which instructs neighbours to
+            purge the entry immediately rather than wait out the hold time. Note the
+            Allied Telesis proprietary TLV is absent from the shutdown frame
+            (org127=0), so the shutdown LLDPDU is strictly mandatory TLVs only.
+            Zero LLDPDUs were transmitted during the disabled window.
+
+    NOTE: 'show lldp interface port1.0.23' still displayed the per-port tlv-select
+          bitmap while LLDP was globally disabled. That is expected — the per-port
+          selection is retained configuration, independent of the global run state —
+          but it means the 'show' output alone cannot tell you whether the device is
+          actually transmitting. Another instance of the section 3 rationale.
+
+--------------------------------------------------------------------------------
+9. RECEIVE-PATH TEST
+--------------------------------------------------------------------------------
+Performed with no configuration change on the peer; swi_b was left untouched.
+
+  show lldp neighbors
+   Local    Neighbor        Neighbor    Neighbor   System
+   Port     Chassis ID      Port ID     Sys Name   Cap.
+   1.0.7    84e3.2787.0740  port1.0.7   u5         --B-R---
+
+  show lldp neighbors detail  (Local port1.0.7)
+   Chassis ID Type ......... MAC address / 84e3.2787.0740
+   Port ID Type ............ Interface name / port1.0.7
+   TTL ..................... 120 secs
+   Port Description ........ port1.0.7
+   System Name ............. u5
+   System Description ...... Allied Telesis router/switch, Software
+                             (AlliedWare Plus) Version tomahawk_ie520-continuous
+   System Capabilities ..... Supported: Bridge, Router / Enabled: Bridge, Router
+   Management Addresses .... 192.168.100.2
+   Port VLAN ID (PVID) ..... 100
+   Port & Protocol VLAN .... Supported Yes, Enabled No, VIDs 0
+   VLAN Names .............. VLAN0100
+   Protocol IDs ............ 9000, 0026424203000000, 0027424203000002,
+                             0069424203000003, 888e01, aaaa0300e02b00bb, 88090101,
+                             00540000e302, 000a424203000101, 0800, 0806, 86dd,
+                             89020001, 89020128
+   MAC/PHY Auto-negotiation  Not Supported, Disabled
+        Advertised Capability [none]
+        Operational MAU Type  1000BaseSXFD (26)
+   Power Via MDI (PoE) ..... Not Supported, Port Class PSE, Class 0
+   Link Aggregation ........ Supported, Disabled
+   Maximum Frame Size ...... 1500 (Octets)
+
+  RESULT: PASS. The DUT received, parsed and stored every TLV category — base,
+          IEEE 802.1 and IEEE 802.3 — from a real AlliedWare Plus peer. MAU type
+          correctly decoded as 1000BaseSXFD on the 1000BASE-SX fibre link, with
+          auto-negotiation correctly reported as not supported on that media.
+
+--------------------------------------------------------------------------------
+10. RESULTS SUMMARY
+--------------------------------------------------------------------------------
+ ID  Test                                                            Result
+ --  --------------------------------------------------------------  ------
+ B   Default state transmits mandatory TLVs only                     PASS (ref)
+ P1  lldp tlv-select all emits all base/802.1/802.3 TLVs             PASS
+ P1a Port Description TLV carries configured description string      PASS
+ P1b VLAN Name TLV emitted per port-member VLAN (7 of 7)             PASS
+ P1c VLAN Name TLV NOT emitted for non-member VLAN 200               PASS
+ P1d Management Address TLV carries 10.38.215.69                     PASS
+ P1e 802.3 MAC/PHY, Power-via-MDI, Link Agg, Max Frame Size present  PASS
+ N1  no lldp tlv-select all withdraws every optional TLV             PASS
+ N2  Per-TLV selection is exact and incremental                      PASS
+ N3  Single-TLV withdrawal is byte-exact, others unaffected          PASS
+ N4  no lldp run halts transmission after one TTL=0 shutdown LLDPDU  PASS
+ R1  Receive path decodes all TLV categories from an AW+ peer        PASS
+
+ No defects were observed in LLDP TLV transmit, selection or receive behaviour
+ on this platform and software build.
+
+--------------------------------------------------------------------------------
+11. OBSERVATIONS (not defects)
+--------------------------------------------------------------------------------
+O1  'show lldp local-info' reports the local database, not the transmitted set.
+    At baseline it listed 11 optional TLVs while the wire carried none. Any test
+    procedure that verifies TLV functionality from this command will pass
+    incorrectly. Verify on the wire, or at minimum via 'show lldp interface',
+    whose Base/802.1/802.3 bitmap did track the real transmitted set in every
+    phase of this run.
+
+O2  'lldp tlv-select all' means all NON-MED TLVs. The MED column was unchanged by
+    it (McNpLoPe--, Inventory still off); MED TLVs are governed by the separate
+    'lldp med-tlv-select' command.
+
+O3  MED TLVs Mc/Np/Lo/Pe are enabled by default yet never appeared in any capture.
+    This is correct LLDP-MED behaviour — a device emits MED TLVs only after
+    receiving one from a MED endpoint, and tb470's eth3 is a plain Linux NIC with
+    lldpd inactive. It does mean MED TLV emission was NOT exercised by this run.
+
+O4  An Allied Telesis proprietary TLV (OUI e0:1a:ea, subtype 2, 16-octet payload)
+    is transmitted in every normal LLDPDU including the mandatory-only baseline,
+    is not decodable by tshark, and is not controlled by tlv-select. It is absent
+    from the TTL=0 shutdown LLDPDU. Believed to be AMF-related; not confirmed.
+
+O5  Ethernet source MAC (86:e3:27:87:09:c0) differs from the advertised Chassis ID
+    (84:e3:27:87:09:c0) in the locally-administered bit. Expected AW+ per-port MAC
+    derivation, but it means a device must be identified from the Chassis ID TLV,
+    not from the frame source MAC.
+
+O6  port1.0.1 (copper, 10GBASE-TM) shows 'connected' to swi_b, but no LLDP neighbour
+    was learned on it — only port1.0.7 (fibre) produced a neighbour entry. Not
+    investigated; most likely LLDP tx is disabled on the peer's port1.0.1. Flagged
+    for follow-up, NOT pursued, as it would require configuring swi_b.
+
+O7  tshark flags the IEEE 802.3 Link Aggregation TLV (subtype 0x03) as deprecated.
+    The DUT still emits it under tlv-select all. Informational only.
+
+--------------------------------------------------------------------------------
+12. SCOPE NOT COVERED
+--------------------------------------------------------------------------------
+X1  MULTIPLE MANAGEMENT ADDRESSES — NOT TESTED. The customer config has two L3
+    interfaces (vlan1 via DHCP, vlan255 static 10.159.8.47/23). The DUT has only
+    one addressed interface (vlan1, 10.38.215.69) and emitted exactly one
+    Management Address TLV. Which address AW+ selects, and whether it emits more
+    than one Management Address TLV, is therefore UNVERIFIED and is a genuine open
+    question for the customer's topology.
+
+X2  STACKED CHASSIS ID — NOT TESTED. The customer runs a stack
+    ('stack virtual-chassis-id 2485', stackports 1.0.27-28). Chassis ID TLV
+    consistency across stack members was not verified. Deliberately not attempted:
+    cabling ports 27/28 between the two tb470 IE520s puts them in a duplicate
+    chassis-id / duplicate-master state with all front-panel ports err-disabled,
+    and these units have no PDU, making console the only recovery path.
+
+X3  LLDPDU SIZE CEILING — NOT REACHED. With 7 member VLANs the full LLDPDU was
+    561 octets, well inside the 1500 limit. The customer's ports carry 5 allowed
+    VLANs plus native, so they are in the same range. Behaviour when VLAN Name
+    plus Protocol Identity TLVs would exceed one frame (many VLANs, long names)
+    remains untested; LLDP has no fragmentation, so this is where truncation
+    would occur if it occurs at all.
+
+X4  LLDP-MED TLVs — NOT TESTED (see O3). No MED endpoint on the bench. The
+    customer config contains no 'lldp med-tlv-select', so MED is out of scope for
+    their deployment as configured.
+
+X5  TTL EXPIRY / NEIGHBOUR AGEING — NOT TESTED.
+
+X6  IE510-28 platform confirmation — NOT TESTED (see section 1).
+
+--------------------------------------------------------------------------------
+13. DEVICE STATE LEFT BEHIND
+--------------------------------------------------------------------------------
+Nothing was written to startup-config at any point. 'write'/'copy run start' was
+never issued, so a reload restores flash:/default.cfg in full.
+
+Restored at end of run:
+  lldp run                  re-enabled globally
+  lldp timer                restored to 30 (default)
+  port1.0.23                lldp tlv-select all (left ON deliberately, for
+                            continued testing)
+
+Still present in running-config only (revert by reload, or by hand):
+  vlan 72,74,76,78,255 (255 named VLAN_MGMT)
+  interface port1.0.23 description to_port1.0.5_DISTRIBUTION_CCTV-02
+  interface port1.0.23 switchport trunk allowed vlan add 72,74,76,78,255
+
+No changes were made to swi_b (/dev/u5), swi_c (/dev/u1) or swi_d (/dev/u0).
+No changes were made to the tb470 host. No changes were made under
+/home/st-art/framework.
+
+--------------------------------------------------------------------------------
+14. EVIDENCE FILES
+--------------------------------------------------------------------------------
+Raw packet captures backing every transmit assertion in this log. Retained in the
+same directory as this file (the lab home, /home/terrenceb as the testboxes see it
+over NFS). Copied from tb470 /tmp on 2026-08-10; md5 verified identical to the
+originals at copy time.
+
+  File                                    md5                               Section
+  --------------------------------------  --------------------------------  -------
+  ...2026-08-10.baseline.pcap             4030ad0d94c1a4780f8e5e181fc53b12  5
+  ...2026-08-10.tlv-select-all.pcap       22bce9f20de7185887e861398c095ee5  6
+  ...2026-08-10.negative-sweep.pcap       a59fd25ed12fe1425cbd83f002b7888a  8
+
+  (full basename prefix: lldp-tlv-verification-tb470-u4-)
+
+All three were captured on tb470 eth3 with BPF filter 'ether proto 0x88cc', so they
+contain LLDP frames only and no other lab traffic.
+
+Re-reading them:
+  tshark -r <file> -Y lldp -V                              full TLV decode
+  tshark -r <file> -Y lldp -T fields -e frame.time_epoch \
+         -e frame.len -e lldp.tlv.type -e lldp.time_to_live
+  tshark -r <file> -T fields -e lldp.ieee.802_1.vlan.id \
+         -e lldp.ieee.802_1.vlan.name                      VLAN Name TLV contents
+
+Phase windows for the negative sweep (epoch seconds, for correlating frames in
+...negative-sweep.pcap against sections 8 N1-N4):
+  P1_tlv-select_all         1786331793.218 - 1786331821.722
+  N1_no_tlv-select_all      1786331837.736 - 1786331866.240
+  N2_only_portdesc+sysname  1786331885.458 - 1786331913.961
+  N3_all_minus_vlan-names   1786331933.179 - 1786331961.683
+  N4_no_lldp_run            1786331971.291 - 1786331999.794
+
+================================================================================
+END OF LOG
+================================================================================

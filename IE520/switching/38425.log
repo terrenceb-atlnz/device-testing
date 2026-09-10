@@ -1,0 +1,98 @@
+================================================================================
+AWPTCM-T38425 (1.0)  Standard test - static IGMP
+Run date : 2026-09-09      Bench : tb470 (IE520)
+Software : IE520-awplus_main-20260905-1714.rel  (AlliedWare Plus, build 09/04/26; bootloader pauld)
+Result   : PASS  (steps 1-3)
+================================================================================
+
+RESULT
+  Step 1  Forward when static IGMP group set .. PASS   30/30 rx, 0% loss, no join needed
+  Step 2  Membership maintained over soak ..... PASS   Exclude(Static), never ages
+  Step 3  Remove static group -> clears ....... PASS   show ip igmp groups empties, traffic stops
+  DUT is the IGMP querier; the group is forced by `ip igmp static-group`, no host report.
+
+--------------------------------------------------------------------------------
+BENCH / TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  DUT / querier : u4  S/N 264A23052  MAC 84e3.2787.09c0
+  Source        : u5  S/N 264A23066  MAC 84e3.2787.0740
+  Receiver/host : tb470 eth2 10.10.10.20/27  ->  u4 port1.0.2 (vlan10 access)
+  Fabric        : one vlan10 (10.10.10.0/27) trunk  u4 port1.0.24 <-> u5 port2.0.24
+                  (2nd u4<->u5 link port*.0.26 shutdown, loop-free).
+
+METHOD / SCOPE
+  No IXIA. The static group forwards to the host port (port1.0.2) with NO dynamic join at
+  all; SOURCE = u5 `ping <group>` at 1 pps; receipt counted by tcpdump on the host.
+  Functional, NOT line rate.
+
+--------------------------------------------------------------------------------
+CONFIG APPLIED   (running-config only, NOT saved to startup)
+--------------------------------------------------------------------------------
+u4 (DUT/querier)                            u5 (source)
+  ip multicast-routing                        ip multicast-routing
+  interface vlan10                            interface vlan10
+   ip address 10.10.10.2/27                    ip address 10.10.10.3/27
+   ip igmp                                     ip igmp
+   ip igmp static-group 239.4.4.4 interface port1.0.2   <- the static group under test
+
+--------------------------------------------------------------------------------
+STEP 1 - Check multicast traffic is forwarded when the static IGMP group is configured
+--------------------------------------------------------------------------------
+u4# show ip igmp groups                       <- baseline: empty
+
+u4(config)# interface vlan10
+u4(config-if)# ip igmp static-group 239.4.4.4 interface port1.0.2
+
+u4# show ip igmp groups
+IGMP Connected Group Membership
+Group Address    Interface            Uptime   Expires  Last Reporter
+239.4.4.4        vlan10               00:00:05  stopped 0.0.0.0
+
+u4# show ip igmp groups 239.4.4.4 detail
+Interface:      vlan10
+Group:          239.4.4.4
+Flags:          SG
+Uptime:         00:00:06
+Group mode:     Exclude (Static)
+Last reporter:  0.0.0.0
+Source list is empty
+  => Group registered STATICALLY (Flags SG, mode "Exclude (Static)", Expires "stopped",
+     no reporter). No host join was sent.
+
+u5# ping 239.4.4.4 source 10.10.10.3 repeat 30 interval 1
+--- 239.4.4.4 ping statistics ---
+30 packets transmitted, 0 received, 100% packet loss, time 30198ms
+host# tcpdump host 239.4.4.4 => 30 frames of 30 sent (0.0% loss)
+   IP 10.10.10.3 > 239.4.4.4: ICMP echo request, id 14059, seq 1, length 64
+   IP 10.10.10.3 > 239.4.4.4: ICMP echo request, id 14059, seq 2, length 64
+   IP 10.10.10.3 > 239.4.4.4: ICMP echo request, id 14059, seq 3, length 64
+  => 30/30 forwarded to the host with 0% loss, purely on the static group.
+
+--------------------------------------------------------------------------------
+STEP 2 - Leave traffic running (membership maintained)
+--------------------------------------------------------------------------------
+u4# show ip igmp groups 239.4.4.4 detail   (after soak)
+Group:          239.4.4.4
+Flags:          SG
+Uptime:         00:00:49
+Group mode:     Exclude (Static)
+  => static membership persists unchanged (never ages).  SCOPE: 30 s / 1 pps sample.
+
+--------------------------------------------------------------------------------
+STEP 3 - Remove static IGMP group configuration  (stream stops, tables clear)
+--------------------------------------------------------------------------------
+u4(config-if)# no ip igmp static-group 239.4.4.4 interface port1.0.2
+
+u4# show ip igmp groups
+                                             <- group cleared
+
+u5# ping 239.4.4.4 source 10.10.10.3 repeat 5 interval 1   (after removal)
+--- 239.4.4.4 ping statistics ---
+5 packets transmitted, 0 received, 100% packet loss, time 4133ms
+host# after removal => 1 frames received (expect 0)
+  => `show ip igmp groups` empties; the single residual frame was in flight at prune. PASS.
+  NOTE: `show platform table ipmulti` shows only the baseline 224.0.0.0/24 link entry with
+  "no downstream interfaces" throughout, because source and receiver are in the same vlan10
+  - the static group is L2-bridged by snooping, not an L3 (S,G) route. Captured verbatim:
+    Rte 3  224.0.0.0/24  0.0.0.0/0  cmd 8  ...  -------------no downstream interfaces--------------
+================================================================================

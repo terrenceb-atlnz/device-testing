@@ -1,0 +1,95 @@
+### ============================================================================
+### !! SUPERSEDED AS A DESCRIPTION OF THE BENCH -- 2026-09-01.
+###    This file is NOT the tb470 bench's state and must not be read as it. It is a
+###    purpose-built, single-DUT rig for the 5700 bootloader campaign of 2026-08-11,
+###    when the two IE520s were STANDALONE and each was bound as swi_a in its own run.
+###    They have been ONE STACK since 2026-08-18, so this file's device roles, hub
+###    links and portlinks no longer describe anything that is cabled.
+###    Current bench state: ~/claude/IE520-testing/bench-setup/bench-state.md
+###    (from which /home/st-art/st-art/configs/tb470.setup is generated).
+###    Kept because it is the record of how that campaign was rigged, and because its
+###    portlink notes are the independent 2026-08-11 corroboration of which LAG leg
+###    lands on which AR4050S port -- cited in the bench-state record.
+### ============================================================================
+### tb470 - IE520 on /dev/u4, bound as role swi_a.  Run A (suite 2002).
+### Management port cabled to tb470 eth3.  PDU socket labelled "D".
+###
+### Derived from the tb504 5700 default.setup, with three deliberate differences.
+### Read the notes before changing anything here.
+###
+###  1. BAUD IS 115200, not 9600.  Both tb470 IE520s are silent at 9600 and clean
+###     at 115200 (probed 2026-08-11).  AWPConsoleCore._connect_serial() opens the
+###     port ONCE at this rate and never renegotiates, so this value serves both
+###     the bootloader and the AW+ CLI.
+###
+###  2. There are TWO links here and they do different jobs.  I originally declared
+###     only the hub link, reasoning that the scripts use dut.portA / tb.ethA merely
+###     as a fallback and in two log lines.  That was WRONG, and a 2026-08-11 smoke
+###     run proved it: ATTools.download_file_from_tftp() resolves the link ITSELF via
+###     setup.get_all_port_links(swi, tb), independent of the script, and with none
+###     declared it fell back to the hub link and tried to configure `eth0` from the
+###     AW+ CLI -- an interface that only exists in the bootloader.  Result:
+###     "Unable to ping TFTP server 10.38.215.65", flash never populated.
+###       hub link   = BOOTLOADER TFTP boot, over the USB dongle (eth0).
+###       tb-swi_a   = POST-BOOTUP CLI file transfer, over a real front-panel port.
+###     The second is also how the port gets ENABLED at all: the framework's generated
+###     default.cfg does `int port1.0.1-port1.0.28 / shutdown`, and only the declared
+###     portlink port is brought back up (portA.up() / `no shutdown`).
+###
+###  3. This DUT has eth3 to itself, and the u5 run has eth2 - one wire each, no
+###     shared segment.  KEEP eth3 DEDICATED TO THIS DUT.  The bootloader address is
+###     derived from the tty number - library_5700.py:159
+###         ipDevice = tb_eth_a.get_ipv4_addr(2 + int(dut.ttyNumber))
+###     so /dev/u4 on eth3 (10.38.215.64/27) resolves to 10.38.215.70 - which is
+###     INSIDE dhcpd's pool for that subnet (range 10.38.215.68 - 10.38.215.94, and
+###     dhcpd is bound to eth3).  Nothing else can claim .70 while the wire is
+###     point-to-point, but note that dhcpd's ping-check cannot protect an address
+###     whose owner is switched off, and 2002 powers this DUT off about 24 times.
+###     If anything else is ever put on eth3, exclude .68-.71 from that pool first.
+
+[power]
+### Front-panel "D" = outlet 4.  The outlet field is NUMERIC - Setup.py:588 does
+### int(outTuple[2]) for any non-'awplus' type, so the faceplate letter raises.
+### The mapping is A-H = 1-8, from SESSION_STATE.md 2026-07-30: this same PDU has
+### the AR4050S on outlet 8 ("H") and the x230 on outlet 6 ("F").
+pwr_a = (pdu, 10.36.150.14, 4)
+
+[switch]
+swi_a = /dev/u4
+
+[baudrates]
+swi_a = 115200
+
+[powerlink]
+swi_a = pwr_a
+
+### Device TFTP boots over its management port ###
+[hub]
+hub_a = tb, swi_a
+
+[portlink]
+### BOOTLOADER TFTP boot link: tb470 eth3 (10.38.215.65/27) <-> the IE520's USB
+### ethernet dongle, which the bootloader calls eth0.  DUT boots at 10.38.215.70,
+### TFTP server is eth3's own 10.38.215.65.  The dongle shares the switch's single
+### rear USB port via a hub, alongside the USB boot-media options.
+hub_a-tb = eth3
+hub_a-swi_a = eth0
+
+### POST-BOOTUP CLI file-transfer link -- this is what populates flash with
+### mainrelease.rel / backuprelease.rel, and what 2002 case 30 uses to copy a
+### wrong-platform release.  NOT a direct cable:
+###     swi_a port1.0.1 -> AR4050S (swi_c) port1.0.3 -> vlan1 -> AR4050S uplink
+###                     -> tb470 eth1 10.38.215.1/27
+### An intermediate switch is fine because the framework makes the DUT port an
+### UNTAGGED access port in a fresh VLAN and statically addresses it in eth1's
+### subnet (ipOffset = ttyNumber + 2, so /dev/u4 -> 10.38.215.6), then pings
+### 10.38.215.1.  It needs one L2 broadcast domain and NO routed hop -- there is no
+### default route on the DUT.  Verified 2026-08-11: all 8 AR4050S ports are untagged
+### members of vlan1, and tb470 eth1 pings the AR4050S vlan1 (10.38.215.3) 0% loss.
+###
+### !! Do NOT re-route this through swi_b. Each run's default.cfg shuts EVERY port on
+### !! its own DUT, so the two IE520s must not depend on one another.
+###
+### NOTE: .6 (and .7 for the u5 run) sit inside dhcpd's eth1 pool .2-.10. Only a risk
+### while the DUT is powered off -- which these suites do constantly.
+tb-swi_a = eth1-port1.0.1

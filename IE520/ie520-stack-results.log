@@ -1,0 +1,139 @@
+IE520 4-DEVICE STACK — TEST RESULTS
+===================================
+Date:       2026-09-04
+Bench:      tb470 (consoles /dev/u2 /dev/u3 /dev/u4 /dev/u5)
+Objective:  Determine whether four AT-IE520-28GSX units can form a single
+            4-member VCStack (virtual chassis).
+
+VERDICT:  NEGATIVE — the IE520 CANNOT form a 4-member stack.
+          The product limits VCStack membership to a maximum of 2 (stack
+          member IDs 1 and 2 only). A third or fourth member ID is rejected by
+          the CLI on every unit tested. A 4-member stack is therefore not
+          configurable on this platform.
+
+
+TEST ENVIRONMENT
+----------------
+Product:           AT-IE520-28GSX
+Software version:  tomahawk_ie520-continuous, build Sun Aug 30 23:47:03 UTC 2026
+Boot:              IE520-tb470.rel (flash boot)
+RAM (per unit, idle standalone):  Total 506728 kB, Free ~265000 kB (~52% free)
+
+Units under test (identified by serial number; console names per tb470):
+  intended member 1 (master)  console /dev/u2   S/N 264A23061
+  intended member 2           console /dev/u3   S/N 264A23068
+  intended member 3           console /dev/u4   S/N 264A23052
+  intended member 4           console /dev/u5   S/N 264A23066
+
+Common stack identity applied:  stack virtual-chassis-id 3439
+Master priority:                stack 1 priority 1  (applied to S/N 264A23061)
+
+
+BLOCKING LIMIT — logged CLI responses
+-------------------------------------
+The stack member ID cannot be set above 2. "stack renumber" to any ID > 2 is
+rejected identically on every unit tested.
+
+Device S/N 264A23052 (intended member 3), console /dev/u4:
+    awplus(config)# stack 1 renumber 3
+    % The max stack member ID supported by this product is 2
+    awplus(config)# stack 1 renumber 4
+    % The max stack member ID supported by this product is 2
+    awplus(config)# stack 1 renumber 8
+    % The max stack member ID supported by this product is 2
+
+Device S/N 264A23066 (intended member 4), console /dev/u5:
+    awplus(config)# stack 1 renumber 4
+    % The max stack member ID supported by this product is 2
+    awplus(config)# stack 1 renumber 8
+    % The max stack member ID supported by this product is 2
+
+Control: renumber to ID 2 IS accepted — device S/N 264A23068 was successfully
+renumbered from ID 1 to member 2 and rebooted into that ID. This confirms the
+ceiling is exactly 2, not a general renumber failure.
+
+
+CORROBORATING EVIDENCE — provisioning also caps at 2
+----------------------------------------------------
+Provisioning a switch slot above 2 is rejected.
+
+Device S/N 264A23052, console /dev/u4:
+    awplus(config)# switch 3 provision ie520-28
+    % Invalid switch value
+    awplus(config)# switch 4 provision ie520-28
+    % Invalid switch value
+
+Two independent CLI paths (stack renumber, switch provision) both cap the
+member/switch ID at 2.
+
+
+CLI REFERENCE CHECK
+-------------------
+The ck.db AlliedWare Plus CLI reference contains 0 command rows for product
+"ie520" (the IE520 is not documented there). "stackport" is documented for
+x240, x250, x950, x908gen2, x908gen3, xs900mx — not IE520. The reference thus
+neither confirms nor denies the limit; the running device is the authority, and
+it reports max member ID 2 (logged above).
+
+
+WHAT WAS ATTEMPTED TO OVERCOME THE LIMIT
+----------------------------------------
+  stack 1 renumber 3 / 4 / 8   -> rejected: "% The max stack member ID supported
+                                  by this product is 2"   (S/N 264A23052 and 264A23066)
+  switch 3 provision ie520-28  -> rejected: "% Invalid switch value"  (S/N 264A23052)
+  switch 4 provision ie520-28  -> rejected: "% Invalid switch value"  (S/N 264A23052)
+
+No CLI mechanism was found to raise the member/switch ID ceiling above 2.
+
+Because 4 unique member IDs cannot be assigned, the 4-member build step
+("no shutdown" on the stackports to bring the links up) was NOT performed: with
+the IDs the product allows, the four cabled units carry duplicate member IDs,
+which produces a duplicate-member-ID / "neighbor incompatible" collision (the
+same failure previously seen when these units shared one chassis-id with
+duplicate IDs), not a 4-member stack. Building it would only reproduce that
+collision and disturb the bench, so it was not done.
+
+
+KNOCK-ON ISSUES OBSERVED (IE520 stackport behaviour)
+----------------------------------------------------
+1. "shutdown" on a stackport is NOT saved to configuration and does not persist
+   across a reboot:
+       awplus(config-if)# shutdown
+       % port1.0.27: Warning: "shutdown" command is not saved to configuration for stackports
+   The port does go admin-down at runtime (show interface: "disabled"), but any
+   reboot re-enables it. Consequence during multi-unit configuration: after a
+   config reboot a unit's stackports come back up on their own and must be
+   re-shut after every reboot to stop an uncabled/partially-cabled stack from
+   forming.
+
+2. Renumbering a unit to ID 2 renames its real ports from port1.0.x to port2.0.x;
+   the old port1.0.27-28 become "provisioned" (phantom). A "shutdown" applied to
+   the pre-renumber range strands on the phantom ports while the real stackports
+   (port2.0.27-28) stay enabled. Observed on S/N 264A23068 after its renumber to
+   member 2 — its real stackports had to be re-shut on the port2.0.x range.
+
+
+FINAL STATE OF THE UNITS (left safe; every stackport admin-down)
+----------------------------------------------------------------
+  S/N 264A23061  /dev/u2  member ID 1  chassis-id 3439  priority 1  port1.0.27-28 disabled
+  S/N 264A23068  /dev/u3  member ID 2  chassis-id 3439              port2.0.27-28 disabled
+  S/N 264A23052  /dev/u4  member ID 1  chassis-id 3439              port1.0.27-28 disabled
+  S/N 264A23066  /dev/u5  member ID 1  chassis-id 2675 (unchanged)  port1.0.27-28 disabled
+
+All four units are standalone; no stack link is up. Stackport DAC cables are
+present (show interface Type "1xCOPPER PAS") but every stackport is admin-down,
+so cabling the units cannot form a stack until a stackport is brought up.
+
+DURABILITY CAVEAT: the admin-down state is runtime-only and is NOT retained
+across a reboot (knock-on issue 1). The units are cabled and are known to reboot
+unattended. If two cabled units reboot and bring their stackports back up while
+still carrying duplicate member ID 1 (u2/u4/u5), they will attempt to form and
+hit the duplicate-member-ID collision. To make the shut state durable without a
+reboot dependency, run "no stackport" on the stacking ports (persisted; requires
+one reboot to take effect) or physically uncable the stackports.
+
+
+MAXIMUM SUPPORTED CONFIGURATION
+-------------------------------
+A 2-member VCStack (member IDs 1 and 2) is the maximum this product allows:
+renumber to ID 2 and provisioning of switch 2 are both accepted.

@@ -1,0 +1,78 @@
+================================================================================
+AWPTCM-T11773 (1.0)  Testing SSM Address Range
+Run date : 2026-09-10      Bench : tb470 (IE520)
+Software : IE520-awplus_main-20260905-1714.rel  (AlliedWare Plus, build 09/04/26; bootloader pauld)
+Result   : PASS
+================================================================================
+
+RESULT
+  Groups inside and outside the SSM address range are handled correctly:
+    INSIDE the SSM range (user range 239.100.0.0/16):
+      - (S,G) source-specific: joined source delivered, UNJOINED source dropped
+            joined S1  -> 19/20      unjoined S2 -> 0/20  ((S2,G) has empty oif)
+      - (*,G) ASM join: NO shared tree is built -> arbitrary source dropped
+            (*,G) join, arbitrary source S3 -> 0/20
+    OUTSIDE the SSM range (239.202.0.40, ASM):
+      - (*,G) ASM join builds an RP shared tree -> arbitrary source delivered
+            (*,G) join, arbitrary source S3 -> 19/20
+  => in-range is source-specific ONLY (no ASM shared tree); out-of-range is normal
+     ASM.  Groups in/out of the range are treated correctly.               => PASS.
+
+--------------------------------------------------------------------------------
+BENCH / TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  DUT / PIM-SSM router : u4  S/N 264A23052  MAC 84e3.2787.09c0
+      RP (for ASM)     : loopback 10.10.99.1
+      SSM range        : access-list 40 permit 239.100.0.0 0.0.255.255 ; ip pim ssm range 40
+  Host (one NIC, tagged sub-ifs on u4 port1.0.2):
+      source   : eth2.81  vlan81  - sends from 10.10.81.20 (S1), .21 (S2), .30 (S3)
+      receiver : eth2.82  10.10.82.20  (vlan82)
+  Groups: in-range 239.100.0.20 / 239.100.0.40 ; out-of-range 239.202.0.40
+
+METHOD / SCOPE
+  No IXIA.  IGMPv3 CHANGE_TO_INCLUDE {S} (SSM) and IGMPv2 (*,G) (ASM) joins are sent
+  with scapy.  For each case the receiver is sniffed while a source transmits, and
+  the switch mroute/igmp state is read.  The joined vs unjoined source, and the ASM
+  in-range vs out-of-range, are the two axes that prove correct range handling.
+  Functional test.
+
+--------------------------------------------------------------------------------
+PART A - INSIDE the range: source-specific filtering (239.100.0.20)
+--------------------------------------------------------------------------------
+### receiver joins IGMPv3 (S1=10.10.81.20, 239.100.0.20) ###
+  joined   source S1=10.10.81.20 -> received: 19 of 20
+  UNJOINED source S2=10.10.81.21 -> received:  0 of 20
+
+u4# show ip mroute 239.100.0.20
+(10.10.81.20, 239.100.0.20)  Incoming vlan81  Outgoing: vlan82 (1)   <-- joined S1 forwards
+(10.10.81.21, 239.100.0.20)  Incoming vlan81  Outgoing: <empty>      <-- S2 has NO oif: dropped
+  => inside the SSM range only the specifically-joined source is delivered; another
+     source to the same group is dropped (empty outgoing list).
+
+--------------------------------------------------------------------------------
+PART B - INSIDE the range: an ASM (*,G) join builds NO shared tree (239.100.0.40)
+--------------------------------------------------------------------------------
+### receiver sends an IGMPv2 (*,G) EXCLUDE join for 239.100.0.40 (in SSM range) ###
+u4# show ip igmp groups 239.100.0.40 detail
+  Group mode:     Exclude (Expires: 00:03:54)     <-- host asked for ASM (*,G)
+  Source list is empty
+  arbitrary source S3=10.10.81.30 -> received: 0 of 20
+  => although the host requested (*,G), the router builds NO RP shared tree for a
+     group in the SSM range, so traffic from an unspecified source is NOT delivered.
+     A group in the SSM range is source-specific only - correctly NOT treated as ASM.
+
+--------------------------------------------------------------------------------
+PART C - OUTSIDE the range: ASM (*,G) works via the RP (239.202.0.40)
+--------------------------------------------------------------------------------
+### receiver sends an IGMPv2 (*,G) EXCLUDE join for 239.202.0.40 (outside SSM range) ###
+u4# show ip igmp groups 239.202.0.40 detail
+  Group mode:     Exclude (Expires: 00:04:03)
+  Source list is empty
+  arbitrary source S3=10.10.81.30 -> received: 19 of 20
+
+u4# show ip mroute 239.202.0.40
+(10.10.81.30, 239.202.0.40)  Incoming vlan81  Outgoing: vlan82 (1)
+  => outside the SSM range the (*,G) join is honoured as ASM: an RP shared tree is
+     built and traffic from an arbitrary source is delivered.  This is the correct
+     contrast to Part B - the SSM range boundary is enforced.  PASS.
+================================================================================

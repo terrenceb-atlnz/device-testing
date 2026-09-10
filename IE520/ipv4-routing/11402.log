@@ -1,0 +1,68 @@
+================================================================================
+AWPTCM-T11402 (1.0)  PIM-SM - Multiple hosts joining different groups
+Run date : 2026-09-10      Bench : tb470 (IE520)
+Software : IE520-awplus_main-20260905-1714.rel  (AlliedWare Plus, build 09/04/26; bootloader pauld)
+Result   : PASS
+================================================================================
+
+RESULT
+  Two hosts join DIFFERENT groups; both groups are sourced.  Each host receives ONLY
+  the traffic of the group it joined - no client receives the other group's traffic.
+      clientA (vlan82, joined G1) : G1=19/20   G2=0     [expect G1 only]
+      clientB (vlan83, joined G2) : G1=0       G2=19/20 [expect G2 only]
+      mroute (S,G1) outgoing list : vlan82 ONLY
+      mroute (S,G2) outgoing list : vlan83 ONLY                          => PASS.
+
+--------------------------------------------------------------------------------
+BENCH / TOPOLOGY AS TESTED   (same PIM-SM domain as T11405, u4 = RP)
+--------------------------------------------------------------------------------
+  DUT / PIM-SM router : u4  S/N 264A23052   RP = loopback 10.10.99.1
+  Host (one NIC, tagged sub-ifs on u4 port1.0.2 trunk):
+      source   : eth2.81  10.10.81.20  (vlan81)  - sources BOTH groups
+      clientA  : eth2.82  10.10.82.20  (vlan82)  - joins G1 = 239.20.20.21
+      clientB  : eth2.83  10.10.83.20  (vlan83)  - joins G2 = 239.20.20.22
+
+METHOD / SCOPE
+  No IXIA.  Each client joins a different group (scapy IGMPv2, on-subnet src).  The
+  source transmits to BOTH groups.  BOTH clients are sniffed for BOTH groups, so a
+  cross-leak would show as a non-zero count of the other client's group.  The
+  per-(S,G) outgoing-interface list gives the same result from the control plane.
+  Functional test.
+
+--------------------------------------------------------------------------------
+CONFIG APPLIED
+--------------------------------------------------------------------------------
+  (identical to T11405: ip multicast-routing; service pim; ip pim rp-address
+   10.10.99.1; vlan81/82/83 + lo each `ip pim sparse-mode`, vlan81/82/83 `ip igmp`.)
+
+--------------------------------------------------------------------------------
+STEP 1 - Each client joins a different group; source transmits to both
+--------------------------------------------------------------------------------
+### clientA(vlan82) joins G1=239.20.20.21 ; clientB(vlan83) joins G2=239.20.20.22 ###
+### source eth2.81 transmits 20 x G1 then 20 x G2 ; both clients sniff both groups ###
+
+clientA vlan82: G1=19  G2=0     (received only its own group)
+clientB vlan83: G1=0   G2=19    (received only its own group)
+  => no client received the other group's traffic. (20th packet = per-(S,G)
+     SPT-switchover transient; steady-state lossless.)
+
+u4# show ip mroute
+(10.10.81.20, 239.20.20.21), uptime 00:00:12, stat expires 00:03:18
+Owner PIM-SM, Flags: TF
+  Incoming interface: vlan81
+  Outgoing interface list:
+    vlan82 (1)                        <-- G1 to clientA's VLAN only
+(10.10.81.20, 239.20.20.22), uptime 00:00:10, stat expires 00:03:20
+Owner PIM-SM, Flags: TF
+  Incoming interface: vlan81
+  Outgoing interface list:
+    vlan83 (1)                        <-- G2 to clientB's VLAN only
+  (a third entry for 239.20.20.20 with vlan82+vlan83 is the residual of the prior
+   same-group test T11405, aging out - unrelated to this test.)
+
+u4# show ip igmp groups
+239.20.20.21     vlan82   ... 10.10.82.20      <-- G1 registered on clientA's VLAN
+239.20.20.22     vlan83   ... 10.10.83.20      <-- G2 registered on clientB's VLAN
+  => Each group's (S,G) forwards to exactly the VLAN whose host joined it. The two
+     streams stay separate; neither client sees the other's group.  PASS.
+================================================================================

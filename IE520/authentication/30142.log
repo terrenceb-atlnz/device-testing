@@ -1,0 +1,111 @@
+================================================================================
+AWPTCM-T30142 (1.0)  portauth auth-mac - unauthorised port blocks
+Run date : 2026-09-09      Bench : tb470 (IE520)
+Software : IE520-awplus_main-20260905-1714.rel  (AlliedWare Plus, build 09/04/26; bootloader pauld)
+Result   : PASS
+================================================================================
+
+RESULT
+  A port with auth-mac enabled BLOCKS all data while the host is unauthenticated, and
+  FORWARDS once the host's MAC is authenticated.  Verified for:
+      packets to the device system MAC ... BLOCKED  (ping to u4 SVI: 100% loss)
+      unicast / broadcast (ARP) .......... BLOCKED  (ping across port to u5: 100% loss)
+      DLF (unknown-unicast) .............. BLOCKED  (no flood to u5)
+      L2 multicast (snooping off) ........ BLOCKED  (no egress to u5)
+  Control (same wiring, MAC now authenticated): ALL of the above FORWARD, 0% loss.
+
+--------------------------------------------------------------------------------
+BENCH / TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  DUT / authenticator : u4  S/N 264A23052  MAC 84e3.2787.09c0
+  Supplicant / host   : tb470 eth2  MAC 00:f0:4d:00:77:17,  10.10.60.20/27
+                        -> u4 port1.0.2  (access vlan60, auth-mac enabled)
+  Egress observer     : u5  S/N 264A23066,  vlan60 SVI 10.10.60.3, reached only via the
+                        u4<->u5 vlan60 trunk (u4 port1.0.24 <-> u5 port2.0.24).
+  RADIUS              : the IE520's own on-box local RADIUS server (no external server).
+
+METHOD / SCOPE
+  No IXIA / supplicant software needed. "Unauthenticated" = the host MAC is NOT a user in
+  the local RADIUS DB, so auth-mac's Access-Request is rejected and the port stays blocked.
+  The host injects each packet type with scapy and pings; "blocked" is proven by 100% ping
+  loss AND by u5 (the only other port in vlan60) never learning the host MAC or ARP. The
+  control authenticates the exact same MAC by adding it to the RADIUS DB. Functional test.
+
+--------------------------------------------------------------------------------
+CONFIG APPLIED   (running-config only, NOT saved to startup)
+--------------------------------------------------------------------------------
+u4#
+  radius-server local
+   server enable
+   nas 127.0.0.1 key localkey
+  radius-server host 127.0.0.1 key localkey
+  aaa authentication auth-mac default group radius
+  vlan 60  (name authtest);  interface vlan60  ip address 10.10.60.1/27 ; no ip igmp snooping
+  interface port1.0.2
+   switchport mode access
+   switchport access vlan 60
+   auth-mac enable
+  interface port1.0.24
+   switchport trunk allowed vlan add 60      (span vlan60 to u5 for egress observation)
+
+u4# show radius local-server statistics
+ Server status      : Run (administrative status is enable)
+ Enabled methods    : MAC EAP-MD5 EAP-TLS EAP-PEAP
+
+--------------------------------------------------------------------------------
+STEP 1 - Port with auth-mac, host UNAUTHENTICATED: verify it blocks each packet type
+--------------------------------------------------------------------------------
+u4# show auth interface port1.0.2
+Authentication Info for interface port1.0.2
+  portEnabled: true - portControl: Auto
+  portStatus: Unauthorized                 <-- blocked
+  guestVlan: disabled                      <-- no guest-vlan fallback
+  authMac: enabled
+    method: PAP
+  supplicantMac: none
+  packetForwarding:
+    none                                   <-- nothing is forwarded
+
+u4# show radius local-server statistics  (Users NOT present in the User Database)
+Username                               Successes  Failures  Last Interaction
+00-f0-4d-00-77-17                              0         2  09 Sep 2026 02:34:16
+  => the switch MAC-authed the host as "00-f0-4d-00-77-17"; RADIUS rejected it (not a user).
+
+-- (a) packets to device system MAC : host# ping -I 10.10.60.20 10.10.60.1 (u4 SVI)
+   3 packets transmitted, 0 received, 100% packet loss
+-- (b) unicast + broadcast (ARP)    : host# ping -I 10.10.60.20 10.10.60.3 (u5, across port)
+   3 packets transmitted, 0 received, 100% packet loss
+-- (c) raw injection on the auth port:
+   sent 3x broadcast ARP (dst ff:ff:ff:ff:ff:ff)
+   sent 3x DLF unicast   (dst 00:11:22:33:44:55, unknown)
+   sent 3x L2 multicast  (dst 01:00:5e:0a:0a:0a)
+
+-- did any of it traverse the port? (u5 is the only other vlan60 port) --
+u5# show arp        -> host 10.10.10.60.20 : NOT present
+u5# show mac address-table  -> 00f0.4d00.7717 : 0 entries        (nothing reached u5)
+u4# show mac address-table  -> 60  port1.0.2  00f0.4d00.7717  forward  static
+   (u4 pins the MAC only as the auth subsystem's STATIC supplicant-tracking entry on the
+    blocked port; with portStatus Unauthorized / packetForwarding none, no data is bridged -
+    confirmed by u5 seeing nothing and every ping failing.)
+  => STEP 1 PASS: every packet class - to-system-MAC, unicast, broadcast, DLF, L2 multicast -
+     is dropped at the unauthenticated auth-mac port.
+
+--------------------------------------------------------------------------------
+STEP 2 - Control: authenticate the SAME MAC, verify the port now forwards
+--------------------------------------------------------------------------------
+u4(config)# radius-server local
+u4(config-radsrv)# user 00-f0-4d-00-77-17 password 00-f0-4d-00-77-17
+   (host re-MAC-auths on its next frame; RADIUS now accepts the user)
+
+u4# show auth interface port1.0.2
+  portStatus: Authorized                   <-- now authenticated
+  authMac: enabled
+
+host# ping -I 10.10.60.20 10.10.60.1 (u4 system MAC)  -> 3 received, 0% packet loss
+host# ping -I 10.10.60.20 10.10.60.3 (u5, across port) -> 3 received, 0% packet loss
+u5# show mac address-table  -> 10/60 port2.0.24 00f0.4d00.7717 forward dynamic  (now forwarding)
+u4# show radius local-server user  -> 00-f0-4d-00-77-17 present
+  => STEP 2 PASS: with the identical cabling, authenticating the MAC unblocks the port and
+     all traffic forwards. This confirms the Step-1 blocking was caused by auth-mac being
+     unauthenticated, not by the topology.
+================================================================================

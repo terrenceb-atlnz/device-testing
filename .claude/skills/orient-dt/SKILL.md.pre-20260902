@@ -1,0 +1,205 @@
+---
+name: orient-ie520
+description: Orient before running any test against the tb470 IE520s (/dev/u4, /dev/u5) — establish live bench state from the hardware, and load the permanent platform facts and framework traps that cost real hardware time to rediscover. Use at the start of an IE520 bench session, before driving an IE520 console, before patching a legacy script, or when asked "what do we know about this bench".
+---
+
+# Orient — IE520 bench
+
+For sessions that run tests against the tb470 IE520s. Establish state from **reality**, load the
+facts that don't rot, then brief the user and wait.
+
+**Design rule for this file.** Two kinds of content, kept deliberately separate:
+
+- **§2 and §3 are immutable platform and framework facts.** They are written down on purpose —
+  each one has already cost hardware hours or been mistaken for a defect. Do not convert them to
+  lookups.
+- **§1 rots.** Bench state, stack state, addresses and flash contents are **always** a live
+  lookup. Anything recorded about them is a hint with a date on it, never current truth.
+
+Before touching hardware, read `claude/Test-cases/TESTBOX-ACCESS.md` **in full** — SSH from this
+host needs an explicit `SSH_AUTH_SOCK`, and a `.setup` file is declarative and may not match the
+bench. Working style is `claude/Test-cases/CLAUDE.md` §"How we work": no time pressure, verify
+facts yourself, **ask about decisions**, and don't work beyond the literal ask.
+
+---
+
+## 1. Ground-truth the bench — recorded state is always stale
+
+Run these before planning anything. **Never trust a `.setup` file, a memory, or this document
+for any of it.**
+
+Once you have read the hardware, reconcile it against the bench's recorded state in
+**`~/claude/IE520-testing/bench-setup/bench-state.md`** — that file is the source of truth for
+what is cabled to what, and `/home/st-art/st-art/configs/tb470.setup` is generated from it.
+Hardware still wins: if the two disagree, the record is stale, so fix the record (edit it and
+run `bench_setup.py apply`) rather than working around it.
+
+```bash
+# Is the console free?  fuser, NOT pgrep (pgrep matches its own command line)
+fuser -v /dev/ttyUSB0 /dev/ttyUSB1 ; ls /var/lock/LCK..* ; pgrep -a minicom
+
+# On the DUT — read-only
+show system                  # serial number: WHICH physical unit is this?
+show stack                   # must read ID 1 — see the phantom-port trap below
+show boot                    # boot image and config pointers
+show file systems ; dir      # what is actually in flash
+```
+
+**Confirm identity by serial number, not by the `.setup`.** The file has had the two units
+**reversed**. Bench identities as of **2026-08-11** — verify, do not assume:
+
+| Bench | Console | S/N | PDU |
+|---|---|---|---|
+| tb470 | `/dev/u4` | 264A23052 | 10.36.150.14 outlet 4 ("D") |
+| tb470 | `/dev/u5` | 264A23066 | 10.36.150.14 outlet 5 ("E") |
+
+Four things that present as something else:
+
+- **A destacked unit keeps its old stack ID.** Its whole `port1.0.x` range goes phantom
+  (`Provisioned`, MAC `0000.0000.0000`) while the real ports are `port2.0.x`. Config naming the
+  phantom ports is **accepted silently**. This once presented as a DHCP option-61 defect that
+  did not exist. **Before any step that names a port, check `show stack` reads ID 1.**
+- **Console rate is not fixed and not interesting** — the IE520 runs at either 9600 or 115200.
+  What matters is that the `.setup`'s `[baudrates]` matches the bench, because
+  `AWPConsoleCore._connect_serial()` opens the port once and never renegotiates. A mismatch looks
+  like a dead console: a bare CR returns a few garbage bytes, not silence. Make them agree and
+  move on.
+- **TFTP netboot is a normal operating mode here, not a degraded one.** tb470 always serves TFTP
+  to the DUTs on this bench — that is its primary role — so a unit with empty flash is running
+  the way it is meant to, and needs no re-image before a run.
+- **The bootloader-side link is only up DURING BOOT.** Testbox-side carrier is *not* a valid
+  pre-flight check — a working path looks identical to an unplugged one until the DUT
+  power-cycles.
+
+**tb504 is OUT OF SCOPE.** It is a shared testbox outside our control. Do not target it and do
+not propose it as a second bench. Historical results from it remain valid evidence; the bench
+itself is not ours to use.
+
+Never cable ports 27/28 between two **standalone** IE520s sharing a chassis-id — that is
+duplicate-master. Scope it correctly: it does **not** apply to a properly formed stack, which is
+what is cabled now. The chassis-id is `3439` (0xd6f), not the `3039` this line used to give.
+Only `10.38.215.0/24` has an upstream return path and tb470 has **no NAT**.
+
+---
+
+## 2. IE520 platform facts — permanent, not bench gaps
+
+Hardware and firmware characteristics. They will not change, and each has already been mistaken
+for a provisioning problem or a defect once.
+
+| Fact | Consequence |
+|---|---|
+| **No SD card slot at all** | Any case needing SD media can never produce a verdict on this platform. Mark it `testCaseExcl`; don't chase it, and don't propose fitting a card — there is nowhere to fit one. |
+| **No battery-backed RAM / NVS** | Any case depending on it is permanently unsupported. |
+| **No onboard management ethernet** (`show interface eth0` → `% Can't find interface eth0`) | The `eth0` a `.setup` names for TFTP boot is an **ASIX USB-to-Ethernet dongle** in the switch's USB port, visible **only to the bootloader**. Cabling a front-panel port gives it no download path. |
+| **Flash is SPIFlash and is extraordinarily slow** | A 41 MB flash-to-flash copy is **~12 minutes**, and during it the unit answers **nothing** — console silent even to a bare CR, ping and ARP failing. This looks exactly like a crash. **Never power-cycle mid-write.** Also: `cmd()` returns on `Copying...` without verifying the file landed. |
+| **USB dongle and stick share one rear port through a hub** | u4's stick has dropped off the bus unprompted (enumeration 5 → 4 devices) with nobody touching it. If a USB case fails oddly, **suspect the hub before the product.** |
+| **Every TFTP-written release is `+352` bytes** vs source (`41,104,167` vs `41,103,815`) | Deterministic across transfers and devices, so it is an AW+ write artefact, not corruption. Images boot. Not a finding. |
+
+---
+
+## 3. Framework traps that have each cost hours
+
+| Trap | What it looks like | Reality |
+|---|---|---|
+| **Runs must be root** (`launch.sh` does this) | `tb eth port eth1 not found`, `sys.exit(2)` — while eth1 is up the whole time | `ATTestBox.Eth` reads a `0600 root:root` nmconnection file. `ConfigParser.read()` **ignores an unreadable file without raising**, so it finds no `[ipv4]` section but still skips the `ip addr show` fallback that would have worked. |
+| **The framework OVERWRITES its logs in CWD** | A second run of the same suite silently destroys the first run's evidence | It opens the TestSet log without `-a` and renames `swi_a.log` → `swi_a_<suite>.log` at the end. **Always use a dated run directory per campaign.** |
+| **`INFINITE LOOP DETECTED` / `WAITED TOO LONG`** | Sounds like a diagnosis | Both are a flat `DEFAULT_COMMAND_WAIT = 1800 s` wall-clock timeout. Never a race, never a slow device. Pass a task-appropriate `timeOut` instead of inheriting it. |
+| **`sys.exit()` inside a library helper** | An abandoned run that exits **0** and looks like a clean pass | `SystemExit` is not an `Exception`, so `ATTestCase`'s handlers cannot catch it. It kills the whole TestSet process and skips `_post_tear_down()` and the power-cycle recovery. Use `self.failed(..., forceAbort=True)`. |
+| **`confCheck=False` + the abort path manufactures failures** | One real defect reported as three | `_post_tear_down()` is gated by `doConfCheck` in `__run`, but `__handle_exception_in_test_run()` calls it **unconditionally**. So a case built `confCheck=False` never saved a TestSet config, yet still tries to restore and compare one. |
+| **Three framework copies on the bench all differ** | "I read the source" | `/home/st-art/framework` is **read-only and a DIFFERENT version** — never point a run at it. Only a campaign's own run-dir copy reproduces that campaign. Keep `*.orig` beside every patched file and record its md5. |
+| **`ATPublisher` only fires if `.atpylib_publisher.json` exists in CWD** | Assuming results are recorded | It is absent, so **nothing reaches the shared results DB.** Local logs are the only record. |
+| **A pass predicated on absence-of-evidence** | Green | e.g. `if 'Incorrect password' not in output`, or a check matching a *field label* that is present regardless of its value. A 20 s timeout returning empty output passes both. Any such assertion needs positive evidence attached. |
+| **Fixing one bug exposes the next** | Per-cause case counts understate the work | A defect downstream of an earlier one stays invisible for a whole campaign, because execution never reaches it. |
+
+### Driving a device by hand — read the source and the prior logs FIRST
+
+Do not improvise interactive sequences on hardware. Before sending a keystroke, read the
+framework function that already automates it and the prior `swi_a_*.log` for the same case —
+they give the exact sends and expects. Trial and error here burns hardware cycles and produces
+wrong results. See [[read-the-transcripts-before-driving-hardware]].
+
+Two mechanics worth knowing: **a prompt already on screen will never re-appear**, so if you
+attach to a parked device, prime with the known answer rather than waiting for text that was
+printed before you connected; and **never let two processes touch the port** — that produces
+`device disconnected or multiple access on port?`, which reads exactly like a hardware fault
+while `dmesg` shows zero USB events.
+
+### Framework logs read as BINARY
+
+Console logs contain control bytes and embedded NULs. Plain `grep` prints nothing and `grep -c`
+returns `0` — **indistinguishable from a real absence.** Always `grep -a` (or `tr -d '\000'`
+first). This has produced a false "0 occurrences" mid-session before it was caught.
+
+---
+
+## 4. Timing discipline
+
+**Operations on this platform run LONGER than linear.** Do not size a budget by extrapolating
+from an `n/50` progress counter on a run that timed out — that is exactly how too-small budgets
+get set, and it produces false failures on operations that were working correctly. Measure end
+to end, or budget well past your estimate.
+
+`waitTime` is a **ceiling** — `send()` returns as soon as `strList` matches — so a generous value
+costs nothing on a healthy run. There is no reason to be stingy.
+
+---
+
+## 5. Concurrency works
+
+Both tb470 IE520s have run full suites start-to-finish simultaneously, sharing the testbox's
+tftpd and eth1, with no interference observed. Addresses derive from the tty number
+(`ipOffset = ttyNumber + 2`), so they cannot collide. Halves wall-clock for a two-DUT campaign —
+prefer it.
+
+---
+
+## 6. Bench hygiene — leave it re-runnable
+
+The measure of a finished run is that the next person can start one. Verify and record final
+state in the after-action.
+
+- **Boot pointers must name files that exist**, whether the unit boots from flash or netboots.
+- **Clear large leftovers.** A stray 41 MB `.rel` left in flash or on the USB stick has filled a
+  unit's flash and caused a silent failure.
+- **A case that destroys state must restore it in a `finally:` inside `main()`, not in
+  `tear_down()`** — `tear_down()` does not run when `main()` raises, which once caused a
+  five-case cascade.
+- If a run leaves the DUT locked out of its own boot menu, say so explicitly in the after-action
+  — the framework has no bootloader-password handling, so the next run is locked out too.
+
+---
+
+## 7. Load the memories
+
+```bash
+ls claude/Test-cases/.claude/memory/*.md      # the directory IS the list
+```
+
+Read `MEMORY.md` (the index) and then the files whose hooks match today's work. Memories are
+symlinked from `~/.claude/projects/*/memory`, so the same set loads from either directory.
+**Any memory name written down — including here — is a hint, not a guarantee.** A memory reflects
+what was true when written; if it names a file, flag or unit, confirm that still exists.
+
+Bootloader- and suite-specific history (the 5700 campaign, the two IE520 bootloader builds, the
+known output divergences) is deliberately **not** in this file. It lives in the memories and in
+each campaign's own `after-action-<suite>.md`. Load it only when the work is that work.
+
+---
+
+## 8. Brief the user, then stop
+
+Dense and skimmable, with clickable relative paths.
+
+- **(a) Live bench state** — per DUT: console, S/N, stack ID, boot pointers, what is in flash,
+  and whether it is usable *now*. From §1 lookups, not from this file.
+- **(b) What today's run needs first**, if anything, with its time cost.
+- **(c) Relevant platform limits** (§2) that bear on the work in scope, so an expected
+  unsupported result is never read as a failure.
+- **(d) Today's task** — only if the user has stated one. Otherwise say "awaiting direction" and
+  do **not** invent an agenda.
+
+Then wait. When a run finishes, the deliverable convention is `after-action-<suite>.md` in that
+run's directory, written **from that run's own logs** — headline counts, a full per-case verdict
+table with a prior-bench comparison column, each failure classified *product / tooling /
+unmeasured*, bench state left behind, and caveats.

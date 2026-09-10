@@ -1,0 +1,269 @@
+================================================================================
+TEST 38396 — Route table is synced across the stack
+================================================================================
+Date        : 2026-08-19
+Bench       : tb470
+DUT         : AT-IE520-28GSX two-member VCStack, virtual-chassis-id 3439,
+              VMAC 0000.cd37.0d6f
+              member 1 = S/N 264A23066, MAC 84e3.2787.0740, console /dev/u5
+              member 2 = S/N 264A23052, MAC 84e3.2787.09c0, console /dev/u4
+Software    : IE520-tb470.rel (IE520-tomahawk_ie520-continuous.rel, 2026-08-19)
+Companion   : run immediately after test 38393 (FDB sync) on the same rig; see
+              38393.log for the LAG build and the bootloader netboot finding.
+
+VERDICT: ALL 7 STEPS PASS.
+         The route table is synced across both stack members, before and after a
+         master reboot, in BOTH the software route table (show ip route) and the
+         hardware route table (show platform table ip). Worst-case traffic
+         outage across the master reboot was 883 ms against a 6-second
+         expectation.
+         One benign post-reboot difference in a software allocation index is
+         documented under STEP 7 — it is not a sync failure.
+
+--------------------------------------------------------------------------------
+TOPOLOGY  (test case asks for: Ixia -- Sw1 == DUT == Sw2 -- Ixia)
+--------------------------------------------------------------------------------
+Physically identical to 38393. No Ixia; tb470 generates/receives with
+tcpreplay/tcpdump. Unlike 38393 the DUT now ROUTES rather than bridges, so the
+two LAGs sit in DIFFERENT vlans and subnets.
+
+  tb470 eth1 ── AR4050 p1.0.1 │ po1 ┬ p1.0.3 ── DUT port1.0.1 (m1) ┐
+  10.38.215.1/27                    └ p1.0.4 ── DUT port2.0.9 (m2) ┘ DUT po1
+                                                                     vlan 394
+                                                                     10.38.215.20/27
+  tb470 eth2 ── x230   p1.0.1 │ po1 ┬ p1.0.2 ── DUT port2.0.1 (m2) ┐
+  10.38.215.33/27                   └ p1.0.4 ── DUT port1.0.9 (m1) ┘ DUT po2
+                                                                     vlan 395
+                                                                     10.38.215.34/27
+
+
+--------------------------------------------------------------------------------
+STEP 1 — Configure the DUT into the topology                            PASS
+--------------------------------------------------------------------------------
+Carried over from 38393: po1 = port1.0.1 + port2.0.9 (to AR4050),
+po2 = port1.0.9 + port2.0.1 (to x230), both LACP, both spanning the stack.
+Changed for this test — split the single bridged vlan 393 into two routed vlans:
+
+  vlan database ; vlan 394 name rt-test-a ; vlan 395 name rt-test-b
+                  vlan 394-395 state enable
+  interface po1 -> switchport access vlan 394
+  interface po2 -> switchport access vlan 395
+  interface vlan1   -> no ip address          (was 10.38.215.20/27)
+  vlan database -> no vlan 393                (removes old bridged vlan + its IP)
+  interface vlan394 -> ip address 10.38.215.20/27
+  interface vlan395 -> ip address 10.38.215.34/27
+
+Verified: vlan394 and vlan395 both admin up / running; DUT pings tb470 eth1
+(10.38.215.1) over vlan394/po1 and tb470 eth2 (10.38.215.33) over vlan395/po2,
+0% loss both.
+
+AR4050 and x230 unchanged from 38393 (each is a plain L2 bridge with its own
+2-port LACP LAG; their local vlan IDs 1 and 100 are irrelevant to the DUT since
+both DUT ports are untagged access).
+
+--------------------------------------------------------------------------------
+STEP 2 — DUT should be routing traffic to 100+ networks                 PASS
+--------------------------------------------------------------------------------
+Next-hops resolved by STATIC ARP to FICTITIOUS MACs:
+
+  arp 10.38.215.25 0200.0a00.0001 po1      (A side, vlan394)
+  arp 10.38.215.50 0200.0b00.0001 po2      (B side, vlan395)
+
+  show arp:
+    10.38.215.25   0200.0a00.0001   vlan394   po1   static
+    10.38.215.50   0200.0b00.0001   vlan395   po2   static
+
+WHY FICTITIOUS MACs — this is a deliberate safety measure, not a shortcut.
+If the next-hops pointed at tb470's REAL interface MACs, tb470 would receive
+packets for 10.200.x/10.201.x, find no route for them, and forward them out its
+CORPORATE DEFAULT GATEWAY (10.36.255.254) at 1000+ pps. Pointing the next-hop at
+a MAC nobody owns keeps every routed frame captive on the bench, while tcpdump
+still sees them because it puts the NIC in promiscuous mode. (Same NIC
+hardware-filtering behaviour that produced a false "total packet loss" reading
+in the earlier QoS work — here it is used on purpose.)
+
+240 static routes loaded (120 per direction):
+  ip route 10.200.<1..120>.0/24 10.38.215.50     -> egress po2
+  ip route 10.201.<1..120>.0/24 10.38.215.25     -> egress po1
+
+  awplus# show ip route summary
+    Route Source    Networks
+    connected       2
+    static          240
+    Total           242
+
+242 networks — comfortably the "100+" the test asks for. All 240 lines pushed
+with ZERO rejected commands.
+
+--------------------------------------------------------------------------------
+STEP 3 — Start the traffic. Expected: traffic should forward             PASS
+--------------------------------------------------------------------------------
+Two pcaps (600 packets each = 120 networks x 5 hosts), addressed at L2 to the
+DUT's VMAC so the DUT must ROUTE them:
+
+  side A (out eth1): Ether(00f0.4d00.7716 -> 0000.cd37.0d6f)
+                     IP(10.38.215.1  -> 10.200.<n>.<h>) ttl 64
+  side B (out eth2): Ether(00f0.4d00.7717 -> 0000.cd37.0d6f)
+                     IP(10.38.215.33 -> 10.201.<n>.<h>) ttl 64
+
+tcpreplay --pps=3000 --loop=3 => 1800 frames sent per side.
+Counted at the far end by the next-hop destination MAC:
+
+  arriving at eth2 (eth.dst == 02:00:0b:00:00:01) : 1800 frames, 120 /24s, TTL 63
+  arriving at eth1 (eth.dst == 02:00:0a:00:00:01) : 1800 frames, 120 /24s, TTL 63
+
+1800 sent = 1800 received in BOTH directions. ZERO LOSS, and every one of the
+120 destination networks per direction is represented.
+
+TTL 63 (down from 64) on every received frame is the key evidence: the frames
+were ROUTED by the DUT, not bridged. The destination MAC being the static-ARP
+next-hop confirms the egress path as well.
+
+Continuous traffic then started for steps 4-7:
+  tcpreplay -i eth1 --pps=1000 --loop=0 rt-a.pcap
+  tcpreplay -i eth2 --pps=1000 --loop=0 rt-b.pcap
+
+--------------------------------------------------------------------------------
+STEP 4 — Check the route table. Expected: same across all stack members  PASS
+--------------------------------------------------------------------------------
+(a) Software route table:
+      awplus# remote-diff all show ip route
+      % Comparing "show ip route" on node 1 and node 2
+      % Results are identical
+
+(b) Hardware route table — `show platform table ip`.
+    This command prints BOTH members' tables in one output
+    ("Stack member 1: [Instance 0]" / "Stack member 2: [Instance 1]") and ships
+    its own column legend, which usefully confirms:
+      Dev   =  Instance Number in route entry (HW)
+      Port  =  Front panel port number in route entry (HW)
+      LTT   =  Lookup translation table entry (SW)
+      REIdx =  Route entry that prefix points to (SW)
+    (That legend independently confirms the reading of `Dev` used in 38393.log —
+    it is a per-unit instance index, not forwarding data.)
+
+    Sample rows (member 1):
+      IP address/prefLen LTT   REIdx Route-Entry     E Dev Port Tr VID  Mtu   Ttl Cnt
+      10.38.215.1     32 2     7     00f0.4d00.7716  0  -   -   127394  1500  Ena 2
+      10.38.215.50    32 1     6     0200.0b00.0001  0  -   -   126395  1500  Ena 2
+      10.200.1.0      24 4607  6     0200.0b00.0001  0  -   -   126395  1500  Ena 2
+    (Tr and VID run together in the raw output: Tr=127/VID=394 for po1/vlan394,
+    Tr=126/VID=395 for po2/vlan395.)
+
+    Programmatic comparison of all parsed rows, member 1 vs member 2:
+      routes parsed .......................... 247 vs 247
+      same prefix set ........................ True
+      only in member 1 / only in member 2 .... 0 / 0
+      LTT differs on ......................... 0 prefixes
+      REIdx differs on ....................... 0 prefixes
+      Route-Entry (next-hop MAC) differs on .. 0 prefixes
+      E / Dev / Port / Tr,VID / Mtu / Ttl .... 0 prefixes each
+
+    PERFECT MATCH — every field of every route identical on both members.
+
+--------------------------------------------------------------------------------
+STEP 5 — Reboot the stack master. Expected: recover within 6 seconds     PASS
+--------------------------------------------------------------------------------
+Master at the time was member 1. `reboot stack-member 1` issued from member 1's
+own console in privileged mode, with continuous traffic running and tcpdump
+capturing both ends.
+
+Outage measured as the largest inter-arrival gap in ROUTED frames received at
+the far end (filtered on the static-ARP next-hop destination MAC):
+
+  A->B  eth1 -> AR4050 -> DUT(routed) -> x230 -> eth2
+        195787 frames over a 196.7 s window
+        largest gap  0.883 s   at epoch 1787092193.743
+        next         0.002 s
+        next         0.002 s
+
+  B->A  eth2 -> x230 -> DUT(routed) -> AR4050 -> eth1
+        207451 frames over a 207.9 s window
+        largest gap  0.006 s   at epoch 1787092193.753
+        next         0.004 s
+        next         0.003 s
+
+WORST-CASE OUTAGE 883 ms vs a 6000 ms expectation — PASS with ~7x margin.
+Both directions break at the SAME instant (epoch ...193.74/.75), which is when
+member 1's ports dropped. Everything else is sub-10 ms jitter.
+
+The asymmetry is consistent with 38393 (which measured 814 ms / 22 ms): one
+direction re-converges essentially instantly while the other takes most of a
+second. Here the slow direction is A->B (egress po2); in 38393 it was B->A.
+So the ~0.8 s is not tied to a particular LAG or member — it tracks the
+failover itself.
+
+Member 1 rebooted FROM FLASH ("Loading flash:IE520-tb470.rel..."), with no
+TFTP attempt and no boot loop, confirming the bootloader fix from 38393.log
+has held on member 1.
+
+--------------------------------------------------------------------------------
+STEP 6 — Wait for stack to form                                          PASS
+--------------------------------------------------------------------------------
+  ID  MAC             Priority  Status  Role
+  1   84e3.2787.0740  128       Ready   Backup Member
+  2   84e3.2787.09c0  128       Ready   Active Master
+  Operational Status  Normal operation
+
+Master role SWAPPED to member 2, as expected. Both LAGs restored with all four
+legs synchronized, and `show ip route summary` still read 242 routes
+(2 connected + 240 static) throughout.
+
+As in 38393, member 1 sat in "Syncing" for several minutes before reaching
+Ready, while the data path was ALREADY fully restored — both aggregators showed
+all legs synchronized and traffic was flowing during the entire Syncing period.
+"Syncing" is not a traffic-affecting state on this platform.
+
+--------------------------------------------------------------------------------
+STEP 7 — Check the route table again. Expected: same across all members  PASS
+--------------------------------------------------------------------------------
+(a) awplus# remote-diff all show ip route
+    % Comparing "show ip route" on node 2 and node 1
+    % Results are identical
+    (node order reversed — roles have swapped)
+
+(b) The test case asks for `remote-diff all show platform table ip`.
+    THAT COMMAND IS REJECTED ON IE520:
+      awplus# remote-diff all show platform table ip
+                                  ^
+      % Invalid input detected at '^' marker.
+    The caret sits under "platform" — remote-diff does not accept the platform
+    keyword (the same limitation hit with `show platform table macaddr` in
+    38393). It is not needed: `show platform table ip` already prints both
+    members' tables in a single output, so they can be compared directly.
+
+(c) show platform table ip, member 1 vs member 2:
+      routes parsed .......................... 247 vs 247
+      same prefix set ........................ True
+      only in member 1 / only in member 2 .... 0 / 0
+      test networks present .................. 10.200.x/24 = 120
+                                               10.201.x/24 = 120
+      REIdx  differs on ...................... 0 prefixes
+      Route-Entry (next-hop MAC) differs on .. 0 prefixes
+      E / Dev / Port / Tr,VID / Mtu / Ttl .... 0 prefixes each
+      LTT    differs on ...................... 4 prefixes   <- see below
+
+    THE 4 LTT DIFFERENCES ARE BENIGN — allocation order, not forwarding data.
+    They are exactly the four ARP-derived /32 host routes, and the LTT values
+    are the SAME SET on both members ({0,1,2,3}), merely assigned in a different
+    order. Every forwarding field on all four is identical:
+
+      prefix            m1 LTT  m2 LTT  REIdx  next-hop MAC     Tr/VID
+      10.38.215.1/32    0       2       7      00f0.4d00.7716   127394
+      10.38.215.25/32   1       0       5      0200.0a00.0001   127394
+      10.38.215.33/32   2       3       8      00f0.4d00.7717   126395
+      10.38.215.50/32   3       1       6      0200.0b00.0001   126395
+      (REIdx / next-hop MAC / Tr,VID match on all four: True)
+      (LTT multiset m1 == LTT multiset m2: True)
+
+    LTT is documented by the command's own legend as "Lookup translation table
+    entry (SW)" — a software-side slot index. Member 1 re-learned its four ARP
+    entries after rebooting and happened to take the slots in a different order.
+    Step 4, before the reboot, showed ZERO LTT differences, which is consistent
+    with this being learn-order and nothing else. The forwarding outcome —
+    which route points at which next-hop out which trunk — is identical.
+
+(d) Routing re-verified live after the reboot (fresh 12 s capture):
+      arriving at eth2 : 12104 routed frames, 120 distinct /24s, TTL 63
+      arriving at eth1 : 13528 routed frames, 120 distinct /24s, TTL 63
+    Full path working in both directions across all 120 networks per side.

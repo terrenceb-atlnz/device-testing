@@ -1,0 +1,92 @@
+================================================================================
+AWPTCM-T18945 (1.0)  VRRP disable on master
+Run date : 2026-09-10      Bench : tb470 (IE520)
+Software : IE520-awplus_main-20260905-1714.rel  (AlliedWare Plus, build 09/04/26; bootloader pauld)
+Result   : PASS
+================================================================================
+
+RESULT
+  When the VRRP instance is administratively DISABLED on the master, the backup
+  becomes master in well under one second; re-ENABLING the (higher-priority) master
+  preempts mastership back, also in well under one second.
+      failover on DISABLE (backup -> master) : 0.020 s   (<= 1 probe @ 20 ms)
+      preempt on ENABLE  (master restored)   : 0.020 s   (<= 1 probe @ 20 ms)
+      probes lost across the whole run       : 1
+  Expected outcome "< 1 second" is met with large margin.                => PASS.
+
+  DAEMON/LICENCE: VRRP runs after `service vrrp` (starts the daemon live, no reboot).
+  u4/u5 do NOT hold the AT-IE520-FL01 licence; the `service` command is the gate.
+
+--------------------------------------------------------------------------------
+BENCH / TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  VRRP master : u4  S/N 264A23052  vlan90 10.10.90.1/27  priority 150
+  VRRP backup : u5  S/N 264A23066  vlan90 10.10.90.2/27  priority 100
+      VRID 1, virtual-ip 10.10.90.10, advertisement-interval 100 csec, preempt TRUE
+      u4<->u5 carry vlan90 on trunk port1.0.24<->port2.0.24
+  HOST1       : tb470 eth2.90  10.10.90.20  - probes the virtual router (VIP)
+  (HOST2 role is played by the VRRP virtual router itself: continuous reachability
+   to the VIP is the failover measure - if the VIP is answered, a master is present.)
+
+METHOD / SCOPE
+  No IXIA.  HOST1 sends ICMP to the VIP 10.10.90.10 at 50 pps (20 ms interval) with
+  per-packet kernel timestamps.  The master's VRRP instance is disabled, then re-
+  enabled, with each event's wall-clock epoch recorded.  Failover time = the outage
+  gap in the probe stream straddling each event (resolution = the 20 ms probe
+  interval).  The VIP is reached via the standard VRRP virtual MAC 00:00:5e:00:01:01.
+  Functional test.
+
+--------------------------------------------------------------------------------
+CONFIG APPLIED   (running-config only, NOT saved to startup)
+--------------------------------------------------------------------------------
+u4 (master)                                 u5 (backup)
+  service vrrp                                service vrrp
+  interface vlan90                            interface vlan90
+   ip address 10.10.90.1/27                    ip address 10.10.90.2/27
+  router vrrp 1 vlan90                        router vrrp 1 vlan90
+   virtual-ip 10.10.90.10 backup               virtual-ip 10.10.90.10 backup
+   priority 150                                priority 100
+   preempt-mode true                           preempt-mode true
+   enable                                      enable
+
+--------------------------------------------------------------------------------
+STEP 0 - Baseline: u4 is Master, u5 is Backup
+--------------------------------------------------------------------------------
+u4# show vrrp
+ VRRP Id: 1 on interface: vlan90
+  State: AdminUp   - Master          Priority is 150   Virtual IP: 10.10.90.10
+u5# show vrrp
+ VRRP Id: 1 on interface: vlan90
+  State: AdminUp   - Backup          Priority is 100   Virtual IP: 10.10.90.10
+host# ip neigh show 10.10.90.10  ->  lladdr 00:00:5e:00:01:01 REACHABLE   (VRRP VMAC)
+
+--------------------------------------------------------------------------------
+STEP 1 - Disable VRRP on the master; backup takes over in < 1 s
+--------------------------------------------------------------------------------
+u4(config)# router vrrp 1 vlan90
+u4(config-router)# disable            <-- master instance disabled
+
+u5# show vrrp                         (immediately after)
+  State: AdminUp   - Master           <-- backup became master
+  Master address: 10.10.90.2          (u5)
+
+  probe stream outage across the disable event: 0.020 s   (<= one 20 ms probe)
+  => the backup became master in well under one second.  PASS.
+
+--------------------------------------------------------------------------------
+STEP 2 - Re-enable VRRP on the old master; it preempts back in < 1 s
+--------------------------------------------------------------------------------
+u4(config)# router vrrp 1 vlan90
+u4(config-router)# enable             <-- master instance re-enabled
+
+u4# show vrrp
+  State: AdminUp   - Master           <-- old master restored (preempt)
+  Master address: 10.10.90.1          (u4)
+u5# show vrrp
+  State: AdminUp   - Backup
+
+  probe stream outage across the enable event: 0.020 s   (<= one 20 ms probe)
+  => with preempt-mode true and higher priority, u4 reclaimed mastership in well
+     under one second.  Only 1 probe was lost across the entire disable+enable run.
+     PASS.
+================================================================================

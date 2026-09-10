@@ -1,0 +1,104 @@
+================================================================================
+AWPTCM-T7741 (2.0)  IGMP Proxy
+Run date : 2026-09-10      Bench : tb470 (IE520)
+Software : IE520-awplus_main-20260905-1714.rel  (AlliedWare Plus, build 09/04/26; bootloader pauld)
+Result   : PASS
+================================================================================
+
+RESULT
+  When a downstream host's IGMP Report is transmitted upstream through the IGMP
+  Proxy switch, the switch re-originates it so the report appears to come from the
+  proxy's UPSTREAM interface - the Source IP is translated.  Verified directly:
+      downstream (host-facing)  : group reporter = 10.10.72.20  (the actual host)
+      upstream  (router-facing) : group reporter = 10.10.71.2   (u4 upstream SVI)
+  The upstream router (u5) never sees the host address; it sees the proxy's
+  upstream interface as the reporter.  Multicast data then forwards upstream->
+  downstream to the joined host (9/10 sampled).                       => PASS.
+
+  NOTE ON LICENCE/DAEMON: IGMP proxy is the licence-free multicast-forwarding path
+  (no PIM).  It needs `ip multicast-routing` and the proxy-service/mroute-proxy
+  pair; it does NOT need the AT-IE520-FL01 L3 feature licence.
+
+--------------------------------------------------------------------------------
+BENCH / TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  DUT / IGMP proxy      : u4  S/N 264A23052  MAC 84e3.2787.09c0
+      upstream interface   : vlan71  10.10.71.2/27   `ip igmp proxy-service`
+      downstream interface : vlan72  10.10.72.1/27   `ip igmp mroute-proxy vlan71`
+  Upstream router/querier : u5  S/N 264A23066  vlan71 10.10.71.1/27  (IGMP querier)
+                            reached over u4<->u5 trunk port1.0.24<->port2.0.24 (vlan71)
+  Host / downstream client: tb470 eth2.72  10.10.72.20  (joins the group)
+  Host / upstream source  : tb470 eth2.71  10.10.71.20  (sources the data stream)
+      both host sub-ifs are tagged on u4 port1.0.2 (trunk vlan71,72).
+  Group under test        : 239.10.71.10
+  (u2/u3 stack, vlan10 and the u2-facing links are untouched - separate work.)
+
+METHOD / SCOPE
+  No IXIA.  The host joins the group on the downstream side with a real scapy
+  IGMPv2 report; the proxy's upstream re-origination is proven from the CONTROL
+  plane by comparing "Last Reporter" on the downstream (u4) vs the upstream (u5) -
+  the definitive evidence of source translation, independent of snooping (which
+  forwards the proxied report only toward the querier port, not the host sniffer).
+  Data-plane forwarding is then confirmed by sourcing UDP to the group from the
+  upstream and counting receipt on the downstream host.  Functional test.
+
+--------------------------------------------------------------------------------
+CONFIG APPLIED   (running-config only, NOT saved to startup)
+--------------------------------------------------------------------------------
+u4 (proxy)                                  u5 (upstream router / querier)
+  ip multicast-routing                        ip multicast-routing
+  interface vlan71                            interface vlan71
+   ip address 10.10.71.2/27                    ip address 10.10.71.1/27
+   ip igmp                                     ip igmp            (elected Querier)
+   ip igmp proxy-service                      interface port2.0.24
+  interface vlan72                             switchport trunk allowed vlan add 71
+   ip address 10.10.72.1/27
+   ip igmp
+   ip igmp mroute-proxy vlan71
+  interface port1.0.2   (host trunk)
+   switchport trunk allowed vlan add 71,72
+  interface port1.0.24  (to u5)
+   switchport trunk allowed vlan add 71
+
+--------------------------------------------------------------------------------
+PART A - Source translation: downstream report re-originated from upstream SVI
+--------------------------------------------------------------------------------
+### host eth2.72 (downstream) sends IGMPv2 Report (join) for 239.10.71.10, src 10.10.72.20 ###
+
+u4# show ip igmp groups                 <-- DOWNSTREAM (host-facing) side of proxy
+IGMP Connected Group Membership
+Group Address    Interface            Uptime   Expires  Last Reporter
+239.10.71.10     vlan72               00:00:45 00:04:18 10.10.72.20     <-- the real host
+
+u4# show ip igmp proxy
+Interface vlan72 (Index 372)
+Administrative status: enabled
+Operational status: up
+Upstream interface is vlan71
+Number of multicast groups: 1
+
+u5# show ip igmp groups                 <-- UPSTREAM (router-facing) side
+IGMP Connected Group Membership
+Group Address    Interface            Uptime   Expires  Last Reporter
+239.10.71.10     vlan71               00:00:37 00:03:55 10.10.71.2      <-- u4's UPSTREAM SVI
+
+u5# show ip igmp groups 239.10.71.10 detail
+Interface:      vlan71
+Group:          239.10.71.10
+Group mode:     Exclude (Expires: 00:03:54)
+Last reporter:  10.10.71.2
+Source list is empty
+  => The host reported from 10.10.72.20 on the downstream; the upstream router sees
+     the SAME group reported from 10.10.71.2 (the proxy's upstream interface). The
+     switch translated the Source IP so the report appears to originate from its
+     upstream interface.  OBJECTIVE MET.
+
+--------------------------------------------------------------------------------
+PART B - Data plane: upstream source -> proxy -> downstream joined host
+--------------------------------------------------------------------------------
+### host eth2.71 (upstream) sources 10 x UDP to 239.10.71.10 ; capture on eth2.72 ###
+DATA to 239.10.71.10 received on downstream eth2.72: 9 of 10
+  => With the proxied membership installed, the proxy forwards the upstream
+     multicast stream down to the joined host. (9/10 = one packet lost to the
+     initial forwarding-state install; steady-state is lossless.)  PASS.
+================================================================================

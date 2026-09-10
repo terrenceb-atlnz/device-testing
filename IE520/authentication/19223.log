@@ -1,0 +1,104 @@
+================================================================================
+AWPTCM-T19223 (1.0)  Web Authentication and Internal DHCP Server
+Run date : 2026-09-09      Bench : tb470 (IE520)
+Software : IE520-awplus_main-20260905-1714.rel  (AlliedWare Plus, build 09/04/26; bootloader pauld)
+Result   : PASS
+================================================================================
+
+RESULT
+  Internal DHCP server ..... PASS   pre-auth client gets a lease from the on-box DHCP server
+                                    (DISCOVER/OFFER/REQUEST/ACK; binding installed)
+  Web authentication ....... PASS   unauth HTTP is intercepted/redirected to the portal;
+                                    portal login authorises the port; traffic then forwards
+  (The case body in ck.db is just "Refer to 4.3.1.doc" - the procedure below is a faithful
+   reconstruction exercising the two named features on the IE520.)
+
+--------------------------------------------------------------------------------
+BENCH / TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  DUT / authenticator + DHCP server : u4  S/N 264A23052  MAC 84e3.2787.09c0
+  Client / supplicant : tb470 eth2  MAC 00:f0:4d:00:77:17  -> u4 port1.0.2 (access vlan60,
+                        auth-web enabled).  Static 10.10.60.20 used for the web-auth HTTP;
+                        the DHCP lease is proven separately with a scapy DHCP transaction.
+  Through-port target : u5  vlan60 SVI 10.10.60.3  (via u4<->u5 vlan60 trunk).
+  RADIUS + DHCP + portal are all ON THE IE520 (no external servers).
+
+METHOD / SCOPE
+  No IXIA / browser needed. The internal DHCP server is exercised with a scapy DHCP
+  Discover/Request (so the host's own routing is untouched). Web-auth is exercised with curl
+  from the host: fetch the portal, show the 307 interception of ordinary HTTP, POST the
+  credentials of a local-RADIUS user, and confirm the port authorises. Functional test.
+
+--------------------------------------------------------------------------------
+CONFIG APPLIED   (running-config only, NOT saved to startup)
+--------------------------------------------------------------------------------
+u4#
+  aaa authentication auth-web default group radius
+  radius-server local
+   server enable
+   nas 127.0.0.1 key localkey
+   user webuser password webpass
+  radius-server host 127.0.0.1 key localkey
+  auth-web-server ipaddress 10.10.60.1
+  service dhcp-server
+  ip dhcp pool authpool
+   network 10.10.60.0/27
+   range 10.10.60.10 10.10.60.15
+   default-router 10.10.60.1
+   lease 0 1 0
+  interface vlan60   ip address 10.10.60.1/27
+  interface port1.0.2
+   switchport mode access ; switchport access vlan 60
+   auth-web enable
+
+--------------------------------------------------------------------------------
+PART A - Internal DHCP Server (serves the pre-authenticated client)
+--------------------------------------------------------------------------------
+>>> host: DHCP DISCOVER (src MAC 00:f0:4d:00:77:17, xid 0x33445566)
+<<< DHCP OFFER  yiaddr=10.10.60.10  server_id=10.10.60.1  router=10.10.60.1  mask=255.255.255.224  lease=3600s
+>>> host: DHCP REQUEST for 10.10.60.10
+<<< DHCP ACK  yiaddr=10.10.60.10  (lease confirmed)
+
+u4# show ip dhcp binding
+Pool authpool Network 10.10.60.0/27
+IP address       Client Id / Hardware address        Type     Lease expires
+10.10.60.10      00f0.4d00.7717                       Dynamic  9 Sep 2026 03:40:31
+  => the IE520's internal DHCP server offered, acknowledged and bound a lease to the client
+     while the port is still unauthenticated (web-auth permits DHCP pre-auth). PASS.
+
+--------------------------------------------------------------------------------
+PART B - Web Authentication (intercept -> portal -> authorise)
+--------------------------------------------------------------------------------
+-- pre-auth: the port blocks through traffic --
+host# ping -I 10.10.60.20 10.10.60.3 (u5)      -> 2 transmitted, 0 received, 100% packet loss
+
+-- unauthenticated HTTP is intercepted and redirected to the portal --
+host# curl -i http://10.10.60.3/            (an ordinary through-port HTTP request)
+HTTP/1.1 307 Moved Temporarily
+Location: http://10.10.60.1/
+
+-- the portal serves the login page --
+host# curl -i http://10.10.60.1/
+HTTP/1.1 200 OK
+...
+<FORM action="http://10.10.60.1/index.cgi" name="AUTH" method="POST">
+  <INPUT ... name="USERNAME">
+  <INPUT type="password" name="PASSWORD">
+  <INPUT type="submit" name="ACTION" value="login">
+
+-- submit the local-RADIUS user's credentials --
+host# curl -d "USERNAME=webuser&PASSWORD=webpass&ACTION=login" http://10.10.60.1/index.cgi
+HTTP/1.1 200 OK
+<STRONG>Web Access Authentication Gateway</STRONG>
+Authenticating - Server Based User Authentication in progress ...
+
+u4# show auth interface port1.0.2
+  portStatus: Authorized                <-- web authentication succeeded
+  authWeb: enabled
+
+-- post-auth: the same traffic now forwards --
+host# ping -I 10.10.60.20 10.10.60.3 (u5)      -> 3 transmitted, 3 received, 0% packet loss
+  => the client, given an address by the internal DHCP server, was redirected to the on-box
+     web-auth portal, authenticated against the local RADIUS user, and the port moved to
+     Authorized - after which through traffic forwards. PASS.
+================================================================================

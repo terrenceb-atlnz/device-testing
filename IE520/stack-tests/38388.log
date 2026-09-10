@@ -1,0 +1,489 @@
+
+######## ENABLE QoS GLOBALLY (mls qos enable) ########
+
+===== configure terminal =====
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+awplus(config)#
+===== mls qos enable =====
+mls qos enable
+Traffic will stop while configuration is applied. Continue? (y/n): 
+>>> answering 'y' + CR
+y
+awplus(config)#
+===== end =====
+end
+awplus#
+===== show stack =====
+show stack
+Virtual Chassis Stacking summary information
+
+ID   Pending ID  MAC address        Priority  Status  Role
+1    -           84e3.2787.0740     128       Ready   Backup Member
+2    -           84e3.2787.09c0     128       Ready   Active Master
+
+Operational Status                 Normal operation
+Stack MAC address                  0000.cd37.0d6f (Virtual MAC)
+awplus#
+######## SETUP: vlan3010 transit, both member ports tagged trunk ########
+
+===== configure terminal =====
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+awplus(config)#
+===== vlan database =====
+vlan database
+awplus(config-vlan)#
+===== vlan 3010 name qos-transit =====
+vlan 3010 name qos-transit
+awplus(config-vlan)#
+===== exit =====
+exit
+awplus(config)#
+===== interface port1.0.1 =====
+interface port1.0.1
+awplus(config-if)#
+===== no access-group acl-backup =====
+no access-group acl-backup
+awplus(config-if)#
+===== switchport mode trunk =====
+switchport mode trunk
+awplus(config-if)#
+===== switchport trunk allowed vlan add 3010 =====
+switchport trunk allowed vlan add 3010
+awplus(config-if)#
+===== switchport trunk native vlan none =====
+switchport trunk native vlan none
+awplus(config-if)#
+===== exit =====
+exit
+awplus(config)#
+===== interface port2.0.1 =====
+interface port2.0.1
+awplus(config-if)#
+===== no access-group acl-master =====
+no access-group acl-master
+awplus(config-if)#
+===== switchport mode trunk =====
+switchport mode trunk
+awplus(config-if)#
+===== switchport trunk allowed vlan add 3010 =====
+switchport trunk allowed vlan add 3010
+awplus(config-if)#
+===== switchport trunk native vlan none =====
+switchport trunk native vlan none
+awplus(config-if)#
+===== end =====
+end
+awplus#
+===== show vlan 3010 =====
+show vlan 3010
+
+VLAN ID  Name            Type    State   Member ports                   
+                                         (u)-Untagged, (t)-Tagged
+======= ================ ======= ======= ====================================
+3010    qos-transit      STATIC  ACTIVE  port1.0.1(t) port2.0.1(t) 
+awplus#
+===== show running-config interface port1.0.1 =====
+show running-config interface port1.0.1
+!
+interface port1.0.1
+ switchport
+ switchport mode trunk
+ switchport trunk allowed vlan add 3010
+ switchport trunk native vlan none
+!
+awplus#
+===== show running-config interface port2.0.1 =====
+show running-config interface port2.0.1
+!
+interface port2.0.1
+ switchport
+ switchport mode trunk
+ switchport trunk allowed vlan add 3010
+ switchport trunk native vlan none
+!
+awplus#
+######## SETUP — transit topology + QoS enabled ########
+QoS enabled globally: `mls qos enable` (prompts "Traffic will stop while configuration
+is applied. Continue? (y/n)" - answered y+CR). Stack UNAFFECTED: both members Ready,
+Operational Status "Normal operation", VMAC 0000.cd37.0d6f retained.
+CoS lives in the 802.1Q tag, so the untagged access ports of 38394 could not show it.
+Reconfigured to a TRANSIT path with tagged egress:
+    vlan3010 "qos-transit" : port1.0.1(t)  port2.0.1(t)   both trunk, native vlan none
+    tb470 eth2 <-> port2.0.1 (member 2 = MASTER)
+    tb470 eth3 <-> port1.0.1 (member 1 = BACKUP)
+    rx/tx VLAN offload disabled on eth2+eth3 so 802.1Q tags survive capture
+Driven as a pure L2 test - tcpreplay injects tagged frames on the wire, tcpdump reads
+them off the far side - so Linux IP routing cannot shortcut between tb470's two NICs.
+Traffic: 10.10.10.1 = MATCH source, 10.10.10.2 = NO-MATCH source, both sent at prio 0.
+
+######## CONTROL — no policy applied ########
+  02:00:00:00:00:01 ... vlan 3010, p 0 ... 10.10.10.1.1000 > 10.10.10.99.2000
+  02:00:00:00:00:02 ... vlan 3010, p 0 ... 10.10.10.2.1000 > 10.10.10.99.2000
+=> Both sources transit the stack and arrive with p 0. Any later CoS change is
+   therefore the policy acting, not a pre-existing marking.
+
+######## STEP 1 (38388 MASTER) - CoS policy: set cos 5 on src 10.10.10.1, applied to port2.0.1 ########
+
+===== configure terminal =====
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+awplus(config)#
+===== access-list hardware acl-qos-m =====
+access-list hardware acl-qos-m
+awplus(config-ip-hw-acl)#
+===== permit ip 10.10.10.1/32 any =====
+permit ip 10.10.10.1/32 any
+awplus(config-ip-hw-acl)#
+===== exit =====
+exit
+awplus(config)#
+===== class-map cm-qos-m =====
+class-map cm-qos-m
+awplus(config-cmap)#
+===== match access-group acl-qos-m =====
+match access-group acl-qos-m
+awplus(config-cmap)#
+===== exit =====
+exit
+awplus(config)#
+===== policy-map pm-qos-m =====
+policy-map pm-qos-m
+awplus(config-pmap)#
+===== class cm-qos-m =====
+class cm-qos-m
+awplus(config-pmap-c)#
+===== set cos 5 =====
+set cos 5
+awplus(config-pmap-c)#
+===== exit =====
+exit
+awplus(config-pmap)#
+===== exit =====
+exit
+awplus(config)#
+===== interface port2.0.1 =====
+interface port2.0.1
+awplus(config-if)#
+===== service-policy input pm-qos-m =====
+service-policy input pm-qos-m
+awplus(config-if)#
+===== end =====
+end
+awplus#
+===== show policy-map pm-qos-m =====
+show policy-map pm-qos-m
+
+  POLICY-MAP-NAME: pm-qos-m
+    Interfaces: port2.0.1
+    Default class-map action: permit
+
+    CLASS-MAP-NAME: default
+
+    CLASS-MAP-NAME: cm-qos-m
+      QOS-ACCESS-LIST-NAME: acl-qos-m
+      Set CoS: 5
+awplus#
+===== show running-config interface port2.0.1 =====
+show running-config interface port2.0.1
+!
+interface port2.0.1
+ switchport
+ switchport mode trunk
+ switchport trunk allowed vlan add 3010
+ switchport trunk native vlan none
+ service-policy input pm-qos-m
+!
+awplus#
+######## STEPS 1-2 RESULT (38388, MASTER port2.0.1) — PASS ########
+access-list hardware acl-qos-m : permit ip 10.10.10.1/32 any
+class-map  cm-qos-m            : match access-group acl-qos-m
+policy-map pm-qos-m / class cm-qos-m : set cos 5
+interface port2.0.1            : service-policy input pm-qos-m
+  show policy-map pm-qos-m -> Interfaces: port2.0.1 ; Set CoS: 5 ; default class permit
+
+Sent 20 tagged frames (prio 0) eth2 -> port2.0.1 (MASTER), captured on eth3:
+     10  src=10.10.10.1  prio=5     <- MATCHES policy, CoS CHANGED 0 -> 5
+     10  src=10.10.10.2  prio=0     <- does NOT match, CoS UNCHANGED
+All 20 frames accounted for. Compare CONTROL above: both sources arrived at p 0
+before the policy existed.
+=> Traffic matching the policy map had its CoS modified; traffic not matching was
+   left unchanged. STEPS 1-2 PASS.
+
+######## STEP 3 (38388 MASTER) - policing: single-rate 10000kbps CIR on port2.0.1 ########
+
+===== configure terminal =====
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+awplus(config)#
+===== policy-map pm-qos-m =====
+policy-map pm-qos-m
+awplus(config-pmap)#
+===== class cm-qos-m =====
+class cm-qos-m
+awplus(config-pmap-c)#
+===== police single-rate 10000 20000 40000 action drop-red =====
+police single-rate 10000 20000 40000 action drop-red
+awplus(config-pmap-c)#
+===== police counters =====
+police counters
+awplus(config-pmap-c)#
+===== end =====
+end
+awplus#
+===== show policy-map pm-qos-m =====
+show policy-map pm-qos-m
+
+  POLICY-MAP-NAME: pm-qos-m
+    Interfaces: port2.0.1
+    Default class-map action: permit
+
+    CLASS-MAP-NAME: default
+
+    CLASS-MAP-NAME: cm-qos-m
+      QOS-ACCESS-LIST-NAME: acl-qos-m
+      Policer single-rate action drop-red:
+       average rate(10000 kbps)  minimum burst(20000 B) maximum burst(40000 B)
+      Policer counters enabled
+      Set CoS: 5
+awplus#
+######## DIAGNOSE: where did the policed traffic go? ########
+
+===== show mls qos interface port2.0.1 =====
+show mls qos interface port2.0.1
+
+Interface: port2.0.1
+
+  INPUT-POLICY-MAP-NAME: pm-qos-m
+    CLASS-MAP-NAME: default
+    CLASS-MAP-NAME: cm-qos-m
+      QOS-ACCESS-LIST-NAME: acl-qos-m
+      Policer single-rate action drop-red:
+       average rate(10000 kbps)  minimum burst(20000 B) maximum burst(40000 B)
+      Policer counters enabled
+      Set CoS: 5
+
+  Scheduler-set: None
+  Number of egress queues: 8
+
+  Egress Queue:         0
+    Status:             Enabled
+    Queue Limit:        12%
+    Egress Rate Limit:  0 Kb
+
+  Egress Queue:         1
+    Status:             Enabled
+    Queue Limit:        12%
+    Egress Rate Limit:  0 Kb
+
+  Egress Queue:         2
+    Status:             Enabled
+    Queue Limit:        12%
+    Egress Rate Limit:  0 Kb
+
+  Egress Queue:         3
+    Status:             Enabled
+    Queue Limit:        12%
+    Egress Rate Limit:  0 Kb
+
+  Egress Queue:         4
+    Status:             Enabled
+    Queue Limit:        12%
+    Egress Rate Limit:  0 Kb
+
+  Egress Queue:         5
+    Status:             Enabled
+    Queue Limit:        12%
+    Egress Rate Limit:  0 Kb
+
+  Egress Queue:         6
+    Status:             Enabled
+    Queue Limit:        12%
+    Egress Rate Limit:  0 Kb
+
+  Egress Queue:         7
+    Status:             Enabled
+    Queue Limit:        12%
+    Egress Rate Limit:  0 Kb
+  Trust Mode: Ports default priority 
+awplus#
+===== show mls qos interface port1.0.1 =====
+show mls qos interface port1.0.1
+
+Interface: port1.0.1
+
+  INPUT-POLICY-MAP-NAME: pm-qos-b
+    CLASS-MAP-NAME: default
+    CLASS-MAP-NAME: cm-qos-b
+      QOS-ACCESS-LIST-NAME: acl-qos-b
+      Set CoS: 3
+
+  Scheduler-set: None
+  Number of egress queues: 8
+
+  Egress Queue:         0
+    Status:             Enabled
+    Queue Limit:        12%
+    Egress Rate Limit:  0 Kb
+
+  Egress Queue:         1
+    Status:             Enabled
+    Queue Limit:        12%
+    Egress Rate Limit:  0 Kb
+
+  Egress Queue:         2
+    Status:             Enabled
+    Queue Limit:        12%
+    Egress Rate Limit:  0 Kb
+
+  Egress Queue:         3
+    Status:             Enabled
+    Queue Limit:        12%
+    Egress Rate Limit:  0 Kb
+
+  Egress Queue:         4
+    Status:             Enabled
+    Queue Limit:        12%
+    Egress Rate Limit:  0 Kb
+
+  Egress Queue:         5
+    Status:             Enabled
+    Queue Limit:        12%
+    Egress Rate Limit:  0 Kb
+
+  Egress Queue:         6
+    Status:             Enabled
+    Queue Limit:        12%
+    Egress Rate Limit:  0 Kb
+
+  Egress Queue:         7
+    Status:             Enabled
+    Queue Limit:        12%
+    Egress Rate Limit:  0 Kb
+  Trust Mode: Ports default priority 
+awplus#
+===== show interface port2.0.1 =====
+show interface port2.0.1
+Interface port2.0.1
+  Scope: both
+  Link is UP, administrative state is UP
+  Thrash-limiting
+    Status Not Detected, Action learn-disable, Timeout 1(s)
+  Hardware is Ethernet, address is 0000.cd37.0d6f
+  index 10001 metric 1 mru 1500
+  current duplex full, current speed 1000, current polarity auto
+  configured duplex auto, configured speed auto, configured polarity auto
+  <UP,BROADCAST,RUNNING,MULTICAST>
+  SNMP link-status traps: Disabled
+  SNMP mac-change traps - added: Disabled, removed: Disabled
+  DHCP subscriber-id substitution for client-id is not enabled
+  DHCP subscriber-id is <not-set>
+    input packets 2773743, bytes 266445460, dropped 0, multicast packets 19
+    output packets 597869, bytes 38266976, multicast packets 3633, broadcast packets 293
+    input average rate : 30 seconds 3.49 Mbps, 5 minutes 2.09 Mbps
+    output average rate: 30 seconds 338 bps, 5 minutes 345 bps
+    input peak rate 51.24 Mbps at 2026/08/17 22:47:54
+    output peak rate 8.96 Mbps at 2026/08/17 21:37:50
+  Time since last state change: 0 days 01:33:49
+  Unknown unicast flooding blocking is disabled
+awplus#
+===== show interface port1.0.1 =====
+show interface port1.0.1
+Interface port1.0.1
+  Scope: both
+  Link is UP, administrative state is UP
+  Thrash-limiting
+    Status Not Detected, Action learn-disable, Timeout 1(s)
+  Hardware is Ethernet, address is 0000.cd37.0d6f
+  index 5001 metric 1 mru 1500
+  current duplex full, current speed 1000, current polarity auto
+  configured duplex auto, configured speed auto, configured polarity auto
+  <UP,BROADCAST,RUNNING,MULTICAST>
+  SNMP link-status traps: Disabled
+  SNMP mac-change traps - added: Disabled, removed: Disabled
+  DHCP subscriber-id substitution for client-id is not enabled
+  DHCP subscriber-id is <not-set>
+    input packets 2686246, bytes 172561184, dropped 0, multicast packets 24
+    output packets 574882, bytes 54548334, multicast packets 3523, broadcast packets 29
+    input average rate : 30 seconds 492 bps, 5 minutes 579 bps
+    output average rate: 30 seconds 580.02 Kbps, 5 minutes 411.03 Kbps
+    input peak rate 30.51 Mbps at 2026/08/17 21:33:48
+    output peak rate 10.21 Mbps at 2026/08/17 22:47:54
+  Time since last state change: 0 days 01:33:56
+  Unknown unicast flooding blocking is disabled
+awplus#
+######## CONTROL: remove policy, re-run 50Mbps to test the PATH itself ########
+
+===== configure terminal =====
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+awplus(config)#
+===== interface port2.0.1 =====
+interface port2.0.1
+awplus(config-if)#
+===== no service-policy input pm-qos-m =====
+no service-policy input pm-qos-m
+awplus(config-if)#
+===== end =====
+end
+awplus#
+######## STEP 4 (38388 MASTER) - re-apply policer, measure throughput ########
+
+===== configure terminal =====
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+awplus(config)#
+===== interface port2.0.1 =====
+interface port2.0.1
+awplus(config-if)#
+===== service-policy input pm-qos-m =====
+service-policy input pm-qos-m
+awplus(config-if)#
+===== end =====
+end
+awplus#
+===== show policy-map pm-qos-m =====
+show policy-map pm-qos-m
+
+  POLICY-MAP-NAME: pm-qos-m
+    Interfaces: port2.0.1
+    Default class-map action: permit
+
+    CLASS-MAP-NAME: default
+
+    CLASS-MAP-NAME: cm-qos-m
+      QOS-ACCESS-LIST-NAME: acl-qos-m
+      Policer single-rate action drop-red:
+       average rate(10000 kbps)  minimum burst(20000 B) maximum burst(40000 B)
+      Policer counters enabled
+      Set CoS: 5
+awplus#
+######## ⚠️ MEASUREMENT ARTEFACT — nearly reported as a false failure ########
+First policing run measured 0.00 Mbps at the receiver and looked like total packet loss.
+It was NOT. Diagnosis:
+  - switch EGRESS counters proved it forwarded: port1.0.1 output 604,943 -> 634,956
+    packets (+30,013) and +30,000,832 bytes
+  - tb470 eth3 showed "otherhost 60"
+CAUSE: the test frames were addressed to 02:00:00:00:00:99, which is not eth3's MAC, so
+the receiving NIC HARDWARE-FILTERED them and they never reached rx_bytes. The earlier
+CoS steps worked only because tcpdump had put the interface in PROMISCUOUS mode.
+Remove tcpdump and the byte counters go blind - indistinguishable from real loss.
+Confirmed by re-running with NO policy at all: still 0.00 Mbps, proving the policer was
+never the cause. Rebuilt the pcaps addressed to the real NIC MACs; control then measured
+48.68 Mbps received against 49.99 offered.
+LESSON: when measuring throughput with rx_bytes, address frames to the receiving NIC's
+real MAC, or keep the interface in promiscuous mode. Cross-check against the SWITCH's
+own egress counters before concluding the DUT dropped anything.
+
+######## STEPS 3-4 RESULT (38388, MASTER port2.0.1) — PASS ########
+policy-map pm-qos-m / class cm-qos-m:
+    police single-rate 10000 20000 40000 action drop-red
+    police counters
+  show policy-map -> average rate(10000 kbps) minimum burst(20000 B) maximum burst(40000 B)
+
+  CONTROL, no policy : offered 49.99 Mbps -> received 48.68 Mbps   (path carries full rate)
+  WITH 10 Mbps policer: offered 49.99 Mbps -> received  9.81 Mbps  (CIR = 10.00 Mbps)
+=> Ingress traffic limited to the configured rate, within ~2% of CIR. STEPS 3-4 PASS.
+
+######## VERDICT 38388 (MASTER): PASS — all four steps ########

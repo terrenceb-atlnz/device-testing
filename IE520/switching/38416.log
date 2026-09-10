@@ -1,0 +1,204 @@
+================================================================================
+AWPTCM-T38416 (1.0)  G8032 - Basic functionality
+Run date : 2026-09-09      Bench : tb470 (IE520)
+Software : IE520-awplus_main-20260905-1714.rel  (AlliedWare Plus 0.0.0, build 09/04/26)
+Result   : PASS  (steps 1-3; step 4+ not present in the supplied case)
+================================================================================
+
+RESULT
+  Step 1  Create a G.8032 ring ............... PASS
+  Step 2  Traffic around ring, no loss ....... PASS   1600/1600 rx, 0% loss @ 200 pps
+  Step 3  Link failure recovery .............. PASS   8 pkts / ~89 ms outage, 4992/5000 rx
+  G.8032 configured and enabled with NO device restart.
+
+--------------------------------------------------------------------------------
+BENCH / TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  2-node ERPS ring between the two standalone transit IE520s:
+      u4  S/N 264A23052  NodeID 84e3.2787.09c0   = RPL OWNER
+      u5  S/N 264A23066  NodeID 84e3.2787.0740   = RPL NEIGHBOR
+  Two direct links (LLDP-confirmed both ends), split out of the former sa3 LAG:
+      RPL link   : u4 port1.0.24 <-> u5 port2.0.24   (blocked in IDLE)
+      ring link  : u4 port1.0.26 <-> u5 port2.0.26   (forwarding in IDLE)
+  Host injection point: tb470 eth2 -> u4 port1.0.2 (vlan10 access).
+
+--------------------------------------------------------------------------------
+G.8032 CONFIG APPLIED   (show running-config; running-config only, NOT saved to startup)
+--------------------------------------------------------------------------------
+u4# show running-config    (RPL owner)
+service onm
+g8032 physical-ring ring1 east-interface port1.0.24 west-interface port1.0.26
+!
+g8032 profile p1
+ timer wait-to-restore 1
+!
+g8032 erp-instance inst1
+ physical-ring ring1
+ profile name p1
+ level 7
+ raps-channel 2
+ rpl role owner east-interface
+ data-traffic 10
+ erp-instance enabled
+!
+
+u5# show running-config    (RPL neighbor)
+service onm
+g8032 physical-ring ring1 east-interface port2.0.26 west-interface port2.0.24
+!
+g8032 profile p1
+ timer wait-to-restore 1
+!
+g8032 erp-instance inst1
+ physical-ring ring1
+ profile name p1
+ level 7
+ raps-channel 2
+ rpl role neighbor west-interface
+ data-traffic 10
+ erp-instance enabled
+!
+
+--------------------------------------------------------------------------------
+STEP 1 - Create a ring network using G8032            [PASS]
+--------------------------------------------------------------------------------
+u4# show g8032 erp-instance all
+-----------------------------------------------------------------------
+Instance Name       : inst1
+Admin State         : enabled
+G.8032 State        : IDLE
+Failure of Proto-TO : false
+Phy Ring            : ring1 - East (port1.0.24) : West (port1.0.26)
+East Link           : Link_blocked
+West Link           : Link_Unblocked
+RPL Role East Link  : OWNER
+RPL Role West Link  : NONE
+ERP Profile         : p1
+Level               : 7
+Ring-ID             : 1
+RAPS-Channel VLAN   : 2
+Data Traffic VLANs  : 10
+NodeID              : 84e3.2787.09c0
+-----------------------------------------------------------------------
+          East Receiving           |           West Receiving
+---------------------------------- - ----------------------------------
+Request             -              | Request             -
+RPL-Block           -              | RPL-Block           -
+NodeID              -              | NodeID              -
+-----------------------------------------------------------------------
+           East Sending            |            West Sending
+---------------------------------- - ----------------------------------
+Request             NR             | Request             NR
+RPL-Block           RB             | RPL-Block           RB
+NodeID              84e3.2787.09c0 | NodeID              84e3.2787.09c0
+-----------------------------------------------------------------------
+
+u5# show g8032 erp-instance all
+-----------------------------------------------------------------------
+Instance Name       : inst1
+Admin State         : enabled
+G.8032 State        : IDLE
+Phy Ring            : ring1 - East (port2.0.26) : West (port2.0.24)
+East Link           : Link_Unblocked
+West Link           : Link_blocked
+RPL Role East Link  : NONE
+RPL Role West Link  : NEIGHBOR
+RAPS-Channel VLAN   : 2
+Data Traffic VLANs  : 10
+NodeID              : 84e3.2787.0740
+-----------------------------------------------------------------------
+          East Receiving           |           West Receiving
+---------------------------------- - ----------------------------------
+Request             NR             | Request             NR
+RPL-Block           RB             | RPL-Block           RB
+NodeID              84e3.2787.09c0 | NodeID              84e3.2787.09c0
+-----------------------------------------------------------------------
+           East Sending            |            West Sending
+---------------------------------- - ----------------------------------
+Request             -              | Request             -
+RPL-Block           -              | RPL-Block           -
+-----------------------------------------------------------------------
+  => both nodes IDLE; RPL blocked at both ends (u4 East OWNER, u5 West NEIGHBOR);
+     one forwarding link; u5 is RECEIVING the owner's NR/RB (control plane closed).
+
+u4# show g8032 erp-instance inst1 statistics        u5# show g8032 erp-instance inst1 statistics
+ East Receiving  |  West Receiving                    East Receiving  |  West Receiving
+RAPS NR       40 | RAPS NR       40                   RAPS NR       42 | RAPS NR       42
+RAPS NR-RB     9 | RAPS NR-RB     9                   RAPS NR-RB   401 | RAPS NR-RB   401
+  East Sending   |   West Sending                       East Sending   |   West Sending
+RAPS NR       45 | RAPS NR       45                   RAPS NR       12 | RAPS NR       12
+RAPS NR-RB   401 | RAPS NR-RB   401                   RAPS NR-RB     0 | RAPS NR-RB     0
+  => R-APS received AND sent on both nodes (non-zero RX both sides = ring closed).
+
+--------------------------------------------------------------------------------
+STEP 2 - Send traffic around the ring                 [PASS]
+  Expected: No traffic loss should be seen.
+--------------------------------------------------------------------------------
+host# ping -I 10.10.10.20 10.10.10.3     (host eth2/vlan10 -> u5, across the ring)
+
+  rate ramp:
+    20 pps:   40 packets transmitted,   40 received, 0% packet loss
+    50 pps:  100 packets transmitted,  100 received, 0% packet loss
+   100 pps:  200 packets transmitted,  200 received, 0% packet loss
+   200 pps:  400 packets transmitted,  400 received, 0% packet loss
+
+  steady 200 pps x 8 s:
+PING 10.10.10.3 (10.10.10.3) from 10.10.10.20 : 56(84) bytes of data.
+--- 10.10.10.3 ping statistics ---
+1600 packets transmitted, 1600 received, 0% packet loss, time 8047ms
+rtt min/avg/max/mdev = 0.567/0.937/18.675/1.050 ms, pipe 2
+
+  CAVEAT (scope): 200 pps of ICMP, NOT true line rate - no hardware traffic
+  generator on this bench, and the flow terminates at u5's control plane (no host
+  endpoint behind u5 for pure transit traffic). Proves data-plane continuity
+  across the ring, not 1 Gbps line-rate throughput.
+
+--------------------------------------------------------------------------------
+STEP 3 - Cause a link failure so traffic takes an alternate path   [PASS]
+  Expected: traffic should recover quickly and no errors should be seen.
+--------------------------------------------------------------------------------
+  200 pps stream running; active forwarding link u4 port1.0.26 shut mid-stream:
+
+u4# configure terminal
+u4(config)# interface port1.0.26
+u4(config-if)# shutdown
+
+  ping stream over the break (verbatim, -D timestamps; missing seq = lost):
+[1788913275.629147] 64 bytes from 10.10.10.3: icmp_seq=1646 ttl=64 time=0.770 ms
+[1788913275.718603] 64 bytes from 10.10.10.3: icmp_seq=1655 ttl=64 time=3.72 ms
+[1788913275.723650] 64 bytes from 10.10.10.3: icmp_seq=1656 ttl=64 time=3.73 ms
+    ^ seq 1647..1654 absent = 8 packets lost; gap 275.629 -> 275.718 = ~89 ms
+
+u4# show g8032 erp-instance all          (~3 s after the break)
+-----------------------------------------------------------------------
+Instance Name       : inst1
+G.8032 State        : PROTECTION
+East Link           : Link_Unblocked            <-- RPL port UNBLOCKED (alternate path)
+West Link           : Link_blocked              <-- failed link
+RPL Role East Link  : OWNER
+-----------------------------------------------------------------------
+          East Receiving           |           West Receiving
+Request             SF             | Signal Fail         LINK
+-----------------------------------------------------------------------
+           East Sending            |            West Sending
+Request             SF             | Request             SF
+-----------------------------------------------------------------------
+
+  ping summary for the full run:
+5000 packets transmitted, 4992 received, 0.16% packet loss, time 25163ms
+rtt min/avg/max/mdev = 0.378/0.770/30.827/1.052 ms, pipe 4
+
+  On restore (no shutdown port1.0.26), wait-to-restore (1 min, revertive) runs,
+  then the ring reverts to the IDLE state shown in STEP 1:
+u4# show g8032 erp-instance all
+G.8032 State        : PENDING
+Wait-To-Restore     : Running
+switch: port 26(port1.0.26) entered forwarding state
+  (after WTR expiry: G.8032 State: IDLE, East OWNER Link_blocked - as STEP 1)
+
+  => single ~89 ms outage on link failure (8 of 5000 pkts), traffic took the
+     alternate RPL path, no errors, full revert to IDLE.  PASS.
+  NOTE: ~89 ms = link-down detect + R-APS + RPL unblock + FDB flush/relearn,
+  measured via 200 pps host ping (5 ms resolution), so treat it as an upper bound.
+
+================================================================================

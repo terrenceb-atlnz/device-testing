@@ -1,0 +1,93 @@
+AWPTCM-T5442 (1.0) — DoS: TEARDROP
+tb470 IE520 stack (DUT) · port1.0.1 · 2026-09-03 · clean flat-vlan1 bench
+
+RESULT: PASS. Armed port detects the teardrop attack and shuts down; disabled port does not.
+
+Bench adaptation (no IXIA on this bench):
+  Original test uses [IXIA]==(port1.0.1)[DUT](port1.0.2)==[IXIA]. Substituted the IXIA with
+  tb470 running the lab tool raw-data/test_scripts/tools/denial_of_service/teardrop.py
+  (scapy 2.6.1, root). Attack source = tb470 eth3, cabled directly to IE520 port1.0.1
+  (LLDP/host-confirmed, see bench-state.md 2026-09-03). One attack path only, so the test's
+  "second port has no defense" step is covered by the disable-and-resend negative control
+  on the same port (below).
+
+Attack tool invocation (from tb470):
+  sudo timeout 8 python3 teardrop.py -s 10.38.215.90 -d <victim-ip> -m <victim-mac> -i eth3
+  teardrop.py sends an overlapping-fragment train (IP proto 17, flags=MF, frag offsets
+  0,3,23,43,... then a final non-MF frag), looping until killed.
+
+================================================================================
+KEY FINDING — the attack must TRANSIT the switch, not be addressed TO it
+================================================================================
+First attempt addressed the frames to the IE520 itself (-d 10.38.215.66 -m 00:00:cd:37:0d:6f):
+  -> Attacks detected: 0, port stayed up. Frames addressed to the switch's own MAC are
+     punted to the CPU and bypass the ingress DoS-detection datapath.
+Re-aimed at a real host BEHIND the switch -- the x230 (-d 10.38.215.71 -m 00:1a:eb:91:cc:a1),
+which transits port1.0.1 -> port2.0.9:
+  -> detected immediately. This matches the IXIA model (traffic transiting the DUT).
+So: DoS teardrop detection is on transit/datapath ingress, NOT on to-the-CPU traffic.
+
+================================================================================
+STEP 1 / arm — dos teardrop action shutdown on port1.0.1
+================================================================================
+config:  interface port1.0.1 ; dos teardrop action shutdown
+--- show dos interface port1.0.1 (armed, pre-attack) ---
+DoS settings for interface port1.0.1
+-----------------------------------------
+Port status         : Enabled
+ipoptions           : Disabled
+land                : Disabled
+ping-of-death       : Disabled
+smurf               : Disabled
+synflood            : Disabled
+teardrop            : Enabled
+   Action           : Shutdown port
+   Attacks detected : 0
+
+================================================================================
+STEP 2 / attack detected + port shut down  (Expected: "% TearDrop Attack detected
+and shutdown port1.0.1")
+================================================================================
+Fired teardrop.py (transit to the x230) for ~8s. Then:
+--- show dos interface port1.0.1 ---
+   teardrop            : Enabled
+   Action           : Shutdown port
+   Attacks detected : 2585
+   Port status         : Disabled          <- port shut by the action
+--- show interface port1.0.1 status ---
+port1.0.1   -   err-disable   1   auto auto   10GBASE-T
+VERIFY: attack detected (2585) and port1.0.1 shut down (err-disable). PASS.
+NOTE: the console banner "% TearDrop Attack detected and shutdown port1.0.1" is emitted
+asynchronously to the console and is not retained in the buffered `show log`; the persistent
+evidence is the detection counter + the err-disable state above.
+
+================================================================================
+STEP 3 / recovery — port comes back on `no shutdown`
+================================================================================
+config:  interface port1.0.1 ; no shutdown
+--- show interface port1.0.1 status ---
+port1.0.1   -   connected   1   a-full a-1000   10GBASE-T
+VERIFY: err-disable clears on manual no shutdown; link restored.
+
+================================================================================
+STEP 4/5 / negative control — defense disabled, same attack, NO shutdown
+================================================================================
+config:  interface port1.0.1 ; no dos teardrop      (NB: `no dos teardrop`, not
+         `no dos teardrop action shutdown` -- the latter is accepted but leaves detection
+         ENABLED; observed here as the port shutting down again with the wrong negation.)
+--- show dos interface port1.0.1 (after `no dos teardrop`) ---
+DoS settings for interface port1.0.1
+-----------------------------------------
+(empty -- teardrop no longer listed as Enabled)
+Re-fired the identical teardrop attack (transit to x230) for ~8s:
+--- show interface port1.0.1 status ---
+port1.0.1   -   connected   1   a-full a-1000   10GBASE-T
+VERIFY: with the defense removed, the same attack causes NO shutdown -- the port stays
+connected. Confirms the shutdown in Step 2 was the DoS defense acting, not a side effect. PASS.
+
+================================================================================
+STATE AFTER TEST
+================================================================================
+port1.0.1: up (connected), dos teardrop config REMOVED (back to baseline). All config was
+running-config only (reverts on reload). The IE520 still carries the DHCP-snooping test
+overlay from T5897 (separate; awaiting a decision to strip or keep).

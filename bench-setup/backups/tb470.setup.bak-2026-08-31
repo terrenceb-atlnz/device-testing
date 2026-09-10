@@ -1,0 +1,234 @@
+###
+### ============================================================================
+### RE-VERIFIED LIVE 2026-08-11 against both IE520 consoles. Previous version kept
+### as tb470.setup.bak-2026-08-11. Four things changed; read the first one before
+### trusting any script that binds swi_a or swi_b.
+###
+###  1. !! THE TWO IE520s ARE THE OTHER WAY ROUND from what the 2026-07-30 DEVICE MAP
+###     below recorded. Read from the devices themselves on 2026-08-11:
+###         /dev/u4 -> S/N 264A23052, MAC 84e3.2787.09c0, hostname "awplus"
+###         /dev/u5 -> S/N 264A23066, MAC 84e3.2787.0740, hostname "u5"
+###     The 2026-07-30 map has those two S/N + MAC pairs on the opposite consoles.
+###     The pairs are internally consistent, so this is a swap, not a typo in one
+###     field: either the USB console cables were exchanged since 2026-07-30, or the
+###     map was transcribed backwards that day. WHICH of the two is unresolved.
+###     The role bindings themselves are unchanged and still correct -- swi_a IS
+###     /dev/u4 -- but swi_a is now known to be a DIFFERENT PHYSICAL UNIT than this
+###     file claimed, which is exactly the hazard the 2026-07-30 header raised about
+###     swi_b. Re-check before reusing any script that assumes a serial number.
+###
+###  2. BOTH IE520s ARE NOW ON THE PDU (fitted 2026-08-11): swi_a on outlet 4
+###     (front-panel "D"), swi_b on outlet 5 ("E"). They CAN now be power-cycled, so
+###     the bootloader suites that need it are runnable on this bench. This reverses
+###     the 2026-07-30 statement, repeated in three places below, that neither IE520
+###     was on the PDU and that a test needing a power-cycle was un-runnable here.
+###
+###  3. eth2 and eth3 both report "Link detected: no", and that is EXPECTED, not a
+###     fault. Each carries the DUT's bootloader USB-ethernet dongle (see the block
+###     below), and per Terrence 2026-08-11 that dongle is only live DURING BOOT --
+###     it is gone once AW+ is running. ==> TESTBOX-SIDE CARRIER IS NOT A VALID
+###     PRE-FLIGHT CHECK ON THIS BENCH. A correctly cabled TFTP boot path is
+###     indistinguishable from an unplugged one until the DUT is power-cycled.
+###     Separately, and this one IS a real change: the eth3 <-> swi_a port1.0.23
+###     DATA link recorded as UP on 2026-07-30 is NOT up -- swi_a itself reports
+###     port1.0.23 "notconnect" (device-side evidence, not the testbox's), because
+###     the eth3 cable was moved on 2026-08-11 for the 5700 bootloader campaign.
+###     The [portlink] declaration is left in place but UNVERIFIED -- see the note there.
+###
+###  4. swi_a HAS BEEN FACTORY RESET (2026-08-10): hostname is the default "awplus",
+###     vlan1000 is gone, and vlan1 is DHCP again. swi_b still carries its old config
+###     (hostname "u5", vlan100 up, vlan1 down) AND a Provisioned member 2, so its
+###     phantom port2.0.x range is still present in `show interface brief`.
+###     Both units confirm "Operational Status: Standalone unit" -- still NOT stacked.
+###
+### BOOTLOADER TFTP BOOT NEEDS A USB-ETHERNET DONGLE ON THE DUT. The IE520 has no
+### onboard management ethernet -- `show interface eth0` answers "% Can't find
+### interface eth0" on BOTH units. The "eth0" that the bootloader offers is a USB
+### NIC; on tb504 the bootloader printed
+###     This device can boot off the following interfaces:
+###     eth0 asix_eth (08:be:ac:4b:8c:d9)
+### i.e. an ASIX USB-to-Ethernet adapter in the switch's USB port. A setup file that
+### declares `hub_a-swi_a = eth0` is naming THAT dongle, not a switch port.
+### ============================================================================
+###
+### tb470.setup -- VERIFIED live 2026-07-30 against both IE520 consoles after the
+### de-stacking work below. Supersedes the 2026-07-30 morning version (kept as
+### tb470.setup.bak-2026-07-30b) and the 2026-07-29 3-device version
+### (tb470.setup.bak-2026-07-30). The original example-derived placeholder is
+### tb470.setup.bak-2026-07-29.
+###
+### WHAT CHANGED 2026-07-30 (afternoon) -- the two IE520s are NO LONGER A STACK:
+###   They had both been provisioned into virtual chassis 3039 but the stackports were
+###   uncabled, so each saw the other as merely "Provisioned". u4 ran as a standalone
+###   Active Master; u5 was a DISABLED MASTER in failover mode with ALL 26 of its
+###   front-panel ports err-disabled -- which is why newly-cabled links stayed down.
+###   Fixed by: `no stackport` on both 27/28 ranges + `no stack virtual-mac` on both
+###   units, `stack 2 renumber 1` on u5, write, reboot.  ==> BOTH units are now
+###   "Operational Status: Standalone unit", stack ID 1, Active Master, using their OWN
+###   MAC as the stack MAC (no virtual MAC).  [stack] is therefore GONE from this file.
+###
+### DEVICE MAP  (S/N + MAC + PDU re-read from the devices 2026-08-11; see item 1 of
+### the header -- the two IE520 rows are SWAPPED relative to the 2026-07-30 version):
+###   swi_a = AT-IE520-28GSX  DUT           S/N 264A23052  /dev/u4  115200  MAC 84e3.2787.09c0  PDU outlet 4 ("D")
+###   swi_b = AT-IE520-28GSX  link partner  S/N 264A23066  /dev/u5  115200  MAC 84e3.2787.0740  PDU outlet 5 ("E")
+###   swi_c = AR4050S-5G      link partner  S/N A10401G214000005 /dev/u1 115200  MAC 0000.cd40.0394  PDU outlet 8 ("H")
+###   swi_d = x230-10GP       link partner  S/N G26ZE80EN  /dev/u0    9600  MAC 001a.eb91.cca1  PDU outlet 6 ("F")
+###   u2, u3 = POWERED OFF as of 2026-07-29 (u2 was labelled x530 in the original file).
+###
+###   Both IE520s now number their front-panel ports 1.0.x (u5's were 2.0.x while it was
+###   stack member 2). Software builds DIFFER and that is fine now they do not stack:
+###   swi_a = IE520-tomahawk_ie520-continuous2.rel (2026-07-06),
+###   swi_b = IE520-tb470.rel (2026-07-29).
+###
+### MANAGEMENT -- do NOT hardcode these anywhere. Re-read from both consoles
+### 2026-08-11 (`show ip interface`); the 2026-07-30 picture below it is superseded:
+###   swi_a  vlan1 = 169.254.42.42/16 running. That is an APIPA address, i.e. the DHCP
+###          client is finding NO server -- expected, because every swi_a port except
+###          port1.0.7 is down and port1.0.7 only reaches swi_b. NO vlan1000 (cleared
+###          by the 2026-08-10 factory reset). port1.0.23 "notconnect", 1000BASE-T
+###          pluggable fitted.
+###   swi_b  vlan1 = 10.38.215.66/27 admin up but protocol DOWN; vlan100 =
+###          192.168.100.2/24 running. NO vlan1000. port1.0.23 "notconnect" with
+###          "not present" in the Type column -- still no pluggable in that cage.
+###   !! The 2026-07-30 warning that BOTH IE520s carried the same static vlan1000
+###      10.38.215.67/27 NO LONGER APPLIES: neither unit has a vlan1000 at all today.
+###      Note instead that swi_b's vlan1 10.38.215.66/27 sits in eth3's subnet, where
+###      tb470's dhcpd.conf deliberately leaves .66/.67 out of the pool.
+###
+###   swi_c vlan1 10.38.215.4/27 (uplink port1.0.1); swi_d vlan100 10.38.215.2/27
+###     (uplink port1.0.1). All reachable from tb470 eth1 over one shared L2 mgmt
+###     segment -- that is management only, NOT a data path.
+###     [swi_c / swi_d NOT re-checked on 2026-08-11 -- these two lines are as at
+###      2026-07-30. Only the IE520s were re-read.]
+###
+### tb470 HOST NICs (link state re-read 2026-08-11 with `ethtool`):
+###   eth1  00:f0:4d:00:77:16  10.38.215.1/27   UP     1000Mb/s, shared MANAGEMENT segment
+###   eth2  00:f0:4d:00:77:17  10.38.215.33/27  DOWN   -- expected: carries swi_b's
+###         bootloader USB dongle, which is only live during boot (header item 3).
+###   eth3  00:f0:4d:00:77:18  10.38.215.65/27  DOWN   -- same, for swi_a. Was the
+###         port1.0.23 DATA link on 2026-07-30; that cable was moved 2026-08-11.
+###   dhcpd serves eth1 (.2-.10) and eth3 (.68-.94) only. eth2's 10.38.215.32/27 has NO
+###   subnet declaration and dhcpd is not bound to it -- do not add one (tb470 has no
+###   NAT, and only 10.38.215.0/24 has an upstream return path).
+###
+
+### TOPOLOGY PROFILES this bench implements -- the contract generated scripts target.
+### Spec: ask-ck/pytest-create/TOPOLOGY-PROFILES.md ; checker: tool/pt_profiles.py
+### Verify with:  python3 tool/pt_preflight.py --setup <this file> --profile all
+###
+### `ck_link_*` is <devA>-<devB>:<port on devA>. The `:port` suffix is what disambiguates
+### WHICH of several links between the same pair is meant -- swi_a<->swi_b has both a
+### copper and a fibre link, and MDI/MDIX is copper-only, so binding "a port-type link"
+### is not good enough (the CLI even accepts `polarity` on fibre, where it does nothing).
+### Keep these values COMMA-FREE: the framework turns a comma-bearing [misc] value into
+### a list. `ck_profile` is deliberately a comma list.
+###
+### `ck_cap_*` records capabilities VERIFIED ON THE DEVICE, never inferred from the docs.
+### `polarity` is documented for 29 products NOT including ie520 -- yet both IE520s here
+### support it (confirmed at the console 2026-07-30 via `polarity ?` in interface config).
+### Absence from the harvested CLI reference means UNKNOWN, not unsupported.
+###
+### NOT implemented: `stack` -- the two IE520s were deliberately de-stacked 2026-07-30.
+[misc]
+ck_profile     = base, fibre, tblink
+ck_role_dut    = swi_a
+ck_link_copper = swi_a-swi_b:port1.0.1
+ck_link_fibre  = swi_a-swi_b:port1.0.7
+ck_link_tb     = tb-swi_a:eth3
+ck_cap_swi_a   = polarity
+ck_cap_swi_b   = polarity
+
+### PDU/sentry outlets. Format: pwr_X = (pdu, <IP>, <outlet>)  [sentry also valid].
+### The outlet field is parsed with int() (Setup.py: int(outTuple[2]) for any non-awplus
+### type), so it MUST be the numeric outlet -- the PDU front-panel LETTER is a label only.
+### The mapping is A-H = 1-8: D = 4, E = 5, F = 6, H = 8. Names mirror the device they feed.
+###
+### CHANGED 2026-08-11: BOTH IE520s ARE NOW ON THE PDU (pwr_a = "D", pwr_b = "E"), so
+### swi_a and swi_b CAN now be power-cycled. This reverses the 2026-07-30 position that
+### neither was fitted and that any test step needing a power-cycle was un-runnable here
+### -- which was the single thing blocking the 5700 bootloader suites on this bench.
+[power]
+pwr_a = (pdu, 10.36.150.14, 4)
+pwr_b = (pdu, 10.36.150.14, 5)
+pwr_c = (pdu, 10.36.150.14, 8)
+pwr_d = (pdu, 10.36.150.14, 6)
+
+[switch]
+swi_a = /dev/u4
+swi_b = /dev/u5
+swi_c = /dev/u1
+swi_d = /dev/u0
+
+[baudrates]
+swi_a = 115200
+swi_b = 115200
+swi_c = 115200
+swi_d = 9600
+
+### NO [stack] SECTION ON PURPOSE. swi_a and swi_b are two INDEPENDENT standalone
+### switches as of 2026-07-30 (see the header). Do not re-add stk_a unless the units are
+### genuinely re-stacked -- and read the [configured_stackport] warning first.
+
+### NON-DEFAULT stacking ports only -- deliberately EMPTY.
+### FINDING 2026-07-30: on the IE520, port1.0.27/1.0.28 are DEDICATED stackports that
+### could NOT be converted to network ports. `no stackport` was accepted and saved, but
+### after reboot the flag came back on the real member's ports (it only stuck on the
+### absent member's phantom ports); `show interface brief` still reports
+### "port1.0.27 admin up stackport down". Consistent with `stackport` not appearing in
+### ck.db's IE5xx command-validity table. Likewise `stack virtual-chassis-id` has NO `no`
+### form (`no stack ?` offers only <1-8>, all, disabled-master-monitoring, management,
+### resiliencylink, virtual-mac), so both units still carry `stack virtual-chassis-id 3039`.
+### !! DO NOT CABLE port1.0.27/1.0.28 BETWEEN swi_a AND swi_b. Both units are now stack
+###    ID 1 sharing chassis-id 3039, so a stackport link would make both claim ID 1 and
+###    drop straight back into the duplicate-master / err-disabled state just cleaned up.
+[configured_stackport]
+
+### Maps each device to its [power] outlet -- what lets a test power-cycle a device.
+### swi_a/swi_b ADDED 2026-08-11 when both IE520s were fitted to the PDU.
+### Worth knowing why this matters more than it looks: a device with no powerlink does
+### not fail fast. ATSwitch.__power() logs "Power object is not available" and returns
+### False WITHOUT raising, so a suite calling dut.off() carries on and then waits for a
+### bootloader banner that can never appear -- at AWPConsoleCore's flat 1800 s default.
+[powerlink]
+swi_a = pwr_a
+swi_b = pwr_b
+swi_c = pwr_c
+swi_d = pwr_d
+
+[boot_from_flash]
+swi_a = True
+swi_b = True
+swi_c = True
+swi_d = True
+
+### <devA>-<devB> = <portOnA>-<portOnB>, comma-separated. The literal device "tb" = the
+### testbox itself. Each declared link is CONSUMED by one init_portlink() call, so two
+### calls between the same pair need two links declared here.
+###
+### !! RE-CHECKED 2026-08-11 -- ONE OF THE TWO DECLARATIONS BELOW IS NO LONGER LIVE:
+###   tb-swi_a      NOT UP. tb470 eth3 reports "Link detected: no" and swi_a
+###                 port1.0.23 reports "notconnect" (its 1000BASE-T pluggable is still
+###                 fitted). The eth3 cable was moved on 2026-08-11 for the 5700
+###                 bootloader campaign. The declaration is LEFT IN PLACE rather than
+###                 deleted, because removing it would also mean revisiting
+###                 `ck_link_tb` and the `tblink` profile in [misc] -- a generation
+###                 question, not a cabling one. Treat it as UNVERIFIED until re-cabled.
+###   swi_a-swi_b   port1.0.7 (fibre) IS still up -- "running" on both units. The
+###                 port1.0.1 copper link is DOWN on both ends as at 2026-08-11.
+###
+### ALL LINKS BELOW VERIFIED UP 2026-07-30, both ends agreeing (a-1000 / a-full):
+###   tb-swi_a   swi_a port1.0.23 "connected", vlan1000, 1000BASE-T <-> tb470 eth3.
+###   swi_a-swi_b  port1.0.1 <-> port1.0.1  COPPER pluggables: AT-SPTXc (1000BASE-T) on
+###                swi_a against AT-SP10TM (10GBASE-TM) on swi_b. Mismatched module
+###                types, but they negotiate 1000/full fine -- verified, not assumed.
+###   swi_a-swi_b  port1.0.7 <-> port1.0.7  FIBER: AT-SPSX (1000BASE-SX) both ends.
+### Both swi_a-swi_b links sit in vlan1 on both ends.
+###
+### STILL NOT CABLED: any DATA link to swi_c or swi_d. Until one exists, a test needing a
+### DUT<->AR4050S or DUT<->x230 data path cannot run here (e.g. 3_Port_Fixed_port_test.py
+### wants swi_a<->swi_c). Verify with `tool/pt_preflight.py --setup <this file>` BEFORE
+### booking bench time -- init_portlink() returns (None, None) SILENTLY for an undeclared
+### link, so the script builds CLI against None and fails as if it were a script defect.
+[portlink]
+tb-swi_a = eth3-port1.0.23
+swi_a-swi_b = port1.0.1-port1.0.1, port1.0.7-port1.0.7

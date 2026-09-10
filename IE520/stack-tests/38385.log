@@ -1,0 +1,117 @@
+================================================================================
+TEST 38385 — Traffic forwarding over static-channels
+================================================================================
+Date        : 2026-08-19
+Bench       : tb470
+DUT         : AT-IE520-28GSX two-member VCStack, virtual-chassis-id 3439,
+              VMAC 0000.cd37.0d6f
+              member 1 = S/N 264A23066, MAC 84e3.2787.0740, console /dev/u5
+              member 2 = S/N 264A23052, MAC 84e3.2787.09c0, console /dev/u4
+Software    : IE520-tb470.rel (IE520-tomahawk_ie520-continuous.rel, 2026-08-19)
+Companion   : 38395.log is the identical test over LACP. Same rig, same traffic,
+              same steps — the pair differ only in static vs dynamic channels.
+
+
+VERDICT: ALL 5 STEPS PASS.
+         Traffic forwarded over static channels spanning both stack members,
+         continued across a master reboot, and continued when the channels were
+         cut to a single leg on opposite members forcing every frame across the
+         stack link.
+
+--------------------------------------------------------------------------------
+TOPOLOGY
+--------------------------------------------------------------------------------
+Identical to 38395:
+
+  tb470 eth1 ── AR4050 p1.0.1 │ sa1 ┬ p1.0.3 ── DUT port1.0.1 (m1) ┐
+                                    └ p1.0.4 ── DUT port2.0.9 (m2) ┘ DUT sa1
+                                                                     vlan 393
+  tb470 eth2 ── x230   p1.0.1 │ sa1 ┬ p1.0.2 ── DUT port2.0.1 (m2) ┐
+                                    └ p1.0.4 ── DUT port1.0.9 (m1) ┘ DUT sa2
+
+--------------------------------------------------------------------------------
+STEP 1 — Check the precondition and set up the DUT topology              PASS
+--------------------------------------------------------------------------------
+Stack: member 1 Ready/Active Master, member 2 Ready/Backup, Normal operation.
+All four data ports connected in vlan 393 at a-full/a-1000.
+
+--------------------------------------------------------------------------------
+STEP 2 — Configure the DUT with static channels to sw1 and sw2, each channel
+         with a port from each stack member                              PASS
+--------------------------------------------------------------------------------
+  DUT:
+    interface port1.0.1,port2.0.9   -> static-channel-group 1   (sa1, to AR4050)
+    interface port1.0.9,port2.0.1   -> static-channel-group 2   (sa2, to x230)
+    interface sa1,sa2 -> switchport mode access ; switchport access vlan 393
+
+  awplus# show static-channel-group
+    Static Aggregator: sa1   Member: port1.0.1  port2.0.9
+    Static Aggregator: sa2   Member: port1.0.9  port2.0.1
+
+  AR4050: interface port1.0.3-1.0.4      -> static-channel-group 1  (sa1)
+  x230:   interface port1.0.2,port1.0.4  -> static-channel-group 1  (sa1)
+    x230-10GP# show static-channel-group
+      LAG Static Count : 1     LAG Dynamic Count : 0
+      Static Aggregator: sa1   Member: port1.0.2  port1.0.4
+
+Each channel has one port on member 1 and one on member 2, as the test requires.
+
+--------------------------------------------------------------------------------
+STEP 3 — Configure traffic to send across the stack                      PASS
+--------------------------------------------------------------------------------
+Same 3000-MAC bidirectional load as 38395 (1500 source MACs per side, all
+known-unicast, 1000 pps each direction).
+
+Measured over a settled 30 s window:
+  eth1 : side-A 36204 frames (own TX)   side-B 36204 frames (received)
+  eth2 : side-A 39652 frames (received) side-B 39652 frames (own TX)
+  distinct MACs seen: eth1 = 3000, eth2 = 3000
+
+TX exactly equals RX on both interfaces. Zero loss.
+
+--------------------------------------------------------------------------------
+STEP 4 — Reboot the stack master, wait for reform.
+         Expected: traffic should continue to forward                    PASS
+--------------------------------------------------------------------------------
+Master at the time was member 2. `reboot stack-member 2` issued at epoch
+1787097216.610.
+
+  A->B : 249978 frames over 251.1 s
+         largest gap 0.943 s at +2.235 s relative to reboot
+         post-reboot sustained 999 pps
+  B->A : 268082 frames over 268.1 s
+         largest gap 0.002 s     <- essentially uninterrupted
+         post-reboot sustained 1000 pps
+
+TRAFFIC CONTINUED TO FORWARD. Master role swapped to member 1.
+
+Member 2's rejoin, captured on member 1's console by the running logger:
+  11:55:53  NSM: Insertion event on unit 2.0 has been completed
+  11:56:27  IMI: Configuration update completed for port2.0.1-port2.0.28
+  11:56:31  port2.0.9 entered forwarding state
+  11:56:42  port2.0.1 entered forwarding state
+Both static-channel legs returned on their own; member 2 reached Ready quickly.
+
+--------------------------------------------------------------------------------
+STEP 5 — Shut down ports in the static-channels to force traffic across the
+         stack link. Expected: traffic should continue to forward        PASS
+--------------------------------------------------------------------------------
+Shut `port2.0.9` (sa1's member-2 leg) and `port1.0.9` (sa2's member-1 leg) at
+epoch 1787097558.439, leaving:
+
+  sa1 = port1.0.1  (member 1) only
+  sa2 = port2.0.1  (member 2) only
+
+so ingress and egress sit on DIFFERENT members and every frame must cross the
+stack link. All four legs were verified connected immediately beforehand.
+
+Far-end delivery, per 30 s bucket, both captures read AFTER tcpdump exited:
+  eth1 : side-A 30000 / side-B 30000 in every bucket
+  eth2 : side-A 30000 / side-B 30000 in every bucket
+  (only the bucket containing the shutdown dips, to 29191 / 29231)
+
+  A->B : 221572 frames after the shutdown, sustained 997 pps, gap 0.770 s
+  B->A : 221574 frames after the shutdown, sustained 996 pps, gap 0.810 s
+
+Stack link `port2.0.27` average rate afterwards: input 1.06 Mbps,
+output 1.06 Mbps — symmetric, confirming BOTH directions transit the stack link.

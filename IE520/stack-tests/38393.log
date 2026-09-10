@@ -1,0 +1,350 @@
+================================================================================
+TEST 38393 — FDB table is synced across the stack
+================================================================================
+Date        : 2026-08-19
+Bench       : tb470
+DUT         : AT-IE520-28GSX two-member VCStack, virtual-chassis-id 3439,
+              VMAC 0000.cd37.0d6f
+              member 1 = S/N 264A23066, MAC 84e3.2787.0740, console /dev/u5
+              member 2 = S/N 264A23052, MAC 84e3.2787.09c0, console /dev/u4
+Software    : IE520-tb470.rel  (IE520-tomahawk_ie520-continuous.rel,
+              /tftpboot build dated 2026-08-19, md5 6e7557cddae9a60c0475d2124429437f,
+              sha256 09b2a5a3b4e1663048606f1105f65afce62a321942823f664f6ce65533e8cf58)
+Bootloader  : 9.1.0 (U-Boot 2025.01-04844-gd2292467da4d, Jul 22 2026)
+
+VERDICT: ALL 7 STEPS PASS.
+         FDB is synced across both stack members, before and after a master
+         reboot, in BOTH the software MAC table and the hardware (ASIC) table.
+         Worst-case traffic outage across the master reboot was 814 ms against
+         a 6-second expectation.
+
+--------------------------------------------------------------------------------
+TOPOLOGY  (test case asks for: Ixia -- Sw1 == DUT == Sw2 -- Ixia)
+--------------------------------------------------------------------------------
+No Ixia on this bench; tb470 generates and receives with tcpreplay/tcpdump.
+
+  tb470 eth1 ── AR4050 p1.0.1 │ po1 ┬ p1.0.3 ── DUT port1.0.1 (member 1) ┐
+                                    └ p1.0.4 ── DUT port2.0.9 (member 2) ┘ DUT po1
+                                                                           vlan 393
+  tb470 eth2 ── x230   p1.0.1 │ po1 ┬ p1.0.2 ── DUT port2.0.1 (member 2) ┐
+                                    └ p1.0.4 ── DUT port1.0.9 (member 1) ┘ DUT po2
+
+  SW1 = AR4050S-5G  (S/N A10401G214000005, /dev/u1, 115200)
+  SW2 = x230-10GP   (S/N G26ZE80EN,        /dev/u0, 9600)
+
+
+--------------------------------------------------------------------------------
+STEP 1 — Configure the DUT into the topology                            PASS
+--------------------------------------------------------------------------------
+Pre-existing config was left over from test 38394 (vlan 3001 "arp-test-m1" on
+port1.0.1, vlan 3002 "arp-test-m2" on port2.0.1). Replaced with a dedicated
+test vlan.
+
+DUT:
+  no lacp global-passive-mode enable        <- see NOTE 1
+  vlan database / vlan 393 name fdb-test-38393 / vlan 393 state enable
+  interface port1.0.1,port1.0.9,port2.0.1,port2.0.9
+    switchport mode access ; switchport access vlan 393
+  interface port1.0.1,port2.0.9  -> channel-group 1 mode active     (po1, to AR4050)
+  interface port2.0.1,port1.0.9  -> channel-group 2 mode active     (po2, to x230)
+  interface po1,po2 -> switchport mode access ; switchport access vlan 393
+  interface vlan393 -> ip address 10.38.215.34/27
+  vlan database / no vlan 3001 / no vlan 3002
+  write
+
+AR4050:  interface port1.0.3-1.0.4 -> channel-group 1 mode active ; po1 access vlan 1
+x230:    interface port1.0.2,port1.0.4 -> channel-group 1 mode active ; po1 access vlan 100
+
+Both LAGs verified formed and spanning the stack:
+  Aggregator po1 : port1.0.1 synchronized , port2.0.9 synchronized
+  Aggregator po2 : port1.0.9 synchronized , port2.0.1 synchronized
+  AR4050 po1     : port1.0.3 synchronized , port1.0.4 synchronized
+  x230   po1     : port1.0.2 synchronized , port1.0.4 synchronized
+All four DUT ports "connected", vlan 393, a-full/a-1000.
+
+NOTE 1 — `lacp global-passive-mode enable` was set on the DUT (and both
+neighbours). With it on, the DUT silently auto-created its own single-member
+aggregators the moment the neighbours started LACP:
+    port1.0.1: Dynamically learned channel-group config is now in running-config
+and then REFUSED further edits to those ports:
+    % port1.0.1: Cannot configure aggregator member.
+    % port2.0.9: Port port2.0.9 cannot be aggregated due to mismatching link configuration.
+Deterministic control required turning global passive mode OFF, clearing the
+dynamic groups, normalising all four ports to identical config, and only then
+applying the channel-groups. Worth knowing before building any LAG on a box
+that has this enabled.
+
+--------------------------------------------------------------------------------
+STEP 2 — Configure setup and ports to forward traffic, 3000 MAC addresses  PASS
+--------------------------------------------------------------------------------
+Two pcaps built with scapy (/tmp/mkfdb.py, 1500 flows each):
+  side A (out tb470 eth1): src 02:00:0a:00:00:01 .. 02:00:0a:00:05:dc
+  side B (out tb470 eth2): src 02:00:0b:00:00:01 .. 02:00:0b:00:05:dc
+A[i] addresses B[i] and vice versa, so after one pass in each direction the DUT
+holds 3000 entries and every frame is known-unicast (no flooding).
+Frames are Ether/IP/UDP:5000, 96 bytes.
+
+--------------------------------------------------------------------------------
+STEP 3 — Start the traffic. Expected: traffic should forward               PASS
+--------------------------------------------------------------------------------
+tcpreplay --pps=3000 --loop=3 on each side => 4500 frames sent per side.
+Counted by SOURCE MAC with tshark (see CAVEAT 1):
+
+  capture on eth1 : side-A src 4500 frames / 1500 MACs   (its own TX)
+                    side-B src 4500 frames / 1500 MACs   <- received through DUT
+  capture on eth2 : side-B src 4500 frames / 1500 MACs   (its own TX)
+                    side-A src 4500 frames / 1500 MACs   <- received through DUT
+
+4500 sent = 4500 received in each direction. ZERO LOSS, all 1500 distinct
+source MACs present at the far end in both directions.
+
+Continuous traffic then started for steps 4-7:
+  tcpreplay -i eth1 --pps=1000 --loop=0 fdb-a.pcap
+  tcpreplay -i eth2 --pps=1000 --loop=0 fdb-b.pcap
+
+CAVEAT 1 — counting frames with `tcpdump | grep <mac-prefix>` DOUBLES the count,
+because the far side's frames carry those same MACs as DESTINATIONS. The A-side
+MACs appear in eth2's capture both as sources (received) and as destinations of
+eth2's own transmissions. Must count on the source field only
+(`tshark -e eth.src`). First pass here read 9000 instead of 4500 for this reason.
+
+--------------------------------------------------------------------------------
+STEP 4 — Check the FDB table. Expected: same across all stack members     PASS
+--------------------------------------------------------------------------------
+The test case says `show platform table fdb`. That command DOES NOT EXIST on
+IE520 — `show platform table ?` offers:
+  internalports, ip, ipmulti, ipmulti-count, ipv6, ipv6multi, macaddr,
+  macvxlan, mclinklist, mcv6linklist, rule-counters
+The IE520 equivalent is `show platform table macaddr`.
+Also note `remote-diff all show platform table macaddr` is REJECTED
+(remote-diff does not accept `platform`); `show platform table macaddr` already
+prints BOTH members' tables in one output, so remote-diff is not needed for it.
+
+(a) Software MAC table:
+      awplus# remote-diff all show mac address-table
+      % Comparing "show mac address-table" on node 1 and node 2
+      % Results are identical
+
+(b) Hardware/ASIC table — `show platform table macaddr`:
+      Stack member 1: [Instance 0]  Total number of entries = 3003
+      Stack member 2: [Instance 1]  Total number of entries = 3003
+
+    Programmatic comparison of all 3001 parsed data rows:
+      same MAC set ......................................... True
+      same Index/VID/OutPort/Trunk/Perm/DA_r/Skip for EVERY MAC ... True
+
+    Two columns legitimately differ and are NOT a sync failure:
+      Dev   — member 1 reports 0, member 2 reports 1. This is the local ASIC
+              instance index (member 1 is "[Instance 0]", member 2 is
+              "[Instance 1]"). It must differ; it is each unit's own identity.
+      Aging — a transient per-ASIC refresh bit. The two members' tables are
+              dumped sequentially, seconds apart, with traffic at 1000 pps, so
+              this samples different instants. Distribution at capture:
+                member1: po1 1501/po2 1493 with Aging=1, 7 with Aging=0
+                member2: po1 1498/po2  320 with Aging=1, 1183 with Aging=0
+
+    Sample of the same index on both members, showing everything else matching:
+      m1:  0   0200.0b00.0151  393  po2  0  1  1  0  -  dyn 0
+      m2:  0   0200.0b00.0151  393  po2  0  0  1  1  -  dyn 0
+                                          ^        ^
+                                        Aging     Dev
+
+--------------------------------------------------------------------------------
+STEP 5 — Reboot the stack master. Expected: recover within 6 seconds      PASS
+--------------------------------------------------------------------------------
+Master at the time was member 1. Command: `reboot stack-member 1` (confirmed
+"reboot stack master? (y/n): y"), issued at epoch 1787089053.395 with
+continuous traffic running and tcpdump capturing both ends.
+
+Outage measured as the largest inter-arrival gap in frames RECEIVED through
+the DUT (source-MAC filtered):
+
+  A->B  (eth1 -> AR4050 -> DUT -> x230 -> eth2)
+        318060 frames over a 318.1 s window
+        largest gap  0.022 s  starting +2.063 s after the reboot command
+        next         0.016 s          +3.005 s
+        next         0.003 s        +182.341 s
+
+  B->A  (eth2 -> x230 -> DUT -> AR4050 -> eth1)
+        337386 frames over a 338.2 s window
+        largest gap  0.814 s  starting +2.060 s after the reboot command
+        next         0.003 s        +305.345 s
+        next         0.002 s        +145.350 s
+
+WORST-CASE OUTAGE 814 ms vs a 6000 ms expectation — PASS with ~7x margin.
+Both directions break at the same instant (+2.06 s), which is when member 1's
+ports actually dropped. Everything after that is normal jitter (<25 ms).
+
+Traffic continued for the entire capture window even though member 1 did NOT
+come back during it (see FINDING below) — the surviving LAG leg on member 2
+carried it. That is the resiliency the test is really measuring.
+
+--------------------------------------------------------------------------------
+STEP 6 — Wait for stack to form                                           PASS
+--------------------------------------------------------------------------------
+After the bootloader fix below, member 1 booted from flash and rejoined:
+  ID  Pending ID  MAC address       Priority  Status   Role
+  1   -           84e3.2787.0740    128       Ready    Backup Member
+  2   -           84e3.2787.09c0    128       Ready    Active Master
+  Operational Status                Normal operation
+  Stack MAC address                 0000.cd37.0d6f (Virtual MAC)
+
+Master role SWAPPED to member 2, as expected after a master reboot. Both LAGs
+restored with both legs synchronized:
+  po1: port1.0.1 synchronized , port2.0.9 synchronized
+  po2: port1.0.9 synchronized , port2.0.1 synchronized
+
+--------------------------------------------------------------------------------
+STEP 7 — Check the FDB table again. Expected: same across all members     PASS
+--------------------------------------------------------------------------------
+(a) awplus# remote-diff all show mac address-table
+    % Comparing "show mac address-table" on node 2 and node 1
+    % Results are identical
+    (note the node order is reversed — roles have swapped)
+
+(b) show platform table macaddr:
+      Stack member 1: Total number of entries = 3006
+      Stack member 2: Total number of entries = 3006
+
+    Programmatic comparison of all 3004 parsed data rows:
+      same MAC set ............................................. True
+      MACs differing on Index/VID/OutPort/Trunk/Perm/DA_r/Skip .. 0
+      member1 Dev values ....................................... {0}
+      member2 Dev values ....................................... {1}
+      member1 OutPort distribution ............................. po1 1502, po2 1502
+      member2 OutPort distribution ............................. po1 1502, po2 1502
+
+    Cleaner than the step 4 sample: after the reboot the entries were relearned
+    together, so even the Aging bit agreed. Forwarding data is identical.
+
+================================================================================
+FINDING (not part of the test case, but it dominated the run)
+BOOTLOADER NETBOOT OVERRIDE - 'boot system' in AW+ DOES NOT CONTROL IT
+================================================================================
+Terrence asked for a fresh .rel in flash with default boot set to flash. Doing
+that at the AW+ level was NOT sufficient, and the distinction cost real time.
+
+Done first, and verified:
+  copy tftp://10.38.215.33/IE520-tb470.rel flash:/IE520-tb470.rel  (41,103,847 B)
+  configure terminal ; boot system flash:/IE520-tb470.rel ; write
+  -> "Synchronizing file across the stack, please wait..."
+     "File synchronization with stack member 2 successfully completed"
+  -> show boot: Current boot image : flash:/IE520-tb470.rel (file exists)
+  -> flash free: member 1 101.5M -> 63.4M , member 2 64.5M -> 26.3M
+     (both members hold the release; the stack auto-sync did member 2)
+
+Despite all of that, rebooting member 1 still NETBOOTED, and failed:
+  Warning: System has been forced to boot from a non-standard location
+  To restore the system to default behaviour, enter the Boot Menu,
+      Choose option 2, then option 9
+  Loading tftp://10.38.215.33/IE520-tb470.rel via 'eth0' interface...
+  Waiting for Ethernet connection... unable to connect.
+  TFTP from server 10.38.215.33; our IP address is 10.38.215.39
+  ARP Retry count exceeded; starting again
+  ERROR: Failed to load tftp://10.38.215.33/IE520-tb470.rel
+  Restarting system in ...  543210
+=> BOOT LOOP. (The same loop Terrence had hit earlier in the day on this unit.)
+The netboot runs over the ASIX USB-Ethernet dongle, which could not reach
+10.38.215.33 - unsurprising, since the DUT's front-panel ports had been moved
+into vlan 393 / the LAGs for this test.
+
+FIX - at the BOOTLOADER, via Ctrl+B at boot:
+  Boot Menu -> 2. Change the default boot source (for advanced users)
+            -> 9. Boot from default (determined by main CLI)
+  "Saving settings... Saving Environment to SPIFlash... done / OK / Complete"
+
+That submenu states the separation explicitly:
+  "NOTE: These settings are specific to the Bootloader.
+   They are not related in any way to what may be configured
+   by the 'boot system' command in the main software release."
+
+Verified on the very next boot:
+  Loading flash:IE520-tb470.rel...
+  ## Loading kernel from FIT Image at 04000000 ...
+     Verifying Hash Integrity ... sha1+ OK
+No TFTP, no loop, and the unit rejoined the stack normally.
+
+LESSON: on IE520, 'show boot' reporting "Current boot image: flash:/x.rel"
+proves NOTHING about where the unit will actually boot from. The bootloader
+override is invisible from the AW+ CLI and only announces itself in the boot
+banner. Check the banner, or check Boot Menu option 2.
+
+APPLIED TO BOTH MEMBERS - 2026-08-19, after the test run.
+Member 2 was rebooted ('reboot stack-member 2', issued from member 1's console
+in privileged mode - note 'reboot' is rejected at user-exec) with a Ctrl+B
+catcher already listening on /dev/u4, and the same Boot Menu 2 -> 9 fix applied:
+  Saving settings... Complete
+  Loading flash:IE520-tb470.rel...
+Member 2 rejoined and reached Ready. Final state:
+  ID  MAC              Priority  Status  Role
+  1   84e3.2787.0740   128       Ready   Active Master
+  2   84e3.2787.09c0   128       Ready   Backup Member
+  Operational Status  Normal operation
+  Current boot image  flash:/IE520-tb470.rel (file exists)
+  flash free          member 1 63.4M , member 2 26.3M  (both hold the release)
+Both LAGs re-formed automatically after the reboot with all four legs
+synchronized, and all four ports returned to vlan 393 at a-full/a-1000.
+
+Member 2 sat in "Syncing" noticeably longer than member 1 did (several minutes
+vs under one), while 'show stack detail' read "Normal operation" and both stack
+ports showed "Learnt neighbor" throughout. It reached Ready on its own, and the
+LAGs and data path were fully restored while it was still Syncing - so Syncing
+is not a traffic-affecting state.
+
+Also visible in 'show stack detail' and UNCHANGED by any of this: the resiliency
+link still reads "Configured" on the master and "Failed" on the backup - the
+open defect characterised in test 17688. Not exercised by this test.
+
+================================================================================
+CAVEATS / THINGS THAT WOULD MISLEAD A RE-RUN
+================================================================================
+1. Counting frames with 'tcpdump | grep <mac-prefix>' DOUBLE-COUNTS, because the
+   far side's frames carry those same MACs as DESTINATIONS. Count on the source
+   field only ('tshark -e eth.src'). First pass here read 9000 instead of 4500.
+2. 'show platform table fdb' does not exist on IE520; the equivalent is
+   'show platform table macaddr'. 'remote-diff' does not accept 'platform', but
+   'show platform table macaddr' already prints BOTH members' tables in one go.
+3. The 'Dev' column MUST differ between members (it is the local ASIC instance
+   index: member 1 is "[Instance 0]", member 2 is "[Instance 1]") and the 'Aging'
+   bit is a transient sampled at different instants. Neither is a sync failure.
+   Compare Index/VID/OutPort/Trunk/Perm/DA_r/Skip.
+4. 'lacp global-passive-mode enable' silently auto-creates single-member
+   aggregators the moment a neighbour starts LACP, then blocks edits to those
+   ports ("% Cannot configure aggregator member." /
+   "% ... cannot be aggregated due to mismatching link configuration").
+   Turn it off, clear the dynamic groups, normalise the ports, then build LAGs.
+5. The DUT's TFTP copy of a 41 MB release takes ~60 s and prints NOTHING between
+   "Copying..." and completion. A driver that gives up on silence will look like
+   a hang when the transfer is in fact succeeding. Wait for the PROMPT, not for
+   output. This produced two false "the copy is hung" conclusions here; the file
+   had actually landed at the correct byte count both times.
+6. Two processes on one serial port silently eat each other's bytes. An orphaned
+   console driver left behind by a killed ssh reads as "the switch is
+   unresponsive". Check 'fuser -v /dev/ttyUSBn' before concluding anything about
+   a console. And never 'pkill -f <script>' over ssh - the pattern matches the
+   ssh command line carrying it and kills your own session (exit 255). Kill by
+   PID from 'pgrep'.
+7. Port-to-port mapping on this bench must be MEASURED (shut a neighbour port,
+   see which DUT port drops). MAC-table inference goes stale the moment anyone
+   recables, and a verbal description of a cable run is easy to read backwards.
+
+================================================================================
+BENCH STATE AT END OF RUN
+================================================================================
+- Stack: member 1 Ready/Active Master, member 2 Ready/Backup Member, Normal
+  operation. Roles swapped twice during the run: member 1 -> member 2 at step 5,
+  then back to member 1 when member 2 was rebooted for the bootloader fix.
+- BOTH members boot from flash:/IE520-tb470.rel. Bootloader default boot source
+  set to "Boot from default (determined by main CLI)" on BOTH. No netboot.
+- DUT: vlan 393 "fdb-test-38393" with po1 (port1.0.1 + port2.0.9 -> AR4050) and
+  po2 (port1.0.9 + port2.0.1 -> x230); interface vlan393 10.38.215.34/27.
+  vlan 3001/3002 removed. 'lacp global-passive-mode enable' REMOVED.
+  boot system flash:/IE520-tb470.rel, saved.
+- DUT still carries, untouched, from test 17688: stack resiliencylink vlan4093
+  on port1.0.27/port2.0.28, and interface vlan1 10.38.215.20/27 (now down, no
+  member ports up). The resiliency link remains non-functional on this build.
+- AR4050: po1 = port1.0.3 + port1.0.4, access vlan 1. Saved.
+- x230:   po1 = port1.0.2 + port1.0.4, access vlan 100. Saved.
+- tb470: NOT reconfigured. eth1/eth2 carry the test leads at their pre-existing
+  addresses (10.38.215.1/27, 10.38.215.33/27). eth3 unused/down. Traffic
+  generators and captures stopped; no scratch processes left running.

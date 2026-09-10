@@ -1,0 +1,84 @@
+================================================================================
+AWPTCM-T5519 (1.0)  IP directed-broadcast to remote routing
+Run date : 2026-09-09      Bench : tb470 (IE520)
+Software : IE520-awplus_main-20260905-1714.rel  (AlliedWare Plus, build 09/04/26; bootloader pauld)
+Result   : PASS
+================================================================================
+
+RESULT
+  An off-link (remote) packet destined to a subnet's directed-broadcast address is ROUTED
+  from SWITCH_A to the DUT and, with `ip directed-broadcast` on the DUT's target interface,
+  delivered as a broadcast onto that subnet.
+      directed-broadcast DISABLED on DUT : 0/5  delivered  (dropped - control)
+      directed-broadcast ENABLED  on DUT : 10/10 delivered                    => PASS.
+
+--------------------------------------------------------------------------------
+BENCH / TOPOLOGY AS TESTED  (two L3 routers, off-link source)
+--------------------------------------------------------------------------------
+  SWITCH_A = u5  S/N 264A23066     DUT = u4  S/N 264A23052  MAC 84e3.2787.09c0
+      source subnet (u5 "vlan4") : vlan50  10.10.50.0/27   (SVI 10.10.50.1)  = sender
+      transit link (their "vlan1"): vlan40  10.10.40.0/30   u5 .2 <-> u4 .1
+                                    over u5 port2.0.24 <-> u4 port1.0.24
+      DUT target subnet (vlan3)  : vlan3   10.10.30.0/27   (SVI 10.10.30.1)
+                                   `ip directed-broadcast` enabled
+  Receiver = tb470 host eth2.30 = 10.10.30.20/27 on u4 port1.0.2 (tagged vlan3).
+  Routing : u5 has  ip route 10.10.30.0/27 10.10.40.1 ;  u4 has  ip route 10.10.50.0/27 10.10.40.2
+
+METHOD / SCOPE
+  No IXIA. The "sender behind SWITCH_A" is u5's CPU: u5 sources ICMP from its off-link
+  subnet address 10.10.50.1 to the DUT-vlan3 directed-broadcast address 10.10.30.31. The
+  packet is routed u5 -> u4 across the /30 transit, then (with ip directed-broadcast) the
+  DUT broadcasts it onto vlan3, where the host receives it (captured with tcpdump). A control
+  pass with ip directed-broadcast DISABLED shows the packet is dropped. Functional test.
+
+--------------------------------------------------------------------------------
+CONFIG APPLIED   (running-config only, NOT saved to startup)
+--------------------------------------------------------------------------------
+u4 (DUT)                                    u5 (SWITCH_A)
+  interface vlan3                             interface vlan40
+   ip address 10.10.30.1/27                    ip address 10.10.40.2/30
+   ip directed-broadcast                      interface vlan50
+  interface vlan40                             ip address 10.10.50.1/27
+   ip address 10.10.40.1/30                   ip route 10.10.30.0/27 10.10.40.1
+  interface port1.0.2                         interface port2.0.24
+   switchport trunk allowed vlan add 3         switchport trunk allowed vlan add 40,50
+  interface port1.0.24
+   switchport trunk allowed vlan add 40
+  ip route 10.10.50.0/27 10.10.40.2
+
+--------------------------------------------------------------------------------
+STEP 1 - vlan4 of SWITCH_A routed to vlan3 of DUT; directed-broadcast on vlan3;
+         verify packets are routed and forwarded from SWITCH_A to DUT
+--------------------------------------------------------------------------------
+### control: ip directed-broadcast DISABLED on DUT vlan3 (expect DROP) ###
+u4(config-if)# no ip directed-broadcast
+u5# ping 10.10.30.31 source 10.10.50.1 repeat 5
+PING 10.10.30.31 (10.10.30.31) from 10.10.50.1 : 56(84) bytes of data.
+--- 10.10.30.31 ping statistics ---
+5 packets transmitted, 0 received, 100% packet loss, time 4157ms
+host(vlan3) received (disabled): 0   [expect 0]
+  => with directed-broadcast off, the DUT does NOT convert the off-link packet - dropped.
+
+### ip directed-broadcast ENABLED on DUT vlan3 (expect FORWARD) ###
+u4(config-if)# ip directed-broadcast
+u5# ping 10.10.30.31 source 10.10.50.1 repeat 10
+PING 10.10.30.31 (10.10.30.31) from 10.10.50.1 : 56(84) bytes of data.
+--- 10.10.30.31 ping statistics ---
+10 packets transmitted, 0 received, 100% packet loss, time 9341ms
+host(vlan3) received (enabled): 10 of 10   [expect 10]
+   IP 10.10.50.1 > 10.10.30.31: ICMP echo request, id 32504, seq 1, length 64
+   IP 10.10.50.1 > 10.10.30.31: ICMP echo request, id 32504, seq 2, length 64
+   IP 10.10.50.1 > 10.10.30.31: ICMP echo request, id 32504, seq 3, length 64
+
+u4# show running-config interface vlan3
+interface vlan3
+ ip address 10.10.30.1/27
+ ip directed-broadcast
+
+  => The off-link directed broadcast (source 10.10.50.1, a DIFFERENT subnet from the target)
+     is routed SWITCH_A -> DUT and delivered onto vlan3: the host sees all 10 as
+     10.10.50.1 > 10.10.30.31. This confirms "ip directed-broadcast has nothing to do with
+     off-link directed-broadcast packets; these are routed and forwarded to the next
+     router/L3 switch," and are then broadcast onto the target subnet only when
+     ip directed-broadcast is enabled there. PASS.
+================================================================================

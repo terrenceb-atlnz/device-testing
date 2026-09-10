@@ -1,0 +1,71 @@
+================================================================================
+AWPTCM-T11762 (1.0)  PIM-SSM using user defined range
+Run date : 2026-09-10      Bench : tb470 (IE520)
+Software : IE520-awplus_main-20260905-1714.rel  (AlliedWare Plus, build 09/04/26; bootloader pauld)
+Result   : PASS
+================================================================================
+
+RESULT
+  With a USER-DEFINED SSM range (239.100.0.0/16, NOT the default 232.0.0.0/8), a
+  group inside that range is handled as Source-Specific Multicast: an IGMPv3
+  (S,G) INCLUDE join installs source-specific state and the group is delivered
+  from the joined source only.
+      IGMPv3 join (S=10.10.81.20, G=239.100.0.10) -> Group mode: Include, Fwd Yes
+      source 10.10.81.20 -> G received on receiver ...... 19/20
+      mroute is a pure (S,G) with the correct iif/oif  ... yes             => PASS.
+
+--------------------------------------------------------------------------------
+BENCH / TOPOLOGY AS TESTED   (PIM-SM/SSM domain, u4 = DUT)
+--------------------------------------------------------------------------------
+  DUT / PIM-SSM router : u4  S/N 264A23052  MAC 84e3.2787.09c0
+      user SSM range   : access-list 40 permit 239.100.0.0 0.0.255.255
+                         ip pim ssm range 40
+  Host (one NIC, tagged sub-ifs on u4 port1.0.2):
+      source   : eth2.81  10.10.81.20  (vlan81)      = the source S
+      receiver : eth2.82  10.10.82.20  (vlan82)      = IGMPv3 SSM joiner
+  Group under test     : 239.100.0.10   (inside the user range)
+
+METHOD / SCOPE
+  No IXIA.  The receiver sends a real scapy IGMPv3 membership report,
+  CHANGE_TO_INCLUDE {S} for the group, so the router installs (S,G) INCLUDE state.
+  The source transmits to the group; receipt is counted.  SSM semantics are proven
+  from the IGMP group detail (Include mode + explicit source list) and the (S,G)-only
+  mroute.  Functional test.
+
+--------------------------------------------------------------------------------
+CONFIG APPLIED   (added to the PIM-SM base; running-config only)
+--------------------------------------------------------------------------------
+u4
+  access-list 40 permit 239.100.0.0 0.0.255.255
+  ip pim ssm range 40
+  (base: ip multicast-routing; service pim; interfaces vlan81/vlan82 ip igmp +
+   ip pim sparse-mode; IGMP version 3 = platform default.)
+
+--------------------------------------------------------------------------------
+STEP 1 - Join an (S,G) inside the user SSM range; verify source-specific delivery
+--------------------------------------------------------------------------------
+### receiver eth2.82 sends IGMPv3 CHANGE_TO_INCLUDE {10.10.81.20} for 239.100.0.10 ###
+
+u4# show ip igmp groups 239.100.0.10 detail
+Interface:      vlan82
+Group:          239.100.0.10
+Group mode:     Include ()                       <-- INCLUDE mode = SSM (not EXCLUDE/ASM)
+Last reporter:  10.10.82.20
+Include Source List :
+  Source Address  Uptime    v3 Exp    Fwd  Flags
+  10.10.81.20     00:00:17  stopped   Yes         <-- source-specific: forwards only S
+  => the group in the user-defined range is treated as SSM: the receiver joined a
+     specific (S,G) and the router holds an INCLUDE source list, not a (*,G).
+
+### source eth2.81 (10.10.81.20) transmits 20 x UDP to 239.100.0.10 ###
+in-range SSM: source S1=10.10.81.20 -> G received on vlan82: 19 of 20
+
+u4# show ip mroute 239.100.0.10
+(10.10.81.20, 239.100.0.10), uptime 00:00:10, stat expires 00:03:20
+Owner PIM-SM, Flags: TF
+  Incoming interface: vlan81
+  Outgoing interface list:
+    vlan82 (1)
+  => a pure (S,G) entry - no (*,G) RP-tree - forwarding the user-range group from
+     the joined source to the receiver.  SSM works in the user-defined range.  PASS.
+================================================================================

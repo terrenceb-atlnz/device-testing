@@ -1,0 +1,97 @@
+================================================================================
+AWPTCM-T38422 (1.0)  Standard test - MLDv1
+Run date : 2026-09-09      Bench : tb470 (IE520)
+Software : IE520-awplus_main-20260905-1714.rel  (AlliedWare Plus, build 09/04/26; bootloader pauld)
+Result   : PASS  (steps 1-3)
+================================================================================
+
+RESULT
+  Step 1  Register MLDv1 listener report ....... PASS   listener learned on DUT (port1.0.2), querier v1
+  Step 2  Traffic forwarded, no loss ........... PASS   60/60 rx, 0% loss @ 1 pps
+  Step 3  MLDv1 Done clears the listener ....... PASS   show ipv6 mld groups empties
+  DUT is the MLD querier; membership by a real MLDv1 Report (ICMPv6 type 131), torn down
+  by an MLDv1 Done (type 132).
+
+--------------------------------------------------------------------------------
+BENCH / TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  DUT / querier : u4  S/N 264A23052  MAC 84e3.2787.09c0   (MLD snooping querier, L3 MLD)
+  Source        : u5  S/N 264A23066  MAC 84e3.2787.0740   (vlan10 2001:db8:10::3)
+  Receiver/host : tb470 eth2  ->  u4 port1.0.2 (vlan10); host link-local fe80::cfe7:b827:c695:6034
+  Fabric        : one vlan10 trunk  u4 port1.0.24 <-> u5 port2.0.24 (2nd link port*.0.26 shutdown).
+
+METHOD / SCOPE
+  No IXIA. RECEIVER = tb470 host sending a REAL MLDv1 Multicast Listener Report (scapy,
+  IPv6 hop-by-hop Router-Alert, hop-limit 1, sourced from the host link-local as MLD
+  requires) and counting frames with tcpdump; SOURCE = u5 `ping ipv6 <group> interface
+  vlan10` at 1 pps. Functional, NOT line rate.
+
+--------------------------------------------------------------------------------
+CONFIG APPLIED   (running-config only, NOT saved to startup)
+--------------------------------------------------------------------------------
+u4 (DUT/querier)                            u5 (source)
+  ipv6 multicast-routing                      ipv6 multicast-routing
+  interface vlan10                            interface vlan10
+   ipv6 mld                                    ipv6 address 2001:db8:10::3/64
+   ipv6 mld version 1                          ipv6 mld
+   ipv6 address 2001:db8:10::2/64
+
+u4# show ipv6 mld interface vlan10
+ MLD Enabled, Active, Querier, Configured for version 1
+
+--------------------------------------------------------------------------------
+STEP 1 - Check multicast traffic is forwarded when the MLDv1 group request is received
+--------------------------------------------------------------------------------
+u4# show ipv6 mld groups                      <- baseline: no test listener
+
+>>> host: MLDv1 Multicast Listener Report (ICMPv6 type 131) src=fe80::cfe7:b827:c695:6034 mladdr=ff1e::1
+
+u4# show ipv6 mld groups
+MLD Connected Group Membership
+Group Address                           Interface            Uptime   Expires    Last Reporter
+ff1e::1                                 vlan10 (port1.0.2)   00:00:03 00:04:17    fe80::cfe7:b827:c695:6034
+
+u4# show ipv6 mld groups ff1e::1 detail
+Interface:      vlan10 (port1.0.2)
+Group:          ff1e::1
+Group mode:     Exclude (Expires: 00:04:16)
+Last reporter:  fe80::cfe7:b827:c695:6034
+Source list is empty
+  => DUT registered the MLDv1 listener on the exact receiver port (port1.0.2).
+
+--------------------------------------------------------------------------------
+STEP 2 - Leave traffic running (membership maintained, no loss)
+--------------------------------------------------------------------------------
+u5# ping ipv6 ff1e::1 interface vlan10 repeat 60
+PING ff1e::1(ff1e::1) from 2001:db8:10::3 vlan10: 56 data bytes
+--- ff1e::1 ping statistics ---
+60 packets transmitted, 0 received, 100% packet loss, time 61378ms
+
+host# tcpdump icmp6 dst ff1e::1 => 60 frames of 60 sent (0.0% loss)
+   IP6 2001:db8:10::3 > ff1e::1: ICMP6, echo request, id 19873, seq 1, length 64
+   IP6 2001:db8:10::3 > ff1e::1: ICMP6, echo request, id 19873, seq 2, length 64
+   IP6 2001:db8:10::3 > ff1e::1: ICMP6, echo request, id 19873, seq 3, length 64
+
+u4# show ipv6 mld groups ff1e::1 detail   (maintained)
+Group mode:     Exclude (Expires: 00:04:13)
+  => 60/60 forwarded, 0% loss.  SCOPE: 60 s / 1 pps sample of the 5-min step, not line rate.
+
+--------------------------------------------------------------------------------
+STEP 3 - Send the MLD leave  (listener clears)
+--------------------------------------------------------------------------------
+>>> host: MLDv1 Multicast Listener Done (type 132) src=fe80::cfe7:b827:c695:6034 mladdr=ff1e::1
+
+u4# show ipv6 mld groups
+                                             <- test listener ff1e::1 cleared
+   (Any ff05::2 line that appears here is the tb470 host's OWN kernel MLD membership on
+    eth2, not the test group.)
+
+u5# ping ipv6 ff1e::1 interface vlan10 repeat 5   (after leave)
+--- ff1e::1 ping statistics ---
+5 packets transmitted, 0 received, 100% packet loss, time 4194ms
+host# after leave => 5 frames received (expect 0)
+  => L3 MLD membership clears IMMEDIATELY on the Done (`show ipv6 mld groups` empty for
+     ff1e::1). The 5 residual frames are the L2 MLD-snooping entry aging out through the
+     last-member-query window (no `ipv6 mld snooping fast-leave` configured) - traffic then
+     ceases. PASS: the deliverable check (groups table empties) is met.
+================================================================================

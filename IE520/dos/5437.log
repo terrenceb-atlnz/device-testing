@@ -1,0 +1,36 @@
+AWPTCM-T5437 (1.0) — DoS: IP OPTION
+tb470 IE520 stack (DUT) · port1.0.1 · 2026-09-03 · clean flat-vlan1 bench
+
+RESULT: CONFIG VERIFIED; DETECTION NOT EXERCISABLE ON THIS BENCH (needs a routed path).
+Method + gotchas: see DOS-METHOD.md in this directory. NOT a device defect — a bench-topology
+limitation (see below). Re-run once a routed topology is available.
+
+Attack: IP packets carrying IP options ("illegal IP options" per the case).
+Tools tried (all batched, high rate, valid on the wire):
+  - stock ip_options.py: IPOption_EOL()  (a legal end-of-list option)
+  - fastopt.py / fastopt2.py: IPOption_LSRR (loose source route), IPOption_RR (record route),
+    aimed BOTH at the x230 (transit) AND at the IE520 itself (10.38.215.66).
+Wire check (tcpdump on eth3) confirmed the frames carried the option and ihl>5, e.g.:
+  IP (... options (LSRR 10.38.215.90,EOL)) 10.38.215.90 > 10.38.215.71: ICMP echo request
+  (1946 such packets in ~2s -- rate is not the problem).
+
+--- show dos interface port1.0.1 (armed) ---
+  ipoptions           : Enabled
+     Action           : Shutdown port
+     Attacks detected : 0        <- stayed 0 in every variant
+--- show interface port1.0.1 status ---
+  port1.0.1   connected          <- never shut down
+
+WHY (root cause):
+  IP options are parsed on the L3 / ROUTING path. This bench is a flat single-vlan1, purely
+  BRIDGED (non-routing) segment, so option-bearing frames are L2-forwarded to the x230 without
+  their IP options ever being examined -- nothing to trigger `dos ipoptions`. The other five
+  DoS types (teardrop/land/ping-of-death/smurf/synflood) are caught by L2-L4 ingress inspection
+  and DO fire on the bridged path (see their logs). IP OPTION is the one that needs L3.
+
+TO EXERCISE IT (future): give the IE520 a routed path -- ingress subnet A (tb470/vlan1) routed
+by the IE520 to egress subnet B (a second vlan, e.g. the x230 re-addressed onto it) -- so the
+option-bearing packets are ROUTED and their options parsed. That requires reconfiguring the
+clean flat-vlan1 bench (a second vlan/subnet + inter-vlan routing) and was not done here.
+
+STATE AFTER: port1.0.1 up, dos config removed (baseline). Running-config only; reverts on reload.

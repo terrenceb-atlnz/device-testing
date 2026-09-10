@@ -1,0 +1,89 @@
+================================================================================
+AWPTCM-T30403 (1.0)  Check traffic is forwarded with static mroutes (IPv4)
+Run date : 2026-09-10      Bench : tb470 (IE520)
+Software : IE520-awplus_main-20260905-1714.rel  (AlliedWare Plus, build 09/04/26; bootloader pauld)
+Result   : PASS
+================================================================================
+
+RESULT
+  An IPv4 static mroute (ip mroute) provides the RPF for a multicast source that has
+  no unicast route.  With the static mroute the multicast is forwarded; when it is
+  removed the RPF fails and forwarding stops - cleanly, with no errors.
+      WITH  ip mroute : show ip rpf -> RPF type STATIC ; receiver got 19/20 ;
+                        (S,G) mroute iif=vlan40 -> oif=vlan82
+      WITHOUT         : show ip rpf -> "failed, no route exists" ; receiver 0/20 ;
+                        (S,G) mroute gone ; no error on removal            => PASS.
+  Interfaces exercised as upstream/downstream: VLAN interfaces (iif vlan40 = upstream,
+  oif vlan82 = downstream).
+
+--------------------------------------------------------------------------------
+BENCH / TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  DUT / multicast router : u4  S/N 264A23052  MAC 84e3.2787.09c0  (PIM-SM, SSM)
+      static mroute      : ip mroute 10.10.50.0/24 10.10.40.2   (RPF via u5 on vlan40)
+      NOTE: the unicast route to 10.10.50.0/27 was REMOVED first, so the static
+            mroute is the ONLY RPF path to the source subnet - it is load-bearing.
+  RPF neighbour          : u5  10.10.40.2 on vlan40 (a real PIM neighbour, so the
+                           (S,G) upstream is valid)
+  Host (one NIC, tagged sub-ifs on u4 port1.0.2):
+      source injector : eth2.40 (vlan40) - sends from 10.10.50.5 (the remote source)
+      receiver        : eth2.82 (vlan82) 10.10.82.20 - IGMPv3 SSM (S,G) join
+  Group : 239.100.40.10  (in the SSM range 239.100.0.0/16)
+  Source: 10.10.50.5  (reachable at u4 only via the static mroute)
+
+METHOD / SCOPE
+  No IXIA.  The "remote" source 10.10.50.5 has no unicast route on the DUT; its RPF
+  is supplied solely by the static mroute (verified with show ip rpf, type STATIC).
+  The source is injected on the RPF/upstream interface (vlan40) with scapy; the
+  receiver joins the (S,G) and is sniffed.  The static mroute is then removed and the
+  same source is replayed.  Forwarding tracks the presence of the static mroute.
+  Functional test.
+
+--------------------------------------------------------------------------------
+CONFIG APPLIED   (running-config only, NOT saved to startup)
+--------------------------------------------------------------------------------
+u4
+  ip multicast-routing ; service pim
+  no ip route 10.10.50.0/27 10.10.40.2          <-- remove unicast route first
+  ip mroute 10.10.50.0/24 10.10.40.2            <-- static mroute = the only RPF
+  access-list 40 permit 239.100.0.0 0.0.255.255 ; ip pim ssm range 40
+  interface vlan40  ip address 10.10.40.1/30 ; ip pim sparse-mode     (upstream/iif)
+  interface vlan82  ip address 10.10.82.1/27 ; ip igmp ; ip pim sparse-mode (downstream/oif)
+  interface port1.0.2  switchport trunk allowed vlan add 40,82
+
+--------------------------------------------------------------------------------
+STEP 1 - WITH the static mroute: RPF resolves (static) and traffic forwards
+--------------------------------------------------------------------------------
+u4# show ip rpf 10.10.50.5
+  RPF interface: vlan40
+  RPF neighbor: 10.10.40.2
+  RPF route: 10.10.50.0/24
+  RPF type: static                        <-- RPF supplied by the static mroute
+
+### receiver joins IGMPv3 (10.10.50.5, 239.100.40.10); source injects 20 x UDP ###
+WITH-MROUTE: source 10.10.50.5 (on vlan40) -> receiver got: 19 of 20
+
+u4# show ip mroute 239.100.40.10
+(10.10.50.5, 239.100.40.10), uptime 00:00:11, stat expires 00:03:19
+Owner PIM-SM, Flags: TF
+  Incoming interface: vlan40                    <-- upstream (matches the static RPF)
+  Outgoing interface list:
+    vlan82 (1)                                  <-- downstream
+  => the static mroute lets the DUT RPF-accept the source on vlan40 and forward to
+     the receiver on vlan82.
+
+--------------------------------------------------------------------------------
+STEP 2 - REMOVE the static mroute: RPF fails, forwarding stops, no error
+--------------------------------------------------------------------------------
+u4(config)# no ip mroute 10.10.50.0/24        <-- accepted cleanly, no error emitted
+u4# show ip rpf 10.10.50.5
+RPF information for 10.10.50.5 failed, no route exists     <-- RPF is now gone
+
+### same source replayed ###
+NO-MROUTE: source 10.10.50.5 (on vlan40) -> receiver got: 0 of 20
+
+u4# show ip mroute 239.100.40.10
+  (no entry)                                    <-- the (S,G) is gone; nothing forwards
+  => removing the static mroute removes the only RPF path to the source, the (S,G)
+     tears down, and traffic stops.  Removal produced no errors.  PASS.
+================================================================================
