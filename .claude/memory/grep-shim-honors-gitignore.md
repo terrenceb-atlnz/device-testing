@@ -26,7 +26,7 @@ I reported the 0 as fact before noticing the 29 contradicted it. Naming a subdir
 explicitly can still match, so the two results disagreeing is the tell.
 
 **How to apply:** use `command grep` whenever searching inside a gitignored tree — `.venv/`,
-`node_modules/`, `ask-ck/var/`, `CK_server/debug-log/`, the `secrets.*` files. Prefer it for
+`node_modules/`, `ask-ck/db/` (was `ask-ck/var/` until 2026-09-11), `CK_server/debug-log/`, the `secrets.*` files. Prefer it for
 any count you are going to *state*, and if two greps of the same string disagree, believe the
 one with the explicit path and re-run with `command grep`. Note `git ls-files` has the same
 blind spot by design, so "not in git" and "not on disk" are different questions.
