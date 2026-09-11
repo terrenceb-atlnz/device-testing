@@ -107,3 +107,30 @@ for reading exact CLI tokens out of ck.db.
   access" and returns nothing. Put the source on the HOST (or the unit you don't need to observe).
   `fuser -k /dev/ttyUSBx` frees a stuck console; a unit left in `config-if` needs `end` (the
   driver's login terminal-setup fails there, making every command read as "^ % Invalid input").
+
+**PIM-SM multicast + full-table stack MASTER failover (T11427), added 2026-09-11** (log:
+`device-testing/IE520/ipv4-routing/11427.log`):
+- **Result:** multicast across a stack **master** failover is **loss-free** — 50 pps stream saw
+  max inter-arrival gap 0.0204–0.0216 s (= normal cadence, no dropped frame) over TWO
+  `reload stack-member <master>` events, with 300 OSPF routes in the stack FIB throughout. Stronger
+  than T10623's unicast ~2 s: multicast has **no host-ARP-to-gateway** dependency, so with the
+  forwarding path + `stack virtual-mac` held on the SURVIVING member the data plane never drops.
+- **Topology:** stack = RP (loopback `ip pim rp-address`) + FHR (host source on a stack SVI); a
+  standalone (u4) = LHR (host receiver on its SVI); PIM adjacent over the vlan10 transit; RP + source
+  subnet advertised into OSPF so the LHR can RPF. `service pim` + `ip multicast-routing` on both.
+- **The star forces the survivor.** Only stack member 1 has ACTIVE inter-switch links (member 2's are
+  admin-shut for loop-freeness), so the survivor MUST be member 1 → to measure a MASTER failover you
+  first move mastership to member 2 (`reload stack-member 1`, wait full rejoin — poll `show stack`
+  for both `Ready` + `Normal operation`), THEN `reload stack-member 2`. The re-position itself is a
+  member-1 outage (path down while it reboots), not a continuity number.
+- **Full table:** N statics on the LHR (`ip route <p>/24 <blackhole-nexthop>`) + `redistribute
+  static` under `router ospf` → stack learns N OSPF externals (300 → FIB 300). Survives the failover
+  (synced to backup, no relearn); OSPF re-syncs the neighbour ~17–19 s later, ExStart dip, never Down.
+- **Host RX gotchas (each cost a cycle):** (1) `IGMP` is in **`scapy.contrib.igmp`**, NOT
+  `scapy.all` — wrong import silently sends no join. (2) The receiver NIC needs
+  **`ip link set dev ethN allmulticast on`** AND **`rp_filter=0`** (real path `/proc/.../conf/ethN.<vid>/rp_filter`;
+  the `ethN/<vid>` sysctl name doesn't map) — else the host SOCKET drops cross-interface multicast
+  though frames reach the wire (tcpdump in promisc sees them). (3) Cleanest receiver: a **kernel IGMP
+  join** (UDP socket `IP_ADD_MEMBERSHIP` grp+local_ip) to hold membership + **`tcpdump -tt`** to
+  record arrivals; the gap in epochs = the outage. Source = unprivileged UDP `SOCK_DGRAM` (no root).
+- **Restore = reboot from unsaved startup** (nothing `write`-saved → plain `reload` returns baseline).

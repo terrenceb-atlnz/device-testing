@@ -1,0 +1,124 @@
+================================================================================
+AWPTCM-T11427 (1.0)  PIM-SM - Full Routing table, multicast failovers
+Run date : 2026-09-11      Bench : tb470 (IE520)
+Software : stack IE520-tb470.rel  awplus_main-20260910-1726  (build Wed Sep 9 12:05 UTC)
+           u4 (LHR) awplus_main-20260911-1730 ; bootloaders per unit (m1 9.1.0, m2
+           master-20260822-535, u4 pauld)
+Result   : PASS (functional) - multicast traffic flows across a stack MASTER
+           fail-over with a full (300-route) unicast table; two measured failovers,
+           NO measurable multicast interruption on either.
+Folder   : /PIM-SM/PIM-SMv4/General/Stress   Labels: Stress, Platform-Test
+Objective: "Network disruption and stack fails over with multicast traffic and
+           redistributing hundreds of routes" -> "traffic still flows".
+================================================================================
+
+RESULT
+  A 2-member IE520 VCStack (u2 = member 1, u3 = member 2) is the PIM-SM RP and
+  first-hop router for a host-sourced multicast stream that transits the stack to
+  a last-hop router (u4) and out to a receiver. The stack simultaneously holds a
+  full unicast table of 300 OSPF routes (redistributed statics from u4). The stack
+  MASTER is then failed over (reload stack-member <master>) while the stream runs.
+    - MULTICAST CONTINUITY: on BOTH measured master failovers the 50 pps stream saw
+      NO gap beyond normal inter-packet spacing (max inter-arrival 0.0216 s and
+      0.0204 s vs the 0.0200 s cadence). 2999/3000 and 3096/3096 packets delivered.
+    - UNICAST TABLE: the 300 OSPF routes stayed in the FIB across the failover
+      (300 before, 300 after on the promoted master); member 1 held the RIB as
+      backup so no relearn was needed.
+    - OSPF ADJACENCY (u4's view of the stack over vlan10): never lost. A brief
+      ExStart/DR dip ~17-19 s after the failover, Full/DR again 5-7 s later, no
+      dead-timer expiry.
+  => "traffic still flows" is met, and more strongly than T10623's unicast case:
+     multicast has no host-ARP-to-gateway dependency, so with the forwarding path
+     and virtual-MAC held on the SURVIVING member the data plane never drops.
+
+--------------------------------------------------------------------------------
+BENCH / TOPOLOGY AS TESTED   (PIM-SM domain, stack = RP + FHR, u4 = LHR)
+--------------------------------------------------------------------------------
+  DUT / PIM-SM RP + FHR : DUT stack   m1 264A23061 (u2) + m2 264A23068 (u3)
+      RP address         : loopback 10.10.99.1/32  (ip pim rp-address 10.10.99.1)
+      Virtual MAC        : 0000.cd37.0d6f (stack virtual-mac, held across failover)
+      source SVI vlan81  : 10.10.81.1/27  (ip igmp + ip pim sparse-mode)
+      transit  SVI vlan10: 10.10.10.1/27  (ip pim sparse-mode; OSPF area 0)
+  PIM neighbour / LHR    : u4 264A23052   vlan10 10.10.10.2  (PIM adj up; OSPF Full)
+      receiver SVI vlan82: 10.10.82.1/27  (ip igmp + ip pim sparse-mode)
+  Host (tb470):
+      source   eth1.81 10.10.81.20  -> stack member1 port1.0.2 (trunk, vlan81 tagged)
+      receiver eth2.82 10.10.82.20  -> u4 port1.0.2            (trunk, vlan82 tagged)
+  Group under test        : 239.11.42.7 : 5427/udp
+  Inter-switch link used  : stack member1 port1.0.26 <-> u4 port1.0.25 (vlan10)
+      -- both the host source port AND this uplink are on MEMBER 1, the survivor.
+
+  DAEMON/LICENCE: PIM-SM runs after `service pim` (starts the daemon live, no
+  reboot) + `ip multicast-routing`; the stack holds AT-IE520-FL01, u4 does not and
+  runs PIM anyway - the `service` command is the gate, not the licence.
+
+--------------------------------------------------------------------------------
+METHOD
+--------------------------------------------------------------------------------
+  No IXIA. Host tb470 both sources and receives, on different switches:
+    - receiver: a real kernel IGMP join (socket IP_ADD_MEMBERSHIP on eth2.82) so
+      u4 builds the (*,G) and forwards; on-subnet reporter 10.10.82.20 passes the
+      IE520 IGMP source-address check.
+    - source: UDP to the group at 50 pps, seq+timestamp payload (mcast_src.py).
+    - recorder: tcpdump -i eth2.82 -tt (per-frame epoch); the receiver interface
+      needs `ip link set dev eth2/eth2.82 allmulticast on` and rp_filter=0, else
+      the socket path drops the cross-interface multicast (frames still reach the
+      wire - proven by tcpdump - so it is a host-stack quirk, not the switch).
+  Full routing table: 300 statics on u4 (ip route 10.100/101.x.0/24 -> 10.10.10.3),
+    `redistribute static` under router ospf 1 -> stack learns 300 OSPF externals
+    (show ip route summary: ospf 300, FIB 300).
+  Failover: the stack star gives only MEMBER 1 active inter-switch links (m2's are
+    admin-shut), so the survivor MUST be member 1. Mastership was moved to member 2
+    first (reload stack-member 1, wait full rejoin as backup), THEN the measured
+    event: reload stack-member 2 (the master) from member 1's console. Trigger =
+    epoch of the y-confirm; outage = largest gap in the receiver's tcpdump epochs.
+
+--------------------------------------------------------------------------------
+EVIDENCE
+--------------------------------------------------------------------------------
+### Full unicast table on the stack (RP) while multicast runs ###
+  u4  : static 300, ospf 3, connected 3   (originator)
+  stack: connected 4, OSPF 300, FIB 300   (learned over vlan10; 300 in hardware FIB)
+
+### Multicast path (mid-stream, before failover) ###
+  stack (S,G) 10.10.81.20,239.11.42.7  in vlan81  out vlan10   SPT bit 1
+  u4    (S,G) 10.10.81.20,239.11.42.7  in vlan10  out vlan82
+  u4    show ip igmp groups: 239.11.42.7 vlan82  Last Reporter 10.10.82.20
+  baseline (no failover): 495/500 pkts, span 9.88 s, 0 gaps > 0.1 s
+
+### FAILOVER #1 - reload stack-member 2 (master); member 1 = survivor ###
+  trigger epoch                 1789095573.129
+  multicast : 2999/3000 pkts, span 59.96 s, MAX inter-arrival gap 0.0216 s
+              (largest gap at trigger+13.70 s; = normal 50 pps jitter, no loss)
+  u4 OSPF   : Full/DR -> ExStart/DR at trigger+16.6 s -> Full/DR at +21.3 s
+              (never below ExStart; no dead-timer expiry)
+  stack     : reformed Normal operation; virtual MAC 0000.cd37.0d6f held
+
+### FAILOVER #2 - reload stack-member 2 (master) again (after re-position) ###
+  trigger epoch                 1789096290.338
+  multicast : 3096/3096 pkts, span 61.90 s, MAX inter-arrival gap 0.0204 s
+              (= normal cadence; no measurable interruption)
+  u4 OSPF   : Full/DR -> ExStart/DR at trigger+18.9 s -> Full/DR at +26.0 s
+  stack     : 300 OSPF routes / 300 FIB intact on the promoted master;
+              member 2 rejoined Init -> Syncing -> Ready; Normal operation
+
+--------------------------------------------------------------------------------
+INTERPRETATION
+--------------------------------------------------------------------------------
+  Because the forwarding path (FHR ingress vlan81 on member1 port1.0.2, the (S,G)
+  mroute, and the vlan10 uplink on member1 port1.0.26) is entirely on the SURVIVING
+  member, and the stack virtual-MAC is held, the master control-plane relocation
+  (m2 -> m1) does not interrupt the data plane. The 300-route unicast table is
+  synced to the backup, so promotion does not require a relearn; OSPF re-syncs its
+  adjacency to u4 ~17-19 s later without ever dropping it. This is the fast,
+  loss-free behaviour the case's "traffic still flows" asks for, demonstrated twice.
+
+  NOT MEASURED / CAVEATS
+  - Route continuity to the 300 destinations DURING the OSPF ExStart window was not
+    packet-probed (no traffic was sent to them); the FIB count before/after and the
+    adjacency never falling below ExStart are the evidence. Same inference as T10623.
+  - The route-count-through-the-window sampler failed on failover #2 (the promoted-
+    master console was mid-transition); the before/after FIB=300 stands instead.
+  - Scale: "hundreds of routes" met at 300. Not pushed to the platform FIB limit.
+  - One host NIC per switch; source and receiver are single flows, not line rate.
+================================================================================

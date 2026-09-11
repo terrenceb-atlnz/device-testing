@@ -1,3 +1,139 @@
+# SESSION HANDOVER — 2026-09-11
+
+> **This file now holds TWO sessions from 2026-09-11.** SESSION 2 (T11427) is immediately below;
+> the original SESSION 1 (T10623, repo creation, memory split) follows it unchanged, starting at
+> its own `# SESSION HANDOVER — 2026-09-11 (wrapped via /wrap-dt)` heading.
+
+---
+
+# SESSION 2 — 2026-09-11 · AWPTCM T11427 (wrapped via /wrap-dt)
+
+## TL;DR (session 2)
+
+- **Bench is WHOLE and re-runnable, restored to the SESSION-1 baseline.** T11427 reconfigured the
+  fabric (PIM-SM + 300 routes), measured two master failovers, then **rebooted the stack + u4 from
+  their unsaved startup configs** to return to exactly the 2026-09-11 star baseline. u5 untouched.
+  Verified: no PIM, no test VLANs, port1.0.2 back to access vlan1, u4 FIB back to 1, OSPF Full
+  stack↔u4, all `show boot` `(file exists)`, host NICs clean.
+- **AWPTCM T11427 (PIM-SM, full routing table, multicast failovers) COMPLETE, PASS (functional)** —
+  `IE520/ipv4-routing/11427.log`. Multicast (50 pps) transited the stack (RP+FHR) to u4 (LHR) to a
+  host receiver while the stack held 300 OSPF routes; the **master** was failed over twice
+  (`reload stack-member <master>`). Both times: **no measurable multicast interruption** (max
+  inter-arrival gap 0.0216 s / 0.0204 s = normal cadence), 300 routes intact, OSPF adjacency never
+  dropped (brief ExStart dip ~17–19 s later, Full again +5–7 s).
+- **Roles moved:** after the restore reboot, **member 2 (u3) is Active Master, member 1 (u2)
+  Backup** (member 2 priority 2 wins the boot election — expected, not a health signal).
+- Nothing parked or shut beyond the SESSION-1 baseline. bench-state.md updated (note at the top of
+  its "Current state — 2026-09-11" section; prior version archived `backups/2026-09-11T032735Z`).
+
+## 1. Bench state at wrap, and how to verify it (session 2)
+
+Measured 2026-09-11 ~03:25 device clock (host NZST ~15:25).
+
+```bash
+sock=/run/user/1971/keyring/ssh
+SSH_AUTH_SOCK=$sock ssh tb470 'fuser -v /dev/u*'          # consoles free
+# stack (master is now member 2 -> /dev/u3 relays; either console works once logged in)
+SSH_AUTH_SOCK=$sock ssh tb470 'cd /tmp/ckorient && printf "%s\n" \
+  "show stack" "show boot" "show ip ospf neighbor" \
+  "show running-config | include virtual-mac|priority|multicast|pim|network " \
+  | python3 drv.py /dev/u3 /tmp/ckorient/v_stk.txt'
+# u4 / u5 baseline
+SSH_AUTH_SOCK=$sock ssh tb470 'cd /tmp/ckorient && printf "%s\n" "show ip route summary" \
+  "show boot | include image" "show ip ospf neighbor" \
+  "show running-config | include multicast|pim|ip route 10.10" | python3 drv.py /dev/u4 /tmp/ckorient/v_u4.txt'
+SSH_AUTH_SOCK=$sock ssh tb470 'for n in eth1 eth2 eth3; do echo $n=$(cat /sys/class/net/$n/carrier); done; ip -br addr | grep -E "^eth[123] "'
+```
+
+Expected: stack `Normal operation`, **2 = Active Master (prio 2), 1 = Backup (prio 128)**, MAC
+`0000.cd37.0d6f (Virtual MAC)`, `flash:/IE520-tb470.rel (file exists)`, no `pim`/`multicast` lines,
+`network 10.10.10.0/27` + `10.38.215.0/27`; u4 FIB 1, OSPF `10.10.10.1 Full/DR vlan10`, no test
+config; host eth1/2/3 carrier 1 with `.1/.33/.65`, **no `eth1.81`/`eth2.82` sub-ifs**.
+
+## 2. What was accomplished (session 2)
+
+1. **T11427 measured and logged** — PIM-SM RP+FHR on the stack, u4 LHR, host source/receiver;
+   300 statics redistributed from u4 into OSPF (stack FIB 300); two `reload stack-member <master>`
+   failovers under multicast load. Method mirrors T10623 Part 2b (survivor must be member 1 because
+   only its inter-switch links are active; mastership moved to member 2 first each time).
+2. **Bench fully restored** to the SESSION-1 baseline by reboot-from-unsaved-startup (stack + u4);
+   host sub-ifs deleted, `allmulticast` off, `rp_filter` back to 2.
+3. **bench-state.md** annotated (T11427 ran + restored; role snapshot updated); applier archived
+   the prior version.
+
+## 3. Results (session 2) — each run labelled
+
+| run | trigger | multicast | OSPF (u4's view of stack) | verdict |
+| --- | --- | --- | --- | --- |
+| T11427 failover 1 | `reload stack-member 2` (master); member 1 survivor holds source + uplink | 2999/3000 pkts, **max gap 0.0216 s** (= 50 pps jitter, no loss) | Full → ExStart at +16.6 s → Full at +21.3 s; never dropped | **clean** |
+| T11427 failover 2 | same, after re-position | 3096/3096 pkts, **max gap 0.0204 s** | Full → ExStart at +18.9 s → Full at +26.0 s | **clean** |
+
+300 OSPF routes present in the stack FIB before and after (member 1 held the RIB as backup, so no
+relearn). The reposition step (`reload stack-member 1` to make member 2 master) is a member-1
+failover with the path down while it reboots — **not** a continuity measurement, and not counted.
+
+## 4. Findings (session 2)
+
+**Measured**
+- Multicast continuity across a stack **master** failover is **loss-free** when the surviving
+  member holds the whole forwarding path (FHR ingress, the (S,G) mroute, the uplink to the LHR) and
+  `stack virtual-mac` is on. Stronger than T10623's unicast ~2 s: multicast has no host-ARP-to-
+  gateway dependency to re-resolve.
+- A full 300-route unicast table survives the master failover intact (synced to the backup); OSPF
+  re-synchronises its neighbour ~17–19 s later without the adjacency falling below ExStart.
+- `service pim` + `ip multicast-routing` gate PIM-SM (u4 runs it without the FL01 licence). The
+  stack learns the RP (loopback) and source subnet via OSPF for RPF.
+
+**Inferred (not measured)**
+- Route continuity to the 300 destinations *during* the 5–7 s ExStart window (no traffic was sent
+  to them; FIB=300 before/after + adjacency never below ExStart is the evidence).
+
+**Host-side gotchas (durable — folded into memory `ie520-mcast-l3-test-method`)**
+- `IGMP` is `scapy.contrib.igmp`, not `scapy.all` — a wrong import silently sends no join.
+- The receiver interface needs `ip link set dev ethN allmulticast on` **and** `rp_filter=0`, else
+  the host socket drops cross-interface multicast though the frames reach the wire (tcpdump sees
+  them). Simplest receiver: a **kernel IGMP join** (socket `IP_ADD_MEMBERSHIP`) to hold membership +
+  **tcpdump `-tt`** to record arrivals; parse the epoch gaps.
+
+## 5. OPEN (session 2)
+
+- None new. SESSION-1 OPEN items (u5 vlan1 subnet; the stale `​```setup` fences) still stand — see
+  the SESSION-1 block below. The fences were **not** rewritten (out of scope for this run).
+
+## 6. Next steps (session 2)
+
+1. `/orient-dt` — re-read the hardware (member 2 is master now).
+2. SESSION-1's next steps still apply (u5 vlan1 decision; the Ask-CK memory-split commit).
+3. If more T11427 coverage is wanted: push route count toward the platform FIB limit, or add a
+   backup-member (slave) failover data point for contrast.
+
+## 7. Recipes (session 2)
+
+**Multicast failover measurement (T11427).** Scratch scripts were in tb470 tmpfs `/tmp/ckorient/`
+(gone with the box); recreate from these shapes:
+- `mcast_src.py <src_ip> <grp> <port> <pps> <dur>` — UDP `SOCK_DGRAM`, `IP_MULTICAST_TTL=8`, bind to
+  the source sub-if IP, seq+timestamp payload (`struct !Qd`).
+- `mcast_recv.py <local_ip> <grp> <port> <dur> <out>` — UDP socket, `IP_ADD_MEMBERSHIP`
+  (grp+local_ip) to hold the kernel IGMP join so the switch forwards; used only for membership.
+- Recorder: `sudo tcpdump -i ethN.<vid> -tt -n --immediate-mode "udp and dst <grp>"` → epoch per
+  frame; max inter-arrival gap = the outage.
+- Trigger: `reload_trigger.py <port> <member>` = `console.py` `send("reload stack-member N",
+  need_prompt=False)` then `send("y", need_prompt=False)`, printing the y-epoch.
+- Sequence: make member 2 master (`reload stack-member 1`, poll `show stack` for both `Ready` +
+  `Normal operation`), verify flow, then start recorder+source, `sleep 12`, trigger
+  `reload stack-member 2`, analyse the gap; correlate to the trigger epoch.
+- **Restore = reboot from unsaved startup** (`reload`, y): nothing was `write`-saved, so a plain
+  reboot returns the exact baseline. Then delete host sub-ifs, `allmulticast off`, `rp_filter` → 2.
+
+## 8. Pointers (session 2)
+
+- Results: `IE520/ipv4-routing/11427.log`.
+- Bench facts: `bench-setup/bench-state.md` "Current state — 2026-09-11" (T11427 note at top).
+- Method/gotchas memory: `.claude/memory/ie520-mcast-l3-test-method.md`.
+- SESSION 1 (T10623 etc.) is the block below.
+
+---
+
 # SESSION HANDOVER — 2026-09-11 (wrapped via /wrap-dt)
 
 ## TL;DR

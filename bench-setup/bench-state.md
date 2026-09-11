@@ -39,6 +39,16 @@ before it was cleaned up, and the name records where they came from.
 
 ## Current state — 2026-09-11 (EPSR REMOVED → loop-free vlan10 star; flash boot)
 
+> **2026-09-11, later same day — AWPTCM T11427 ran on this baseline and RESTORED it.** A PIM-SM
+> multicast + 300-route failover campaign temporarily added PIM/multicast-routing, source/receiver
+> VLANs (81/82), a loopback RP and 300 statics; **none was saved**, and the stack + u4 were rebooted
+> from startup to return to exactly the state described below (u5 untouched). Verified: no PIM, no
+> test VLANs, port1.0.2 back to access vlan1, u4 FIB back to 1, OSPF Full stack↔u4, all `show boot`
+> `(file exists)`. **Only role snapshot changed: after the full reboot member 2 (u3) is Active
+> Master, member 1 (u2) Backup** (member 2 priority 2 wins the boot election — expected; roles are
+> not a health signal). Log: `IE520/ipv4-routing/11427.log`; handover: session-2 block in
+> `IE520/SESSION-HANDOVER-2026-09-11.md`.
+
 **Supersedes the 2026-09-09 EPSR-ring section below.** The EPSR ring was torn down this session
 (Terrence's call) and the inter-switch cabling reduced to a **loop-free star with the DUT stack
 as hub**, so inter-device L3 (OSPF/PIM) works. Boot is now **flash**, not TFTP. The DUT stack has
@@ -57,8 +67,10 @@ schema decisions noted in the 09-09 section, out of scope for this topology capt
 | `/dev/u5` | standalone IE520 | L3 neighbour | 264A23066 | `84e3.2787.0740` |
 
 - DUT **stack MAC is now the virtual MAC `0000.cd37.0d6f`** (`stack virtual-mac`, Virtual Chassis
-  ID 0xd6f). Member 2 (u3) is `stack 2 priority 2` (wins master at boot). **At wrap (23:20
-  device clock): member 1 (u2) Active Master, member 2 Backup, both `Ready`, `Normal operation`.**
+  ID 0xd6f). Member 2 (u3) is `stack 2 priority 2` (wins master at boot). **After the T11427
+  restore reboot (see the note at the top of this section): member 2 (u3) Active Master, member 1
+  (u2) Backup, both `Ready`, `Normal operation`** — member 2's priority won the boot election, as
+  designed. (Earlier this day, before T11427, member 1 was Active Master.)
   Roles move after every failover and never pre-empt — read `show stack`. (S/N 264A23066 on u5 is
   still the suspect-hardware unit from the header item 3 — the fault tracks the S/N, now standalone.)
 - **Builds at wrap:** stack `awplus_main-20260910-1726` (build Wed Sep 9 12:05 UTC), same on both
