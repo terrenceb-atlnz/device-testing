@@ -44,6 +44,15 @@ script does *on a finding* — this one aborted the whole loop on the first new 
 turning a 10-cycle hunt for an intermittent fault into one data point. A script that has "worked"
 is no evidence its gates work: the prior run passed the single-monitor gate only by luck.
 
+**Where the framework can be READ from this host (2026-09-14):** `/home/st-art/framework` exists
+only on the testboxes — a `framework` symlink at the Test-cases repo root points there and is
+dangling on the dev host. The readable copy is the human-owned NFS clone
+`<testbox_home>/DeviceSkrips/framework` (systest `framework.git`, Feb 2026), which is what
+`build_script_index.py` harvests the surface doc from. Checked against tb470 by md5: `ATPackets.py`
+is byte-identical; `ATTestSet.py` on the box is NEWER (2026-09-11 vs 2026-02-10), so the clone —
+and the surface doc built from it — lag the box for the core modules. A full re-harvest must read
+the box's tree over SSH; treat the clone as authoritative only where a checksum says so.
+
 **Why:** the fix set is mechanical and identical each time, so knowing it converts a
 multi-launch debugging loop into one patch pass. Relevant to PyTest Creator, which reuses
 fragments from these same scripts ([[pytest-creator-askck]]).
