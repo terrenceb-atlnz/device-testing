@@ -1,34 +1,45 @@
 ---
 name: ie520-4stack-flashprep
-description: CONCLUDED NEGATIVE 2026-09-04 — IE520 hard-caps VCStack at 2 members, a 4-stack is impossible; proof + final state in ie520-stack-results.log
+description: 2-member VCStack cap was an OLD-build limit — the new build (awplus_main-20260913-1734) supports up to 8; a 4-member ring stack is now live on tb470. Plus how to flash members on this build.
 metadata: 
   node_type: memory
   type: project
   originSessionId: a6244017-fc0c-4802-b364-12f1f06cfcb6
-  modified: 2026-09-04T03:54:40.244Z
+  modified: 2026-09-14T00:00:00.000Z
 ---
 
-**DONE 2026-09-04 — result NEGATIVE.** The 4-device IE520 VCStack experiment
-(u2/u3/u4/u5 on tb470) is over: **the IE520 cannot form a stack of 4.** It is a
-hard **product limit of 2 members** — `stack 1 renumber 3|4|8` → `% The max stack
-member ID supported by this product is 2` (confirmed on S/N 264A23052 and
-264A23066), and `switch 3|4 provision ie520-28` → `% Invalid switch value`. Renumber
-to ID 2 IS accepted, so the ceiling is exactly 2. No CLI path raises it. The flash-prep
-work (all four flashed + flash-boot) is therefore moot for its original purpose.
+**REVERSED 2026-09-14.** The 2026-09-04 "hard cap of 2 members" was a limit of the OLD build, not
+the product. A new mainline build **`awplus_main-20260913-1734`** lifts it (up to 8, the standard),
+and Terrence rebuilt tb470 into a **single 4-member VCStack ring** (members 1-4 = S/N 264A23061 /
+264A23068(master) / 264A23066 / 264A23052 on `/dev/u2 / u3 / u5 / u4`). Full layout + ring + edges:
+`bench-setup/bench-state.md` "Current state — 2026-09-14". So a build date genuinely can change a
+"product limit" — re-test capability on the live build, don't trust an old NEGATIVE.
 
-**Full findings + logged CLI proof: `/media/terrenceb/mnt/testbox_home/ie520-stack-results.log`**
-(root of testbox_home). Facts-only, per Terrence's request.
+**(Historical, OLD build, 2026-09-04):** `stack 1 renumber 3|4` → `% The max stack member ID
+supported by this product is 2`; `switch 3 provision ie520-28` → `% Invalid switch value`. That is
+what the new build fixed.
 
-Durable IE520 facts learned (belong conceptually in orient-dt §2, not yet added there):
-- **VCStack max = 2 members.** A 4-stack is not configurable.
-- **`shutdown` on a stackport is NOT saved to config** (`% ... "shutdown" command is
-  not saved to configuration for stackports`) — it goes admin-down at runtime but any
-  reboot re-enables it. So an "all stackports shut" safe state is **not durable**; make
-  it durable with `no stackport` (persisted, needs a reboot) or by uncabling.
-- Renumber to ID 2 renames real ports port1.0.x→port2.0.x; old range goes phantom
-  (`provisioned`) — a shutdown on the pre-renumber range strands on phantom ports.
+**Flashing members on the NEW build (MEASURED 2026-09-14) — a large file only lands in a member's
+flash while that member is the MASTER (local TFTP).** Every non-master path is a dead end here:
 
-Final bench state (all standalone, every stackport admin-down, DAC cables present):
-u2/264A23061=ID1 chassis3439 prio1; u3/264A23068=ID2 chassis3439; u4/264A23052=ID1
-chassis3439; u5/264A23066=ID1 chassis2675. Console swap in effect: /dev/u2=…061,
-/dev/u3=…068. See [[tb470-topology-and-setup]], [[ie520-release-naming-and-drift]].
+- master → `awplus-N/flash:<file>` (flash-to-flash push) and `tftp:` → `awplus-N/flash:` both fail:
+  `nfs: server 192.168.255.N not responding, timed out` → `% Input/Output error due to external media
+  removal`. SMALL cross-member writes work and ICMP to `192.168.255.N` is clean — only the large
+  transfer stalls (member SPIFlash write over the internal NFS). The proven large cross-member copy is
+  a PULL (member→master), never a large push.
+- `remote-login N` then `copy tftp:` → `% Copying to/from remote file systems is only supported from
+  the stack master`.
+- Local TFTP on the master works (that is how the master got `IE520-awplus_main-20260913-1734.rel`).
+  ⇒ To flash members, make each the master in turn (priority + reload) and TFTP locally; TFTP from
+  `10.38.215.1` works from any master (data crosses the fabric as normal forwarding).
+
+Other durable facts (unchanged):
+- Cross-member path syntax for small files is `awplus-N/flash:<file>` (**no slash** after `flash:`).
+- AW+ refuses to overwrite/delete the file set as the current boot image, and `boot system tftp://…`
+  is rejected — stage a new release under a dated name (e.g. `IE520-awplus_main-20260913-1734.rel`),
+  don't overwrite `IE520-tb470.rel`.
+- **`shutdown` on a stackport is NOT saved to config**; make a safe state durable with `no stackport`
+  (persisted, needs reboot) or by uncabling.
+- Renumbering renames real ports (`portN.0.x`); the old range goes phantom (`provisioned`).
+
+See [[tb470-topology-and-setup]], [[ie520-release-naming-and-drift]].

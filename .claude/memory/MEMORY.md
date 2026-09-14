@@ -24,7 +24,7 @@
 - [IE520 silent-reboot watch 2026-09-02](ie520-silent-reboot-watch-2026-09-02.md) — DEFERRED to a weekend run; caught member 1's silent reboot; 3 harness defects to fix first; only console.py survives
 - [IE520 DoS test method](ie520-dos-test-method.md) — AWPTCM DoS suite on tb470: attacks must TRANSIT the switch; batch sendp (fastdos.py); disarm `no dos <type>`; method in DOS-METHOD.md
 - [Prefer a pragmatic fix over infra debugging](prefer-pragmatic-fix-over-infra-debugging.md) — when incidental infra breaks mid-task, take the deterministic fix (static IP, skip); don't rabbit-hole
-- [IE520 4-stack flash-prep](ie520-4stack-flashprep.md) — CONCLUDED NEGATIVE 2026-09-04: IE520 VCStack hard-caps at 2 members; proof in ie520-stack-results.log
+- [IE520 4-stack flash-prep](ie520-4stack-flashprep.md) — REVERSED 2026-09-14: the 2-member cap was an OLD-build limit; new build supports up to 8 and a 4-member ring stack is live on tb470. Incl. how to flash members (only the master can TFTP)
 - [IE520 mcast/L3 test method](ie520-mcast-l3-test-method.md) — IGMP/MLD-snooping + directed-broadcast on tb470 with ONE host NIC: u4=querier, u5 ping=source, host scapy=receiver; gotchas inside
 - [AW+ service-gated routing daemons](awplus-service-gated-routing-daemons.md) — "daemon is not running or feature license" = run `service ospf|rip|vrrp|pim` first; PIM-DM has no service cmd
 - [Claude cannot push — Terrence pushes](claude-cannot-push-terrence-pushes.md) — company permissions deny `git push` every time (and any overwrite); commit with a full message, report the hash as "committed, not pushed", never retry a denied push
