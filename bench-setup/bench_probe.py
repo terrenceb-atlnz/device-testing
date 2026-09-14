@@ -8,11 +8,17 @@ tb470.setup) -- never the reverse -- so it must never read either of them.
 
 For every console it: checks the node exists and is free (never collides with a
 live session), auto-detects baud (115200 then 9600), forces the login banner to
-identify the physical unit, logs in if needed, and captures one FIXED set of
-read-only `show` commands. Output: JSON (machine source of truth) + a summary.
+identify the physical unit, logs in to a PRIVILEGED prompt if needed, and
+captures one FIXED set of read-only `show` commands. On a formed stack it also
+lists EACH member's own flash (`dir awplus-N/flash:`), and it maps every live
+host NIC to the switch port that learned its MAC (host-side ping + filtered
+`show mac address-table`).
+
+Output is JSON on STDOUT (summary on stderr) -- nothing is written to disk. The
+JSON is transient: pipe it, read it, update bench-state.md, discard it.
 
 Run ON tb470 (the consoles are local to it); serial access needs no sudo:
-    python3 bench_probe.py [--consoles 0-6] [--json out.json] [--quiet]
+    python3 bench_probe.py [--consoles 0-6] [--quiet] > /tmp/probe.json
 """
 import argparse
 import json
@@ -63,16 +69,56 @@ COMMANDS = [
     "show startup-config",
 ]
 
-# Any prompt (user `>` or privileged `#`) -- "the console is alive / a command finished".
 PROMPT_RE = re.compile(r"[\w.-]+(?:\([\w -]+\))?[#>][ \t]*$")
 PROMPT_ANYWHERE_RE = re.compile(r"(?:^|\r?\n)[\w.-]+(?:\([\w -]+\))?[#>]")
-# PRIVILEGED prompt only (`#`). Many `show` commands (boot, running-config, dir,
-# file systems, cpu, spanning-tree) are invalid at user exec `>`, so we must
-# reach `#` before running the set -- never treat `>` as "logged in".
 PRIV_RE = re.compile(r"[\w.-]+(?:\([\w -]+\))?#[ \t]*$")
 PRIV_ANYWHERE_RE = re.compile(r"(?:^|\r?\n)[\w.-]+(?:\([\w -]+\))?#")
 LOGIN_RE = re.compile(r"([\w.-]+) login:\s*$")
+PHYS_PORT_RE = re.compile(r"\b(port(\d+)\.\d+\.\d+)\b")
+STACK_ID_RE = re.compile(r"^\s*(\d+)\s+\S+\s+[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4}\b")
+# a `show stack` member row carries the ID first and its Role last; capture both so
+# a console's role is looked up by the unit it is ON, not the first row in the table
+# (every relayed console sees the same table, so _first() reported member 1's role
+# for all of them -- the master console read "Backup Member").
+STACK_ROW_RE = re.compile(
+    r"^\s*(\d+)\b.*?\b(Active Master|Backup Member|Standalone unit)\s*$", re.I)
 PRINTABLE = set(bytes(range(0x20, 0x7F))) | {0x09, 0x0A, 0x0D}
+
+
+def mac_dotted(mac):
+    h = re.sub(r"[^0-9a-fA-F]", "", mac or "").lower()
+    return "{}.{}.{}".format(h[0:4], h[4:8], h[8:12]) if len(h) == 12 else (mac or "")
+
+
+def stack_member_ids(show_stack):
+    return [int(m.group(1)) for line in (show_stack or "").splitlines()
+            for m in [STACK_ID_RE.match(line)] if m]
+
+
+def stack_roles(show_stack):
+    """{stack-id: role} parsed from `show stack`."""
+    roles = {}
+    for line in (show_stack or "").splitlines():
+        m = STACK_ROW_RE.match(line)
+        if m:
+            roles[int(m.group(1))] = m.group(2)
+    return roles
+
+
+def role_for(banner, show_stack):
+    """Role of the unit THIS console is on. `awplus-N` is member N; bare `awplus`
+    is whichever member currently holds Active Master. Returns None off-stack."""
+    roles = stack_roles(show_stack)
+    if not roles:
+        return None
+    if banner:
+        m = re.search(r"-(\d+)$", banner)
+        if m:
+            return roles.get(int(m.group(1)))
+    for rid, r in roles.items():
+        if r.lower() == "active master":
+            return r
+    return None
 
 
 class Probe:
@@ -81,16 +127,12 @@ class Probe:
         self.s = None
         self.baud = None
 
-    # ---- low level ----
     def _open(self, baud):
         os.system("stty -F {} -hupcl 2>/dev/null".format(os.path.realpath(self.port)))
         self.s = serial.Serial(self.port, baud, timeout=0.2)
         self.baud = baud
 
     def _drain(self, quiet=0.8, timeout=30.0, need_prompt=False):
-        """Read until `quiet`s of silence; with need_prompt, keep going through
-        silence until a prompt appears (SPIFlash/slow commands stay silent for
-        minutes -- only a prompt or the timeout ends the wait)."""
         buf = ""
         deadline = time.time() + timeout
         last = time.time()
@@ -112,7 +154,6 @@ class Probe:
         self.s.write((line + "\r").encode())
         return self._drain(quiet=quiet, timeout=timeout, need_prompt=need_prompt)
 
-    # ---- baud + identity ----
     @staticmethod
     def _looks_valid(raw):
         if not raw:
@@ -121,7 +162,6 @@ class Probe:
         return good / max(1, len(raw)) > 0.85
 
     def detect_baud(self):
-        """Return (baud, initial_output) or (None, reason)."""
         empty_all = True
         for baud in BAUDS:
             try:
@@ -138,25 +178,19 @@ class Probe:
                                            or "login:" in out.lower()
                                            or "AlliedWare" in out):
                 return baud, out
-        # nothing sensible at any baud
         return None, ("no_response (powered off / absent)" if empty_all
                       else "garbage at all bauds (unknown baud / not an AW+ console)")
 
     def capture_banner(self, initial):
-        """Force the login banner so the physical unit is identifiable, and
-        return (banner_hostname, raw). On a formed stack a backup console shows
-        `awplus-N login:`; the master shows bare `awplus login:`."""
         m = LOGIN_RE.search(initial.rstrip()[-120:]) or LOGIN_RE.search(initial)
         if m:
             return m.group(1), initial
-        # Logged in already -> escape any config mode, log out to reveal banner.
         self._send("end", quiet=0.5, timeout=8.0, need_prompt=False)
         out = self._send("logout", quiet=1.0, timeout=12.0, need_prompt=False)
         m = LOGIN_RE.search(out.rstrip()[-160:]) or LOGIN_RE.search(out)
         return (m.group(1) if m else None), out
 
     def login(self):
-        """Reach a PRIVILEGED (`#`) prompt. Returns (ok, note)."""
         self.s.write(b"\r")
         out = self._drain(quiet=1.0, timeout=8.0, need_prompt=False)
         if "login:" in out.lower():
@@ -169,19 +203,17 @@ class Probe:
                     return False, "forced password-change dialog; refused"
                 if PROMPT_ANYWHERE_RE.search(out):
                     break
-                if "login:" in out.lower():          # wrong pw -> re-feed username
+                if "login:" in out.lower():
                     self.s.write((USERNAME + "\r").encode())
                     self._drain(quiet=1.0, timeout=10.0, need_prompt=False)
         if "new password" in out.lower():
             return False, "forced password-change dialog; refused"
-        # Ensure PRIVILEGED exec -- `enable` if we are only at user exec `>`.
         if not PRIV_RE.search(out.rstrip()[-120:]):
             self.s.write(b"enable\r")
             out = self._drain(quiet=1.0, timeout=15.0, need_prompt=False)
             if "password" in out.lower() and not PRIV_ANYWHERE_RE.search(out):
                 self.s.write((PASSWORDS[0] + "\r").encode())
                 out = self._drain(quiet=1.0, timeout=12.0, need_prompt=False)
-        # Deterministic session state: escape config mode, no paging, no logs.
         self._send("end", quiet=0.4, timeout=8.0, need_prompt=False)
         self._send("terminal length 0", quiet=0.5, timeout=8.0, need_prompt=False)
         out = self._send("terminal no monitor", quiet=0.5, timeout=8.0, need_prompt=False)
@@ -213,9 +245,49 @@ def fuser_holder(port):
     return (r.stdout + r.stderr).strip()
 
 
-def probe_console(path):
+def host_nics():
+    """{ethN: {mac, carrier_up, ipv4, _ip}} for host NICs, newest kernel order."""
+    nics = {}
+    base = "/sys/class/net"
+    for n in sorted(os.listdir(base)):
+        if not n.startswith("eth"):
+            continue
+
+        def _read(f):
+            try:
+                return open(os.path.join(base, n, f)).read().strip()
+            except Exception:
+                return ""
+        ip = None
+        try:
+            r = subprocess.run(["ip", "-4", "-o", "addr", "show", n],
+                               capture_output=True, text=True)
+            m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)/(\d+)", r.stdout)
+            if m:
+                ip = (m.group(1), int(m.group(2)))
+        except Exception:
+            pass
+        nics[n] = {"mac": _read("address"), "carrier_up": _read("carrier") == "1",
+                   "ipv4": "{}/{}".format(*ip) if ip else None, "_ip": ip}
+    return nics
+
+
+def force_arp(nics):
+    """Flood a who-has out each up NIC so the switches learn its MAC on ingress."""
+    for n, info in nics.items():
+        if not info["carrier_up"] or not info["_ip"]:
+            continue
+        ip, _ = info["_ip"]
+        oct_ = ip.split(".")
+        oct_[-1] = str((int(oct_[-1]) + 2) % 256)          # a likely-unanswered nbr
+        subprocess.run(["ping", "-c1", "-w1", "-I", n, ".".join(oct_)],
+                       capture_output=True)
+
+
+def probe_console(path, host_macs):
     rec = {"path": path, "status": None, "baud": None, "banner_hostname": None,
-           "login": None, "commands": {}, "notes": []}
+           "login": None, "commands": {}, "per_member_flash": {},
+           "host_mac_lookups": {}, "notes": []}
     if not os.path.exists(path):
         rec["status"] = "absent"
         return rec
@@ -243,6 +315,24 @@ def probe_console(path):
                 rec["commands"][cmd] = p.run_cmd(cmd)
             except Exception as e:
                 rec["commands"][cmd] = "!! probe error: {}: {}".format(type(e).__name__, e)
+        # 3a: per-member flash -- a stack console relays to the master, so `dir`
+        # shows only the master's flash. List each member's OWN flash explicitly.
+        ids = stack_member_ids(rec["commands"].get("show stack", ""))
+        if len(ids) > 1:
+            for mid in ids:
+                try:
+                    rec["per_member_flash"][str(mid)] = p.run_cmd(
+                        "dir awplus-{}/flash:".format(mid))
+                except Exception as e:
+                    rec["per_member_flash"][str(mid)] = "!! {}: {}".format(
+                        type(e).__name__, e)
+        # 3b: host-edge -- where did each host NIC's MAC land on THIS switch?
+        for nic, dm in (host_macs or {}).items():
+            try:
+                rec["host_mac_lookups"][nic] = p.run_cmd(
+                    "show mac address-table | include " + dm)
+            except Exception as e:
+                rec["host_mac_lookups"][nic] = "!! {}: {}".format(type(e).__name__, e)
     except Exception as e:
         rec["status"] = rec["status"] or "error"
         rec["notes"].append("{}: {}".format(type(e).__name__, e))
@@ -271,9 +361,29 @@ def summarize(rec):
         [r"Serial [Nn]umber\s*[:.]*\s*([A-Z0-9]+)"], sys_out)
     swver = _first([r"Software version\s*[:.]\s*(\S+)", r"Build name\s*[:.]\s*(\S+)"], sys_out) or \
         _first([r"Build name\s*[:.]\s*(\S+)"], ver)
-    role = _first([r"(Active Master|Backup Member|Standalone unit)"], stk)
+    role = role_for(rec.get("banner_hostname"), stk)
     return {"banner": rec.get("banner_hostname"), "model": model, "serial": serial,
             "sw": swver, "stack_role": role}
+
+
+def derive_host_edges(host, consoles):
+    """host NIC -> the switch physical port(s) that learned its MAC. Stack consoles
+    relay to one CLI and agree, so ports dedupe; a physical `portX.0.Y` is the
+    cabled edge (member X), a trunk/`saN` is arrival via aggregation, not the edge."""
+    edges = {}
+    for nic, info in host.items():
+        ports = set()
+        for rec in consoles.values():
+            look = (rec.get("host_mac_lookups") or {}).get(nic, "") or ""
+            for line in look.splitlines():
+                pm = PHYS_PORT_RE.search(line)
+                if pm:
+                    ports.add((pm.group(1), int(pm.group(2))))
+        edges[nic] = {"mac": info["mac"], "carrier_up": info["carrier_up"],
+                      "ipv4": info["ipv4"],
+                      "physical_ports": sorted(p for p, _ in ports),
+                      "members": sorted({m for _, m in ports})}
+    return edges
 
 
 def main(argv=None):
@@ -281,7 +391,6 @@ def main(argv=None):
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--consoles", default="0-6",
                     help="range/list of /dev/uN, e.g. 0-6 or 2,3,4,5 (default 0-6)")
-    ap.add_argument("--json", metavar="FILE", help="write the full capture here (default: stdout)")
     ap.add_argument("--quiet", action="store_true", help="suppress the per-console summary")
     args = ap.parse_args(argv)
 
@@ -294,18 +403,24 @@ def main(argv=None):
         elif part:
             nums.append(int(part))
 
-    result = {"probe_meta": {"tool": "bench_probe.py", "version": 1,
+    host = host_nics()
+    force_arp(host)                                        # learn NIC MACs on ingress
+    host_macs = {n: mac_dotted(i["mac"]) for n, i in host.items() if i["mac"]}
+
+    result = {"probe_meta": {"tool": "bench_probe.py", "version": 2,
                              "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                              "host": os.uname().nodename,
                              "consoles": ["/dev/u{}".format(n) for n in nums],
                              "commands": COMMANDS},
+              "host": {n: {k: i[k] for k in ("mac", "carrier_up", "ipv4")}
+                       for n, i in host.items()},
               "consoles": {}}
 
     for n in nums:
         path = "/dev/u{}".format(n)
         if not args.quiet:
             print("probing {} ...".format(path), file=sys.stderr, flush=True)
-        rec = probe_console(path)
+        rec = probe_console(path, host_macs)
         result["consoles"]["u{}".format(n)] = rec
         if not args.quiet:
             s = summarize(rec) if rec["status"] == "ok" else {}
@@ -314,14 +429,16 @@ def main(argv=None):
                 s.get("model"), s.get("serial"), s.get("sw"), s.get("stack_role")),
                 file=sys.stderr, flush=True)
 
-    out = json.dumps(result, indent=2)
-    if args.json:
-        with open(args.json, "w") as f:
-            f.write(out)
-        if not args.quiet:
-            print("\nfull capture -> {}".format(args.json), file=sys.stderr)
-    else:
-        print(out)
+    result["host_edges"] = derive_host_edges(host, result["consoles"])
+    if not args.quiet:
+        print("\nhost edges:", file=sys.stderr)
+        for nic, e in result["host_edges"].items():
+            print("  {} ({}, carrier={}) -> {} member(s) {}".format(
+                nic, e["ipv4"], e["carrier_up"],
+                e["physical_ports"] or "(not learned)", e["members"]),
+                file=sys.stderr)
+
+    print(json.dumps(result, indent=2))
     return 0
 
 

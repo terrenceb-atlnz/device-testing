@@ -32,7 +32,7 @@ section refers to these by NAME**; when something moves, fix this table and noth
 | **resiliency-link evidence** | `IE520/stack-tests/resiliency-link/after-action-17688.md` | |
 | **TESTBOX-ACCESS.md** | `claude/Test-cases/TESTBOX-ACCESS.md` ¹ | SSH agent socket, `.setup` is declarative |
 | **TB470-HOST-NETWORKING.md** | `claude/Test-cases/TB470-HOST-NETWORKING.md` ¹ | host NICs, DHCP/TFTP, return path |
-| **bench_probe.py** (standalone bench source-of-truth, 2026-09-15) | `bench-setup/bench_probe.py` | sweeps `/dev/u0`–`u6` identically every run, depends on NOTHING (no `.setup`, no bench-state.md) — it FEEDS bench-state.md. Run it ON tb470. **This is the probe to use for bench state.** |
+| **bench_probe.py** (standalone bench source-of-truth, 2026-09-15) | `bench-setup/bench_probe.py` | sweeps `/dev/u0`–`u6` identically every run, depends on NOTHING (no `.setup`, no bench-state.md) — it FEEDS bench-state.md. Also lists EACH member's own flash (`dir awplus-N/flash:`) and maps every up host NIC→switch port (ping + filtered `show mac address-table`). **stdout-only:** JSON to stdout, summary to stderr — no `--json` flag (`python3 bench_probe.py [--consoles 0-6] > /tmp/probe.json`); the JSON is transient, read it then discard. Run it ON tb470. **This is the probe to use for bench state.** |
 | **bench_probe.py** (older *framework-driver* reads — different tool, same name) | `claude/Test-cases/ask-ck/functions/test-composer/bench_probe.py` ¹ | binds devices via the `.setup`; used by the test-composer. Archived revisions in `IE520/stack-tests/bench-probe-*/` |
 | **fw_async_test.py / fw_async_chatter.py** | `claude/Test-cases/ask-ck/test-composer/` ¹ | the §3 chatter regression |
 | **working style** | `claude/Test-cases/CLAUDE.md` §"How we work" ¹ | |
