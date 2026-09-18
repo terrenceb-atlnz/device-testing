@@ -268,7 +268,11 @@ def main():
               'only pair splits the stack instead of testing its stability')
         return 2
 
-    here = os.path.dirname(os.path.abspath(__file__))
+    # 2026-09-18: logs go to the CURRENT DIRECTORY, not beside the script. Each campaign
+    # runs from its own dated run dir (cd there, invoke this file by absolute path), so
+    # two runs can never append into one another's 38378.log -- which the 08-26 handover
+    # warned about. The 2026-08-25/26 evidence in failover-300/ is untouched by this.
+    here = os.getcwd()
     logf = open(os.path.join(here, '38378.log'), 'a', buffering=1)
     prog = os.path.join(here, '38378-progress.txt')
     con = Console(args.master, os.path.join(here, '38378-console.log'))
