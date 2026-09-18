@@ -12,8 +12,7 @@
   **wrote both configs**. Record: `bench-setup/bench-state.md` "Current state — 2026-09-18"; the
   ```setup fences were rewritten and `bench_setup.py apply`-ed. Evidence:
   `IE520/bench-rebuild-2026-09-18/`.
-- **Open for Terrence:** the 4050's PDU outlet (unknown → no `pwr_e`/`[powerlink]`); a stack reboot
-  to complete `no service ospf` / `no service epsr` (saved, not rebooted); whether to declare
+- **Open for Terrence:** the 4050's PDU outlet (unknown → no `pwr_e`/`[powerlink]`); ~~a stack reboot to complete `no service ospf` / `no service epsr`~~ (DONE ~02:02 UTC — 193 s to banner; master now **m2/u3**); whether to declare
   `ck_profile` now that `base` is satisfiable.
 
 ## ⚠️ Tooling review Terrence asked to be reminded of (2026-09-18 — "next time")
@@ -41,9 +40,9 @@ this session; the 2026-09-18 record was **hand-authored from measured data** bec
 Pointer memory: `.claude/memory/verify-setup-topology-flow.md` describes the intended flow — update
 or retire it with whatever is decided.
 
-## Bench state at this note (2026-09-18 ~13:40 NZST)
+## Bench state at this note (2026-09-18 ~14:10 NZST)
 
-Whole, not parked. Stack `Normal operation`, all `Ready`, master **member 3 (`/dev/u5`)**. LAG
+Whole, not parked. Stack `Normal operation`, all `Ready`, master **member 2 (`/dev/u3`)** after the ~02:02 UTC full reboot (was m3/u5 before it). LAG
 `synchronized` both ends; `Spanning Tree Disabled` on stack and 4050; loop-protection all `Normal`.
 Both startup-configs == running. No TB changes. `/tmp/ckorient/` on tb470 holds `console.py`,
 `survey.py`, `thru_test.py` and this session's transcripts (tmpfs).
@@ -55,3 +54,16 @@ SSH_AUTH_SOCK=$sock ssh tb470 'fuser -v /dev/u*'
 SSH_AUTH_SOCK=$sock ssh tb470 'cd /home/terrenceb/claude/device-testing/bench-setup && python3 bench_probe.py --consoles 0-6' >/dev/null
 cd bench-setup && ./bench_setup.py check     # expect IN SYNC
 ```
+
+## Stack-test campaign Terrence asked about (2026-09-18) — findings before any prep
+
+- **38378 stackport shutdown x300** = `IE520/stack-tests/failover-300/test_38378.py` — runnable as-is on the 4-member
+  ring with the four ring links as `--pair`s (`port1.0.28,port2.0.27` `port2.0.28,port4.0.27` `port4.0.28,port3.0.27`
+  `port3.0.28,port1.0.27`); `--master` must be the CURRENT master console. ~110 s/cycle bug-free -> ~9-10 h.
+- **38376 master reboot x300** = `IE520/stack-tests/0009_simple_repeated_Master_reboot.py` — NOT runnable as-is:
+  gates on x950 strings (`Configuration update completed for port`, `network.configured`) that appear ZERO times in
+  IE520 console captures; would hit the 900 s reform timeout every cycle. Also writes `length 0` + `wr`. With m2 at
+  prio 2 the loop alternates m2<->m3 as master (m3 has the lowest MAC among the 128s).
+- **38377 backup-member reboot x300** — NO script exists. `0010_simple_repeated_rolling_reboot.py` is `reboot rolling`
+  (whole stack), not a member reboot. Needs a small console.py loop.
+- Pending Terrence's answers: 38377 shape (fixed member vs rotate), run order, fix-0009 vs rewrite on console.py.

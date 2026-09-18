@@ -173,7 +173,7 @@ PDU `10.36.150.14`; letters A–H = 1–8.
 
 1. **4050 PDU outlet** unknown → `swi_e` has no `[powerlink]`; a test calling `swi_e.off()` will
    not fail fast (see §6). Terrence to identify it.
-2. **`no service ospf` / `no service epsr` complete only on a stack reboot** — saved, not rebooted.
+2. ~~`no service ospf` / `no service epsr` complete only on a stack reboot~~ **DONE 2026-09-18 ~02:02 UTC:** Terrence approved a whole-stack `reboot`; login banner back after 193 s, all four `Ready`, `Normal operation`. **Master is now member 2 (`/dev/u3`)** — priority 2 won the fresh election (roles are not a health signal; the fences' "member 3 master today" is the pre-reboot snapshot). LAG `synchronized` both links, vlan10 + static route back, RSTP still disabled; `no service ospf` in running-config, no `service epsr` line. Transcript: `IE520/bench-rebuild-2026-09-18/06-stack-reboot-postcheck.txt`.
 3. **`ck_profile`:** an inter-DEVICE swi↔swi link now exists (the stack↔4050 LAG), so `base` is
    satisfiable for the first time — declaring it is Terrence's decision; left empty.
 4. **Tooling:** `bench_probe.py`'s host-edge merge does not namespace ports by device, so the
