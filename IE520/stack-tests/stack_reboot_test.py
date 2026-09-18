@@ -61,12 +61,27 @@ except ImportError:
 # constants -- all AW+ generic, none product-specific
 # ----------------------------------------------------------------------------------
 PROMOTED_STRINGS = ['has become the Active Master']
-FATAL_LOG_PATTERNS = ['coredump', 'core dump', 'exception', 'segmentation', 'panic',
-                      'watchdog', 'i2c bus locked', 'fatal', 'assertion', 'oops',
-                      'disabled master', 'standalone unit']
-# A second bootloader banner inside ONE boot capture means the unit reset itself mid-boot
-# (the cycle-293 watchdog signature).  Matched case-insensitively.
-BOOT_BANNER_RE = re.compile(r'BootROM|U-Boot|ATBootLoader|Boot Loader', re.I)
+
+# MEASURED 2026-09-18 against two healthy IE520 boots AND the 2026-08-26 wedge captures.
+# Every pattern below is CASE-SENSITIVE and anchored on punctuation the kernel actually
+# prints, because the obvious loose forms are all false positives here:
+#   'core'      -> usbcore, pps_core, l2tp_core, pinctrl core, "Core: 22 devices"
+#   'oops'      -> ramoops, mtdoops  (the pstore driver; this alone produced 2 hits in
+#                  the real wedge capture, i.e. the loose pattern "detected" the wedge
+#                  for entirely the wrong reason)
+#   'watchdog'  -> f1020300.watchdog driver registration, printed on every boot
+#   'exception' -> our own `show exception log` echoed back in `show log`
+# A healthy boot scores ZERO on all of these.
+FATAL_RE = re.compile(r'Kernel panic|Oops:|Unable to handle kernel|BUG:|segfault'
+                      r'|core dumped|coredump|Internal error|i2c bus locked'
+                      r'|watchdog: BUG|Disabled Master|Standalone unit')
+# `show log` echoes every command we type (IMISH[pid]: [manager@ttyS0]<cmd>), so scanning
+# raw log text matches our own command names.  These lines are dropped before matching.
+LOG_ECHO_RE = re.compile(r'IMISH\[\d+\]')
+# ONE boot prints ONE of these.  (It also prints 'BootROM: Image checksum verification
+# PASSED' and a 'U-Boot <ver>' banner -- matching those too counted a normal boot as 3
+# boots.)  Two in a capture that should hold one boot = the unit reset itself mid-boot.
+BOOT_BANNER_RE = re.compile(r'BootROM \d+\.\d+')
 STACK_ROW_RE = re.compile(r'^\s*(\d+)\s+(\S+)\s+([0-9a-fA-F.]{14})\s+(\d+)\s+(\S+)\s+(.+?)\s*$', re.M)
 OPER_RE = re.compile(r'^\s*Operational Status\s{2,}(.+?)\s*$', re.M)
 STACKPORT_RE = re.compile(r'Stack (port[\d.]+) status\s+(.+)')
@@ -183,6 +198,35 @@ class Campaign:
     def exception_log(self, swi):
         return self.cmd(swi, 'show exception log', maxwait=120).strip()
 
+    def log_tail(self, swi, lines=150):
+        """`show log tail N` -- NOT `show log | tail N`.
+
+        MEASURED 2026-09-18: the pipe form is '% Invalid input detected' on this build.
+        That matters beyond this script: test_38378.py's scan_logs() uses the pipe form,
+        so every 'log scan: CLEAN' it has ever printed was scanning an error message --
+        an absence-of-evidence pass.  Here the command is verified to have produced log
+        text, and a reply that is not log output raises Unreadable (UNMEASURED), never a
+        silent clean.
+        """
+        out = self.cmd(swi, 'show log tail %d' % lines, maxwait=180)
+        if 'Invalid input' in out or '<date> <time>' not in out:
+            raise Unreadable('`show log tail %d` did not return log text on %s: %r'
+                             % (lines, swi.name, out[:200]))
+        return '\n'.join(l for l in out.splitlines() if not LOG_ECHO_RE.search(l))
+
+    def newest_reboots(self, swi):
+        """{member id: newest (time, type, description) or None} -- for EVERY member.
+
+        This is the load-bearing health check of the whole campaign.  The 2026-08-26
+        cycle-293 wedge emitted NOTHING on the console on its way down (it goes straight
+        from silence to a BootROM banner), so no console-text pattern can catch it.  What
+        it DOES leave is an 'Unexpected' entry in `show reboot history`.  Watching every
+        member's newest entry each cycle therefore catches a self-reset anywhere in the
+        stack, including on units this cycle never touched.
+        """
+        return {mid: (rows[0] if rows else None)
+                for mid, rows in self.reboot_history(swi).items()}
+
     def wait_full(self, swi, timeout, what):
         """Poll `show stack` until FULL.  Returns (ok, seconds, last_state)."""
         t0 = time.time()
@@ -291,12 +335,13 @@ class Campaign:
         target = self.by_id[target_id]
         others = [m for m in self.members if m is not target]
         rec.update(target=target_id, target_console=target.name, master_before=self.master_id)
-        hist_before = self.reboot_history(master)
-        rows_before = hist_before.get(target_id, [])
-        # The NEWEST entry, not the count: `show reboot history` is a capped ring (32 entries
-        # on this platform), so over 300 cycles the count stops growing and a count-delta
-        # check would start reporting false failures the moment it saturates.
-        newest_before = rows_before[0] if rows_before else None
+        # The NEWEST entry per member, not the count: `show reboot history` is a capped ring
+        # (member 1 was already at 33 entries on 2026-09-18), so over 300 cycles the count
+        # stops growing and a count-delta check would start reporting false failures the
+        # moment it saturates.  Snapshot ALL members so a self-reset on a unit this cycle
+        # never touched is caught too.
+        reboots_before = self.newest_reboots(master)
+        newest_before = reboots_before.get(target_id)
         self.log('  target member %s on %s (%s); master=%s; newest reboot-history entry: %s' % (
             target_id, target.name, target.tty, self.master_id, newest_before or '<none>'))
 
@@ -415,9 +460,8 @@ class Campaign:
         problems = []
         if banners > 1:
             problems.append('%d bootloader banners in one boot capture (self-reset mid-boot?)' % banners)
-        hist_after = self.reboot_history(driver)
-        rows = hist_after.get(target_id, [])
-        newest_after = rows[0] if rows else None
+        reboots_after = self.newest_reboots(driver)
+        newest_after = reboots_after.get(target_id)
         rec['reboot_history_newest'] = newest_after
         if newest_after is None:
             problems.append('no reboot history for member %s after rebooting it' % target_id)
@@ -427,6 +471,14 @@ class Campaign:
         elif newest_after[1] != 'Expected':
             problems.append('newest reboot-history entry for %s is %s: %s'
                             % (target_id, newest_after[1], newest_after[2]))
+        # Any OTHER member that rebooted this cycle is a finding whatever its type: we only
+        # asked one unit to go down.  This is what would catch a cycle-293-style watchdog
+        # reset, which leaves no console text at all.
+        collateral = {mid: new for mid, new in reboots_after.items()
+                      if mid != target_id and new != reboots_before.get(mid)}
+        rec['collateral_reboots'] = collateral or None
+        if collateral:
+            problems.append('member(s) other than the target also rebooted: %s' % collateral)
         if rec['stackports_unlearnt']:
             problems.append('stack ports without a learnt neighbour: %s' % rec['stackports_unlearnt'])
         exc_now = self.exception_log(driver)
@@ -435,15 +487,14 @@ class Campaign:
                 len(self.exception_baseline), len(exc_now)))
             self.log('  !! exception log now:\n%s' % exc_now)
             self.exception_baseline = exc_now       # re-baseline so each cycle reports its own delta
-        tail = self.cmd(driver, 'show log | tail 150', maxwait=120).lower()
-        hits = [p for p in FATAL_LOG_PATTERNS if p in tail]
-        # our own reboot legitimately logs the member leaving/joining; only fatal words count
+        # Our own reboot legitimately logs the member leaving and rejoining (user.crit
+        # 'Member N ... has left/joined the stack'); only the fatal set below counts.
+        hits = sorted(set(FATAL_RE.findall(self.log_tail(driver))))
         if hits:
-            problems.append('fatal signatures in `show log` tail: %s' % hits)
-        boot_low = boot_text.lower()
-        boot_hits = [p for p in ('panic', 'oops', 'i2c bus locked', 'watchdog', 'core') if p in boot_low]
+            problems.append('fatal signatures in `show log tail`: %s' % hits)
+        boot_hits = sorted(set(FATAL_RE.findall(boot_text)))
         if boot_hits:
-            problems.append('signatures in the target boot capture: %s' % boot_hits)
+            problems.append('fatal signatures in the target boot capture: %s' % boot_hits)
         rec['problems'] = problems
         if problems:
             self.collect_evidence(driver, rec, '; '.join(problems), target=target, light=True)
@@ -466,10 +517,10 @@ class Campaign:
         self.log('  !! collecting evidence: %s' % why)
         path = 'evidence-cycle%03d.txt' % rec['n']
         cmds = ['show stack', 'show stack detail', 'show reboot history', 'show exception log',
-                'show log | tail 300']
+                'show log tail 300']          # `| tail` is % Invalid input on this build
         if not light:
             cmds += ['show system', 'show version', 'show file systems', 'show cpu',
-                     'show memory', 'show log permanent | tail 200']
+                     'show memory', 'show log permanent tail 200']
         with open(path, 'a') as fh:
             fh.write('===== %s  cycle %d  %s =====\n' % (ts(), rec['n'], why))
             for c in cmds:

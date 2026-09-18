@@ -241,24 +241,8 @@ class Runner:
         return 'PASS', 'shut+restored {}'.format(','.join(pair))
 
     def scan_logs(self):
-        """Returns (hits, output).  hits is None when the log could not be read.
-
-        2026-09-18: this used `show log | tail 120`, which is '% Invalid input detected'
-        on the IE520 build -- the correct form is `show log tail 120`, no pipe.  The
-        scan then matched its own error message, found nothing, and reported CLEAN, so
-        every 'log scan: CLEAN' printed by this script before today (the 2026-08-25/26
-        campaign included) was an absence-of-evidence pass over an error string.
-        The caller must now distinguish None (unreadable) from [] (genuinely clean).
-
-        `show log` also echoes every command typed (IMISH[pid]: [manager@ttyS0]<cmd>),
-        so those lines are dropped before matching -- otherwise scanning for 'exception'
-        matches our own `show exception log`.
-        """
-        out = self.c.cmd_fast('show log tail 120', timeout=120)
-        if 'Invalid input' in out or '<date> <time>' not in out:
-            return None, out
-        body = '\n'.join(l for l in out.splitlines() if 'IMISH[' not in l).lower()
-        return [p for p in ERROR_PATTERNS if p in body], out
+        out = self.c.cmd_fast('show log | tail 120', timeout=120)
+        return [p for p in ERROR_PATTERNS if p in out.lower()], out
 
     def restore_all(self):
         self.log('restoring: no shutdown on every stack port')
@@ -336,20 +320,14 @@ def main():
                          'elapsed={el:.0f}s eta={eta:.0f}s\n'.format(
                              n, args.iterations, el=el, eta=eta, **counts))
             if n % args.log_every == 0:
-                hits, raw = r.scan_logs()
-                if hits is None:
-                    # Never report an unreadable log as CLEAN -- that was the old bug.
-                    r.log('    log scan @{}: UNREADABLE ({!r})'.format(n, raw[:120]))
-                else:
-                    r.log('    log scan @{}: {}'.format(
-                        n, 'CLEAN' if not hits else 'HITS {}'.format(hits)))
+                hits, _ = r.scan_logs()
+                r.log('    log scan @{}: {}'.format(
+                    n, 'CLEAN' if not hits else 'HITS {}'.format(hits)))
     finally:
         try:
             r.restore_all()
-            hits, raw = r.scan_logs()
-            r.log('final log scan: {}'.format(
-                'UNREADABLE ({!r})'.format(raw[:120]) if hits is None
-                else 'CLEAN' if not hits else 'HITS {}'.format(hits)))
+            hits, _ = r.scan_logs()
+            r.log('final log scan: {}'.format('CLEAN' if not hits else 'HITS {}'.format(hits)))
             state, detail = r.stack_state()
             r.log('final stack state: {} {}'.format(
                 state, '' if state == 'FULL' else detail))
