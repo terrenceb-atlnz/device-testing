@@ -373,26 +373,37 @@ class Campaign:
         # 4. master mode: find the new master from a survivor
         driver = master
         if a.mode == 'master':
+            # Poll `show stack` from a survivor AND watch for the promotion message at the
+            # same time, taking whichever confirms first.
+            #
+            # MEASURED 2026-09-18: these two must NOT be serialised.  'has become the Active
+            # Master' is a LOG message, and this script deliberately leaves `terminal monitor`
+            # OFF (the framework's measured 0/24-failure mode; with it on it times out on ~17%
+            # of commands).  A survivor that is LOGGED IN therefore never shows the message,
+            # while one sitting at a login prompt does -- so detection depends on console
+            # state, which changes from cycle to cycle.  An earlier version waited the full
+            # failover_timeout for the message before polling, and so reported a fictitious
+            # 187.4 s "failover" on the very first cycle (that is the timeout, not the device)
+            # against a real 13.9 s on the second.
+            #
+            # `failover_s` is therefore the POLL-confirmed time -- a real measurement with
+            # roughly 3 s granularity (one `show stack` round trip plus the sleep).  The
+            # message time, when seen at all, is recorded separately as `promotion_s` and is
+            # the finer-grained figure; do not mix the two in a comparison.
             announced = None
-            deadline = time.time() + a.failover_timeout
-            while time.time() < deadline and announced is None:
-                for m in others:
-                    t = self.live_threads.get(m)
-                    if t is not None and t.is_keyword_found():
-                        announced = m
-                        break
-                time.sleep(1)
-            rec['promotion_seen_on'] = announced.name if announced else None
-            rec['promotion_s'] = round(time.time() - t_reboot, 1) if announced else None
-            self.log('  promotion message %s' % (
-                'seen on %s after %.1fs' % (announced.name, rec['promotion_s']) if announced
-                else 'NOT seen on any survivor within %ds (will confirm via show stack)' % a.failover_timeout))
-            self.stop_threads(*others)
-            # the promotion line is printed by the winner; whoever printed it holds the CLI now
-            driver = announced or others[0]
             new_master = None
+            driver = others[0]
             t0 = time.time()
             while time.time() - t0 < a.failover_timeout:
+                if announced is None:
+                    for m in others:
+                        t = self.live_threads.get(m)
+                        if t is not None and t.is_keyword_found():
+                            announced = m
+                            rec['promotion_s'] = round(time.time() - t_reboot, 1)
+                            self.log('  promotion message seen on %s after %.1fs'
+                                     % (m.name, rec['promotion_s']))
+                            break
                 try:
                     self.login(driver, timeout=60)
                     st = self.show_stack(driver)
@@ -403,13 +414,25 @@ class Campaign:
                     self.log('  (survivor %s not answering yet: %s)' % (driver.name, str(exc)[:80]))
                     driver = others[(others.index(driver) + 1) % len(others)]
                 time.sleep(3)
+            rec['promotion_seen_on'] = announced.name if announced else None
+            rec.setdefault('promotion_s', None)
+            if announced is None:
+                self.log('  promotion message not seen (expected when survivors are logged in '
+                         'with monitor off) -- failover timed by poll instead')
+            self.stop_threads(*others)
             if new_master is None:
                 rec['failover_s'] = None
                 self.log('  !! no new Active Master readable within %ds' % a.failover_timeout)
                 verdict, why = 'FAIL', 'no new Active Master within %ds of rebooting master %s' % (
                     a.failover_timeout, target_id)
                 self.collect_evidence(driver, rec, why)
-                self.wait_full(driver, a.boot_timeout, 'recovery')
+                # No new master means the reboot took the stack with it -- recover the old
+                # master through its [powerlink] so the remaining cycles stay measurable.
+                if a.power_recover:
+                    rec['recovery'] = self.power_cycle(target)
+                ok3, secs3, _ = self.wait_full(driver, a.boot_timeout, 'recovery')
+                rec['recovered'] = ok3
+                self.log('  recovery %s after %.0fs' % ('OK -- stack FULL again' if ok3 else 'FAILED', secs3))
                 self.stop_threads()
                 self.refresh_master(driver)
                 return verdict, why, rec
@@ -434,7 +457,16 @@ class Campaign:
             why = 'target %s console showed no login prompt within %ds of the reboot (%d bytes captured)' % (
                 target_id, a.boot_timeout, len(boot_text))
             self.collect_evidence(driver, rec, why, target=target)
-            self.wait_full(driver, a.ready_timeout, 'recovery')
+            # MEASURED 2026-09-18 (cycle 73): a member can hang at kernel handoff and NOT
+            # self-recover -- 35 min later its console still answered a bare CR with zero
+            # bytes.  Without a power cycle the stack never comes whole again and every
+            # remaining cycle fails fast, so one hang ends a 300-cycle run.  Recover it
+            # through the .setup's own [powerlink] and carry on (record-and-continue).
+            # The cycle still FAILs -- recovery is never allowed to turn this into a PASS.
+            rec['recovery'] = self.power_cycle(target) if a.power_recover else 'disabled'
+            ok, secs, _ = self.wait_full(driver, a.ready_timeout, 'recovery')
+            rec['recovered'] = ok
+            self.log('  recovery %s after %.0fs' % ('OK -- stack FULL again' if ok else 'FAILED', secs))
             self.refresh_master(driver)
             return 'FAIL', why, rec
         self.log('  target %s back at login after %.1fs (boot banners seen: %d)' % (
@@ -447,6 +479,13 @@ class Campaign:
             why = 'stack not FULL within %ds after rebooting %s (last: %s)' % (
                 a.ready_timeout, target_id, st['oper'] if st else 'unreadable')
             self.collect_evidence(driver, rec, why, target=target)
+            # The target reached a login prompt but the stack did not re-form. Power-cycle
+            # it too: leaving the stack short a member fails every subsequent cycle.
+            if a.power_recover:
+                rec['recovery'] = self.power_cycle(target)
+                ok2, secs2, _ = self.wait_full(driver, a.ready_timeout, 'recovery')
+                rec['recovered'] = ok2
+                self.log('  recovery %s after %.0fs' % ('OK -- stack FULL again' if ok2 else 'FAILED', secs2))
             self.refresh_master(driver)
             return 'FAIL', why, rec
         self.master_id = st['master']
@@ -502,6 +541,40 @@ class Campaign:
         return 'PASS', 'member %s rebooted (Expected), back Ready in %.0fs%s' % (
             target_id, rec['all_ready_s'],
             ', failover %.1fs' % rec['failover_s'] if rec.get('failover_s') else ''), rec
+
+    def power_cycle(self, swi, settle=20):
+        """Off/on a member through the power object the .setup gave it.  Never raises.
+
+        Notes measured 2026-09-18, all of which bite:
+          * ATPower.PduPower symlinks its log onto itself when logFilePath == cwd and dies
+            with OSError(40) 'Too many levels of symbolic links'; it also needs the log
+            directory to exist already.  init_swi() built these objects with the run dir as
+            logFilePath, so they are already constructed and we do not build new ones.
+          * on() can return False having actually worked -- the PDU's status.xml lags the
+            command.  Re-read is_on() rather than trusting the return value.
+        """
+        pwr = swi.get_power()
+        if pwr is None:
+            self.log('  !! %s has no [powerlink] in the .setup -- cannot power-cycle it' % swi.name)
+            return 'no powerlink'
+        try:
+            self.log('  power-cycling %s ...' % swi.name)
+            pwr.off()
+            time.sleep(settle)
+            pwr.on()
+            for _ in range(6):                  # status lags; poll rather than trust on()
+                time.sleep(10)
+                try:
+                    if pwr.is_on():
+                        self.log('  %s outlet confirmed ON' % swi.name)
+                        return 'power-cycled'
+                except Exception:
+                    pass
+            self.log('  !! %s outlet did not read ON after the cycle' % swi.name)
+            return 'power-cycle unconfirmed'
+        except Exception as exc:
+            self.log('  !! power-cycling %s raised %r' % (swi.name, exc))
+            return 'power-cycle raised %r' % exc
 
     def refresh_master(self, driver):
         try:
@@ -596,6 +669,8 @@ def main():
     ap.add_argument('--boot-timeout', type=float, default=900.0, help='target console must show login: within')
     ap.add_argument('--ready-timeout', type=float, default=900.0, help='whole stack Ready within')
     ap.add_argument('--failover-timeout', type=float, default=180.0, help='master mode: new master readable within')
+    ap.add_argument('--no-power-recover', dest='power_recover', action='store_false',
+                    help='do NOT power-cycle a member that fails to boot (default: do, via its [powerlink])')
     args = ap.parse_args()
     c = Campaign(args)
     try:
