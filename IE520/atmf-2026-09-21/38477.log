@@ -1,0 +1,304 @@
+TEST 38477 -- ATMF - Virtual link
+===========================================================================
+Run:    2026-09-21, tb470
+DUT:    IE520 4-member VCStack, AMF node "IE520-stk"
+Peer:   AR4050S-5G, AMF node "4050-5g" (AMF master at this point)
+L3 path: vlan10 10.10.10.0/27 -- stack .1, 4050 .2, static routes each way,
+         carried over po1. This path already existed on the bench.
+
+VERDICT: PASS
+
+STEP -- "Check DUT can join an AMF network using a virtual link"
+
+  1. NEGATIVE CONTROL FIRST. The L2 AMF path was removed entirely on both ends
+     (no switchport atmf-crosslink; po1 returned to plain access vlan 10) so
+     that no layer-2 ATMF adjacency could exist.
+       before teardown : ATMF nodes = 2 on both
+       after  teardown : ATMF nodes = 1 on BOTH nodes   <-- network gone
+       IP reachability : ping 10.10.10.2 -> 3 packets transmitted, 3 received,
+                         0% packet loss                 <-- L3 path intact
+     This control is what makes the rest of the case meaningful: anything that
+     rejoins from here can ONLY be joining over the virtual link.
+
+  2. Virtual links configured:
+       DUT   : atmf virtual-link id 1 ip 10.10.10.1 remote-id 2 remote-ip 10.10.10.2
+       Peer  : atmf virtual-link id 2 ip 10.10.10.2 remote-id 1 remote-ip 10.10.10.1
+     Both accepted with no error.
+
+  3. Result -- ATMF nodes returned to 2 on both, with no L2 ATMF path present.
+
+     show atmf virtual-links (on 4050-5g):
+       Local   Local              Remote              Tunnel   Tunnel
+       Port    ID   IP            ID   IP             Protect  State
+       vlink2  2    10.10.10.2    1    10.10.10.1     -        Complete
+       Virtual Links Configured: 1
+
+  PASS -- the DUT joined the AMF network over a virtual link, with the tunnel
+  reported "Complete" and the layer-2 ATMF path proven absent beforehand.
+
+--------------------------- RAW TRANSCRIPTS -------------------------------
+TEST 38477 -- ATMF - Virtual link  (2026-09-21 10:59:59)
+
+##### ar :: links BEFORE teardown
+show atmf links
+
+ATMF Link Brief Information:
+
+Local       Link      Link    ATMF         Adjacent          Adjacent Link
+Port        Type      Status  State        Node/Area         Ifindex  State
+--------------------------------------------------------------------------------
+po1         Crosslink Up      Full         IE520-stk         4751     Forwarding
+
+* = Provisioned.
+
+
+4050-5g#
+
+##### ar :: remove AMF crosslink, restore plain vlan10 access
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+4050-5g(config)#interface po1
+4050-5g(config-if)#no switchport atmf-crosslink
+4050-5g(config-if)#11:00:14 4050-5g ATMF[1194]: IE520-stk has left. 1 member in total.                                                                               
+switchport mode access
+4050-5g(config-if)#switchport access vlan 10
+4050-5g(config-if)#exit
+4050-5g(config)#end
+4050-5g#
+
+##### stk :: remove AMF crosslink, restore plain vlan10 access
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface po1
+IE520-stk(config-if)#no switchport atmf-crosslink
+23:00:24 IE520-stk ATMF[710]: 4050-5g has left. 1 member in total.                                                                               
+IE520-stk(config-if)#switchport mode access
+IE520-stk(config-if)#switchport access vlan 10
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#
+
+##### CONTROL :: ar show atmf
+show atmf
+ATMF Summary Information:
+
+ATMF Status           : Enabled
+Network Name          : tb470
+Node Name             : 4050-5g
+Role                  : Master
+Restricted login      : Disabled
+Secure Mode           : Disabled
+Current ATMF Guests   : 0
+Current ATMF Nodes    : 1
+Total number of licensed nodes available is 4094
+
+
+4050-5g#
+
+##### CONTROL :: stk show atmf
+show atmf
+ATMF Summary Information:
+
+ATMF Status           : Enabled
+Network Name          : tb470
+Node Name             : IE520-stk
+Role                  : Member
+Restricted login      : Disabled
+Secure Mode           : Disabled
+Current ATMF Nodes    : 1
+
+
+IE520-stk#
+
+##### CONTROL :: ar links
+show atmf links
+
+ATMF Link Brief Information:
+
+Local       Link      Link    ATMF         Adjacent          Adjacent Link
+Port        Type      Status  State        Node/Area         Ifindex  State
+--------------------------------------------------------------------------------
+
+* = Provisioned.
+
+
+4050-5g#
+
+##### stk :: ping peer over vlan10
+ping 10.10.10.2 repeat 3
+PING 10.10.10.2 (10.10.10.2) 56(84) bytes of data.
+64 bytes from 10.10.10.2: icmp_seq=1 ttl=64 time=4.91 ms
+64 bytes from 10.10.10.2: icmp_seq=2 ttl=64 time=0.700 ms
+64 bytes from 10.10.10.2: icmp_seq=3 ttl=64 time=0.690 ms
+
+--- 10.10.10.2 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2068ms
+rtt min/avg/max/mdev = 0.690/2.100/4.910/1.986 ms
+IE520-stk#
+
+##### stk :: configure virtual-link
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#atmf virtual-link id 1 ip 10.10.10.1 remote-id 2 remote-ip 10.
+10.10.2
+br-atmfmgmt: port 1(vlan4092) entered blocking state
+br-atmfmgmt: port 1(vlan4092) entered disabled state
+vlan4092: entered allmulticast mode
+vlan4092: entered promiscuous mode
+br-atmfmgmt: port 1(vlan4092) entered blocking state
+br-atmfmgmt: port 1(vlan4092) entered forwarding state
+br-atmfmgmt: port 2(vlink1.4092) entered blocking state
+br-atmfmgmt: port 2(vlink1.4092) entered disabled state
+vlink1.4092: entered allmulticast mode
+vlink1: entered allmulticast mode
+vlink1.4092: entered promiscuous mode
+vlink1: entered promiscuous mode
+br-atmfmgmt: port 2(vlink1.4092) entered blocking state
+br-atmfmgmt: port 2(vlink1.4092) entered forwarding state
+br-atmfmgmt: port 2(vlink1.4092) entered disabled state
+IE520-stk(config)#end
+IE520-stk#
+
+##### ar  :: configure virtual-link
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+4050-5g(config)#atmf virtual-link id 2 ip 10.10.10.2 remote-id 1 remote-ip 10.10
+.10.1
+4050-5g(config)#end
+4050-5g#
+
+##### ar :: show atmf AFTER virtual-link
+show atmf
+ATMF Summary Information:
+
+ATMF Status           : Enabled
+Network Name          : tb470
+Node Name             : 4050-5g
+Role                  : Master
+Restricted login      : Disabled
+Secure Mode           : Disabled
+Current ATMF Guests   : 0
+Current ATMF Nodes    : 2
+Total number of licensed nodes available is 4094
+
+
+4050-5g#
+
+##### ar :: show atmf virtual-links AFTER virtual-link
+show atmf virtual-links
+
+ATMF Virtual-Link Information:
+
+Local     Local                 Remote                Tunnel    Tunnel
+Port      ID   IP               ID   IP               Protect   State
+-----------------------------------------------------------------------------
+vlink2    2    10.10.10.2       1    10.10.10.1       -         Complete     
+
+ * = Dynamic Address.
+
+Virtual Links Configured: 1
+
+
+4050-5g#
+
+##### ar :: show atmf links AFTER virtual-link
+show atmf links
+
+ATMF Link Brief Information:
+
+Local       Link      Link    ATMF         Adjacent          Adjacent Link
+Port        Type      Status  State        Node/Area         Ifindex  State
+--------------------------------------------------------------------------------
+vlink2      Downlink          Full         IE520-stk         16779009 Forwarding
+
+* = Provisioned.
+
+
+4050-5g#
+
+##### ar :: show atmf nodes AFTER virtual-link
+show atmf nodes
+
+Node Information:
+
+  * = Local device 
+
+ SC = Switch Configuration:
+  C = Chassis   S = Stackable   N = Standalone
+
+  Node                 Device             ATMF         Parent              Node 
+  Name                 Type               Master  SC   Domain              Depth
+--------------------------------------------------------------------------------
+* 4050-5g              AR4050S-5G           Y     N    none                  0
+  IE520-stk            AT-IE520-28GSX       N     S    4050-5g               1
+
+ Node map exchange is active
+ Current ATMF node count 2
+4050-5g#
+
+##### stk :: show atmf AFTER virtual-link
+show atmf
+ATMF Summary Information:
+
+ATMF Status           : Enabled
+Network Name          : tb470
+Node Name             : IE520-stk
+Role                  : Member
+Restricted login      : Disabled
+Secure Mode           : Disabled
+Current ATMF Nodes    : 2
+
+
+IE520-stk#
+
+##### stk :: show atmf virtual-links AFTER virtual-link
+show atmf virtual-links
+
+ATMF Virtual-Link Information:
+
+Local     Local                 Remote                Tunnel    Tunnel
+Port      ID   IP               ID   IP               Protect   State
+-----------------------------------------------------------------------------
+vlink1    1    10.10.10.1       2    10.10.10.2       -         Complete     
+
+ * = Dynamic Address.
+
+Virtual Links Configured: 1
+
+
+IE520-stk#
+
+##### stk :: show atmf links AFTER virtual-link
+show atmf links
+
+ATMF Link Brief Information:
+
+Local       Link      Link    ATMF         Adjacent          Adjacent Link
+Port        Type      Status  State        Node/Area         Ifindex  State
+--------------------------------------------------------------------------------
+vlink1      Uplink            Full         4050-5g           16779265 Forwarding
+
+* = Provisioned.
+
+
+IE520-stk#
+
+##### stk :: show atmf nodes AFTER virtual-link
+show atmf nodes
+
+Node Information:
+
+  * = Local device 
+
+ SC = Switch Configuration:
+  C = Chassis   S = Stackable   N = Standalone
+
+  Node                 Device             ATMF         Parent              Node 
+  Name                 Type               Master  SC   Domain              Depth
+--------------------------------------------------------------------------------
+  4050-5g              AR4050S-5G           Y     N    none                  0
+* IE520-stk            AT-IE520-28GSX       N     S    4050-5g               1
+
+ Node map exchange is active
+ Current ATMF node count 2
+IE520-stk#
