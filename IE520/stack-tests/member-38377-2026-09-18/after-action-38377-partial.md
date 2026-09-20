@@ -145,3 +145,72 @@ still be measured (see §7).
 3. **Bench left whole:** stack `Normal operation`, all four `Ready`, all eight stackports
    learnt, **master is now member 3** (`/dev/u5`) — it moved off member 2 during this event and
    is not pinned. Consoles free; no config changed at any point in this campaign.
+
+---
+
+## 8. Addendum 2026-09-21 — flash forensics, bootloader split, and a pinned reproduction
+
+### 8.1 The "no trace" finding is now positive, not merely an absence
+
+§2 said the hang left no trace on the device. That was inferred from the reboot history alone.
+On 2026-09-21 member 1's flash and permanent log were read directly
+(`evidence-cycle073-member1-forensics.txt`). The result **confirms it, and makes the absence
+meaningful**:
+
+| artefact class | newest on member 1's flash | vs. the hang (2026-09-18 ~22:42 NZST) |
+| --- | --- | --- |
+| `exception.log` | Sep 17 21:25 | **predates** |
+| `kernel-*.txt` (3 files) | Sep 15 22:04 | **predates** |
+| `debug-*.tgz` | Sep 17 21:25 | **predates** |
+
+The crash-capture mechanism **exists and demonstrably works on this exact unit** — it wrote
+three `kernel-IE520-awplus_main-20260913-1734-*.txt` dumps on Sep 15 and six
+`debug-duplicate-master-*.tgz` tarballs between Sep 14 and Sep 17. It produced **nothing** for
+the cycle-73 hang. That is consistent with hanging before any filesystem was writable, i.e.
+genuinely at the kernel handoff and not in a later boot stage.
+
+`show log permanent tail 60` has rolled well past the event window — it is now entirely
+`LOOPPROT` warnings from Sep 20. **The permanent log holds nothing about this event**; do not
+go looking again.
+
+### 8.2 Bootloader versions are NOT uniform across the stack
+
+Read 2026-09-21 from `show system`:
+
+| member | S/N | bootloader |
+| --- | --- | --- |
+| **1** | 264A23061 | **9.1.0** |
+| 2 | 264A23068 | master-20260822-535 |
+| **3** | 264A23066 | **9.1.0** |
+| 4 | 264A23052 | pauld |
+
+Member 1 hung at `Starting kernel ...`, which is the bootloader's last act, and member 1 runs
+the older 9.1.0. **This correlation is weak and is recorded as an observation, not a lead:**
+member 3 runs the same 9.1.0 and absorbed 24 member reboots (38377) plus 150 master reboots
+(38376) with zero hangs. Bootloader version alone does not explain the event.
+
+### 8.3 Evidence strength, stated plainly
+
+**Strong on *what*:** two independent captures of the same silence (the harness evidence file
+and the framework's own `swi_a.log`, both ending at `Starting kernel ...`); an exact stopping
+point with every FIT hash verified beforehand; a genuine within-run positive control (24
+successful member-1 boots in the same run, 166–176 s, median 172 s, before the 25th hung);
+stack-side corroboration; 0 bytes to a bare CR at +35 min; a clean 145 s recovery boot.
+
+**Near-zero on *why*:** no kernel output at all, so no fault address and no subsystem; no
+on-device artefact (§8.1); no environmental data at the moment of the hang; no JTAG; and
+**n = 1**.
+
+Sufficient to report the event — "a member can hang at kernel handoff on reboot and not
+self-recover" is well founded. **Not** sufficient to file a diagnosed defect, and not
+sufficient to attribute it to hardware versus firmware.
+
+### 8.4 Reproduction attempt — run pinned to member 1
+
+`--member 1` pins the loop to one target instead of rotating the backups. Member 1's own rate
+in 38377 was **1 hang in 25 of its own boots**, so a pinned run is a cheap reproduction test:
+~55 % chance of a second occurrence in 20 cycles, ~98 % in 100.
+
+Run: `IE520/stack-tests/member1-pinned-2026-09-21/`, 20 cycles, `--settle 30`, self-healing
+power recovery enabled (commit `3591f9d`) so a hang is recorded and the run continues.
+Result is written up in that directory.
