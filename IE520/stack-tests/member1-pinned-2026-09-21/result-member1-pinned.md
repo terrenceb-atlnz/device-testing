@@ -69,9 +69,17 @@ Two options that are actually worth the hardware time, in order:
    harness is now self-healing so a hang is recorded and the run continues, and 300 cycles
    rotating three backups gives member 1 ~100 boots — i.e. the ~90 % reproduction chance comes
    free with a test we owe regardless. **This is the recommended path.**
-2. **If and only if a second occurrence is caught**, ask for a build with early-boot console
-   verbosity before running further. No amount of additional silent hangs will yield a cause;
-   §8.1 of the 38377 after-action establishes the device writes nothing of its own.
+2. **Do NOT plan on "more occurrences will explain it".** They will not, on this configuration.
+   See `../member-38377-2026-09-18/after-action-38377-partial.md` §8.5–8.6: a healthy boot on
+   this build prints **zero** kernel log lines, so every occurrence yields the same artefact —
+   `Starting kernel ...` and silence. Resolving the cause needs a **kernel command-line** change
+   (`earlycon` / `loglevel` / `quiet` / `console=`), not a different bootloader build. The bench
+   already runs the verbose bootloader, and the IE520 bootloader variants differ only in what
+   they print.
+
+**Correction, 2026-09-21:** the first version of this file recommended asking for "a build with
+early-boot console verbosity". That was wrong — it is already the verbose build. Withdrawn; see
+§8.6 above.
 
 ## Files
 

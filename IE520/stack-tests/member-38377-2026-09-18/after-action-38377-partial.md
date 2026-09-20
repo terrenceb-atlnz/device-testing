@@ -173,7 +173,7 @@ genuinely at the kernel handoff and not in a later boot stage.
 `LOOPPROT` warnings from Sep 20. **The permanent log holds nothing about this event**; do not
 go looking again.
 
-### 8.2 Bootloader versions are NOT uniform across the stack
+### 8.2 Bootloader version is NOT a lead — RULED OUT 2026-09-21
 
 Read 2026-09-21 from `show system`:
 
@@ -184,10 +184,30 @@ Read 2026-09-21 from `show system`:
 | **3** | 264A23066 | **9.1.0** |
 | 4 | 264A23052 | pauld |
 
-Member 1 hung at `Starting kernel ...`, which is the bootloader's last act, and member 1 runs
-the older 9.1.0. **This correlation is weak and is recorded as an observation, not a lead:**
-member 3 runs the same 9.1.0 and absorbed 24 member reboots (38377) plus 150 master reboots
-(38376) with zero hangs. Bootloader version alone does not explain the event.
+Member 1 hung at `Starting kernel ...`, the bootloader's last act, and runs a different variant
+from members 2 and 4. **That is not a lead, and this section exists to stop the next session
+chasing it.** Two independent reasons, in increasing order of strength:
+
+1. Member 3 runs the same variant as member 1 and absorbed 24 member reboots (38377) plus 150
+   master reboots (38376) with zero hangs.
+2. **Decisive (Terrence, 2026-09-21): the IE520 bootloader variants differ only in how they
+   relay output. They are surface-level printing changes — no bootloader work has been done
+   under the hood in the past month.** The variants are therefore functionally the same code,
+   and all of them predate the 2026-09-18 event (`master-20260822-535` is dated Aug 22). The
+   bootloader is excluded both as a differentiator between members and as a recent-change cause.
+
+**Corroborating evidence (Terrence, 2026-09-21):** a line-by-line diff of member 1's capture at
+the moment of the hang against a clean boot of another member is **identical for every line up
+to `Starting kernel ...`**, with exactly one differing line:
+
+```
+ubi0: max/mean erase counter: 12/7, WL threshold: 4096, image sequence number: 960062009   (hung)
+ubi0: max/mean erase counter: 13/4, WL threshold: 4096, image sequence number: 1117579393  (clean)
+```
+
+Both values are per-device and change on every UBI attach. **Not diagnostic.** Same FIT image,
+same kernel hash `bdfdbcd23e5108726c5ba066f21b7eadc9729d3b`, same `sha1+ OK` / `crc32+ OK`,
+same `Booting image 04000000#IE520-28GSX`. The bootloader did its job identically on both.
 
 ### 8.3 Evidence strength, stated plainly
 
@@ -214,3 +234,53 @@ in 38377 was **1 hang in 25 of its own boots**, so a pinned run is a cheap repro
 Run: `IE520/stack-tests/member1-pinned-2026-09-21/`, 20 cycles, `--settle 30`, self-healing
 power recovery enabled (commit `3591f9d`) so a hang is recorded and the run continues.
 Result is written up in that directory.
+
+### 8.5 The console is blind across the whole kernel boot — this is the real evidence gap
+
+Measured 2026-09-21 from member 1's own healthy recovery boot (`member1-powercycle-boot.log`),
+and true of every boot capture in this corpus:
+
+**A healthy IE520 boot on this build prints ZERO kernel log lines.** Grepped for the classic
+markers — `Booting Linux on physical CPU`, `Linux version`, machine model, memory map, per-CPU
+bring-up, `devtmpfs`, `Freeing unused kernel memory`, `random: crng init done` — **0 matches.**
+The first thing on the console after `Starting kernel ...` is the Allied Telesis logo and
+`AlliedWare Plus (TM)`, immediately followed by systemd `[  OK  ]` lines. That is **userspace**.
+
+So the console sequence on a *good* boot is:
+
+```
+Starting kernel ...          <- last bootloader output
+   ... total console silence, the entire kernel boot ...
+<AT logo> / AlliedWare Plus (TM)   <- first userspace output
+[  OK  ] Created slice ...          <- systemd
+```
+
+**Consequence:** the cycle-73 hang occurred somewhere inside a window that is silent on a
+healthy boot too. Decompressor, arch setup, driver probe, rootfs mount, init hand-off — the
+console cannot distinguish any of them, and "the kernel produced no output" (§2 item 3) is
+therefore **not itself evidence of an early hang**. It is evidence that the hang was anywhere
+before userspace. That is a weaker statement than the original write-up implied, and it is the
+correct one.
+
+**UNMEASURED:** the wall-clock width of that silent window on a healthy boot. It is bounded
+above by the ~170 s reboot-to-`login:` figure, but the bootloader/kernel/userspace split was
+not timed — a timestamped capture was proposed on 2026-09-21 and not run. Worth one reboot if
+anyone wants the bound tightened.
+
+### 8.6 What to ask for — corrected
+
+An earlier draft of this write-up recommended "a build with early-boot console verbosity".
+**That recommendation was wrong and is withdrawn.** The bench is already running the verbose
+build, and per §8.2 the IE520 bootloader variants differ only in what they print. More
+*bootloader* verbosity cannot help: §8.2 shows the bootloader phase is already byte-identical
+between the hung unit and a clean one.
+
+The gap is **kernel console output, which is a different lever entirely** — the kernel command
+line (`earlycon`, `loglevel`, whether `quiet` is set, and where `console=` points), not the
+bootloader build. Without a change there, every future occurrence of this failure will produce
+exactly the same artefact we already have: `Starting kernel ...` and silence. **Collecting more
+occurrences on the current configuration has no diagnostic value.**
+
+Stated plainly for whoever picks this up: **console-based investigation of this event is
+exhausted.** Everything observable is identical between the hung boot and a healthy one; the
+divergence lies entirely inside the region the console does not report on.
