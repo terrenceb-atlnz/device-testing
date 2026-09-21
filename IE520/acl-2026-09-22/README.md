@@ -18,7 +18,9 @@
 | [38413](38413.log) | deny/permit for standard IPv6 access list | **UNMEASURED** |
 | [942](942.log)   | Named IPv6 Hardware on port send-to-mirror IP | **UNMEASURED** |
 
-**11 PASS / 2 UNMEASURED.**
+**11 PASS / 2 UNMEASURED.** Both UNMEASURED are cases whose *subject* does not
+exist on this platform (a standard IPv6 ACL has no application point; there is no
+`send-to-mirror` action) — not work left undone.
 
 ## Method
 
