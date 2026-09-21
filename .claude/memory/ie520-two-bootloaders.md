@@ -4,7 +4,7 @@ description: "TWO IE520 bootloaders exist and behave differently at every gate �
 metadata:
   node_type: memory
   type: project
-  verified: 2026-09-01
+  verified: 2026-09-21
 ---
 
 As of **2026-08-12** there are two IE520 bootloaders in the lab, and the 5700 suite behaves
@@ -28,6 +28,20 @@ show system   ->   Bootloader version :
 > behavioural differences below are **still real and still divergent**, so keep naming which
 > unit a bootloader result came from; what changes is that the split itself needs no fixing
 > and will close at the next numbered release.
+
+> **UPDATED, Terrence 2026-09-21 — the variants are SURFACE-LEVEL ONLY.** *"This is all
+> surface-level changes to relay the outputs a certain way; no bootloader work has been
+> performed under the hood in the past month."* Three bootloader builds now exist in the lab
+> but **only two are for the IE520**. tb470 shows three distinct strings across the 4-stack
+> (`9.1.0` on S/N 264A23061 + 264A23066, `master-20260822-535` on 264A23068, `pauld` on
+> 264A23052) — **key them by SERIAL, not member ID; member IDs move when the stack is rebuilt.**
+>
+> **Consequence for defect work: never treat a bootloader-version difference between members as
+> a lead for a functional fault.** They are the same code printing differently. This was tested
+> against a real case — the 38377 cycle-73 kernel-handoff hang — where a line-by-line diff of
+> the hung unit's capture against a clean member's was *identical up to* `Starting kernel ...`,
+> the only differing line being `ubi0` erase counter / image sequence number (per-device values
+> that change on every attach). See [[ie520-console-prints-no-kernel-log]].
 
 ## What changed on the pauld build (tested live, tb470 u4)
 

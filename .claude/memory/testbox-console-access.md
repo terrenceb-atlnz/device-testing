@@ -4,7 +4,7 @@ description: "How to reach a lab device console from a testbox (ssh tbNNN, the u
 metadata: 
   node_type: memory
   type: reference
-  verified: 2026-09-01
+  verified: 2026-09-21
   originSessionId: abd89457-f2c0-4012-98a9-43e0e61a4c45
   modified: 2026-07-28T02:34:08.905Z
 ---
@@ -24,6 +24,13 @@ serial device directly instead — pyserial is present on the testboxes (3.4 on 
 answer `--More--` with a space. `terminal length 0` disables paging for the session and is
 display-only, not config. Check the port is free first (`fuser`/`lsof`, no `minicom`
 processes, no `/var/lock/LCK..*`) so you don't displace someone.
+
+**BAUD IS NOT ALWAYS 115200 (measured 2026-09-21).** On tb470 every console is 115200
+*except the x230-10GP on `/dev/u0`, which is **9600***. At the wrong rate the port returns a
+stream of NUL bytes, which reads exactly like a dead or still-booting device — it is not.
+Worse, a driver whose waits are tuned for 115200 mis-sequences the login at 9600 and reports
+`Login incorrect` on correct credentials. Confirm the rate before concluding anything about a
+silent console: open at 9600 and 115200 and see which yields printable text.
 
 Generated ART scripts do **not** need any of this — the framework handles `--More--` itself
 (`ATDrivers/AWPConsoleCore.py`) and `ATLibrary/ATTools.py` sends `terminal length 0`. The
