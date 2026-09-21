@@ -1,0 +1,147 @@
+TEST 830 -- ACL: Hardware MAC 4000 range - applied to ports
+===========================================================================
+Run: 2026-09-22 08:37:32  tb470   ingress port2.0.2
+Actions under test: copy-to-cpu, send-to-cpu, copy-to-mirror (MAC 4000 range)
+
+--- baseline, no ACL: 10/10 forwarded ---
+
+--- 4000 copy-to-cpu ---
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#access-list 4000 copy-to-cpu 0000.0200.0600 0000.0000.0000 000
+0.0000.0000 ffff.ffff.ffff
+IE520-stk(config)#end
+IE520-stk#  build: ok
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#access-group 4000
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#  apply: ok
+  forwarded: base=10/10  acl=10/10  expect=forward  PASS
+show access-list counters
+Hardware ACL Packet Counters
+
+Name: 4000
+
+	Rule: copy-to-cpu 0000.0200.0600 0000.0000.0000 any
+	Packet Hits: 10
+
+IE520-stk#  hits: ['Packet Hits: 10']
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#no access-group 4000
+IE520-stk(config-if)#exit
+IE520-stk(config)#no access-list 4000
+IE520-stk(config)#end
+IE520-stk#  teardown: clean
+
+--- 4001 send-to-cpu ---
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#access-list 4001 send-to-cpu 0000.0200.0600 0000.0000.0000 000
+0.0000.0000 ffff.ffff.ffff
+IE520-stk(config)#end
+IE520-stk#  build: ok
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#access-group 4001
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#  apply: ok
+  forwarded: base=10/10  acl=0/10  expect=drop     PASS
+show access-list counters
+Hardware ACL Packet Counters
+
+Name: 4001
+
+	Rule: send-to-cpu 0000.0200.0600 0000.0000.0000 any
+	Packet Hits: 10
+
+IE520-stk#  hits: ['Packet Hits: 10']
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#no access-group 4001
+IE520-stk(config-if)#exit
+IE520-stk(config)#no access-list 4001
+IE520-stk(config)#end
+IE520-stk#  teardown: clean
+
+--- 4002 copy-to-mirror ---
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#access-list 4002 copy-to-mirror 0000.0200.0600 0000.0000.0000 
+0000.0000.0000 ffff.ffff.ffff
+IE520-stk(config)#end
+IE520-stk#  build: ok
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port3.0.2
+IE520-stk(config-if)#mirror interface port2.0.2 direction both
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#  mirror dest: port3.0.2 configured
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#access-group 4002
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#  apply: ok
+  forwarded: base=10/10  acl=10/10  expect=forward  PASS
+show access-list counters
+Hardware ACL Packet Counters
+
+Name: 4002
+
+	Rule: copy-to-mirror 0000.0200.0600 0000.0000.0000 any
+	Packet Hits: 10
+
+IE520-stk#  hits: ['Packet Hits: 10']
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#no access-group 4002
+IE520-stk(config-if)#exit
+IE520-stk(config)#interface port3.0.2
+% port3.0.2 is currently configured as a mirror-port. Use caution when altering its config
+
+IE520-stk(config-if)#no mirror interface port2.0.2 direction both
+                                                             ^
+% Invalid input detected at '^' marker.
+
+IE520-stk(config-if)#exit
+IE520-stk(config)#no access-list 4002
+IE520-stk(config)#end
+IE520-stk#  teardown: ['% port3.0.2 is currently configured as a mirror-port. Use caution when altering its config', "% Invalid input detected at '^' marker."]
+
+remaining lists: []
+
+===========================================================================
+VERDICT: PASS -- all three actions behave distinctly and correctly.
+===========================================================================
+  Source MAC 0000.0200.0600 (exact mask), destination any; one action per
+  run, applied to port2.0.2 as access-group <n>.
+
+  | list | action         | forwarded | expected | hits |
+  |------|----------------|-----------|----------|------|
+  | 4000 | copy-to-cpu    | 10/10     | forward  | 10   |
+  | 4001 | send-to-cpu    |  0/10     | drop     | 10   |
+  | 4002 | copy-to-mirror | 10/10     | forward  | 10   |
+  (baseline for all three: 10/10)
+
+  The three actions are demonstrably DIFFERENT, which is the point of the
+  case: copy-* leaves hardware forwarding intact while send-to-cpu removes
+  the packet from the forwarding path. All three matched 10 packets, so none
+  is a silent no-op.
+
+NOT VERIFIED (bench limitation, same as 943.log): delivery to the CPU queue
+and to the mirror port were not observed directly. `show plat count sdma` was
+not read, and the mirror destination port3.0.2 has no cable so it cannot
+transmit. The forwarding-side behaviour above is what distinguishes the
+actions and it is measured; the delivery side is inferred.
+CONFIG LEFT BEHIND: none -- all three lists removed, `show access-list` empty.

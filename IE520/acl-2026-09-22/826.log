@@ -1,0 +1,115 @@
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port3.0.2
+IE520-stk(config-if)#no mirror interface port2.0.2 direction both
+                                                             ^
+% Invalid input detected at '^' marker.
+
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#mirror cleanup: ["% Invalid input detected at '^' marker."]
+show mirror now: []
+
+TEST 826 -- ACL: Hardware IP 3000 range - applied to ports
+===========================================================================
+Run: 2026-09-22 08:35:13  tb470   ingress port2.0.2
+
+--- STEP 0: baseline, no ACL ---
+  IPv4 in denied /24   10/10
+  IPv4 outside it      10/10
+  IPv6 (non-IP4)       10/10
+  ARP (non-IP)         10/10
+
+--- numbered hardware IP ACLs in the 3000 range ---
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#access-list 3000 deny ip 10.1.1.0 0.0.0.255 any
+IE520-stk(config)#access-list 3001 permit ip any any
+IE520-stk(config)#end
+IE520-stk#  build errors: none
+show access-list
+Hardware IP access list 3000
+    4 deny ip 10.1.1.0/24 any
+Hardware IP access list 3001
+    4 permit ip any any
+IE520-stk#    Hardware IP access list 3000
+    4 deny ip 10.1.1.0/24 any
+    Hardware IP access list 3001
+    4 permit ip any any
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#access-group 3000
+IE520-stk(config-if)#access-group 3001
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#  apply errors: none
+    interface port2.0.2
+    switchport
+    switchport mode access
+    access-group 3000
+    access-group 3001
+
+--- with the ACLs applied ---
+  IPv4 in denied /24   expect=drop     base=10/10  acl= 0/10  PASS
+  IPv4 outside it      expect=forward  base=10/10  acl=10/10  PASS
+  IPv6 (non-IP4)       expect=forward  base=10/10  acl=10/10  PASS
+  ARP (non-IP)         expect=forward  base=10/10  acl=10/10  PASS
+show access-list counters
+Hardware ACL Packet Counters
+
+Name: 3001
+
+	Rule: permit ip any any
+	Packet Hits: 10
+
+Name: 3000
+
+	Rule: deny ip 10.1.1.0/24 any
+	Packet Hits: 10
+
+IE520-stk#  counters:
+    Hardware ACL Packet Counters
+    Name: 3001
+    Rule: permit ip any any
+    Packet Hits: 10
+    Name: 3000
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#no access-group 3000
+IE520-stk(config-if)#no access-group 3001
+IE520-stk(config-if)#exit
+IE520-stk(config)#no access-list 3000
+IE520-stk(config)#no access-list 3001
+IE520-stk(config)#end
+IE520-stk#  teardown: clean
+
+===========================================================================
+VERDICT: PASS
+===========================================================================
+  Two numbered hardware IP ACLs in the 3000 range, both bound to one port:
+      access-list 3000 deny   ip 10.1.1.0 0.0.0.255 any   -> "deny ip 10.1.1.0/24 any"
+      access-list 3001 permit ip any any
+      interface port2.0.2 / access-group 3000 / access-group 3001
+
+  "Traffic behaviour should be correct for each type of ACL"
+      IPv4 source inside 10.1.1.0/24   base 10/10 -> 0/10   denied
+      IPv4 source outside it           base 10/10 -> 10/10  permitted
+      IPv6                             base 10/10 -> 10/10  unaffected by an IP ACL
+      ARP (non-IP)                     base 10/10 -> 10/10  unaffected
+      Counters confirm the permit rule taking hits, so both lists are live.
+
+  Multiple access-groups coexist on one port and are evaluated together --
+  the deny in 3000 wins over the permit-any in 3001 for matching traffic,
+  which is the first-match behaviour across lists.
+
+SCOPE NOT COVERED, recorded rather than implied:
+  - "Configure a mirror port to check for copy-to-mirror" and
+    "Show plat count sdma - to check for CPU traffic": the mirror/CPU actions
+    for the MAC range are exercised in T830, and the mirror DESTINATION is not
+    observable on this bench (no spare cabled port -- see 943.log).
+  - Only deny and permit of the {icmp|ip|proto|tcp|udp} set were exercised;
+    the protocol-specific variants (icmp/tcp/udp/proto) were not, as the
+    case's stated expectation is about permit/deny behaviour per ACL type.
+CONFIG LEFT BEHIND: none.

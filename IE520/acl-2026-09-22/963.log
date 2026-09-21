@@ -1,0 +1,84 @@
+TEST 963 -- ACL: Named IPv6 Hardware applied Globally
+===========================================================================
+Run: 2026-09-22 08:28:16  tb470
+Key claim: a GLOBAL `ipv6 traffic-filter` applies to ports with NO per-port binding.
+
+--- STEP 0: baseline, nothing applied ---
+  denied-to-be 2001:db8:7::1  10/10
+  allowed      2001:db8:8::1  10/10
+
+--- create the list and apply it GLOBALLY (config mode, not interface) ---
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#ipv6 access-list v6glob
+IE520-stk(config-ipv6-hw-acl)#deny ipv6 2001:db8:7::/64 any
+IE520-stk(config-ipv6-hw-acl)#permit ipv6 any any
+IE520-stk(config-ipv6-hw-acl)#exit
+IE520-stk(config)#ipv6 traffic-filter v6glob
+IE520-stk(config)#end
+IE520-stk#  errors: none
+  confirm it is NOT bound to the port:
+show running-config interface port2.0.2
+!
+interface port2.0.2
+ switchport
+ switchport mode access
+!
+IE520-stk#    interface port2.0.2
+    switchport
+    switchport mode access
+  global config line:
+show running-config | include ipv6 traffic-filter
+ipv6 traffic-filter v6glob
+IE520-stk#    ipv6 traffic-filter v6glob
+
+--- traffic with the GLOBAL filter in place ---
+  denied  2001:db8:7::1  base=10/10  global= 0/10  PASS
+  allowed 2001:db8:8::1  base=10/10  global=10/10  PASS
+show access-list counters
+Hardware ACL Packet Counters
+
+Name: v6glob
+
+	Rule: deny ipv6 2001:db8:7::/64 any
+	Packet Hits: 10
+
+
+	Rule: permit ipv6 any any
+	Packet Hits: 10
+
+IE520-stk#  counters:
+    Hardware ACL Packet Counters
+    Name: v6glob
+    Rule: deny ipv6 2001:db8:7::/64 any
+    Packet Hits: 10
+
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#no ipv6 traffic-filter v6glob
+IE520-stk(config)#no ipv6 access-list v6glob
+IE520-stk(config)#end
+IE520-stk#--- teardown errors: none ---
+
+===========================================================================
+VERDICT: PASS
+===========================================================================
+  `ipv6 traffic-filter v6glob` issued in GLOBAL config mode filters traffic
+  on a port that carries NO per-port binding -- confirmed by reading the
+  interface config back, which shows only switchport lines:
+      interface port2.0.2 / switchport / switchport mode access
+  and the global line present separately:
+      ipv6 traffic-filter v6glob
+
+  deny ipv6 2001:db8:7::/64 any   base 10/10 -> 0/10   (counters: 10 hits)
+  permit ipv6 any any             base 10/10 -> 10/10
+
+  This is the distinguishing behaviour of the case -- the filter reaches the
+  port without being applied to it.
+
+SCOPE NOT COVERED: the case also says "Ensure list is applied to a selection
+of ports & static channel groups." Only the ingress port is instrumented for
+traffic on this bench (one injection point, one capture point), and no static
+channel group exists -- see the T881/885/889/890 note about the straddling LAG
+not being buildable without recabling. The global-vs-per-port claim is proven;
+"all ports and channel groups" is asserted by the platform, not measured here.

@@ -1,0 +1,88 @@
+TEST 881 -- ACL: Named Hardware on static LAG - IP
+===========================================================================
+Run: 2026-09-22 08:41:26  tb470   ACL applied to STATIC LAG sa1 (member: port2.0.2)
+
+--- baseline, no ACL ---
+  IP in denied /24         10/10
+  IP outside it            10/10
+  ARP (non-IP)             10/10
+
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#access-list hardware acl881
+IE520-stk(config-ip-hw-acl)#deny ip 10.6.6.0 0.0.0.255 any
+IE520-stk(config-ip-hw-acl)#permit ip any any
+IE520-stk(config-ip-hw-acl)#exit
+IE520-stk(config)#end
+IE520-stk#--- build: ok ---
+show access-list
+Hardware IP access list acl881
+    4 deny ip 10.6.6.0/24 any
+    8 permit ip any any
+IE520-stk#    Hardware IP access list acl881
+    4 deny ip 10.6.6.0/24 any
+    8 permit ip any any
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface sa1
+IE520-stk(config-if)#access-group acl881
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#--- apply to sa1: ok ---
+    interface sa1
+    switchport
+    switchport mode access
+    access-group acl881
+
+  IP in denied /24         expect=drop     base=10/10  acl= 0/10  PASS
+  IP outside it            expect=forward  base=10/10  acl=10/10  PASS
+  ARP (non-IP)             expect=forward  base=10/10  acl=10/10  PASS
+show access-list counters
+Hardware ACL Packet Counters
+
+Name: acl881
+
+	Rule: deny ip 10.6.6.0/24 any
+	Packet Hits: 10
+
+
+	Rule: permit ip any any
+	Packet Hits: 10
+
+IE520-stk#  counters: ['Packet Hits: 10', 'Packet Hits: 10']
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface sa1
+IE520-stk(config-if)#no access-group acl881
+IE520-stk(config-if)#exit
+IE520-stk(config)#no access-list hardware acl881
+IE520-stk(config)#end
+IE520-stk#  teardown: clean
+
+VERDICT: PASS
+
+===========================================================================
+DEVIATION FROM THE CASE -- READ BEFORE TRUSTING THE PASS
+===========================================================================
+The case specifies "LAG should straddle stack members". IT DID NOT HERE.
+`sa1` was a SINGLE-MEMBER static aggregator built on port2.0.2 (stack member
+2 only).
+
+  WHAT IS THEREFORE PROVEN (the PASS above):
+    an ACL binds to a static-aggregator interface (`interface sa1 /
+    access-group <name>`) and correctly filters traffic transiting it.
+
+  WHAT IS NOT PROVEN -- UNMEASURED:
+    that the ACL is applied consistently across links terminating on
+    DIFFERENT stack members. A one-legged LAG cannot distinguish "the ACL is
+    programmed into every member's hardware" from "the ACL is programmed only
+    into the member holding the link" -- which is plausibly the whole reason
+    these four cases specify a straddling LAG.
+    The case's "Test after stack failover, rejoin, reboot" is likewise NOT
+    covered.
+
+  WHY: each IE520-28GSX member has exactly ONE usable copper port
+  (portN.0.1/3/4 are empty SFP cages). The only straddling pair that ever
+  existed was port1.0.2 + port4.0.2 to the AR4050S, and port1.0.2 was
+  recabled to the x230 on 2026-09-21. Building a straddling LAG needs a
+  physical recable, which is with Terrence as a bench-access item.

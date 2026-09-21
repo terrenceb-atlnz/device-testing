@@ -1,0 +1,107 @@
+TEST 931 -- ACL: Named IPv6 Hardware on port - IP and MAC
+===========================================================================
+Run: 2026-09-22 08:25:56  tb470   ACL ingress on port2.0.2
+Case expectation under test: 'MAC entries match both IPv6 and non-IPv6'
+
+--- STEP 0: baseline, no ACL ---
+  v6 from BAD mac    10/10
+  v4 from BAD mac    10/10
+  v6 from GOOD mac   10/10
+  v4 from GOOD mac   10/10
+
+--- build a hardware MAC ACL denying that source MAC, plus an IPv6 ACL ---
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#access-list 4000 deny 0000.1111.2222 0000.0000.0000 0000.0000.
+0000 ffff.ffff.ffff
+IE520-stk(config)#ipv6 access-list v6mac
+IE520-stk(config-ipv6-hw-acl)#permit ipv6 any any
+IE520-stk(config-ipv6-hw-acl)#exit
+IE520-stk(config)#end
+IE520-stk#  build errors: none
+show access-list
+Hardware MAC access list 4000
+    4 deny 0000.1111.2222 0000.0000.0000 any
+Hardware IPv6 access list v6mac
+    4 permit ipv6 any any
+IE520-stk#    Hardware MAC access list 4000
+    4 deny 0000.1111.2222 0000.0000.0000 any
+    Hardware IPv6 access list v6mac
+    4 permit ipv6 any any
+
+--- apply BOTH to the ingress port ---
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#access-group 4000
+IE520-stk(config-if)#ipv6 traffic-filter v6mac
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#  apply errors: none
+    interface port2.0.2
+    switchport
+    switchport mode access
+    access-group 4000
+    ipv6 traffic-filter v6mac
+
+--- with both ACLs applied ---
+  v6 from BAD mac    expect=drop     base=10/10  acl= 0/10  PASS
+  v4 from BAD mac    expect=drop     base=10/10  acl= 0/10  PASS
+  v6 from GOOD mac   expect=forward  base=10/10  acl=10/10  PASS
+  v4 from GOOD mac   expect=forward  base=10/10  acl=10/10  PASS
+
+  => MAC ACL affects IPv6 AND non-IPv6 from that MAC: YES
+show access-list counters
+Hardware ACL Packet Counters
+
+Name: v6mac
+
+	Rule: permit ipv6 any any
+	Packet Hits: 10
+
+Name: 4000
+
+	Rule: deny 0000.1111.2222 0000.0000.0000 any
+	Packet Hits: 20
+
+IE520-stk#  counters:
+    Hardware ACL Packet Counters
+    Name: v6mac
+    Rule: permit ipv6 any any
+    Packet Hits: 10
+    Name: 4000
+
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#no access-group 4000
+IE520-stk(config-if)#no ipv6 traffic-filter v6mac
+IE520-stk(config-if)#exit
+IE520-stk(config)#no access-list 4000
+IE520-stk(config)#no ipv6 access-list v6mac
+IE520-stk(config)#end
+IE520-stk#--- teardown errors: none ---
+
+===========================================================================
+VERDICT: PASS
+===========================================================================
+  A hardware MAC ACL and a hardware IPv6 ACL coexist on the same port
+  (access-group 4000 + ipv6 traffic-filter v6mac, both accepted).
+
+  "MAC entries match both IPv6 and non-IPv6"   -- PROVEN, the key claim:
+      deny 0000.1111.2222 (exact mask), dst any
+      IPv6 from that MAC  base 10/10 -> 0/10   DROPPED
+      IPv4 from that MAC  base 10/10 -> 0/10   DROPPED
+      IPv6 from another MAC              10/10 forwarded
+      IPv4 from another MAC              10/10 forwarded
+  The MAC rule is ethertype-agnostic, and traffic from a non-matching MAC is
+  untouched by it.
+
+  Syntax note: the hardware MAC ACL renders a full-ff destination mask as
+  "any" -- `access-list 4000 deny 0000.1111.2222 0000.0000.0000
+  0000.0000.0000 ffff.ffff.ffff` shows back as
+  "4 deny 0000.1111.2222 0000.0000.0000 any".
+
+NOT COVERED: "Apply ACL via service policy (QoS) and repeat tests" -- deferred
+to the QoS group, same as T929. Recorded so this is not read as a clean sweep.
+CONFIG LEFT BEHIND: none (both ACLs and both port bindings removed).

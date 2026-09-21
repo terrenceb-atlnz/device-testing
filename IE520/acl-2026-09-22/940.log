@@ -1,0 +1,67 @@
+
+TEST 940 -- ACL: Named IPv6 Hardware on port send-to-cpu IP
+===========================================================================
+Run: 2026-09-22 08:33:33  tb470
+Case expectation: traffic sent to CPU, and NOT forwarded in hardware.
+
+  baseline (no ACL): 10/10 forwarded
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#ipv6 access-list v6cpu
+IE520-stk(config-ipv6-hw-acl)#send-to-cpu ipv6 2001:db8:b::/64 any
+IE520-stk(config-ipv6-hw-acl)#permit ipv6 any any
+IE520-stk(config-ipv6-hw-acl)#exit
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#ipv6 traffic-filter v6cpu
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#  acl errors: none
+show ipv6 access-list
+Hardware IPv6 access list v6cpu
+    4 send-to-cpu ipv6 2001:db8:b::/64 any
+    8 permit ipv6 any any
+IE520-stk#    Hardware IPv6 access list v6cpu
+    4 send-to-cpu ipv6 2001:db8:b::/64 any
+    8 permit ipv6 any any
+  forwarded in hardware: base=10/10  send-to-cpu=0/10  (expect NOT forwarded)  PASS
+show access-list counters
+Hardware ACL Packet Counters
+
+Name: v6cpu
+
+	Rule: send-to-cpu ipv6 2001:db8:b::/64 any
+	Packet Hits: 10
+
+
+	Rule: permit ipv6 any any
+	Packet Hits: 0
+
+IE520-stk#  acl counters: ['Packet Hits: 10', 'Packet Hits: 0']
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#no ipv6 traffic-filter v6cpu
+IE520-stk(config-if)#exit
+IE520-stk(config)#no ipv6 access-list v6cpu
+IE520-stk(config)#end
+IE520-stk#  teardown: clean
+
+===========================================================================
+VERDICT: PASS
+===========================================================================
+  ipv6 access-list v6cpu
+    4 send-to-cpu ipv6 2001:db8:b::/64 any
+    8 permit ipv6 any any
+
+  "Verify not forwarded in hardware"  -> PASS
+      base 10/10 forwarded -> 0/10 with send-to-cpu applied.
+      Rule counter: Packet Hits 10, so the traffic matched and was diverted,
+      not merely lost.
+  "First matching algorithm applies"  -> consistent: the trailing
+      permit ipv6 any any took 0 hits while the earlier send-to-cpu took 10.
+
+  "Verify traffic sent to CPU (debug platform packet / sho plat count sdma)"
+      NOT separately instrumented. The diversion is evidenced by the
+      forwarding drop to 0/10 combined with 10 rule hits -- i.e. the packets
+      matched and left the hardware forwarding path. Direct CPU-queue
+      counters were not read; recorded so this is not overclaimed.
