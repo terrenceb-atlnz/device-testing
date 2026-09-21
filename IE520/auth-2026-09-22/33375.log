@@ -1,0 +1,360 @@
+TEST 33375 -- (219) Authentication & Security - MAC Auth / Web Auth
+===========================================================================
+Run: 2026-09-22 08:57:26  tb470
+DUT: IE520 4-member VCStack. Auth port = port2.0.2 (tb470 eth2 is the supplicant).
+RADIUS: the DUT's OWN local RADIUS server (127.0.0.1) -- chosen so no
+        testbox config outside the repos had to be edited.
+        users: 00f04d007717 (= eth2 MAC, for MAC auth), testuser (for web/dot1x)
+
+--- aaa / radius config in place ---
+show running-config | include aaa |radius-server
+radius-server host 127.0.0.1 key jXi0YZsAvMP3tO8WI/h+U6FxnDK/fk1qY5QPp48OZjk= encrypted
+aaa authentication enable default local
+aaa authentication login default local
+aaa authentication dot1x default group radius
+aaa authentication auth-mac default group radius
+aaa authentication auth-web default group radius
+radius-server local
+IE520-stk#    radius-server host 127.0.0.1 key jXi0YZsAvMP3tO8WI/h+U6FxnDK/fk1qY5QPp48OZjk= encrypted
+    aaa authentication enable default local
+    aaa authentication login default local
+    aaa authentication dot1x default group radius
+    aaa authentication auth-mac default group radius
+    aaa authentication auth-web default group radius
+    radius-server local
+
+### PART A -- MAC AUTHENTICATION
+--- baseline, auth-mac NOT yet enabled ---
+  known MAC   10/10
+  unknown MAC 10/10
+
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#auth-mac enable
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#--- auth-mac enabled on port2.0.2: ok ---
+show dot1x
+802.1X Port-Based Authentication: Enabled
+MAC-based Port Authentication   : Enabled (Mode:Dynamic)
+WEB-based Port Authentication   : Enabled
+  RADIUS server address (auth): 127.0.0.1:1812,
+    Last radius message id: 0
+IE520-stk#    802.1X Port-Based Authentication: Enabled
+    MAC-based Port Authentication   : Enabled (Mode:Dynamic)
+    WEB-based Port Authentication   : Enabled
+    RADIUS server address (auth): 127.0.0.1:1812,
+
+--- traffic with MAC authentication active ---
+  UNKNOWN MAC (no RADIUS user): base=10/10  auth= 0/10  expect BLOCKED  PASS
+  KNOWN MAC   (RADIUS user)   : base=10/10  auth= 0/10 then  0/10  expect AUTHORISED  FAIL
+
+show auth supplicant
+Interface port2.0.2
+  authenticationMethod: mac
+  totalSupplicantNum: 1
+  authorizedSupplicantNum: 0
+  untaggedVlansupplicantNum: 0
+  taggedVlansupplicantNum: 0
+
+  Supplicant name: -
+  Supplicant address: 0000.dead.beef
+    authenticationMethod: MAC-based Authentication
+    portStatus: Unauthorized - currentId: 2
+    abort:F fail:T start:F timeout:F success:F
+    PAE: state: Held - portMode: Auto
+    PAE: reAuthCount: 1 - rxRespId: 0
+    PAE: quietPeriod: 60 - maxReauthReq: 2
+    BE: state: Idle - reqCount: 0 - idFromServer: 0
+    CD: adminControlledDirections: in - operControlledDirections: in
+    CD: bridgeDetected: false
+    KR: rxKey: false
+    KT: keyAvailable: false - keyTxEnabled: false
+    RADIUS server group (auth): radius
+    RADIUS server (auth): 127.0.0.1
+    Session timeout enabled: No
+
+IE520-stk#--- show auth supplicant ---
+    Interface port2.0.2
+    authenticationMethod: mac
+    totalSupplicantNum: 1
+    authorizedSupplicantNum: 0
+    untaggedVlansupplicantNum: 0
+    taggedVlansupplicantNum: 0
+    Supplicant name: -
+    Supplicant address: 0000.dead.beef
+    authenticationMethod: MAC-based Authentication
+    portStatus: Unauthorized - currentId: 2
+    abort:F fail:T start:F timeout:F success:F
+
+=== RETEST: all MAC username formats present, host-mode multi-supplicant ===
+clear auth supplicant interface port2.0.2
+                 ^
+% Invalid input detected at '^' marker.
+
+IE520-stk#  clear supplicants: ["% Invalid input detected at '^' marker."]
+  KNOWN MAC attempt 1:  9/10
+show auth supplicant
+Interface port2.0.2
+  authenticationMethod: mac
+  totalSupplicantNum: 1
+  authorizedSupplicantNum: 1
+  untaggedVlansupplicantNum: 1
+  taggedVlansupplicantNum: 0
+    macBasedAuthenticationSupplicantNum: 1
+    dot1xAuthenticationSupplicantNum: 0
+    webBasedAuthenticationSupplicantNum: 0
+    otherAuthenticationSupplicantNum: 0
+
+  Supplicant name: 00-f0-4d-00-77-17
+  Supplicant address: 00f0.4d00.7717
+    authenticationMethod: MAC-based Authentication
+    portStatus: Authorized - currentId: 1
+    abort:F fail:F start:F timeout:F success:T
+    PAE: state: Authenticated - portMode: Auto
+    PAE: reAuthCount: 0 - rxRespId: 0
+    PAE: quietPeriod: 60 - maxReauthReq: 2
+    BE: state: Idle - reqCount: 0 - idFromServer: 0
+    CD: adminControlledDirections: in - operControlledDirections: in
+    CD: bridgeDetected: false
+    KR: rxKey: false
+    KT: keyAvailable: false - keyTxEnabled: false
+    RADIUS server group (auth): radius
+    RADIUS server (auth): 127.0.0.1
+    Session timeout enabled: No
+
+IE520-stk#--- show auth supplicant after the KNOWN mac ---
+    Interface port2.0.2
+    authenticationMethod: mac
+    totalSupplicantNum: 1
+    authorizedSupplicantNum: 1
+    untaggedVlansupplicantNum: 1
+    taggedVlansupplicantNum: 0
+    macBasedAuthenticationSupplicantNum: 1
+    dot1xAuthenticationSupplicantNum: 0
+    webBasedAuthenticationSupplicantNum: 0
+    otherAuthenticationSupplicantNum: 0
+    Supplicant name: 00-f0-4d-00-77-17
+    Supplicant address: 00f0.4d00.7717
+    authenticationMethod: MAC-based Authentication
+
+  UNKNOWN MAC:  0/10  (expect 0)
+show auth supplicant brief
+Interface port2.0.2
+  authenticationMethod: mac
+  totalSupplicantNum: 2
+  authorizedSupplicantNum: 1
+  untaggedVlansupplicantNum: 1
+  taggedVlansupplicantNum: 0
+    macBasedAuthenticationSupplicantNum: 1
+    dot1xAuthenticationSupplicantNum: 0
+    webBasedAuthenticationSupplicantNum: 0
+    otherAuthenticationSupplicantNum: 0
+
+Interface   VID  Mode MAC Address    Status            IP Address      Username
+=========== ==== ==== ============== ================= =============== ========
+port2.0.2   1    M    00f0.4d00.7717 Authenticated     --              00-f0...
+port2.0.2   1    M    0000.dead.beef Held              --              --
+
+IE520-stk#--- supplicant brief ---
+    Interface port2.0.2
+    authenticationMethod: mac
+    totalSupplicantNum: 2
+    authorizedSupplicantNum: 1
+    untaggedVlansupplicantNum: 1
+    taggedVlansupplicantNum: 0
+    macBasedAuthenticationSupplicantNum: 1
+    dot1xAuthenticationSupplicantNum: 0
+    webBasedAuthenticationSupplicantNum: 0
+    otherAuthenticationSupplicantNum: 0
+
+### PART B -- WEB AUTHENTICATION
+--- swap the port from MAC auth to web auth ---
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#no auth-mac enable
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#  disable auth-mac: ok
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#auth-web-server ipaddress 10.38.215.40
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#auth-web enable
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#  auth-web-server + enable: ok
+show auth-web-server
+Web authentication server
+  Server status: enabled
+  Server address: 10.38.215.40
+  Server Host-Name: --
+  Server protocol: HTTP
+  DHCP server: disabled
+  DHCP lease time: 20
+  DHCP WPAD option URL: --
+  HTTP Port No: --
+  Certification: default
+  HTTP Intercept Port No: 80
+  HTTPS Intercept Port No: 443
+  Redirect URL: --
+  Redirect delay time: 5
+  Session keep: disabled
+  Login URL: --
+  Webauth IP conflict logoff supplicant: newer
+  PingPolling: disabled
+  PingPollingType: Ping
+  PingInterval: 30
+  Timeout: 1
+  FailCount: 5
+  ReauthTimerRefresh: disabled
+IE520-stk#--- show auth-web-server ---
+    Web authentication server
+    Server status: enabled
+    Server address: 10.38.215.40
+    Server Host-Name: --
+    Server protocol: HTTP
+    DHCP server: disabled
+    DHCP lease time: 20
+    DHCP WPAD option URL: --
+    HTTP Port No: --
+    Certification: default
+
+--- is the portal reachable from the supplicant side? ---
+  curl -s -o /dev/null -w code=%%{http_code} http://10.38.215.40/
+    code=200 redirect=
+  https:
+    code=307
+
+--- does an unauthenticated host get intercepted? ---
+  transit while unauthenticated (web auth):  0/10  (expect 0)  PASS
+show auth supplicant
+Interface port2.0.2
+  authenticationMethod: web
+  totalSupplicantNum: 1
+  authorizedSupplicantNum: 0
+  untaggedVlansupplicantNum: 0
+  taggedVlansupplicantNum: 0
+
+  Supplicant name: -
+  Supplicant address: 00f0.4d00.7717
+    authenticationMethod: WEB-based Authentication
+    portStatus: Unauthorized - currentId: 1
+    abort:F fail:F start:F timeout:F success:F
+    PAE: state: Connecting - portMode: Auto
+    PAE: reAuthCount: 1 - rxRespId: 0
+    PAE: quietPeriod: 60 - maxReauthReq: 2
+    BE: state: Idle - reqCount: 0 - idFromServer: 0
+    CD: adminControlledDirections: in - operControlledDirections: in
+    CD: bridgeDetected: false
+    KR: rxKey: false
+    KT: keyAvailable: false - keyTxEnabled: false
+    Session timeout enabled: No
+
+IE520-stk#    Interface port2.0.2
+    authenticationMethod: web
+    totalSupplicantNum: 1
+    authorizedSupplicantNum: 0
+    untaggedVlansupplicantNum: 0
+    taggedVlansupplicantNum: 0
+    Supplicant name: -
+
+--- submit credentials to the portal (testuser / testpass) ---
+  portal response keywords: (none matched)
+show auth supplicant
+Interface port2.0.2
+  authenticationMethod: web
+  totalSupplicantNum: 1
+  authorizedSupplicantNum: 1
+  untaggedVlansupplicantNum: 1
+  taggedVlansupplicantNum: 0
+    macBasedAuthenticationSupplicantNum: 0
+    dot1xAuthenticationSupplicantNum: 0
+    webBasedAuthenticationSupplicantNum: 1
+    otherAuthenticationSupplicantNum: 0
+
+  Supplicant name: testuser
+  Supplicant address: 00f0.4d00.7717
+    authenticationMethod: WEB-based Authentication
+    portStatus: Authorized - currentId: 1
+    abort:F fail:F start:F timeout:F success:T
+    PAE: state: Authenticated - portMode: Auto
+    PAE: reAuthCount: 0 - rxRespId: 0
+    PAE: quietPeriod: 60 - maxReauthReq: 2
+    BE: state: Idle - reqCount: 0 - idFromServer: 0
+    CD: adminControlledDirections: in - operControlledDirections: in
+    CD: bridgeDetected: false
+    KR: rxKey: false
+    KT: keyAvailable: false - keyTxEnabled: false
+    RADIUS server group (auth): radius
+    RADIUS server (auth): 127.0.0.1
+    Session timeout enabled: No
+
+IE520-stk#--- show auth supplicant after login ---
+    Interface port2.0.2
+    authenticationMethod: web
+    totalSupplicantNum: 1
+    authorizedSupplicantNum: 1
+    untaggedVlansupplicantNum: 1
+    taggedVlansupplicantNum: 0
+    macBasedAuthenticationSupplicantNum: 0
+    dot1xAuthenticationSupplicantNum: 0
+    webBasedAuthenticationSupplicantNum: 1
+    otherAuthenticationSupplicantNum: 0
+    Supplicant name: testuser
+    Supplicant address: 00f0.4d00.7717
+    authenticationMethod: WEB-based Authentication
+
+  transit AFTER web login: 10/10  (expect forwarded)  PASS
+  authorizedSupplicantNum: 1
+
+===========================================================================
+VERDICT: PASS -- both MAC authentication and Web authentication
+===========================================================================
+
+PART A -- MAC AUTHENTICATION                                        PASS
+  baseline (auth-mac off):  known MAC 10/10, unknown MAC 10/10
+  with `auth-mac enable` on port2.0.2:
+      UNKNOWN MAC 0000.dead.beef  ->  0/10   BLOCKED
+      KNOWN   MAC 00f0.4d00.7717  ->  9/10   AUTHORISED
+  show auth supplicant:
+      authorizedSupplicantNum: 1
+      macBasedAuthenticationSupplicantNum: 1
+      Supplicant name: 00-f0-4d-00-77-17
+      Supplicant address: 00f0.4d00.7717
+      authenticationMethod: MAC-based Authentication
+
+  *** THE USERNAME FORMAT MATTERS AND IS NOT OBVIOUS ***
+  The DUT sends the MAC to RADIUS as **00-f0-4d-00-77-17** -- lowercase hex,
+  HYPHEN separated. A RADIUS user named `00f04d007717` (the common
+  no-separator form) does NOT match and the supplicant fails with fail:T.
+  There is no `auth-mac username-format` command on this build to change it
+  ("% Unrecognized command"), so the RADIUS user must be created in the
+  hyphenated form. This cost the first run of this case a false FAIL.
+
+  Second gotcha: default host-mode is single-host, so one FAILED supplicant
+  occupies the port and a subsequent good MAC never gets to authenticate.
+  `auth host-mode multi-supplicant` is what let both be tested on one port.
+
+PART B -- WEB AUTHENTICATION                                        PASS
+  auth-web-server ipaddress 10.38.215.40 ; auth-web enable on port2.0.2
+      Server status: enabled | Server address: 10.38.215.40 | protocol: HTTP
+  Portal reachable from the supplicant side:  HTTP 200 (https answers 307)
+  Unauthenticated transit:  0/10   BLOCKED
+  Credentials submitted to the portal's own form
+      POST http://10.38.215.40/index.cgi  USERNAME/PASSWORD/ACTION=login
+  After login:
+      authorizedSupplicantNum: 1
+      webBasedAuthenticationSupplicantNum: 1
+      Supplicant name: testuser
+      authenticationMethod: WEB-based Authentication
+      transit 10/10   FORWARDED
+
+RADIUS: the DUT's OWN local RADIUS server (127.0.0.1) was used throughout, so
+that no file outside the three repos had to be edited. Note for later: tb470
+also runs FreeRADIUS and the IE520 is ALREADY an authorised client via an
+Ansible-managed `client 10.38.0.0/16 { secret = secret }` block, with users
+test_user/test_pass and user15 available -- that route needs no testbox writes
+either and is the one to use if a remote server is required.
