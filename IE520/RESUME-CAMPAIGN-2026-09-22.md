@@ -9,7 +9,7 @@ instruction). The bench deltas are recorded *here* instead — see §4.
 
 ---
 
-## 1. Where we are — 37 of 72 cases graded
+## 1. Where we are — 42 of 72 cases graded
 
 | group | result | commit |
 | --- | --- | --- |
@@ -17,7 +17,7 @@ instruction). The bench deltas are recorded *here* instead — see §4.
 | Authentication (7) | **1 PASS / 6 UNMEASURED** | `6ebdbda` |
 | MRP (5) | **0 / 5 UNMEASURED** | `fb4771d` |
 | QoS (12) | **9 PASS / 3 UNMEASURED** | `a5485f5` |
-| STP & storm control (8) | **2 of 8 recorded, group IN PROGRESS** | `c1a5a9a` |
+| STP & storm control (8) | **5 of 8 recorded, group IN PROGRESS** | `c1a5a9a`, `6d145b6`, + |
 | switching (11) | not started | — |
 | IPv6 routing & protocol (16) | not started | — |
 
@@ -31,10 +31,21 @@ supplicants. Each group README leads with that split.
 
 **Finish the STP & storm control group**, then switching, then IPv6 routing.
 
-Done in STP: `16452` (UNMEASURED), `16453` (UNMEASURED). Still to do:
-`38487` MSTP instance limit · `16388` storm-control on a static channel group ·
-`6005` MAC movement/thrash · `38151` MSTP basic · `38152` RSTP basic ·
-`38153` STP basic.
+Done in STP: `16452` UNMEASURED · `16453` UNMEASURED · `38487` **PASS** ·
+`16388` **PASS** · `6005` **PASS**.
+**Still to do: `38151` MSTP basic · `38152` RSTP basic · `38153` STP basic.**
+
+Those three all need spanning tree **ENABLED**, which this bench deliberately
+runs with OFF (`no spanning-tree rstp enable` on all three devices). Enabling it
+is the test, but re-assert the disable afterwards — and note the trap below.
+
+**TRAP, found in 38487 and already cost a near-miss:** changing
+`spanning-tree mode` silently re-enables spanning tree and drops a prior
+`no spanning-tree <mode> enable`. After ANY mode change, re-read
+`show spanning-tree brief` and `show running-config | include spanning-tree`,
+re-assert the disable, and re-check the three TB paths. A wrong STP baseline
+would invalidate every remaining STP, switching and storm-control result
+without looking like an error.
 
 Confirmed syntax already paid for:
 ```
