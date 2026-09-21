@@ -1,0 +1,64 @@
+TEST 38481 -- ATMF - Application proxy - mac filter
+===========================================================================
+Run:    2026-09-21, tb470
+DUT:    IE520 4-member VCStack, AMF node "IE520-stk", AMF MASTER
+AMF:    network-name "tb470", 3 nodes
+API:    https://10.38.215.10/api/v1/atmf_application_proxy/...
+
+VERDICT: PASS
+
+STEP 1 -- "DUT should be the AMF master or part of an AMF network"   PASS
+  DUT is the AMF master of a 3-node network.
+
+STEP 2 -- "Enable application proxy on all devices in the AMF network and on
+           interfaces connected to ixia or hosts enable
+           'application-proxy threat-protection drop'"
+  service atmf-application-proxy enabled on all three nodes.
+  Host-facing ingress port on the DUT:
+      interface port2.0.2
+       application-proxy threat-protection drop
+  (port2.0.2 is the DUT port that tb470 eth2 is cabled to -- the host port.)
+
+STEP 3 -- "Send the mac block to the AMF master with the curl command"
+  Body (body_drop.json, exactly as the case specifies):
+      { "reason": "Malware detect(0): TCP",
+        "owner": "trap.DDI(10.36.200.8)",
+        "type": "drop" }
+  PUT .../macaddress_blacklist_entries/0001.0001.0001
+      {"code":"ANT_CODE_OK","message":"succeeded"}
+  GET .../macaddress_blacklist_entries
+      [{"m_device_mac":"0001.0001.0001"}]
+  DUT "show application-proxy threat-protection":
+      Client IP   Interface        MAC Address      VLAN   Action
+                  * (port2.0.2)    0001.0001.0001   1      drop
+
+  Worth noting as positive evidence: the DUT resolved the block to the specific
+  interface carrying "threat-protection drop" (port2.0.2) and to VLAN 1 on its
+  own -- the block was not merely accepted and parked.
+
+STEP 4 -- "Send traffic matching that mac into the DUT. Traffic should be dropped"
+      ingress : tb470 eth2 -> DUT port2.0.2
+      egress  : DUT port1.0.2 -> x230 -> tb470 eth1
+      frame   : Ether(src=00:01:00:01:00:01)/IP(src=10.38.215.99)/ICMP
+      capture : tcpdump -i eth1 "src host 10.38.215.99"
+
+  | phase | block | sent | received on eth1 |
+  | --- | --- | --- | --- |
+  | baseline     | none           | 10 | **10** |
+  | with block   | 0001.0001.0001 | 10 | **0**  |
+  | after delete | none           | 10 | **10** |
+
+STEP 5 -- "Delete the block ... Traffic should start forwarding"
+  DELETE accepted ({"code":"ANT_CODE_OK"}), GET -> [], traffic back to 10/10. PASS.
+
+--------------------------- RAW TRANSCRIPTS -------------------------------
+TEST 38481 -- ATMF Application proxy - mac filter (2026-09-21 13:44:19)
+
+stk>>> threat-protection drop on port2.0.2
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#application-proxy threat-protection drop
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#

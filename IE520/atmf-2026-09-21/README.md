@@ -10,6 +10,8 @@ Five ATMF cases executed against the tb470 bench. Per-case deliverable is the
 | [38476](38476.log) | ATMF - crosslink | **PASS** (degenerate at 2 nodes) |
 | [38477](38477.log) | ATMF - Virtual link | **PASS** (with negative control) |
 | [38472](38472.log) | ATMF - Master | **FAIL** — steps 1/2/3/5 pass, step 4 (secure mode) fails |
+| [38480](38480.log) | ATMF - Application proxy - IP filter | **PASS** |
+| [38481](38481.log) | ATMF - Application proxy - mac filter | **PASS** |
 
 ## Bench
 
@@ -29,12 +31,17 @@ secure mode brings the same link straight back to `Full / Forwarding`.
 physical AMF link behaves the same was not established. See 38472.log for the
 exact next step to localize it.
 
-## Not run (from the 10-case ATMF set)
+## Still to run (from the 10-case ATMF set)
 
-- **38474** backup/restore — executable but destructive (`atmf cleanup` wipes DUT flash)
-- **38475** recover from USB — blocked, no USB media present in either device
-- **38479** node provision — blocked, no spare node to wipe
-- **38480/38481** application proxy — need a spike on the AMF master's REST API
+- **38479** node provision — **unblocked** as of 2026-09-21: the x230-10GP is a
+  usable spare DUT, `x230-tb470.rel` is in tb470 `/tftproot`, and the x230 is
+  already cabled to a stack port that can be the provisioning port. Running it
+  wipes the x230 and removes it from the AMF network, which is the point.
+- **38474** backup/restore — needs a decision: `atmf cleanup` wipes the DUT's
+  flash. Also `rsync` is NOT installed on tb470 (sftp is), so the remote file
+  server needs sorting first.
+- **38475** recover from USB — the USB stick is in **stack member 1**, so the DUT
+  must be the IE520 stack; there is no low-risk substitute. Destructive.
 
 ## Bench state at exit
 

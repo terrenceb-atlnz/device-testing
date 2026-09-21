@@ -1,0 +1,86 @@
+TEST 38480 -- ATMF - Application proxy - IP filter
+===========================================================================
+Run:    2026-09-21, tb470
+DUT:    IE520 4-member VCStack, AMF node "IE520-stk", AMF MASTER
+AMF:    network-name "tb470", 3 nodes (IE520-stk master, 4050-5g, x230-10GP)
+API:    https://10.38.215.10/api/v1/atmf_application_proxy/...  (the DUT is the
+        master, so the API is served by the DUT itself)
+
+VERDICT: PASS
+
+STEP 1 -- "DUT should be the AMF master or part of an AMF network"
+  DUT is the AMF master of a 3-node network. PASS.
+
+STEP 2 -- "Enable application proxy and global ip-filter on all devices"
+  service atmf-application-proxy        IE520-stk ok | x230-10GP ok | 4050-5g ok
+  application-proxy ip-filter           IE520-stk ok | x230-10GP ok
+  4050-5g -> "% Global ip-filter is not supported on this device."
+
+  PLATFORM LIMITATION, not a failure: the AR4050S does not support global
+  ip-filter. The step says "all devices in the AMF network"; it was applied to
+  every device that supports it, and the DUT -- which is what the case tests --
+  does. Recorded so nobody re-runs this expecting the 4050 to take it.
+
+  DUT after:  Global IP-Filter : Enabled
+
+STEP 3 -- "Send the IP block to the AMF master with the curl command"
+  Body (body_ipfilter.json, exactly as the case specifies):
+      { "reason": "Malware detect(0): TCP", "type": "ip-filter" }
+  PUT .../blacklist_entries/10.1.1.1
+      HTTP/1.1 200 OK   {"code":"ANT_CODE_OK","message":"succeeded"}
+  GET .../blacklist_entries
+      [{"m_device_ip":"10.1.1.1"}]
+  DUT "show application-proxy threat-protection":
+      Client IP        Interface   MAC Address   VLAN   Action
+      10.1.1.1         *           *             *      ip-filter
+
+STEP 4 -- "Send traffic matching that IP into the DUT. Traffic should be dropped"
+
+  Traffic transits the DUT -- injected on one TB NIC, captured on another, so a
+  received frame proves forwarding THROUGH the switch, not just link-up:
+      ingress : tb470 eth2 -> DUT port2.0.2 (vlan 1)
+      egress  : DUT port1.0.2 -> x230 -> tb470 eth1
+      frame   : Ether(src=eth2)/IP(src=10.1.1.1, dst=10.38.215.1)/ICMP
+      capture : tcpdump -i eth1 "src host 10.1.1.1"
+
+  | phase | block | sent | received on eth1 |
+  | --- | --- | --- | --- |
+  | baseline    | none    | 10 | **10** |
+  | with block  | 10.1.1.1| 10 | **0**  |
+  | after delete| none    | 10 | **10** |
+
+  The baseline is what makes this a measurement rather than an assumption: the
+  path demonstrably forwards before the block, so 0/10 during the block is the
+  block acting, not a broken path.
+
+STEP 5 -- "Delete the block ... Traffic should start forwarding"
+  DELETE .../blacklist_entries/10.1.1.1
+      {"code":"ANT_CODE_OK","message":"succeeded"}
+  GET -> []   and traffic returned to 10/10.  PASS.
+
+--------------------------- RAW TRANSCRIPTS -------------------------------
+TEST 38480 -- ATMF Application proxy - IP filter (2026-09-21 13:40:57)
+
+stk>>> ip-filter
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#application-proxy ip-filter
+IE520-stk(config)#end
+IE520-stk#
+ar>>> ip-filter
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+4050-5g(config)#application-proxy ip-filter
+% Global ip-filter is not supported on this device.
+4050-5g(config)#end
+4050-5g#
+x230>>> configure terminal
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+x230-10GP(config)#
+x230>>> application-proxy ip-filter
+application-proxy ip-filter
+x230-10GP(config)#
+x230>>> end
+end
+x230-10GP#
