@@ -1,0 +1,76 @@
+TEST 6005 -- MAC movement / thrash
+===========================================================================
+Run: 2026-09-22 10:49:09  tb470
+The case has no steps in ck.db, so it is tested as the title states: the
+same source MAC is presented on TWO different DUT ports in turn, and the
+forwarding database is read to confirm the entry MOVES rather than
+duplicating or sticking.
+
+  rover MAC 0000.aabb.ccdd
+  port A = port2.0.2 (tb470 eth2, direct)
+  port B = port1.0.2 (tb470 eth1 -> x230 -> DUT)
+
+--- present the MAC on port A ---
+show mac address-table
+VLAN port             mac            fwd 
+1    port2.0.2    0000.aabb.ccdd   forward       dynamic
+1    CPU          0000.cd37.0d6f   forward       static 
+1    port1.0.2    00f0.4d00.7716   forward       dynamic
+10   CPU          0000.cd37.0d6f   forward       static 
+10   po1          0200.cd40.0394   forward       dynamic
+4092 CPU          7eaa.88e6.b933   forward       static 
+4092 CPU          a655.c628.eee1   forward       static 
+IE520-stk#   1    port2.0.2    0000.aabb.ccdd   forward       dynamic
+--- now present the SAME MAC on port B ---
+show mac address-table
+VLAN port             mac            fwd 
+1    port1.0.2    0000.aabb.ccdd   forward       dynamic
+1    CPU          0000.cd37.0d6f   forward       static 
+1    port1.0.2    00f0.4d00.7716   forward       dynamic
+10   CPU          0000.cd37.0d6f   forward       static 
+10   po1          0200.cd40.0394   forward       dynamic
+4092 CPU          7eaa.88e6.b933   forward       static 
+4092 CPU          a655.c628.eee1   forward       static 
+IE520-stk#   1    port1.0.2    0000.aabb.ccdd   forward       dynamic
+--- and back to port A ---
+show mac address-table
+VLAN port             mac            fwd 
+1    port2.0.2    0000.aabb.ccdd   forward       dynamic
+1    CPU          0000.cd37.0d6f   forward       static 
+1    port1.0.2    00f0.4d00.7716   forward       dynamic
+10   CPU          0000.cd37.0d6f   forward       static 
+10   po1          0200.cd40.0394   forward       dynamic
+4092 CPU          7eaa.88e6.b933   forward       static 
+4092 CPU          a655.c628.eee1   forward       static 
+IE520-stk#   1    port2.0.2    0000.aabb.ccdd   forward       dynamic
+
+  learnt on: A-phase=port2.0.2  B-phase=port1.0.2  A-again=port2.0.2
+  exactly one FDB entry at each phase: True
+  entry moved A->B->A:                True
+
+VERDICT: PASS -- the MAC moves between ports and never duplicates
+
+NOTE: this exercises MAC MOVEMENT. Sustained MAC THRASH (a MAC flapping fast
+enough to trigger thrash protection/logging) is not attempted -- the case
+gives no rate or threshold, and the bench has one host NIC per DUT port so
+the flap rate is bounded by sequential scapy runs, not by the DUT.
+show log tail 15
+7[r[999;999H[6n
+<date> <time> <facility>.<severity> <program[<pid>]>: <message>
+-------------------------------------------------------------------------
+2026 Sep 21 22:47:26 user.notice IE520-stk IMISH[14791]: [manager@ttyS0]no storm-control multicast level
+2026 Sep 21 22:47:27 user.notice IE520-stk IMISH[14791]: [manager@ttyS0]exit
+2026 Sep 21 22:47:29 user.notice IE520-stk IMISH[14791]: [manager@ttyS0]configure terminal
+2026 Sep 21 22:47:31 user.notice IE520-stk IMISH[14791]: [manager@ttyS0]interface port2.0.2
+2026 Sep 21 22:47:32 user.notice IE520-stk IMISH[14791]: [manager@ttyS0]no static-channel-group
+2026 Sep 21 22:47:32 user.notice IE520-stk NSM[689]: Port down notification received for sa1 
+2026 Sep 21 22:47:33 user.notice IE520-stk IMISH[14791]: [manager@ttyS0]exit
+2026 Sep 21 22:47:47 user.notice IE520-stk IMISH[14791]: [manager@ttyS0]show storm-control
+2026 Sep 21 22:47:49 user.notice IE520-stk IMISH[14791]: [manager@ttyS0]show running-config interface port2.0.2
+2026 Sep 21 22:49:06 user.notice IE520-stk IMISH[14791]: [manager@ttyS0]terminal length 0
+2026 Sep 21 22:49:07 user.notice IE520-stk IMISH[14791]: [manager@ttyS0]terminal no monitor
+2026 Sep 21 22:49:08 user.notice IE520-stk IMISH[14791]: [manager@ttyS0]terminal length 0
+2026 Sep 21 22:49:17 user.notice IE520-stk IMISH[14791]: [manager@ttyS0]show mac address-table
+2026 Sep 21 22:49:38 user.notice IE520-stk IMISH[309]: Last message '[manager@ttyS0]show ' repeated 2 times, suppressed by syslog-ng on IE520-stk
+2026 Sep 21 22:49:38 user.notice IE520-stk IMISH[14791]: [manager@ttyS0]show log tail 15
+IE520-stk#  log lines mentioning thrash/move: none
