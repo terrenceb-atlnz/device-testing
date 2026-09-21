@@ -12,6 +12,7 @@ Five ATMF cases executed against the tb470 bench. Per-case deliverable is the
 | [38472](38472.log) | ATMF - Master | **FAIL** — steps 1/2/3/5 pass, step 4 (secure mode) fails |
 | [38480](38480.log) | ATMF - Application proxy - IP filter | **PASS** |
 | [38481](38481.log) | ATMF - Application proxy - mac filter | **PASS** |
+| [38475](38475.log) | ATMF - recover from USB drive | **UNMEASURED** — `atmf cleanup` refused on a VCStack |
 
 ## Bench
 
@@ -37,11 +38,20 @@ exact next step to localize it.
   usable spare DUT, `x230-tb470.rel` is in tb470 `/tftproot`, and the x230 is
   already cabled to a stack port that can be the provisioning port. Running it
   wipes the x230 and removes it from the AMF network, which is the point.
-- **38474** backup/restore — needs a decision: `atmf cleanup` wipes the DUT's
-  flash. Also `rsync` is NOT installed on tb470 (sftp is), so the remote file
-  server needs sorting first.
-- **38475** recover from USB — the USB stick is in **stack member 1**, so the DUT
-  must be the IE520 stack; there is no low-risk substitute. Destructive.
+- **38474** backup/restore — **hard-blocked the same way as 38475**: step 4 is
+  `atmf cleanup`, which the platform refuses on a VCStack. Separately, `rsync`
+  is NOT installed on tb470 (sftp is).
+
+## HARD BLOCKER found 2026-09-21 — `atmf cleanup` on a VCStack
+
+    IE520-stk# atmf cleanup
+    % This command cannot be run when another stack member is present
+
+`atmf cleanup` is step 4 of BOTH 38474 and 38475, so **neither can run against
+the IE520 while it is stacked**. Running them on IE520 hardware requires
+breaking the stack down to a single member — which changes the DUT from a
+VCStack to a standalone switch. That is Terrence's decision, not a silent
+workaround. Full detail and everything that DID pass: [38475.log](38475.log).
 
 ## Bench state at exit
 

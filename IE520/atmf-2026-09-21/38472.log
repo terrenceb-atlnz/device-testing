@@ -797,3 +797,42 @@ Current ATMF Nodes    : 2
 
 
 4050-5g#
+
+===========================================================================
+ADDENDUM 2026-09-21 -- ATMF SECURE MODE PERSISTS WITHOUT AN EXPLICIT WRITE
+===========================================================================
+
+Found while setting up 38475, and it sharpens the §STEP 4 finding above.
+
+`atmf secure-mode` was still in the DUT's **startup-config** hours later:
+
+    IE520-stk# show startup-config | include atmf
+    atmf network-name tb470
+    atmf master
+    atmf secure-mode              <-- still there
+    no atmf backup guests enable
+    switchport atmf-link
+
+**No `write` / `copy running-config startup-config` was ever issued** between
+enabling secure mode and finding this. Enabling ATMF secure mode persists
+itself to startup-config on its own.
+
+**Consequence, observed live:** after the member reboots during the 38475
+setup, the stack reloaded `atmf secure-mode` from startup-config while the new
+AMF master (the AR4050S) had it disabled. The network would not form, and both
+ends reported:
+
+    1.0.2   Downlink  Up  OneWaySm  x230-10GP  Blocking
+    vlink1  Downlink      OneWaySm  -          Blocking
+
+Note the **`Sm`** suffix -- a secure-mode-qualified OneWay, distinct from the
+plain `OneWay` seen in STEP 4. Clearing it with `no atmf secure-mode` on the
+DUT restored the network to 3 nodes within one settle period.
+
+**Two things this adds to the STEP 4 finding:**
+ 1. A secure/non-secure MISMATCH between nodes reproducibly yields
+    OneWaySm/Blocking. That is a different (and explicable) state from STEP 4,
+    where BOTH nodes were in secure mode and still would not form.
+ 2. Anyone reproducing STEP 4 must clear secure mode from **startup-config**,
+    not just the running config, or it returns at the next reboot and looks
+    like a fresh failure.

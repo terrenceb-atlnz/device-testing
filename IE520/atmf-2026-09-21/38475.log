@@ -1,0 +1,276 @@
+TEST 38475 -- ATMF - recover from USB drive
+===========================================================================
+Run:    2026-09-21, tb470
+DUT:    IE520 4-member VCStack, AMF node "IE520-stk" (AMF Member)
+Master: AR4050S-5G "4050-5g"
+Precondition (from the case): "DUT requires virtual-link for this test"
+
+VERDICT: UNMEASURED -- steps 1-3 PASS, step 4 is REFUSED BY THE PLATFORM.
+         This is a HARD BLOCKER, measured, not inferred. Nothing was wiped;
+         the bench is intact.
+
+=========================== THE BLOCKER ===================================
+
+    IE520-stk# atmf cleanup
+    % This command cannot be run when another stack member is present
+
+**`atmf cleanup` is not available to a VCStack on this build.** It requires a
+standalone unit. Since `atmf cleanup` is step 4 of this case AND step 4 of
+38474, NEITHER case can be executed against the IE520 while it is stacked.
+
+The only way to run them on IE520 hardware is to break the stack down to a
+single member, which changes the DUT from "a VCStack" to "a standalone IE520"
+and therefore tests something different from what the bench is set up for.
+That is a decision for Terrence, not a workaround to apply silently.
+
+=========================== WHAT DID PASS =================================
+
+STEP 1 -- "The DUT should be a member of an AMF network"               PASS
+  Mastership handed to the AR4050S; DUT reads Role: Member, 3 nodes
+  (IE520-stk, 4050-5g, x230-10GP).
+
+PRECONDITION -- "DUT requires virtual-link"                            PASS
+  The L2 atmf-link on po1 was removed and replaced with a virtual link over
+  the existing vlan10 transit (10.10.10.1 <-> 10.10.10.2):
+      vlink1  1  10.10.10.1  2  10.10.10.2  Tunnel State: Complete
+      show atmf links ->  vlink1  Uplink  Full  4050-5g  Forwarding
+                          1.0.2   Downlink Full x230-10GP Forwarding
+
+STEP 2 -- "Insert a USB drive into the DUT"                            PASS
+  28.9 GB stick. **It must be in the member that is ACTIVE MASTER** -- see the
+  finding below; this cost two physical moves to establish.
+      Backup Media .......... USB (Total 29584.1MB, Free 29466.2MB)
+
+STEP 3 -- "Save the configuration on the DUT, this should create a recovery
+           file on the USB. Recover file should be present on the USB drive"  PASS
+      copy running-config startup-config
+        -> Building configuration... [OK]
+        -> File synchronization with stack members 1, 2, 4 successfully completed
+      dir usb: before save  ->  atmf_recovery_file      2176 B  02:14:14
+      dir usb: after  save  ->  atmf_recovery_file      2480 B  02:17:50
+                                atmf_recovery_file_hash   16 B  02:17:50
+  The recovery file exists and the save demonstrably refreshed it (size and
+  timestamp both moved). PASS.
+
+STEP 4 -- "Enter the command atmf cleanup"                       BLOCKED (above)
+STEP 5 -- "When the DUT reboots it should recover its configuration file
+           from the USB drive"                                   NOT REACHED
+
+=========================== FINDING: AMF media must be on the STACK MASTER ==
+
+AMF only recognises backup media in the member that is Active Master. Measured
+across three combinations -- this was not assumed:
+
+| USB is in | Active Master | show atmf backup -> Backup Media |
+| --- | --- | --- |
+| member 1 | member 3 | NONE ("% No backup media found on this device") |
+| member 3 | member 1 | NONE |
+| member 3 | **member 3** | **USB (29584.1MB)** |
+
+Practical consequence for anyone repeating this: the stick must sit in the
+member that will be master **on both sides of the wipe**. After `atmf cleanup`
+the config is erased, so stack priorities are erased too and the stack holds a
+DEFAULT election -- all priorities 128, lowest MAC wins. On tb470 that is
+**member 3** (84e3.2787.0740, vs .0780 / .09c0 / .0ac0). So member 3 is the
+correct home for the stick, and member 3 was pinned master with
+`stack 3 priority 1` for the pre-wipe steps.
+
+=========================== PREP DONE, STILL VALID =========================
+
+If the destack decision is taken, this is already staged:
+  - current release copied to the USB: IE520-awplus_main-20260913-1734.rel
+    (40052759 B, 02:21:28). The stick's other release, IE520-tb470.rel, is the
+    **Aug 09** build -- older than the running Sep 13 one; do not rely on it.
+  - the AMF master (AR4050S) holds NO IE520 release (only AR4050S-5.5.1-2.1.rel)
+    and reports Backup Media: NONE. **The USB is the only possible recovery
+    source** -- nothing else on this bench can hand the stack a release.
+
+=========================== BENCH STATE AT EXIT ============================
+
+Untouched by the refused command: stack Normal operation, all four Ready,
+flash still holds IE520-awplus_main-20260913-1734.rel, AMF 3 nodes, DUT is
+Member, secure mode Disabled.
+Diverged from baseline and NOT yet reverted: `stack 3 priority 1`, and the
+stack<->4050 AMF path is a virtual link rather than po1 atmf-link.
+
+--------------------------- RAW TRANSCRIPTS -------------------------------
+TEST 38475 -- ATMF recover from USB drive (2026-09-21 14:07:33)
+
+##### stk :: no atmf master
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#no atmf master
+IE520-stk(config)#end
+IE520-stk#
+
+##### ar  :: atmf master
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+4050-5g(config)#atmf master
+4050-5g(config)#end
+4050-5g#
+
+##### stk(DUT) :: after master swap
+show atmf
+ATMF Summary Information:
+
+ATMF Status           : Enabled
+Network Name          : tb470
+Node Name             : IE520-stk
+Role                  : Member
+Restricted login      : Enabled
+Secure Mode           : Enabled
+Current ATMF Nodes    : 1
+
+
+IE520-stk#
+
+##### ar :: after master swap
+show atmf
+ATMF Summary Information:
+
+ATMF Status           : Enabled
+Network Name          : tb470
+Node Name             : 4050-5g
+Role                  : Master
+Restricted login      : Enabled
+Secure Mode           : Disabled
+Current ATMF Guests   : 0
+Current ATMF Nodes    : 1
+Total number of licensed nodes available is 4094
+
+
+4050-5g#
+
+##### stk :: po1 remove atmf-link
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface po1
+IE520-stk(config-if)#no switchport atmf-link
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#
+
+##### ar  :: po1 remove atmf-link
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+4050-5g(config)#interface po1
+4050-5g(config-if)#no switchport atmf-link
+4050-5g(config-if)#exit
+4050-5g(config)#end
+4050-5g#
+
+##### stk :: virtual-link
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#atmf virtual-link id 1 ip 10.10.10.1 remote-id 2 remote-ip 10.
+10.10.2
+br-atmfmgmt: port 1(vlan4092) entered blocking state
+br-atmfmgmt: port 1(vlan4092) entered disabled state
+vlan4092: entered allmulticast mode
+vlan4092: entered promiscuous mode
+br-atmfmgmt: port 1(vlan4092) entered blocking state
+br-atmfmgmt: port 1(vlan4092) entered forwarding state
+br-atmfmgmt: port 2(vlink1.4092) entered blocking state
+br-atmfmgmt: port 2(vlink1.4092) entered disabled state
+vlink1.4092: entered allmulticast mode
+vlink1: entered allmulticast mode
+vlink1.4092: entered promiscuous mode
+vlink1: entered promiscuous mode
+br-atmfmgmt: port 2(vlink1.4092) entered blocking state
+br-atmfmgmt: port 2(vlink1.4092) entered forwarding state
+br-atmfmgmt: port 2(vlink1.4092) entered disabled state
+IE520-stk(config)#end
+IE520-stk#
+
+##### ar  :: virtual-link
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+4050-5g(config)#atmf virtual-link id 2 ip 10.10.10.2 remote-id 1 remote-ip 10.10
+.10.1
+4050-5g(config)#end
+4050-5g#
+
+##### DUT links
+show atmf links
+
+ATMF Link Brief Information:
+
+Local       Link      Link    ATMF         Adjacent          Adjacent Link
+Port        Type      Status  State        Node/Area         Ifindex  State
+--------------------------------------------------------------------------------
+1.0.2       Downlink  Up      Full         x230-10GP         5003     Forwarding
+vlink1      Uplink            Full         4050-5g           16779265 Forwarding
+
+* = Provisioned.
+
+
+IE520-stk#
+
+##### DUT vlinks
+show atmf virtual-links
+
+ATMF Virtual-Link Information:
+
+Local     Local                 Remote                Tunnel    Tunnel
+Port      ID   IP               ID   IP               Protect   State
+-----------------------------------------------------------------------------
+vlink1    1    10.10.10.1       2    10.10.10.2       -         Complete     
+
+ * = Dynamic Address.
+
+Virtual Links Configured: 1
+
+
+IE520-stk#
+
+##### usb before save
+dir usb:
+        16 -rwx Sep 21 2026 02:14:18  [32matmf_recovery_file_hash[0m
+      2176 -rwx Sep 21 2026 02:14:14  [32matmf_recovery_file[0m
+  41104167 -rwx Aug 11 2026 03:59:58  [32m---w-z-03-09-a-y---.rel[0m
+  41103815 -rwx Aug 09 2026 19:04:18  [32mIE520-tb470.rel[0m
+   1572864 -rwx Aug 02 2026 21:51:18  [32mIE520-bootloader-9.1.0.kwb[0m
+IE520-stk#
+
+##### save
+copy running-config startup-config
+Building configuration...
+
+
+##### usb after save
+[OK]
+Synchronizing file across the stack, please wait...
+File synchronization with stack member 1 successfully completed
+File synchronization with stack member 2 successfully completed
+File synchronization with stack member 4 successfully completed
+[DONE]
+IE520-stk#dir usb:
+      2480 -rwx Sep 21 2026 02:17:50  [32matmf_recovery_file[0m
+        16 -rwx Sep 21 2026 02:17:50  [32matmf_recovery_file_hash[0m
+  41104167 -rwx Aug 11 2026 03:59:58  [32m---w-z-03-09-a-y---.rel[0m
+  41103815 -rwx Aug 09 2026 19:04:18  [32mIE520-tb470.rel[0m
+   1572864 -rwx Aug 02 2026 21:51:18  [32mIE520-bootloader-9.1.0.kwb[0m
+IE520-stk#
+
+##### show file usb:atmf_recovery_file
+show file usb:atmf_recovery_file
+7[r[999;999H[6n% usb:atmf_recovery_file must be a text file
+IE520-stk#
+
+##### copy release to usb
+copy flash:/IE520-awplus_main-20260913-1734.rel usb:
+Copying...
+
+
+##### usb after release copy
+dir usb:
+Successful operation
+IE520-stk#dir usb:
+  40052759 -rwx Sep 21 2026 02:21:28  [32mIE520-awplus_main-20260913-1734.rel[0m
+      2480 -rwx Sep 21 2026 02:17:50  [32matmf_recovery_file[0m
+        16 -rwx Sep 21 2026 02:17:50  [32matmf_recovery_file_hash[0m
+  41104167 -rwx Aug 11 2026 03:59:58  [32m---w-z-03-09-a-y---.rel[0m
+  41103815 -rwx Aug 09 2026 19:04:18  [32mIE520-tb470.rel[0m
+   1572864 -rwx Aug 02 2026 21:51:18  [32mIE520-bootloader-9.1.0.kwb[0m
+IE520-stk#
