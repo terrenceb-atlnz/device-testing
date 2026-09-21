@@ -1,3 +1,148 @@
+TEST 38479 -- ATMF - node provision
+===========================================================================
+Run:    2026-09-21/22, tb470
+DUT:    x230-10GP (AW+ 5.5.5, awplus_5.5.5_2-20260918-7), console /dev/u0 @ 9600
+Master: IE520 4-member VCStack, AMF node "IE520-stk", AMF master, backup media
+        = USB in stack member 3
+Network: AMF "tb470". The DUT is cabled to stack port1.0.2, which was used as
+        the provisioning port -- no recabling was needed.
+
+VERDICT: PASS
+
+=========================== STEPS =========================================
+
+STEP 1 -- "Create an AMF network Without the DUT"                      PASS
+  The x230 was already a member from earlier work, so it was removed:
+      x230(config)# no atmf network-name          <-- BARE form only
+  ("no atmf network-name tb470" is rejected: % Invalid input.)
+  Master then read Current ATMF Nodes 2 (IE520-stk + 4050-5g), DUT absent.
+
+STEP 2 -- "Configure the AMF master for node provisioning. Create a profile
+           for the DUT and create a config and add a release file"      PASS
+      IE520-stk# atmf provision node x230-10GP
+      IE520-stk[atmf-provision]# create
+      ... locate ; copy flash:x230-default.cfg default.cfg
+                 ; copy flash:x230-tb470.rel  x230-tb470.rel
+      ... configure boot config default.cfg
+      ... configure boot system x230-tb470.rel
+  Verified:
+      Node Name        : x230-10GP
+      Provision Path   : usb:/atmf/tb470/nodes/x230-10GP/flash/
+      Current boot image  : flash:/x230-tb470.rel (file exists)
+      Current boot config : flash:/default.cfg   (file exists)
+
+STEP 3 -- "Configure a switchport on the master for provisioning"       PASS
+      IE520-stk(config)# interface port1.0.2
+      IE520-stk(config-if)# atmf provision x230-10GP
+  Verified by the provisioning marker in show atmf links:
+      1.0.2  Downlink  Down  Init  *x230-10GP  -  Blocking
+      * = Provisioned.
+  NOTE: this assignment does NOT appear in "show running-config interface" --
+  it lives in the AMF provisioning database. Check the asterisk, not the config.
+
+STEP 4 -- "On the DUT use atmf cleanup"                                 PASS
+  Ran on the x230 and completed -- flash wiped, node rebooted.
+  **Contrast 38475:** the same command on the IE520 VCStack is refused with
+  "% This command cannot be run when another stack member is present".
+  atmf cleanup works on a STANDALONE node and not on a stack; this run is the
+  positive half of that pair.
+
+STEP 5 -- "Connect the DUT to the provisioning port on the master"      PASS
+  Already cabled; the port had been shut to make the ATMF link inactive (see
+  the ordering note below), so "connect" was performed as: no shutdown on
+  stack port1.0.2.
+
+STEP 6 -- "Boot the DUT. DUT should receive a configuration file and release
+           file from the master"                                        PASS
+  DUT console, times relative to the start of the capture:
+      608.0s  atmffsd: Automatic node recovery started
+      608.0s  atmffsd: Attempting to recover as x230-10GP
+      653.1s  atmffsd: Checking controller and master node availability
+      653.1s  atmffsd: Retrieving recovery data from recovery node IE520-stk
+      689.1s  atmffsd: File recovery from master node succeeded. Node will now reboot
+      765.2s  AlliedWare Plus (TM) v5.5.5
+     1047.5s  Loading configuration file flash:/default.cfg, please wait.
+     1054.5s  x230-10GP login:
+
+  **THE DECISIVE EVIDENCE IS THE FLASH, NOT THE CONSOLE.** After provisioning,
+  the DUT's flash -- which atmf cleanup had emptied -- holds BOTH files at the
+  master profile's exact sizes and timestamps:
+      25785296 -rw- Sep 21 2026 05:08:14  x230-tb470.rel
+          1342 -rw- Sep 21 2026 04:59:16  default.cfg
+  Those timestamps are the ones the files carry inside
+  usb:/atmf/tb470/nodes/x230-10GP/flash/. Both files came from the master.
+      Current boot config: flash:/default.cfg (file exists)
+  The restored config is the x230's own (vlan 100, channel-group 1 on ports
+  2 and 4), i.e. the content of default.cfg, applied.
+
+=========================== TRAP: THE TFTP RED HERRING ====================
+
+The DUT console shows, on EVERY boot including before any AMF activity:
+      Loading tftp://10.38.215.1/x230-tb470.rel...
+      Verifying release... OK
+This x230's bootloader is configured to TFTP-boot its release from tb470, so
+that line appears whether or not AMF delivered anything. **Do not read it as
+"the release did not come from the master"** -- that was my first conclusion
+and it was wrong. The flash listing above is what settles it.
+
+=========================== ORDERING CONSTRAINTS ==========================
+
+Three refusals, none documented in the case text, each of which stops the case
+dead if you hit it in the wrong order:
+
+ 1. `configure boot config|system` -> "% Error: The provisioned node does not
+    exist." while that node name is a LIVE AMF member. The DUT must be out of
+    the network first -- which is exactly what the case's step 1 means by
+    "Create an AMF network Without the DUT".
+ 2. `create` -> "% Error: A backup exists for this node. The backup must be
+    deleted before this command is run." A node cannot be both backed-up and
+    provisioned. Using `atmf backup now` to source a real config (which is
+    otherwise a neat trick -- it writes the node's own config into the same
+    path) therefore BLOCKS provisioning until you run
+    `atmf backup delete <NODE-NAME>` (node name directly, no `node` keyword).
+    Preserve the config elsewhere first; the delete removes the directory.
+ 3. `atmf provision <node>` on an interface -> "% Cannot provision an active
+    ATMF link". The port must be idle. In the case this is implicit because
+    the DUT is connected only at step 5; with the DUT already cabled, shut the
+    port first.
+
+=========================== OBSERVATIONS =================================
+
+**The provisioned node does NOT rejoin the AMF network, and that is expected
+here.** After the boot, the master's link to it holds steady at
+      1.0.2  Downlink  Up  OneWay  *x230-10GP  0  Blocking
+for 13+ minutes. Cause: the config we provisioned is the x230's own Aug-18
+backup, which contains no `atmf network-name`. The node is provisioned and
+running its delivered release and config, but is not an AMF member. Recorded
+as a DECISION, per standing instruction: "the DUT received both files" and
+"the DUT rejoined the network" are different claims, and this case asks only
+for the former (step 6 wording). **Graded PASS on the case as written.** If a
+future run wants the node to rejoin, provision a config containing
+`atmf network-name tb470`.
+
+**No loop, verified.** The restored config brought x230 port1.0.2 (to the
+AR4050S) back up -- the shutdown I had applied lived in running-config only
+and died with the wipe. That re-creates a stack/x230/4050 triangle with RSTP
+disabled on all three devices. It is inert and was checked on every edge:
+stack 1.0.2 ATMF state Blocking (not forwarding); stack loop-protection on
+port1.0.2 reads Normal with no block; the AR4050S po1 shows its port1.0.2
+"unsynchronized", so the x230 was not absorbed into that aggregate; no loop,
+flap or topology events in the stack log.
+
+=========================== HARNESS DEFECT (MINE) ========================
+
+The step-6 capture used a flat observation window -- `end = time.time() + 1500`
+with a 120 s sleep and no early exit. The case actually passed at **1054.5s**
+(`x230-10GP login:`) and the script kept polling `show atmf links` every ~155 s
+until ~2125s, printing the identical line six times. ~18 minutes of dead time,
+and Terrence noticed the x230 does not take that long to boot.
+**Wait for the CONDITION, not the clock** -- a `break` on `login:` in the DUT
+stream would have closed it immediately. Same family as the flat
+`mode(timeOut=1800)` bootloader trap already in memory.
+
+--------------------------- RAW TRANSCRIPTS -------------------------------
+Full captures: 38479-provision-capture.log (milestones, both consoles),
+38479-dut-console.log (raw DUT console through cleanup, recovery and boot).
 TEST 38479 -- ATMF node provision (2026-09-21 15:12:05)
 DUT = x230-10GP; provisioning master = IE520 stack
 
@@ -566,3 +711,324 @@ IE520-stk(config)#
 >>> end
 end
 IE520-stk#
+>>> show running-config interface port1.0.2
+show running-config interface port1.0.2
+!
+interface port1.0.2
+ switchport
+ switchport mode trunk
+ switchport atmf-link
+!
+IE520-stk#
+>>> show atmf links
+show atmf links
+
+ATMF Link Brief Information:
+
+Local       Link      Link    ATMF         Adjacent          Adjacent Link
+Port        Type      Status  State        Node/Area         Ifindex  State
+--------------------------------------------------------------------------------
+1.0.2       Downlink  Up      RequestReset x230-10GP         0        Blocking
+vlink1      Downlink          Full         4050-5g           16779265 Forwarding
+
+* = Provisioned.
+
+
+IE520-stk#
+>>> configure terminal
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#
+>>> interface port1.0.2
+interface port1.0.2
+IE520-stk(config-if)#
+>>> shutdown
+shutdown
+switch: port 86(port1.0.2) entered disabled state
+IE520-stk(config-if)#switch: port 86(port1.0.2) entered disabled state
+
+>>> atmf provision x230-10GP
+atmf provision x230-10GP
+IE520-stk(config-if)#
+>>> exit
+exit
+IE520-stk(config)#
+>>> end
+end
+IE520-stk#
+>>> show running-config interface port1.0.2
+show running-config interface port1.0.2
+!
+interface port1.0.2
+ switchport
+ switchport mode trunk
+ shutdown
+ switchport atmf-link
+!
+IE520-stk#
+>>> show atmf links
+show atmf links
+
+ATMF Link Brief Information:
+
+Local       Link      Link    ATMF         Adjacent          Adjacent Link
+Port        Type      Status  State        Node/Area         Ifindex  State
+--------------------------------------------------------------------------------
+1.0.2       Downlink  Down    Init         *x230-10GP        -        Blocking
+vlink1      Downlink          Full         4050-5g           16779265 Forwarding
+
+* = Provisioned.
+
+
+IE520-stk#
+>>> show atmf links detail
+show atmf links detail
+
+--------------------------------------------------------------------------------
+Crosslink Ports Information
+--------------------------------------------------------------------------------
+
+
+Link State Entries:
+
+
+
+Domain Nodes Tree:
+
+
+
+Crosslink Transaction Entries:
+
+
+
+Uplink Information:
+
+Waiting for Sync                   : 1
+Transaction ID                     : 1
+Number of Links                    : 1
+Number of Local Uplinks            : 0
+
+Originating Node                   : IE520-stk
+Domain                             : 4050-5g's domain
+Node                               : 4050-5g
+Ifindex                            : 16779265
+Node Depth                         : 255
+Transaction ID                     : 0
+Flags                              : 0
+Domain Controller                  : -
+Domain Controller MAC              : 0000.0000.0000
+
+
+
+Downlink Domain Information:
+
+Domain                             : 4050-5g's domain
+  Domain Controller                : 4050-5g
+  Domain Controller MAC            : 0000.cd40.0394
+  Number of Links                  : 1
+  Number of Links Up               : 1
+  Number of Links on This Node     : 1
+  Links are Blocked                : 0
+  Node Transaction List
+  Domain List
+    Domain                         : 4050-5g's domain
+      Node                         : IE520-stk
+      Ifindex                      : 16779009
+      Transaction ID               : 8
+      Flags                        : 1
+
+
+
+--------------------------------------------------------------------------------
+Up/Downlink Ports Information
+--------------------------------------------------------------------------------
+Port                               : port1.0.2
+Ifindex                            : 5002
+Port Status                        : Down
+Port State                         : Init
+ETH Port                           : No
+Last event                         : Down
+Previous Node                      : x230-10GP
+Previous Ifindex                   : 0
+Previous Internal ID               : 0
+Previous Board ID                  : 0
+Port Forwarding State              : Blocking
+Port BPDU Receive Count            : 3843
+Port Sequence Number               : 23
+Port Adjacent Sequence Number      : 0
+Port Last Message Response         : 0
+
+Port                               : vlink1
+Ifindex                            : 16779009
+Kernel Ifindex                     : 8
+Port Status                        : 
+Port State                         : Full
+ETH Port                           : No
+Last event                         : LinkComplete
+Adjacent Node                      : 4050-5g
+Adjacent Internal ID               : 1134
+Adjacent Ifindex                   : 16779265
+Adjacent Board ID                  : 598
+Adjacent MAC                       : 0000.cd40.0394
+Adjacent Domain Controller         : 4050-5g
+Adjacent Domain Controller MAC     : 0000.cd40.0394
+Port Forwarding State              : Forwarding
+Port BPDU Receive Count            : 16445
+Port Sequence Number               : 16
+Port Adjacent Sequence Number      : 15
+Port Last Message Response         : 0
+
+
+Special Link Present               : TRUE
+
+IE520-stk#
+>>> show running-config | include provision
+show running-config | include provision
+switch 1 provision ie520-28
+switch 2 provision ie520-28
+switch 3 provision ie520-28
+switch 4 provision ie520-28
+IE520-stk#
+=== post-provision verification 2026-09-22 07:39:21 ===
+
+x230-10GP login: 
+>>> manager
+manager
+Password: 
+>>> friend
+
+AlliedWare Plus (TM) 5.5.5 09/18/26 09:47:00
+
+% Default password needs to be changed.
+x230-10GP>
+>>> enable
+enable
+x230-10GP#
+>>> terminal length 0
+terminal length 0
+x230-10GP#
+>>> show system
+show system
+System Status                                           Mon Sep 21 19:40:34 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       404  Base    x230-10GP                         B-0   G26ZE80EN       
+--------------------------------------------------------------------------------
+RAM: Total: 251232 kB Free: 100096 kB
+Flash: 61.9MB Used: 26.7MB Available: 35.2MB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 00:24:55
+Bootloader version : 3.2.16
+
+Current software   : x230-tb470.rel
+Software version   : awplus_5.5.5_2-20260918-7
+Build date         : Fri Sep 18 09:47:00 UTC 2026
+
+Current boot config: flash:/default.cfg (file exists)
+
+System Name
+ x230-10GP
+System Contact
+
+System Location
+
+x230-10GP#
+>>> dir flash:
+dir flash:
+         0 drwx Sep 21 2026 19:13:54  [01;34mlog/[0m
+  25785296 -rw- Sep 21 2026 05:08:14  x230-tb470.rel
+      1342 -rw- Sep 21 2026 04:59:16  default.cfg
+x230-10GP#
+>>> show running-config
+show running-config
+!
+service password-encryption
+!
+hostname x230-10GP
+!
+no banner motd
+!
+username manager privilege 15 password 8 $5$bJoPd84D$jDpGxr3DGpKESW14aCrmaazeZClEjvyEAJI77rEYMS3
+!
+!
+ssh server secure-algs
+ssh server allow-users manager
+service ssh
+!
+no service telnet
+!
+service http
+!
+no clock timezone
+!
+snmp-server
+!
+!
+!
+aaa authentication enable default local
+aaa authentication login default local
+!
+!
+!
+!
+!
+!
+!
+ip domain-lookup
+!
+!
+!
+no service dhcp-server
+!
+spanning-tree mode rstp
+!
+service power-inline
+lacp global-passive-mode enable
+no spanning-tree rstp enable
+!
+vlan database
+ vlan 100 state enable
+!
+interface port1.0.1
+ switchport
+ switchport mode access
+ switchport access vlan 100
+!
+interface port1.0.2
+ switchport
+ switchport mode access
+ switchport access vlan 100
+ channel-group 1 mode active
+!
+interface port1.0.3
+ switchport
+ switchport mode access
+ switchport access vlan 100
+!
+interface port1.0.4
+ switchport
+ switchport mode access
+ switchport access vlan 100
+ channel-group 1 mode active
+!
+interface port1.0.5-1.0.10
+ switchport
+ switchport mode access
+ switchport access vlan 100
+!
+interface po1
+ switchport
+ switchport mode access
+ switchport access vlan 100
+!
+interface vlan100
+ ip address 10.38.215.2/27
+!
+line con 0
+line vty 0 7
+!
+end
+
+x230-10GP#

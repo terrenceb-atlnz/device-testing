@@ -13,6 +13,7 @@ Five ATMF cases executed against the tb470 bench. Per-case deliverable is the
 | [38480](38480.log) | ATMF - Application proxy - IP filter | **PASS** |
 | [38481](38481.log) | ATMF - Application proxy - mac filter | **PASS** |
 | [38475](38475.log) | ATMF - recover from USB drive | **UNMEASURED** — `atmf cleanup` refused on a VCStack |
+| [38479](38479.log) | ATMF - node provision | **PASS** (DUT = x230-10GP) |
 
 ## Bench
 
@@ -34,10 +35,6 @@ exact next step to localize it.
 
 ## Still to run (from the 10-case ATMF set)
 
-- **38479** node provision — **unblocked** as of 2026-09-21: the x230-10GP is a
-  usable spare DUT, `x230-tb470.rel` is in tb470 `/tftproot`, and the x230 is
-  already cabled to a stack port that can be the provisioning port. Running it
-  wipes the x230 and removes it from the AMF network, which is the point.
 - **38474** backup/restore — **hard-blocked the same way as 38475**: step 4 is
   `atmf cleanup`, which the platform refuses on a VCStack. Separately, `rsync`
   is NOT installed on tb470 (sftp is).
@@ -65,3 +62,13 @@ config that the documented baseline does not — stack hostname is `IE520-stk`
 `switchport atmf-link` carrying vlan10 as native (it was `access vlan 10`).
 `00-baseline.txt` holds the pre-change running-config of both devices.
 Decide whether to fold this into bench-state.md or revert it.
+
+## Campaign outcome — 8 of 10 executed
+
+**7 PASS** (38473, 38476, 38477, 38478, 38479, 38480, 38481) ·
+**1 FAIL** (38472, secure mode) · **1 UNMEASURED** (38475, hard-blocked) ·
+**1 not run** (38474, blocked the same way as 38475).
+
+`atmf cleanup` is the dividing line: **refused on a VCStack** (38475, 38474) and
+**works on a standalone node** (38479, which passed using the x230 as DUT). The
+two blocked cases need the IE520 destacked to a single member to run at all.
