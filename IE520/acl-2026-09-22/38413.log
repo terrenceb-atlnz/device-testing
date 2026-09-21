@@ -1,0 +1,90 @@
+TEST 38413 -- deny/permit statements for standard IPv6 access list
+===========================================================================
+Run: 2026-09-22 08:09:09  tb470
+DUT: IE520 4-member VCStack (AMF removed; baseline topology)
+Path: tb470 eth2 -> DUT port2.0.2 (ingress, ACL here) -> DUT port1.0.2 -> x230 -> tb470 eth1
+A frame counted on eth1 has TRANSITED the DUT.
+
+--- STEP 0: baseline, no ACL applied (all four must forward) ---
+  2001:db8:1::1          in permitted /64                   10/10
+  2001:db8:1::ffff       in permitted /64, far end          10/10
+  2001:db8:2::1          in explicitly denied /64           10/10
+  2001:db8:9::1          matches nothing -> implicit deny   10/10
+
+--- build the standard IPv6 access-list ---
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#ipv6 access-list standard v6std permit 2001:db8:1::/64
+% This filter already exists
+IE520-stk(config)#ipv6 access-list standard v6std deny 2001:db8:2::/64
+% This filter already exists
+IE520-stk(config)#end
+IE520-stk#  config errors: ['% This filter already exists', '% This filter already exists']
+show ipv6 access-list
+Named Standard IPv6 access list v6std
+    4 permit 2001:db8:1::/64
+    8 deny   2001:db8:2::/64
+IE520-stk#  show ipv6 access-list:
+    Named Standard IPv6 access list v6std
+    4 permit 2001:db8:1::/64
+    8 deny   2001:db8:2::/64
+
+--- apply to the ingress port ---
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#ipv6 traffic-filter v6std
+% Access-list does not exist
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#  apply errors: ['% Access-list does not exist']
+
+--- STEPS 1-4 NOT RUN: the ACL could not be applied to the port ---
+
+===========================================================================
+VERDICT: UNMEASURED -- the list builds correctly but has no application
+point for traffic on this platform. Not a product failure; a scope limit.
+===========================================================================
+
+WHAT WAS PROVEN
+  The standard IPv6 access-list is created and stored correctly, in order:
+      IE520-stk# show ipv6 access-list
+      Named Standard IPv6 access list v6std
+      4 permit 2001:db8:1::/64
+      8 deny   2001:db8:2::/64
+  Statements auto-sequence 4, 8 in the order entered -- the top-to-bottom
+  storage the case's step 5 depends on. Removal is clean.
+
+WHY STEPS 1-5 COULD NOT BE EXERCISED ON TRAFFIC
+  A STANDARD IPv6 ACL CANNOT BE APPLIED TO A SWITCHPORT on this build:
+      IE520-stk(config-if)# ipv6 traffic-filter v6std
+      % Access-list does not exist
+  ...while `show ipv6 access-list` lists it. The interface help explains it:
+      ipv6 traffic-filter ?  ->  "WORD  Hardware IPv6 access list name"
+  The command resolves ONLY hardware IPv6 lists, so a standard list is
+  invisible to it. The error text is misleading but the behaviour is
+  consistent.
+  `ipv6 traffic-filter` also takes NO direction keyword -- `<cr>` follows the
+  name. An initial "... v6std in" failed as "% Incomplete command"; that was
+  operator error, not a defect.
+  No vty application point either: `ipv6 access-class` is
+  "% Unrecognized command" under `line vty 0 7`.
+
+  The measurement path itself was sound -- with no ACL applied, all four
+  probe sources transited the DUT 10/10:
+      2001:db8:1::1 10/10   2001:db8:1::ffff 10/10
+      2001:db8:2::1 10/10   2001:db8:9::1    10/10
+
+DECISION RECORDED (for review, per standing instruction)
+  The permit / deny / implicit-deny / prefix-boundary / first-match semantics
+  are exercised against a HARDWARE named IPv6 ACL in AWPTCM-T929 -- the list
+  type this platform can actually apply to a port. They are NOT re-run here,
+  because that would mean reporting a hardware-ACL result against a
+  standard-ACL case. If the case intends the standard list to be
+  port-applicable on the IE520, that is the discrepancy to raise.
+
+HARNESS NOTE
+  The first run of this case wrote its log as root (the whole script was run
+  under sudo), producing root-owned files in the repo. The harness now runs
+  unprivileged and elevates only the tcpdump/scapy subprocesses. Files from
+  that first run were chowned back to terrenceb:stdept.

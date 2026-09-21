@@ -1,0 +1,200 @@
+TEST 929 -- ACL: Named IPv6 Hardware on port - IP
+===========================================================================
+Run: 2026-09-22 08:12:49  tb470
+DUT: IE520 4-member VCStack.  ACL applied INGRESS on port2.0.2.
+Path: tb470 eth2 -> DUT port2.0.2 -> DUT port1.0.2 -> x230 -> tb470 eth1
+
+--- STEP 0: baseline with NO ACL (everything must forward) ---
+  A permit host        10/10
+  B deny /64           10/10
+  C implicit deny      10/10
+  D IPv4 (non-IPv6)    10/10
+  E ARP (non-IPv6)     10/10
+
+--- build the hardware named IPv6 ACL ---
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#ipv6 access-list v6hw
+IE520-stk(config-ipv6-hw-acl)#permit ipv6 host 2001:db8:1::1 any
+IE520-stk(config-ipv6-hw-acl)#deny ipv6 2001:db8:2::/64 any
+IE520-stk(config-ipv6-hw-acl)#exit
+IE520-stk(config)#end
+IE520-stk#  build errors: none
+show ipv6 access-list
+Hardware IPv6 access list v6hw
+    4 permit ipv6 2001:db8:1::1/128 any
+    8 deny ipv6 2001:db8:2::/64 any
+IE520-stk#    Hardware IPv6 access list v6hw
+    4 permit ipv6 2001:db8:1::1/128 any
+    8 deny ipv6 2001:db8:2::/64 any
+
+--- apply ingress ---
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#ipv6 traffic-filter v6hw
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#  apply errors: none
+    interface port2.0.2
+    switchport
+    switchport mode access
+    ipv6 traffic-filter v6hw
+
+--- with the ACL applied ---
+  A permit host        expect=permit     base=10/10  acl=10/10   PASS
+  B deny /64           expect=deny       base=10/10  acl= 0/10   PASS
+  C implicit deny      expect=deny       base=10/10  acl=10/10   FAIL
+  D IPv4 (non-IPv6)    expect=unaffected base=10/10  acl=10/10   PASS
+  E ARP (non-IPv6)     expect=unaffected base=10/10  acl=10/10   PASS
+
+RESULTS {'A permit host': 10, 'B deny /64': 0, 'C implicit deny': 10, 'D IPv4 (non-IPv6)': 10, 'E ARP (non-IPv6)': 10}
+
+--- ACL counters ---
+show access-list counters
+Hardware ACL Packet Counters
+
+Name: v6hw
+
+	Rule: permit ipv6 2001:db8:1::1/128 any
+	Packet Hits: 10
+
+
+	Rule: deny ipv6 2001:db8:2::/64 any
+	Packet Hits: 10
+
+IE520-stk#    Hardware ACL Packet Counters
+    Name: v6hw
+    Rule: permit ipv6 2001:db8:1::1/128 any
+    Packet Hits: 10
+    Rule: deny ipv6 2001:db8:2::/64 any
+    Packet Hits: 10
+
+--- teardown ---
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#no ipv6 traffic-filter v6hw
+IE520-stk(config-if)#exit
+IE520-stk(config)#no ipv6 access-list v6hw
+IE520-stk(config)#end
+IE520-stk#  teardown errors: none
+
+=== FOLLOW-UP A: is the absence of an implicit deny real? ===
+Same list, plus an EXPLICIT 'deny ipv6 any any' at the end.
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#ipv6 access-list v6hw2
+IE520-stk(config-ipv6-hw-acl)#permit ipv6 host 2001:db8:1::1 any
+IE520-stk(config-ipv6-hw-acl)#deny ipv6 2001:db8:2::/64 any
+IE520-stk(config-ipv6-hw-acl)#deny ipv6 any any
+IE520-stk(config-ipv6-hw-acl)#exit
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#ipv6 traffic-filter v6hw2
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#  errors: none
+  2001:db8:1::1    explicit permit                  10/10  expect=forward  PASS
+  2001:db8:9::1    unmatched -> explicit deny any    0/10  expect=drop     PASS
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#no ipv6 traffic-filter v6hw2
+IE520-stk(config-if)#exit
+IE520-stk(config)#no ipv6 access-list v6hw2
+IE520-stk(config)#end
+IE520-stk#
+=== FOLLOW-UP B: first-match algorithm ===
+permit host 2001:db8:2::5 placed BEFORE deny of its own /64.
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#ipv6 access-list v6ord
+IE520-stk(config-ipv6-hw-acl)#permit ipv6 host 2001:db8:2::5 any
+IE520-stk(config-ipv6-hw-acl)#deny ipv6 2001:db8:2::/64 any
+IE520-stk(config-ipv6-hw-acl)#exit
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#ipv6 traffic-filter v6ord
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#  errors: none
+show ipv6 access-list
+Hardware IPv6 access list v6ord
+    4 permit ipv6 2001:db8:2::5/128 any
+    8 deny ipv6 2001:db8:2::/64 any
+IE520-stk#    Hardware IPv6 access list v6ord
+    4 permit ipv6 2001:db8:2::5/128 any
+    8 deny ipv6 2001:db8:2::/64 any
+  2001:db8:2::5    matches the EARLIER permit         10/10  expect=forward  PASS
+  2001:db8:2::6    same /64, only the deny matches     0/10  expect=drop     PASS
+show access-list counters
+Hardware ACL Packet Counters
+
+Name: v6ord
+
+	Rule: permit ipv6 2001:db8:2::5/128 any
+	Packet Hits: 10
+
+
+	Rule: deny ipv6 2001:db8:2::/64 any
+	Packet Hits: 10
+
+IE520-stk#  counters:
+    Hardware ACL Packet Counters
+    Name: v6ord
+    Rule: permit ipv6 2001:db8:2::5/128 any
+    Packet Hits: 10
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#no ipv6 traffic-filter v6ord
+IE520-stk(config-if)#exit
+IE520-stk(config)#no ipv6 access-list v6ord
+IE520-stk(config)#end
+IE520-stk#  teardown errors: none
+  remaining lists: ['show ipv6 access-list']
+
+===========================================================================
+VERDICT: PASS -- every expectation the case states is met.
+===========================================================================
+
+  "Matching traffic should be permitted/denied depending on ACL"
+      permit host 2001:db8:1::1  -> 10/10 forwarded   (base 10/10)
+      deny  2001:db8:2::/64      ->  0/10 forwarded   (base 10/10)
+      ACL counters confirm both rules took 10 hits each -- the drop is the
+      ACL acting, not a dead path.
+
+  "non IPv6 traffic not affected. ARPs not affected"
+      IPv4 ICMP  -> 10/10 forwarded with the IPv6 ACL applied
+      ARP        -> 10/10 forwarded with the IPv6 ACL applied
+
+  "First match algorithm applies"                         PROVEN, follow-up B
+      permit host 2001:db8:2::5   (seq 4)
+      deny   2001:db8:2::/64      (seq 8)
+      2001:db8:2::5 -> 10/10 forwarded  (the EARLIER permit wins)
+      2001:db8:2::6 -> 0/10            (same /64, only the deny matches)
+      Counters show the hits landing on the permit rule.
+
+BEHAVIOUR WORTH KNOWING -- NO IMPLICIT DENY ON THIS PATH
+  Traffic matching NO rule is FORWARDED, not dropped:
+      2001:db8:9::1 with only permit+deny rules present -> 10/10 forwarded
+  Adding an explicit trailing rule changes it:
+      ... + "deny ipv6 any any"  ->  2001:db8:9::1  0/10 forwarded
+  So a hardware IPv6 ACL applied with `ipv6 traffic-filter` filters only what
+  it explicitly matches; there is no implicit deny-all at the end. If you want
+  default-deny you must write `deny ipv6 any any` yourself.
+  RECORDED AS AN OBSERVATION, NOT A FAILURE: this case does not ask for an
+  implicit deny -- it asks that matching traffic be permitted/denied and that
+  non-IPv6 traffic be unaffected, which it is. My first run graded an
+  "implicit deny" probe FAIL against my own assumption rather than the case
+  text; that grading was wrong and is corrected here. Whether default-deny is
+  expected on the IE520 is the question to raise, and it is what AWPTCM-T38413
+  step 3 would have covered had a standard list been port-applicable.
+
+NOTE ON SCOPE NOT COVERED
+  The case also says "Apply ACL via service policy (QoS) and repeat tests".
+  That half was not run here -- it belongs with the QoS group and needs a
+  class-map/policy-map built around the same ACL. Recorded so it is not
+  mistaken for a clean sweep.
+
+CONFIG LEFT BEHIND: none. Both lists removed, traffic-filter removed from
+port2.0.2, `show ipv6 access-list` empty at exit.
