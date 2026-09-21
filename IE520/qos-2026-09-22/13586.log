@@ -1,0 +1,102 @@
+TEST 13586 -- QoS on switchport interface - class set cos
+===========================================================================
+Run: 2026-09-22 09:59:18  tb470
+CoS is only observable on a TAGGED frame, and the normal egress path
+(stack port1.0.2 -> x230 -> tb470 eth1) is untagged. For this case the whole
+path is put into trunk mode with native vlan 999 so vlan 1 egresses TAGGED
+and tcpdump/scapy on eth1 can read the 802.1p priority bits.
+
+--- make the egress path tagged ---
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#vlan database
+IE520-stk(config-vlan)#vlan 999 state enable
+IE520-stk(config-vlan)#exit
+IE520-stk(config)#interface port1.0.2
+IE520-stk(config-if)#switchport mode trunk
+IE520-stk(config-if)#switchport trunk allowed vlan add 1
+IE520-stk(config-if)#switchport trunk native vlan 999
+IE520-stk(config-if)#exit
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#switchport mode trunk
+IE520-stk(config-if)#switchport trunk allowed vlan add 1
+IE520-stk(config-if)#switchport trunk native vlan 999
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#  stack: ok
+vlan database
+x230-10GP(config-vlan)#vlan 999 state enable
+x230-10GP(config-vlan)#exit
+x230-10GP(config)#interface port1.0.3
+x230-10GP(config-if)#switchport mode trunk
+x230-10GP(config-if)#switchport trunk allowed vlan add 1
+x230-10GP(config-if)#switchport trunk native vlan 999
+x230-10GP(config-if)#exit
+x230-10GP(config)#interface port1.0.1
+x230-10GP(config-if)#switchport mode trunk
+x230-10GP(config-if)#switchport trunk allowed vlan add 1
+x230-10GP(config-if)#switchport trunk native vlan 999
+x230-10GP(config-if)#exit
+x230-10GP(config)#  x230: ok
+
+--- baseline, no policy (reading 802.1p CoS at egress) ---
+  matching src       got=8 cos=[0]
+  non-matching src   got=8 cos=[0]
+
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#access-list hardware qacl
+IE520-stk(config-ip-hw-acl)#permit ip 10.55.1.1/32 any
+IE520-stk(config-ip-hw-acl)#exit
+IE520-stk(config)#class-map qcm
+IE520-stk(config-cmap)#match access-group qacl
+IE520-stk(config-cmap)#exit
+IE520-stk(config)#policy-map qpm
+IE520-stk(config-pmap)#class qcm
+IE520-stk(config-pmap-c)#set cos 5
+IE520-stk(config-pmap-c)#exit
+IE520-stk(config-pmap)#exit
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#service-policy input qpm
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#--- build (set cos 5): ok ---
+show policy-map qpm
+
+  POLICY-MAP-NAME: qpm
+    Interfaces: port2.0.2
+    Default class-map action: permit
+
+    CLASS-MAP-NAME: default
+
+    CLASS-MAP-NAME: qcm
+      QOS-ACCESS-LIST-NAME: qacl
+      Set CoS: 5
+IE520-stk#    POLICY-MAP-NAME: qpm
+    Interfaces: port2.0.2
+    Default class-map action: permit
+    CLASS-MAP-NAME: default
+    CLASS-MAP-NAME: qcm
+    QOS-ACCESS-LIST-NAME: qacl
+    Set CoS: 5
+  matching src       got=8 cos=[5] expect=5  PASS
+  non-matching src   got=8 cos=[0] expect=0  PASS
+
+VERDICT: PASS
+
+--- restore the untagged path ---
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port1.0.2
+IE520-stk(config-if)#switchport mode access
+IE520-stk(config-if)#switchport access vlan 1
+IE520-stk(config-if)#exit
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#switchport mode access
+IE520-stk(config-if)#switchport access vlan 1
+IE520-stk(config-if)#exit
+IE520-stk(config)#vlan database
+IE520-stk(config-vlan)#no vlan 999
+IE520-stk(config-vlan)#exit
+IE520-stk(config)#end
+IE520-stk#  stack: clean

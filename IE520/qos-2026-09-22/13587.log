@@ -1,0 +1,74 @@
+TEST 13587 -- QoS on switchport interface - class set dscp
+===========================================================================
+Run: 2026-09-22 09:46:04  tb470   policy applied ingress on port2.0.2
+Frames are sent with tos=0 and the DSCP is DECODED at egress, so any change
+is the DUT marking them, not the sender.
+
+--- enable QoS globally (prompts: 'Traffic will stop ... Continue? (y/n)') ---
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#mls qos enable
+Traffic will stop while configuration is applied. Continue? (y/n): y
+% QoS is already enabled
+IE520-stk(config)#  % QoS is already enabled
+show mls qos
+  Enable
+IE520-stk#  show mls qos: Enable | IE520-stk#
+
+--- baseline, no policy ---
+  matching src       got=8  dscp=[0]
+  non-matching src   got=8  dscp=[0]
+
+--- build class-map / policy-map, set dscp 46 on the matching class ---
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#access-list hardware qacl
+IE520-stk(config-ip-hw-acl)#permit ip 10.40.1.1/32 any
+IE520-stk(config-ip-hw-acl)#exit
+IE520-stk(config)#class-map qcm
+IE520-stk(config-cmap)#match access-group qacl
+IE520-stk(config-cmap)#exit
+IE520-stk(config)#policy-map qpm
+IE520-stk(config-pmap)#class qcm
+IE520-stk(config-pmap-c)#set dscp 46
+IE520-stk(config-pmap-c)#exit
+IE520-stk(config-pmap)#exit
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#service-policy input qpm
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#  errors: none
+show policy-map qpm
+
+  POLICY-MAP-NAME: qpm
+    Interfaces: port2.0.2
+    Default class-map action: permit
+
+    CLASS-MAP-NAME: default
+
+    CLASS-MAP-NAME: qcm
+      QOS-ACCESS-LIST-NAME: qacl
+      Set DSCP: 46
+IE520-stk#    POLICY-MAP-NAME: qpm
+    Interfaces: port2.0.2
+    Default class-map action: permit
+    CLASS-MAP-NAME: default
+    CLASS-MAP-NAME: qcm
+    QOS-ACCESS-LIST-NAME: qacl
+    Set DSCP: 46
+
+--- with the policy applied ---
+  matching src       got=8  dscp=[46]  expect=46  PASS
+  non-matching src   got=8  dscp=[0]  expect=0  PASS
+
+VERDICT: PASS
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#no service-policy input qpm
+IE520-stk(config-if)#exit
+IE520-stk(config)#no policy-map qpm
+IE520-stk(config)#no class-map qcm
+IE520-stk(config)#no access-list hardware qacl
+IE520-stk(config)#end
+IE520-stk#teardown: clean

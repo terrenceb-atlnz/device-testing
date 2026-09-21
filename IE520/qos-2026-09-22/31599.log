@@ -1,0 +1,67 @@
+TEST 31599 -- QoS: Matching (access-group)
+===========================================================================
+Run: 2026-09-22 09:48:25  tb470   policy ingress on port2.0.2
+Method: the policy's ACTION is `set dscp 46`, so a MATCH is decoded at
+egress as dscp 46 and a non-match keeps its original marking. Matching is
+measured on the wire, not inferred from a counter.
+
+--- baseline, no policy ---
+  matches the ACL            got=8 dscp=[0]
+  does not match             got=8 dscp=[0]
+
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#access-list hardware qacl
+IE520-stk(config-ip-hw-acl)#permit ip 10.50.1.1/32 any
+IE520-stk(config-ip-hw-acl)#exit
+IE520-stk(config)#class-map qcm
+IE520-stk(config-cmap)#match access-group qacl
+IE520-stk(config-cmap)#exit
+IE520-stk(config)#policy-map qpm
+IE520-stk(config-pmap)#class qcm
+IE520-stk(config-pmap-c)#set dscp 46
+IE520-stk(config-pmap-c)#exit
+IE520-stk(config-pmap)#exit
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#service-policy input qpm
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#--- build: ok ---
+show policy-map qpm
+
+  POLICY-MAP-NAME: qpm
+    Interfaces: port2.0.2
+    Default class-map action: permit
+
+    CLASS-MAP-NAME: default
+
+    CLASS-MAP-NAME: qcm
+      QOS-ACCESS-LIST-NAME: qacl
+      Set DSCP: 46
+IE520-stk#    POLICY-MAP-NAME: qpm
+    Interfaces: port2.0.2
+    Default class-map action: permit
+    CLASS-MAP-NAME: default
+    CLASS-MAP-NAME: qcm
+    QOS-ACCESS-LIST-NAME: qacl
+    Set DSCP: 46
+
+--- with the policy applied ---
+  matches the ACL            got=8 dscp=[46] expect=46  PASS
+  does not match             got=8 dscp=[0] expect=0  PASS
+show mls qos interface port2.0.2 policer-counters
+Interface:               port2.0.2
+% Policy map qpm does not have any class maps with policer counters configured
+IE520-stk#  policer-counters: Interface:               port2.0.2 | % Policy map qpm does not have any class maps with policer counters configured | IE520-stk#
+
+VERDICT: PASS
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#no service-policy input qpm
+IE520-stk(config-if)#exit
+IE520-stk(config)#no policy-map qpm
+IE520-stk(config)#no class-map qcm
+IE520-stk(config)#no access-list hardware qacl
+IE520-stk(config)#end
+IE520-stk#teardown: clean

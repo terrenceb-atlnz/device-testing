@@ -1,0 +1,69 @@
+TEST 13563 -- QoS: CoS - Specify CoS
+===========================================================================
+Run: 2026-09-22 09:51:52  tb470
+CoS lives in the 802.1Q header, so the ingress port must accept TAGGED
+frames -- port2.0.2 is put into trunk mode for this case only.
+
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#switchport mode trunk
+IE520-stk(config-if)#switchport trunk allowed vlan add 1
+IE520-stk(config-if)#switchport trunk native vlan 1
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#--- port to trunk: ok ---
+--- baseline, no policy ---
+  tagged cos 5 (match)       got=8 dscp=[0]
+  tagged cos 2 (no match)    got=8 dscp=[0]
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#class-map qcm
+IE520-stk(config-cmap)#match cos 5
+IE520-stk(config-cmap)#exit
+IE520-stk(config)#policy-map qpm
+IE520-stk(config-pmap)#class qcm
+IE520-stk(config-pmap-c)#set dscp 46
+IE520-stk(config-pmap-c)#exit
+IE520-stk(config-pmap)#exit
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#service-policy input qpm
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#--- build: ok ---
+show policy-map qpm
+
+  POLICY-MAP-NAME: qpm
+    Interfaces: port2.0.2
+    Default class-map action: permit
+
+    CLASS-MAP-NAME: default
+
+    CLASS-MAP-NAME: qcm
+      Match CoS: 5
+      Set DSCP: 46
+IE520-stk#    POLICY-MAP-NAME: qpm
+    Interfaces: port2.0.2
+    Default class-map action: permit
+    CLASS-MAP-NAME: default
+    CLASS-MAP-NAME: qcm
+    Match CoS: 5
+    Set DSCP: 46
+--- with the policy applied ---
+  tagged cos 5 (match)       got=8 dscp=[46] expect=46  PASS
+  tagged cos 2 (no match)    got=8 dscp=[0] expect=0  PASS
+
+VERDICT: PASS
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#no service-policy input qpm
+IE520-stk(config-if)#exit
+IE520-stk(config)#no policy-map qpm
+IE520-stk(config)#no class-map qcm
+IE520-stk(config)#interface port2.0.2
+IE520-stk(config-if)#switchport mode access
+IE520-stk(config-if)#switchport access vlan 1
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#teardown: clean
