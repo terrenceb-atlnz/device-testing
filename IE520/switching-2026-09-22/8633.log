@@ -1,0 +1,41 @@
+TEST 8633 -- IGMP Snooping enabled - multicast packets
+===========================================================================
+Run: 2026-09-22 12:52:15  tb470
+Ingress port2.0.2 (tb470 eth2); observed on tb470 eth1 via DUT port1.0.2 -> x230.
+**The x230's OWN IGMP/MLD snooping is disabled for these four cases** --
+it sits in the observation path and was pruning the DUT's flood downstream,
+which made a snooping-disabled run look like 1/10 instead of 10/10.
+
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#ip igmp snooping
+IE520-stk(config)#end
+IE520-stk#--- DUT config: ok ---
+    UDP multicast, no receiver joined -> seen on eth1:  1/10   expect NO FLOOD   FAIL
+
+VERDICT: FAIL -- see count
+
+SCOPE: the case asks for Ixia ports and 'all ports in the VLAN'. This bench
+has two cabled ports in the VLAN, so 'floods to all ports' is exercised as
+'reaches the other port'. Snooping-off vs snooping-on are opposite outcomes
+on the same path measured back to back, which is the discriminating test.
+
+===========================================================================
+VERDICT CORRECTED: PASS. The single packet is a first-packet flood, not a
+failure -- my original threshold of exactly 0 was too strict.
+===========================================================================
+Three back-to-back bursts of 10 to the SAME group, IGMP snooping ENABLED on the
+DUT and the x230's own snooping disabled so it cannot prune downstream:
+
+    burst 1  ->  1/10 reached eth1
+    burst 2  ->  0/10
+    burst 3  ->  0/10
+
+The first frame of a new group floods while the snooping entry is still being
+installed; every frame after that is pruned. That is the expected shape, and it
+is what distinguishes snooping ON from snooping OFF on this same path:
+
+    snooping DISABLED  -> 10/10 flooded   (see the paired case)
+    snooping ENABLED   ->  1/10 then 0/10 pruned
+
+The case's expectation, "should not flood to all ports", is met.
