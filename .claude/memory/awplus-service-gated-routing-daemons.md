@@ -27,6 +27,26 @@ the same as u2 with it). **PIM-DM has no `service` command in the corpus and sta
 Rebooting is NOT an option on tb470 (IE520s TFTP-boot and have no dongle → hang), so an answer that
 ends in "reboot to activate" is no answer.
 
+**CONFIRMED AGAIN 2026-09-22, plus what comes AFTER the service command.** `service ospf6`
+started OSPFv3 immediately as described. But starting the daemon is only step one — the part
+that cost real time was **attaching an interface**:
+
+```
+interface vlan10
+ ipv6 router ospf area 0        <- the command is `ipv6 router ...`, NOT `ipv6 ospf ...`
+```
+
+There is no `area` option under `ipv6 ospf ?` on the interface, and no attachment command in
+the `router ipv6 ospf` sub-mode either, so probing leads you to conclude it cannot be done.
+It is documented: [[awplus-cli-wiki-on-the-share]], page `ipv6-router-ospf-area.md`. Once
+both ends had it, the adjacency went Full and survived 5/5 link flaps.
+
+Two more from the same session: **`service bgp` is `% Incomplete command` on the AR4050S**
+(BGP needs no enabler there) while the IE520 accepts it, so do not assume the gating set is
+identical across platforms. And `no service ospf6` still reports "Save the config and restart
+for this change to take effect" — the daemon lingers until reboot, which is harmless once
+nothing references it.
+
 **How to apply:** when an AW+ protocol command says "daemon is not running", check
 `show running-config | include service` and the corpus for `service <daemon>` BEFORE concluding
 anything about licences or the image; verify with one accept/reject probe. Never build a triage

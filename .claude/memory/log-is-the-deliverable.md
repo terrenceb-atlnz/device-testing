@@ -26,6 +26,15 @@ rigour a write-up would have had — headline verdict, per-step results, the con
 makes each result interpretable, and any measurement traps hit along the way. Then *offer*
 a write-up in a sentence rather than producing one. When asked for one, write it.
 
+**CAMPAIGN ADDITION, 2026-09-22.** For a multi-group campaign the per-case `.log` still is
+the deliverable, plus **one `README.md` per group directory** — a verdict table, the split of
+PASS vs UNMEASURED *with the reason for each*, and the bench limits that capped anything. That
+is the difference between "Authentication: 1 PASS / 6 UNMEASURED" (which reads like failure)
+and a headline that says MAC-auth, web-auth and 802.1X were each proven end to end and the
+cases are blocked on TACACS+ and port count. A reader should get the true picture without
+opening every file. A campaign-level pointer memory is worth writing too:
+[[ie520-awptcm-campaign-2026-09-22]]. Grading rules: [[campaign-measurement-discipline]].
+
 Note this **qualifies** the `orient-dt` skill's §8 line that "the deliverable convention
 is `after-action-<suite>.md` in that run's directory" — that still holds for a **campaign**
 (a whole suite, or an investigation spanning many rounds), but not for each individual test

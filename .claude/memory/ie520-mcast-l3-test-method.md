@@ -11,6 +11,23 @@ metadata:
 Method proven 2026-09-09 running AWPTCM multicast + directed-broadcast cases on tb470
 (logs: `device-testing/IE520/switching/{38135,38136,38137,38425,38422,38423,38424,5519,5520}.log`).
 
+> **STALE TOPOLOGY WARNING (2026-09-22): the u4/u5 fabric below NO LONGER EXISTS.** The bench
+> was rebuilt on 2026-09-18 (4-member stack + AR4050S) and again on 2026-09-21 (x230 added on
+> `/dev/u0`). The METHOD and the seven gotchas below are still correct and still cost real
+> debugging; the PORT NAMES are not. Current layout and its limits:
+> [[tb470-bench-structural-limits]]. Today the path is
+> `tb470 eth2 -> DUT port2.0.2` in, `DUT port1.0.2 -> x230 -> tb470 eth1` out.
+>
+> **NEW GOTCHA 8, and it invalidated a first pass:** the observation path now runs THROUGH the
+> x230, which has its own IGMP/MLD snooping enabled by default. Snooping cases first read
+> `1/10` with DUT snooping DISABLED — the DUT was flooding correctly and the **x230 was pruning
+> it downstream**. Disable snooping on the x230 for these cases and restore it after. Generally:
+> **the x230 is a switch in the path, not a wire** — ask what it does to any measurement.
+>
+> **NEW GOTCHA 9:** with snooping ENABLED the first frame of a new group still floods while the
+> entry installs — `1/10` then `0/10, 0/10` on repeat bursts. Do not grade "enabled" as
+> requiring exactly 0.
+
 **The binding constraint on this bench:** only ONE usable host NIC on the u4/u5 fabric —
 `tb eth2 -> u4 port1.0.2`. `eth1 -> u2` is a dead-end (u2 has 0 LLDP neighbours; its only
 fabric cabling was the RX-faulty ring ports). u5 has NO host NIC. Fabric = host—u4—[2 links]—u5,
