@@ -1,0 +1,95 @@
+
+TEST 3111 -- BGP4+ Standard Test - Advertising Default Route
+===========================================================================
+Run: 2026-09-22 14:55:27  tb470
+
+--- give the DUT a static default route and import statics ---
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#ipv6 route ::/0 2001:db8:10::2
+IE520-stk(config)#router bgp 65001
+IE520-stk(config-router)#address-family ipv6
+IE520-stk(config-router-af)#redistribute static
+IE520-stk(config-router-af)#exit-address-family
+IE520-stk(config-router)#exit
+IE520-stk(config)#end
+IE520-stk#    config: ok
+--- what the PEER now sees from the DUT ---
+    ^
+    % Invalid input detected at '^' marker.
+    => peer received ::/0 : False
+
+--- now remove the static and use default-originate instead ---
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#no ipv6 route ::/0 2001:db8:10::2
+IE520-stk(config)#router bgp 65001
+IE520-stk(config-router)#address-family ipv6
+IE520-stk(config-router-af)#neighbor 2001:db8:10::2 default-originate
+IE520-stk(config-router-af)#exit-address-family
+IE520-stk(config-router)#exit
+IE520-stk(config)#end
+IE520-stk#    config: ok
+    ^
+    % Invalid input detected at '^' marker.
+    => peer received ::/0 via default-originate : False
+
+VERDICT: see peer tables above
+
+=== RETEST: correct show command on the PEER ===
+`show bgp ipv6 unicast` is not valid on the AR4050S; the wiki page is
+show-bgp-ipv6-bgp4-only.md, i.e. the command is `show bgp ipv6`.
+
+--- peer: show bgp ipv6  [ok] ---
+--- peer: show ipv6 route bgp  [ok] ---
+    Gateway of last resort is not set
+    No entries in route table
+
+show bgp ipv6 neighbors 2001:db8:10::2 advertised-routes
+
+
+IE520-stk#--- DUT: routes ADVERTISED to the peer ---
+    => DUT is advertising ::/0 to the peer: False
+
+VERDICT: see tables above
+
+=== CAUSE FOUND: cross-case interference from T3112, not a product fault ===
+T3112 applied an outbound prefix-list to this same neighbour containing
+    seq 10 deny ::/0 le 128
+which explicitly denies the default route outbound. T3111 was then asking the
+DUT to advertise ::/0 through a filter built to block it. Two cases sharing
+one live session -- the earlier one's config must be removed first.
+
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#router bgp 65001
+IE520-stk(config-router)#address-family ipv6
+IE520-stk(config-router-af)#no neighbor 2001:db8:10::2 prefix-list PL-OUT out
+IE520-stk(config-router-af)#exit-address-family
+IE520-stk(config-router)#exit
+IE520-stk(config)#end
+IE520-stk#--- remove the T3112 prefix-list binding: ok ---
+show bgp ipv6 neighbors 2001:db8:10::2 advertised-routes
+BGP table version is 3, local router ID is 10.10.10.1
+Status codes: s suppressed, d damped, h history, * valid, > best, i - internal
+Origin codes: i - IGP, e - EGP, ? - incomplete
+
+   Network          Next Hop            Metric LocPrf Weight Path
+*> ::/0             2001:db8:10::1(fe80::200:cdff:fe37:d6f)
+                                                  100  32768 i
+
+Number of prefixes 1
+IE520-stk#--- DUT: routes advertised to the peer ---
+    BGP table version is 3, local router ID is 10.10.10.1
+    Status codes: s suppressed, d damped, h history, * valid, > best, i - internal
+    Origin codes: i - IGP, e - EGP, ? - incomplete
+    Network          Next Hop            Metric LocPrf Weight Path
+    *> ::/0             2001:db8:10::1(fe80::200:cdff:fe37:d6f)
+    100  32768 i
+    Number of prefixes 1
+--- peer: show ipv6 route bgp ---
+    B       ::/0 [20/0] via fe80::200:cdff:fe37:d6f, vlan10, 00:00:32
+
+    DUT advertising ::/0 : True      peer installed ::/0 : True
+
+VERDICT: PASS -- the DUT advertises a default route to its BGP4+ peer and the peer installs it
