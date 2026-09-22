@@ -1,0 +1,95 @@
+TEST 29770 -- UDP broadcast helper
+===========================================================================
+Run: 2026-09-22 13:06:22  tb470
+The case has no steps in ck.db. Tested as the feature the title names:
+the DUT relays a directed/limited UDP broadcast from one VLAN to a
+configured helper address in another, for the UDP ports it is told to relay.
+
+--- what does this build offer? ---
+show ip helper-address
+                  ^
+% Invalid input detected at '^' marker.
+
+IE520-stk#  show ip helper-address                               UNSUPPORTED
+show running-config | include helper|forward-protocol
+IE520-stk#  show running-config | include helper|forward-protocol supported
+
+--- configure the relay: vlan1 -> helper in the vlan10 transit ---
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#ip forward-protocol udp 5100
+IE520-stk(config)#interface vlan1
+IE520-stk(config-if)#ip helper-address 10.10.10.2
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#  config: ok
+show running-config interface vlan1
+!
+interface vlan1
+ ip address 10.38.215.10/27
+ ip address 10.38.215.40/27 secondary
+ ipv6 enable
+ ipv6 address dhcp
+ ip dhcp-client vendor-identifying-class
+ ip dhcp-client request vendor-identifying-specific
+ ip helper-address 10.10.10.2
+!
+IE520-stk#    ip helper-address 10.10.10.2
+show running-config | include forward-protocol
+ip forward-protocol udp 5100
+IE520-stk#    ip forward-protocol udp 5100
+
+--- send a limited broadcast to udp/5100 into vlan1 ---
+    If the helper relays it, the frame is re-originated toward 10.10.10.2
+    (the AR4050S across the vlan10 transit), i.e. it leaves via po1, NOT
+    flooded out the vlan1 observation port.
+    frames seen on the vlan1 observation port (eth1): 8/8
+show ip helper-address
+                  ^
+% Invalid input detected at '^' marker.
+
+IE520-stk#    show ip helper-address:
+      ^
+      % Invalid input detected at '^' marker.
+
+VERDICT: see EVALUATION below
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface vlan1
+IE520-stk(config-if)#no ip helper-address 10.10.10.2
+IE520-stk(config-if)#exit
+IE520-stk(config)#no ip forward-protocol udp 5100
+IE520-stk(config)#end
+IE520-stk#teardown: clean
+
+=== RETEST: point the helper at an address on a path we can CAPTURE ===
+helper-address 10.38.215.65 = tb470 eth3, reached stack -> po1 (vlan10 transit) -> 4050 -> eth3.
+A relayed copy must appear there as a UNICAST to 10.38.215.65:5100.
+The original broadcast still floods inside vlan1 -- that is not the question.
+
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#ip forward-protocol udp 5100
+IE520-stk(config)#interface vlan1
+IE520-stk(config-if)#ip helper-address 10.38.215.65
+IE520-stk(config-if)#exit
+IE520-stk(config)#end
+IE520-stk#--- config: ok ---
+8
+    Ether / IP / UDP 10.38.215.33:5100 > 10.38.215.65:5100 / Raw
+    Ether / IP / UDP 10.38.215.33:5100 > 10.38.215.65:5100 / Raw
+    Ether / IP / UDP 10.38.215.33:5100 > 10.38.215.65:5100 / Raw
+--- relayed copies seen on eth3 (the helper's side): 8/8 ---
+    Ether / IP / UDP 10.38.215.33:5100 > 10.38.215.65:5100 / Raw
+    Ether / IP / UDP 10.38.215.33:5100 > 10.38.215.65:5100 / Raw
+    Ether / IP / UDP 10.38.215.33:5100 > 10.38.215.65:5100 / Raw
+
+VERDICT: PASS -- the DUT relays a limited UDP broadcast to the configured helper address
+configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#interface vlan1
+IE520-stk(config-if)#no ip helper-address 10.38.215.65
+IE520-stk(config-if)#exit
+IE520-stk(config)#no ip forward-protocol udp 5100
+IE520-stk(config)#end
+IE520-stk#teardown: clean
