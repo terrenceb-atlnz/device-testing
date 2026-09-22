@@ -1,12 +1,12 @@
 ---
 name: lacp-passive-hides-links-from-stp
-description: "`lacp global-passive-mode enable` auto-enrols a freed port into a channel-group, and spanning tree then runs on the AGGREGATOR — so a live physical link can forward on a path STP cannot block. Seen on the stack AND the AR4050S."
+description: "`lacp global-passive-mode enable` auto-enrols a freed port into a channel-group, and spanning tree then runs on the AGGREGATOR — so a live physical link can forward on a path STP cannot block. Seen on ALL THREE bench devices: the stack, the AR4050S and the x230."
 metadata:
   node_type: memory
   type: project
 ---
 
-Bit twice on tb470 within two days, on two different devices.
+Bit THREE times on tb470 within three days, on three different devices.
 
 **2026-09-21, the stack.** A port freed from `po1` immediately reappeared as
 `channel-group 2 mode passive`, and `switchport atmf-link` was then refused with
@@ -42,3 +42,18 @@ Out-of-band recovery: the serial consoles stay usable during a storm, so a leg c
 shut from `/dev/uN` without needing the network.
 
 Related: [[stp-mode-change-reenables-spanning-tree]], [[tb470-bench-structural-limits]].
+
+**2026-09-23, the x230.** Building the stack↔x230 static LAG, the second member was
+refused outright:
+
+```
+x230(config-if)# static-channel-group 2
+% port1.0.4: The port port1.0.4 is already under lacp control
+```
+
+`lacp global-passive-mode enable` had enrolled it before I got there. **It is now disabled
+on all three devices** and that is saved to startup on the stack. Leave it off.
+
+**Related trap from the same rebuild:** a static LAG also refuses members whose properties
+differ — `% The properties of port4.0.2 don't match other ports in aggregator`. Align
+VLAN and mode on BOTH member ports *before* `static-channel-group`, not after.

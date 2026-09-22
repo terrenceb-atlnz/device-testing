@@ -37,7 +37,73 @@ pairing possible.
 their original names on purpose: they are the last of the old scheme, lifted off the box
 before it was cleaned up, and the name records where they came from.
 
-## Current state — 2026-09-18 (4-member ring re-formed + AR4050S joined over an LACP LAG, static routing; TB on three edges)
+## Current state — 2026-09-23 (x230-10GP added as a third device; TWO static LAGs; all three TB NICs on the stack)
+
+**Measured 2026-09-23** by LLDP on both ends, host-MAC learning per port, and end-to-end
+ping. Terrence recabled this morning; everything below was verified after the change, not
+carried forward.
+
+### What changed from 2026-09-18
+
+1. **A third device joined: the x230-10GP on `/dev/u0`.** Console is **9600 baud** — every
+   other console here is 115200. At the wrong rate the port returns NUL bytes and looks
+   like a dead device.
+2. **Two STATIC LAGs replaced the single LACP `po1`:**
+   - **`sa1` = stack `port3.0.2` + `port4.0.2` ↔ 4050 `port1.0.3` + `port1.0.4`**, access
+     vlan 10. Its members are on **stack units 3 and 4**, so this LAG **straddles stack
+     members** — that was the point of the new cable, and it is what the ACL/QoS
+     LAG-on-aggregator cases need.
+   - **`sa2` = stack `port1.0.2` + `port1.0.9` ↔ x230 `port1.0.3` + `port1.0.4`**, vlan 1
+     (x230 side vlan 100). The second cable created two parallel stack↔x230 links; with
+     RSTP disabled on both devices that was a loop, and **aggregating them is what removes
+     it.** Do not un-bundle one end.
+3. **All three TB NICs now land directly on the stack** — the x230 and the 4050 are no
+   longer in any host path:
+   - `eth1` moved off the x230 → **stack `port3.0.13`**
+   - `eth3` moved off the 4050 → **stack `port3.0.9`**
+   - `eth2` unchanged → stack `port2.0.2`
+   This matters for measurement, not just tidiness: the x230 runs its own IGMP/MLD
+   snooping and was silently pruning multicast in the observation path, which produced a
+   result that looked like a DUT failure and was not.
+4. **`vlan1` gained a third secondary, `10.38.215.66/27`**, so `eth3` has a peer now that
+   it no longer reaches the 4050's `10.38.215.70/27`.
+
+### Addressing, verified 2026-09-23
+
+| | |
+| --- | --- |
+| stack `vlan1` | `10.38.215.10/27` primary + `10.38.215.40/27` + `10.38.215.66/27` secondary |
+| stack `vlan10` | `10.10.10.1/27`, on **`sa1`** |
+| 4050 `vlan10` | `10.10.10.2/27`, on **`sa1`** |
+| 4050 `vlan1` | `10.38.215.70/27` — **no longer has a TB edge** |
+| x230 | all ports access **vlan 100**; SVI `10.38.215.2/27` |
+
+Verified: `eth1→10.38.215.10`, `eth2→10.38.215.40`, `eth3→10.38.215.66` all 0% loss;
+vlan10 transit `10.10.10.1→10.10.10.2` 3/3; transit **through** the DUT (inject eth2,
+capture eth1) 10/10; stack `Normal operation`, 4/4 Ready.
+
+### Standing gotchas that bit during this rebuild
+
+- **`lacp global-passive-mode enable` silently enrols a port into an aggregation.** It has
+  now caused a failure on **all three devices**: the stack (2026-09-21), the AR4050S
+  (2026-09-22, where it produced a ring with no blocking port because STP runs on the
+  aggregator and that aggregator was down) and the x230 (2026-09-23, `% already under
+  lacp control`). It is now **disabled on all three**.
+- **A static LAG refuses members whose properties differ** — `% The properties of
+  port4.0.2 don't match other ports in aggregator`. Align VLAN/mode on both member ports
+  **before** `static-channel-group`, not after.
+- **Changing `spanning-tree mode` re-enables spanning tree**, discarding a prior
+  `no spanning-tree <mode> enable`. RSTP is deliberately **off** on all three devices here.
+
+### Port budget — corrected
+
+An earlier record claimed each IE520-28GSX member has one usable copper port. **That is
+wrong.** Each member has **three**: `portN.0.2`, `portN.0.9`, `portN.0.13` (the `.13`s are
+10GBASE-TM, `port4.0.9` is 10GBASE-T). Everything else is an empty SFP cage — 92 of them.
+So the stack has 12 copper ports; after this rebuild **6 are in use and 6 are free**:
+`port1.0.13`, `port2.0.9`, `port2.0.13`, `port3.0.9`(used), `port4.0.9`, `port4.0.13`.
+
+## Current state — 2026-09-18 (4-member ring + AR4050S over an LACP LAG) — SUPERSEDED 2026-09-23 (x230 added, two STATIC LAGs, all three TB NICs on the stack — above)
 
 > **Terrence recabled the bench on 2026-09-18** (his words: 4-stack again; AR4050S ports 2 and 4 to
 > the stack on u2/u4; TB to 4050 port 1 and to u3/u5 — *the member-side cables are on port .2, not
@@ -878,8 +944,15 @@ the wrong consoles before.
 ###         WAN (unused). Standalone router; vlan1 10.38.215.70/27 STATIC, vlan10
 ###         10.10.10.2/27 on po1. Running awplus_main-20260918-7 (AR4050S-tb470.rel),
 ###         bootloader 5.2.8, boot config flash:/default.cfg. See header item 5.
-### NOT DECLARED: /dev/u0 = no response (powered off); /dev/u6 = ABSENT 2026-09-18 (the
-###   x230-52GT V2 of 09-15 is gone).
+### swi_f = x230-10GP "x230-10GP" (S/N G26ZE80EN, base MAC 001a.eb91.cca1, /dev/u0)
+###         !! CONSOLE IS 9600 BAUD -- every other console here is 115200. At 115200 the
+###         port returns NUL bytes and reads exactly like a dead or still-booting device.
+###         AW+ 5.5.5 (awplus_5.5.5_2-20260918-7), bootloader 3.2.16, boot config
+###         flash:/default.cfg. All ports access vlan 100; SVI 10.38.215.2/27.
+###         Joined to the stack by static LAG sa2 (port1.0.3 + port1.0.4). PDU outlet
+###         UNKNOWN -- not declared in [power]/[powerlink].
+###         NO MRP SUPPORT (`show mrp`/`mrp` unrecognised) -- see Open items.
+### NOT DECLARED: /dev/u6 = ABSENT since 2026-09-18 (the x230-52GT V2 of 09-15 is gone).
 ### Console<->unit is re-derived EVERY RUN by bench_probe.py from the login banners
 ### (`awplus` bare = Active Master, `awplus-N` = member N, `4050-5g` = swi_e) and
 ### `show system serialnumber`. Do NOT trust a recorded mapping: this file has had
@@ -890,6 +963,7 @@ swi_b = /dev/u3
 swi_c = /dev/u5
 swi_d = /dev/u4
 swi_e = /dev/u1
+swi_f = /dev/u0
 
 [baudrates]
 swi_a = 115200
@@ -995,35 +1069,50 @@ file; nothing is declared without it.
 ### member and `get_temporary_testbox_portlink()` walks the other stack members
 ### itself when the queried member has no direct link.
 ###
-### ===== MEASURED 2026-09-18 -- LLDP on BOTH ends + host MAC learning =====
-### Inter-device links (LLDP both ends; stack `lldp run` pre-existing, 4050 `lldp run`
-### added 2026-09-18):
-###   stack member 1 (swi_a) port1.0.2  <->  swi_e port1.0.2   ┐ ONE LACP aggregate, po1
-###   stack member 4 (swi_d) port4.0.2  <->  swi_e port1.0.4   ┘ both ends, both links
-###                                                              synchronized; access vlan10
-### Testbox edges (each host NIC's MAC learned on a PHYSICAL port, not via the LAG):
-###   tb eth1 10.38.215.1/27   00f0.4d00.7716  <->  member 3 (swi_c) port3.0.2  (vlan1)
+### ===== MEASURED 2026-09-23 -- LLDP both ends, host-MAC learning per port, ping =====
+### Terrence recabled 2026-09-23. TWO STATIC LAGs now, and every TB NIC lands DIRECTLY
+### on the stack -- neither partner device is in a host path any more.
+###
+### Inter-device links:
+###   stack member 3 (swi_c) port3.0.2  <->  swi_e port1.0.3   ┐ STATIC LAG sa1, vlan10
+###   stack member 4 (swi_d) port4.0.2  <->  swi_e port1.0.4   ┘ STRADDLES stack units 3+4
+###   stack member 1 (swi_a) port1.0.2  <->  swi_f port1.0.3   ┐ STATIC LAG sa2, vlan1
+###   stack member 1 (swi_a) port1.0.9  <->  swi_f port1.0.4   ┘ (swi_f side vlan100)
+###
+### Testbox edges (each host MAC learned on a PHYSICAL stack port):
+###   tb eth1 10.38.215.1/27   00f0.4d00.7716  <->  member 3 (swi_c) port3.0.13 (vlan1)
 ###   tb eth2 10.38.215.33/27  00f0.4d00.7717  <->  member 2 (swi_b) port2.0.2  (vlan1)
-###   tb eth3 10.38.215.65/27  00f0.4d00.7718  <->  swi_e port1.0.1              (vlan1)
-### These five links and the eight 27/28 stackport cables are the ONLY cables on the
-### bench (the ports-23..26 member-to-member cables were removed 2026-09-18).
+###   tb eth3 10.38.215.65/27  00f0.4d00.7718  <->  member 3 (swi_c) port3.0.9  (vlan1)
+### These eight links plus the eight 27/28 stackport cables are the ONLY cables here.
 ###
-### !! The two swi_a-swi_e / swi_d-swi_e links are the MEMBER LINKS OF ONE AGGREGATE
-###    (header item 5). Consuming one with init_portlink() and treating it as an
-###    independent path is wrong: traffic hashes across both, and un-bundling one end
-###    while RSTP is off creates a loop. There is no .setup section for aggregation.
+### !! BOTH LAGs ARE AGGREGATES, NOT INDEPENDENT PATHS. Consuming one member with
+###    init_portlink() and treating it as its own path is wrong -- traffic hashes across
+###    both members. For sa2 it is worse than wrong: the two stack<->swi_f links are
+###    PARALLEL, RSTP is disabled on every device here, and the ONLY thing stopping that
+###    being a broadcast loop is that they are aggregated. Do not un-bundle one end.
+###    There is no .setup section for aggregation, hence this note.
 ###
-### ADDRESSING as at 2026-09-18 (details: bench-state.md "Current state -- 2026-09-18"):
-###   stack vlan1 10.38.215.10/27 primary + 10.38.215.40/27 secondary (eth1's and eth2's
-###   /27s, one bridged L2 domain); stack vlan10 10.10.10.1/27 on po1.
-###   swi_e vlan1 10.38.215.70/27 static (eth3's /27); swi_e vlan10 10.10.10.2/27 on po1.
-###   Static routes: stack 10.38.215.64/27 -> 10.10.10.2; swi_e 10.38.215.0/27 and
-###   10.38.215.32/27 -> 10.10.10.1. RSTP disabled on both. Verified end to end 2026-09-18.
+### !! `lacp global-passive-mode` silently enrols a freed port into a new aggregation.
+###    It has caused a failure on all three devices (stack 09-21, swi_e 09-22 -- a ring
+###    with NO blocking port, because STP runs on the aggregator and that aggregator was
+###    down -- and swi_f 09-23). It is now DISABLED on all three. Leave it off.
+###
+### ADDRESSING as at 2026-09-23 (details: "Current state -- 2026-09-23"):
+###   stack vlan1 10.38.215.10/27 primary + 10.38.215.40/27 + 10.38.215.66/27 secondary
+###   (eth1's, eth2's and eth3's /27s, one bridged L2 domain);
+###   stack vlan10 10.10.10.1/27 on sa1; swi_e vlan10 10.10.10.2/27 on sa1.
+###   swi_e vlan1 10.38.215.70/27 -- NO LONGER has a TB edge (eth3 moved to the stack).
+###   swi_f all ports vlan100, SVI 10.38.215.2/27.
+###   RSTP disabled on all three. Verified end to end 2026-09-23: eth1/eth2/eth3 0% loss,
+###   vlan10 transit 3/3, transit THROUGH the DUT (inject eth2, capture eth1) 10/10.
 [portlink]
 ### tb- lines first, then inter-switch links (SETUP-FILE-REFERENCE.md checklist).
-tb-swi_c = eth1-port3.0.2
+### Two tb-swi_c lines: eth1 and eth3 both land on member 3, on different ports.
+tb-swi_c = eth1-port3.0.13
 tb-swi_b = eth2-port2.0.2
-tb-swi_e = eth3-port1.0.1
-swi_a-swi_e = port1.0.2-port1.0.2
+tb-swi_c = eth3-port3.0.9
+swi_c-swi_e = port3.0.2-port1.0.3
 swi_d-swi_e = port4.0.2-port1.0.4
+swi_a-swi_f = port1.0.2-port1.0.3
+swi_a-swi_f = port1.0.9-port1.0.4
 ```

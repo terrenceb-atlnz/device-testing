@@ -1,6 +1,6 @@
 ---
 name: tb470-bench-structural-limits
-description: "What the tb470 bench physically CANNOT test, and why — one copper port per IE520 member, ~26 Mbps max offered load, no MRP-capable partners, no TACACS+, no ixia. These four capped 32 of 72 cases in the 2026-09-22 campaign."
+description: "What the tb470 bench physically cannot test and why. CORRECTED 2026-09-23: the port limit was UNCABLED ports + host-NIC count, not one copper port per member; three patch leads on 09-23 removed much of it. Real remaining limits: ~26 Mbps offered load, no MRP partners, no TACACS+, no ixia."
 metadata:
   node_type: memory
   type: project
@@ -9,7 +9,16 @@ metadata:
 Established across the full 72-case IE520 campaign on 2026-09-22. **Know these before
 planning a suite — they decide in advance which cases can produce a verdict.**
 
-## 1. ONE usable copper port per IE520 member
+## 1. ~~ONE usable copper port per IE520 member~~ — WRONG, corrected 2026-09-23
+
+**Superseded.** Each member has THREE copper ports (`portN.0.2/.9/.13`) — 12 on the stack.
+The real constraint was that they were **uncabled**, plus tb470 having only 3 test NICs.
+On 2026-09-23 Terrence added three patch leads (a second 4050 link giving a LAG that
+**straddles stack units 3 and 4**, a second stack↔x230 link, and both spare NICs moved
+onto the stack), which unblocked much of what this section claimed was impossible.
+See [[ie520-first-copper-port-is-x-0-2]] and bench-state.md "Current state — 2026-09-23".
+
+### original text (kept so the campaign logs that cite it still make sense)
 
 `portN.0.1/3/4…` are **empty SFP cages** (`show interface status` → `not present`); only
 `portN.0.2` is copper. See [[ie520-first-copper-port-is-x-0-2]]. On the 4-member stack that

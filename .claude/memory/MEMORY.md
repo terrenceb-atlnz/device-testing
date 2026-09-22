@@ -18,29 +18,29 @@
 - [IE520 SPIFlash goes dark](ie520-spiflash-goes-dark.md) — SPIFlash is incredibly slow (41 MB copy ≈ 12 min) and the unit answers NOTHING meanwhile — looks like a crash; wait it out
 - [IE520 TFTP boot needs a USB NIC](ie520-tftp-boot-needs-usb-nic.md) — no onboard mgmt eth; the .setup's eth0 is an ASIX USB dongle seen only by the bootloader; link is up only DURING BOOT
 - [IE520 bootloader console driving](ie520-bootloader-console-driving.md) — POINTER only: mechanics live in orient-dt skill §3; the worked example of a bench fact copied into a mechanics memory
-- [tb470 IE520s flash-boot — reboots OK](tb470-ie520-flash-boot-reboots-ok.md) — 2026-09-11: all IE520s default-boot from flash .rel so `reload` is safe; verify `show boot` image `(file exists)` first — a stale boot-image pointer still won't come back
+- [tb470 IE520s flash-boot — reboots OK](tb470-ie520-flash-boot-reboots-ok.md) — 2026-09-11: all IE520s default-boot from flash .rel so `reload` is safe
 - [Run attribution: 5700 campaign](run-attribution-5700-campaign.md) — only the 2026-08-07/08 run is bidhanc's; everything from 2026-08-10 is OURS; TestCases belong to the suite
 - [i2c stress tooling](i2c-stress-tooling.md) — claude/device-testing/IE520/i2c-stress/ = validated IE520 i2c stress scripts; smoke-clean tb470 2026-08-26; the full 300 run not yet fired
 - [IE520 silent-reboot watch 2026-09-02](ie520-silent-reboot-watch-2026-09-02.md) — DEFERRED to a weekend run; caught member 1's silent reboot; 3 harness defects to fix first; only console.py survives
 - [IE520 DoS test method](ie520-dos-test-method.md) — AWPTCM DoS suite on tb470: attacks must TRANSIT the switch; batch sendp (fastdos.py); disarm `no dos <type>`; method in DOS-METHOD.md
 - [Prefer a pragmatic fix over infra debugging](prefer-pragmatic-fix-over-infra-debugging.md) — when incidental infra breaks mid-task, take the deterministic fix (static IP, skip); don't rabbit-hole
-- [IE520 4-stack flash-prep](ie520-4stack-flashprep.md) — REVERSED 2026-09-14: the 2-member cap was an OLD-build limit; new build supports up to 8 and a 4-member ring stack is live on tb470. Incl. how to flash members (only the master can TFTP)
+- [IE520 4-stack flash-prep](ie520-4stack-flashprep.md) — REVERSED 2026-09-14: the 2-member cap was an OLD-build limit
 - [IE520 mcast/L3 test method](ie520-mcast-l3-test-method.md) — IGMP/MLD-snooping + directed-broadcast on tb470 with ONE host NIC: u4=querier, u5 ping=source, host scapy=receiver; gotchas inside
 - [AW+ service-gated routing daemons](awplus-service-gated-routing-daemons.md) — "daemon is not running or feature license" = run `service ospf|rip|vrrp|pim` first; PIM-DM has no service cmd
-- [Claude cannot push — Terrence pushes](claude-cannot-push-terrence-pushes.md) — company permissions deny `git push` every time (and any overwrite); commit with a full message, report the hash as "committed, not pushed", never retry a denied push
-- [verify-setup topology flow](verify-setup-topology-flow.md) — bench_topology.py: probe→live physical-topology .md, semantic diff vs an IMMUTABLE .setup template; tri-state gate (0/1/2), multi-stack, physical+.rel only; scaffold hardcoded, not yet wired to apply
-- [IE520 console prints no kernel log](ie520-console-prints-no-kernel-log.md) — boot goes silent at `Starting kernel ...`; next output is USERSPACE. A hang anywhere before userspace looks identical to a healthy boot — console evidence is exhausted, don't ask for a verbose bootloader
-- [Never send CLI help through a CR driver](never-send-cli-help-through-a-cr-driver.md) — `<cmd> ?` + trailing CR EXECUTES the command if `<cr>` is valid; it enabled ATMF secure mode on a live bench. Probe syntax without the CR, or don't probe
-- [IE520 first copper port is x.0.2](ie520-first-copper-port-is-x-0-2.md) — portN.0.1 is an EMPTY SFP CAGE; "uN port1" = AW+ portN.0.2; each member has only ONE copper port — resolve described ports with LLDP before acting
-- [Rejected tool calls keep running remotely](rejected-tool-calls-keep-running-remotely.md) — a rejection stops YOUR output, not the ssh command; it keeps changing state and holding consoles. Always pgrep/fuser and re-read device state after an interrupt
-- [ssh pgrep watchers self-match](ssh-pgrep-watchers-self-match.md) — `ssh tb470 'pgrep -f X'` matches its own bash -c wrapper, so the loop never exits and the notification never fires; use a sentinel file, or grep a full remote `ps` locally
+- [Claude cannot push — Terrence pushes](claude-cannot-push-terrence-pushes.md) — company permissions deny `git push` every time (and any overwrite)
+- [verify-setup topology flow](verify-setup-topology-flow.md) — bench_topology.py: probe→live physical-topology .md, semantic diff vs an IMMUTABLE .setup template
+- [IE520 console prints no kernel log](ie520-console-prints-no-kernel-log.md) — boot goes silent at `Starting kernel ...`
+- [Never send CLI help through a CR driver](never-send-cli-help-through-a-cr-driver.md) — `<cmd> ?` + trailing CR EXECUTES the command if `<cr>` is valid
+- [IE520 first copper port is x.0.2](ie520-first-copper-port-is-x-0-2.md) — portN.0.1 is an EMPTY SFP CAGE so "uN port1" = portN.0.2; CORRECTED: each member has THREE copper ports (.2/.9/.13)
+- [Rejected tool calls keep running remotely](rejected-tool-calls-keep-running-remotely.md) — a rejection stops YOUR output, not the ssh command
+- [ssh pgrep watchers self-match](ssh-pgrep-watchers-self-match.md) — `ssh tb470 'pgrep -f X'` matches its own bash -c wrapper, so the loop never exits and the notification never fires
 - [ssh PATH has no sbin](ssh-path-has-no-sbin.md) — `ssh tbNNN 'command -v foo'` misses /usr/sbin and /sbin; it proves presence, never absence. Check absolute paths, dpkg, or a listening socket
-- [AW+ config prompts abort and log you out](awplus-config-prompts-abort-and-logout.md) — `mls qos enable`/`no mls qos`/`atmf secure-mode enable-all` PROMPT (y/n); feeding the next line instead of `y` aborts AND logs the console out. Abort config batches on the first % error
-- [IE520 MAC-auth username format](ie520-mac-auth-username-format.md) — the DUT sends `00-f0-4d-00-77-17` (lowercase, hyphenated); no auth-mac username-format command exists; default host-mode single-host lets a FAILED supplicant block a good one
-- [AW+ CLI wiki on the share](awplus-cli-wiki-on-the-share.md) — 3437 command pages at claude/github-copilot-awplus-wiki/awplus_cli_wiki/commands/ with syntax, MODE and platform tables; look up FIRST, a `?` probe only completes the prefix you guessed. Platform tables are a guide, not a gate
-- [tb470 bench structural limits](tb470-bench-structural-limits.md) — one copper port per IE520 member, ~26 Mbps max load, no MRP partners, no TACACS+; these four capped 32 of 72 cases. ONE recable unblocks ~14
-- [Campaign measurement discipline](campaign-measurement-discipline.md) — baseline the feature OFF first, make traffic TRANSIT the DUT, split PROVEN from NOT MEASURABLE, and ask what else is in the path (the x230 is a switch, not a wire)
-- [STP mode change re-enables spanning tree](stp-mode-change-reenables-spanning-tree.md) — a `spanning-tree mode` change silently drops `no spanning-tree <mode> enable`; re-assert and re-check forwarding after any mode change
-- [LACP passive hides links from STP](lacp-passive-hides-links-from-stp.md) — passive mode auto-enrols freed ports into a channel-group and STP runs on the AGGREGATOR; a live link can forward where STP has nothing to block. Confirm the port has a real STP state before closing a ring
-- [Sentinel session keeps long runs moving](sentinel-session-keeps-long-runs-moving.md) — the CAMPAIGN is the unit of work; never end a turn on an announcement. What a watching peer caught, how to work with one, and the open question of making it mandatory
-- [IE520 AWPTCM campaign 2026-09-22](ie520-awptcm-campaign-2026-09-22.md) — pointer to the 72-case run: 39 PASS / 1 PARTIAL / 32 UNMEASURED across 7 group dirs; read a group README before re-running anything
+- [AW+ config prompts abort and log you out](awplus-config-prompts-abort-and-logout.md) — `mls qos enable`/`no mls qos`/`atmf secure-mode enable-all` PROMPT (y/n)
+- [IE520 MAC-auth username format](ie520-mac-auth-username-format.md) — the DUT sends `00-f0-4d-00-77-17` (lowercase, hyphenated); no auth-mac username-format command exists
+- [AW+ CLI wiki on the share](awplus-cli-wiki-on-the-share.md) — 3437 command pages at claude/github-copilot-awplus-wiki/awplus_cli_wiki/commands/ with syntax, MODE and platform tables
+- [tb470 bench structural limits](tb470-bench-structural-limits.md) — CORRECTED 2026-09-23: the port limit was UNCABLED ports + 3 host NICs, not one copper port per member
+- [Campaign measurement discipline](campaign-measurement-discipline.md) — baseline the feature OFF first, make traffic TRANSIT the DUT, split PROVEN from NOT MEASURABLE
+- [STP mode change re-enables spanning tree](stp-mode-change-reenables-spanning-tree.md) — a `spanning-tree mode` change silently drops `no spanning-tree <mode> enable`
+- [LACP passive hides links from STP](lacp-passive-hides-links-from-stp.md) — auto-enrols freed ports; STP runs on the AGGREGATOR so a live link forwards where STP cannot block. Hit all 3 devices
+- [Sentinel session keeps long runs moving](sentinel-session-keeps-long-runs-moving.md) — the CAMPAIGN is the unit of work
+- [IE520 AWPTCM campaign 2026-09-22](ie520-awptcm-campaign-2026-09-22.md) — pointer to the 72-case run: 39 PASS / 1 PARTIAL / 32 UNMEASURED across 7 group dirs

@@ -1,12 +1,26 @@
 ---
 name: ie520-first-copper-port-is-x-0-2
-description: "On the IE520-28GSX, portN.0.1 is an EMPTY SFP CAGE — the first copper port is portN.0.2, and each stack member has effectively only ONE usable copper port. 'uN port1' in bench talk means portN.0.2."
+description: "On the IE520-28GSX, portN.0.1 is an EMPTY SFP CAGE — the first copper port is portN.0.2, so 'uN port1' in bench talk means portN.0.2. CORRECTED 2026-09-23: each member has THREE copper ports (.2/.9/.13), not one."
 metadata:
   node_type: memory
   type: project
 ---
 
-Measured on tb470, 2026-09-21, from `show interface status` across all four members.
+Measured on tb470, 2026-09-21; **CORRECTED 2026-09-23**.
+
+> ## CORRECTION — I got the port COUNT wrong
+> The original version of this memory said each member has "effectively ONE usable copper
+> port". **That is false.** Each IE520-28GSX member has **THREE**: `portN.0.2`,
+> `portN.0.9`, `portN.0.13` (the `.13`s are 10GBASE-TM; `port4.0.9` is 10GBASE-T). The
+> stack therefore has **12** copper ports, not 4. I only ever listed ports 1–4, saw
+> `portN.0.1/3/4` read `not present`, and generalised.
+>
+> This error was load-bearing: it was cited across the 2026-09-22 campaign as the reason
+> several cases were unrunnable. The real constraint was that the extra ports were
+> **uncabled**, plus the host-NIC count — a much cheaper problem, and one Terrence fixed
+> with three patch leads on 2026-09-23.
+
+What IS true, and is the useful part:
 
 The IE520-28GSX is an **SFP** switch. On each member:
 
