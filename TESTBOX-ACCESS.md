@@ -293,6 +293,14 @@ SSH_AUTH_SOCK=$sock ssh "$BOX" "
 - **Framework read-only guard:** never redirect/`cp`/`rsync`/interpret into
   `/home/st-art/framework`; copy any file you must edit into the run workdir first
   (`_assert_write_allowed` / `_assert_command_allowed` enforce this in the tool).
+- ⚠ **Running ONE TestCase by its number is UNVERIFIED (2026-09-22).** Generated scripts now
+  carry the ART identity `<family>.<case>.<n>` (`9001.33234.5` = TestCase_5), and the legacy py2
+  `ATPylib/ATTestSet.py` in `ck.db` selects with `if (str(testCase.testCaseNum) in args)`, which
+  is where that convention comes from. **But the live py3 framework was not readable from the dev
+  host that day** (`/home/st-art/framework` is a box path, not a share path) and it parses the
+  `-s` / `-v` flags the legacy stub has no parser for — so its selection syntax may differ. The
+  identity in the log is certainly right; the *operand* is a guess until someone tries
+  `./test-9001.33234.py -s <topology>.setup -v 5` on a box and reports what runs.
 
 ### 3a. The two things a server-side run needs that are easy to miss ✅
 

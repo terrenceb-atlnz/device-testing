@@ -2,7 +2,7 @@
 name: no-stray-scripts
 description: "Throwaway scripts go in the SESSION SCRATCHPAD, never in Terrence's lab tree. A script is either worth keeping (-> the repo, as a flag on an existing tool) or it is not (-> scratchpad). There is no third category. Enforced by the no-stray-py PreToolUse hook, because the instruction alone failed 7 times in one session."
 metadata:
-  verified: 2026-09-14
+  verified: 2026-09-22
   node_type: memory
   type: feedback
   modified: 2026-09-02T23:59:00.000Z
@@ -10,6 +10,14 @@ metadata:
 
 **Terrence, 2026-09-02:** *"You're polluting every directory i have, repeatedly,
 every session."*
+
+**How the hook decides, learned 2026-09-22 by tripping it on a legitimate `git mv`.** It
+resolves the target and allows any `.py` under one of the three repos — but an
+UNRESOLVABLE target is denied, and a relative path or a `$VAR` is unresolvable. A sanctioned
+rename inside the repo is refused when the paths are relative (after a `cd`) or built from a
+shell variable, and allowed when every path is spelled out absolutely. So the fix is to
+spell the path, not to work around the hook — and a denial is not by itself evidence that
+the write was wrong.
 
 In one session I left **seven** one-off scripts in his run directories —
 `probe.py`, `read_swib.py`, `hist.py`, `ports.py`, `poll.py`, `recheck.py`, `check.py` (all deleted since) — while `claude/Test-cases/CLAUDE.md` §3 already said *"I definitely
