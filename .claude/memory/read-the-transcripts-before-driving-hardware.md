@@ -2,6 +2,7 @@
 name: read-the-transcripts-before-driving-hardware
 description: "Terrence, 2026-08-12: don't probe hardware by trial and error when prior run logs and the framework source already document the exact send/expect dialogue — read those FIRST"
 metadata:
+  verified: 2026-09-23
   node_type: memory
   type: feedback
 ---
@@ -55,7 +56,8 @@ command exists — the device answered `% Invalid input detected at '^' marker.`
 He was right, and the reference had the answer the whole time. One query settled it:
 
 ```bash
-sqlite3 ck.db "SELECT DISTINCT command, syntax FROM cli_commands WHERE command LIKE 'remote%';"
+sqlite3 'file:ask-ck/db/ck.db?mode=ro' "SELECT DISTINCT command, syntax FROM cli_commands WHERE command LIKE 'remote%';"
+# read-only URI: never open the live ck.db read-write while the server runs ([[stale-session-connection-bug]])
 ```
 
 - **`remote-command`** — does not exist anywhere in ck.db. I made it up from plausibility.

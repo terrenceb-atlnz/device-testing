@@ -1,3 +1,6 @@
+---
+verified: 2026-09-23
+---
 # Testbox Access & Script Execution (from this host)
 
 How to SSH to a lab testbox from this development host, drive a switch's CLI console, and
@@ -13,7 +16,7 @@ this machine (verified 2026-07-28) plus the mechanism the PyTest Creator uses
 
 > ## ⛔ This document is NOT the source of truth for bench connection information
 >
-> **For tb470 the source of truth is `~/claude/IE520-testing/bench-setup/bench-state.md`.**
+> **For tb470 the source of truth is `~/claude/device-testing/bench-setup/bench-state.md`.**
 > What is cabled to what, which console fronts which device, stack membership and bench
 > addresses are recorded there, along with the evidence for each and an explicit note of what
 > is inferred rather than measured. That file always carries the current state under that
@@ -45,8 +48,8 @@ this machine (verified 2026-07-28) plus the mechanism the PyTest Creator uses
 >
 > | Looking for | Read |
 > |---|---|
-> | what is cabled to what, PDU outlets, bench addressing, loopback plugs | `~/claude/IE520-testing/bench-setup/bench-state.md` |
-> | IE520 platform limits, framework traps, which console driver to use, bench hygiene | `.claude/skills/orient-ie520/SKILL.md` |
+> | what is cabled to what, PDU outlets, bench addressing, loopback plugs | `~/claude/device-testing/bench-setup/bench-state.md` |
+> | IE520 platform limits, framework traps, which console driver to use, bench hygiene | `.claude/skills/orient-dt/SKILL.md` ("orient" below) |
 > | tb470 host DHCP / routing / `tcpdump` / no-NAT | `TB470-HOST-NETWORKING.md` |
 > | de-stacking, split-stack diagnosis and recovery | orient §6 |
 >
@@ -244,7 +247,8 @@ use, the six binding traps (`console.mode('#')` first, framework credentials not
 `powerOn=False`, `Stack.members` is an unordered set, baud from `[baudrates]`, `setup.log`
 ownership), and the measured `terminal monitor` boundary between them.
 
-Canonical read-only probe: `ask-ck/test-composer/bench_probe.py`. Cabling-discovery *method*
+Canonical read-only probe: `bench-setup/bench_probe.py` in this repo (the standalone source of
+truth since 2026-09-15; the older copy in Test-cases' `ask-ck/functions/test-composer/` predates it). Cabling-discovery *method*
 (LACP partner system-ID, MAC table from both ends, and why link state alone proves nothing) and
 its results are recorded in `bench-state.md` §8 alongside the evidence for each line.
 
@@ -285,8 +289,9 @@ SSH_AUTH_SOCK=$sock ssh "$BOX" "
 ```
 
 - The `-s <…>.setup` argument names the topology file (`SETUP-FILE-REFERENCE.md`); the
-  script binds device roles from it (`init_swi('swi_a')`, `init_portlink(...)`) and never
-  hardcodes a port.
+  script never hardcodes a port. A generated script (since 2026-09-21) binds the `swi_a` slot and
+  discovers its cables through `get_all_port_links()`, reading media from the DUT; legacy scripts
+  bind with `init_portlink(...)`, which returns `(None, None)` silently for an undeclared link.
 - Results are the framework's stdout; `pt_exec.parse_framework_log()` turns it into
   per-TestCase PASS/FAIL. On a hang (e.g. a physical step waiting on an operator) keep the
   partial output — do not discard completed TestCases.
@@ -322,12 +327,15 @@ curl -s -X POST localhost:8000/api/pytest-create/profiles/tb470/check
 falls back to `key_path` (`~/.ssh/id_rsa`, passphrase-encrypted and useless
 non-interactively) and otherwise relies on paramiko's agent support — i.e. on the *uvicorn
 process's* `SSH_AUTH_SOCK`. Started from VS Code it inherits the forwarded **Mac** agent, which
-is empty. Export the keyring socket before restarting; `run.sh` passes the environment through:
+is empty. The hosted `ask-ck.service` inherits `SSH_AUTH_SOCK=/run/user/1971/keyring/ssh` from
+the systemd user manager's environment (checked 2026-09-23), so it needs nothing extra — restart
+it with `ck restart`, never `run.sh --restart`. For a checkout you run by hand, export the keyring
+socket before starting; `run.sh` passes the environment through:
 
 ```bash
 export SSH_AUTH_SOCK="${XDG_RUNTIME_DIR:-/run/user/1971}/keyring/ssh"
 ssh-add -l                            # must list the RSA key
-./ask-ck/CK-main/run.sh --restart
+./ask-ck/CK-main/run.sh --restart     # a hand-run checkout only — not the hosted unit
 ```
 
 ⚠️ `run.sh` **always** passes `--reload`, so editing anything under `ask-ck/CK-main` bounces the
@@ -361,9 +369,10 @@ bad things". The workflow is:
 2. Verify what you extracted against the stored `scripts.sha1` — the DB holds the whole literal
    file body, so this should match exactly.
 3. Write it to a **staging copy**, keep a `.orig` beside it, and patch only the copy.
-4. Staging at the **root of testbox_home works with no SCP step** — that path *is*
-   `/home/terrenceb` on the testbox over NFS (`10.36.250.11:/home`). Note this is a *shared* lab
-   home, not private scratch.
+4. The lab home is `/home/terrenceb` on the testbox over NFS (`10.36.250.11:/home`), so a file
+   there needs no SCP step — but it is a *shared* lab home, and since 2026-09-11 nothing is written
+   outside the three repos without Terrence's consent for that write (root `CLAUDE.md`). Stage in
+   the owning repo, or in `/tmp/<scratch>/` on the box.
 
 ### The four breakages, in the order they bite
 

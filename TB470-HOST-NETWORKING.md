@@ -9,9 +9,9 @@ Where the neighbouring facts live — **do not copy any of them back into this f
 
 | Looking for | Read |
 |---|---|
-| what is cabled to what, PDU outlets, bench addressing | `~/claude/IE520-testing/bench-setup/bench-state.md` (source of truth) |
+| what is cabled to what, PDU outlets, bench addressing | `~/claude/device-testing/bench-setup/bench-state.md` (source of truth) |
 | how to reach a testbox and drive a console | `TESTBOX-ACCESS.md` |
-| IE520 platform limits, framework traps, driver choice | `.claude/skills/orient-ie520/SKILL.md` |
+| IE520 platform limits, framework traps, driver choice | `.claude/skills/orient-dt/SKILL.md` |
 
 Verified 2026-08-04 unless noted; the `10.38.215.0/24` finding re-confirmed 2026-09-02.
 
@@ -79,7 +79,8 @@ fully expires. Bounce the client instead of waiting: on AW+, `no ip address dhcp
   x230's `vlan100` is statically `.2`). dhcpd's ping-check catches it — `ICMP Echo reply while
   lease 10.38.215.2 valid` → `Abandoning IP address 10.38.215.2: pinged before offer` — but
   ping-check only sees a host that answers *at that instant*, so a rebooting device can still be
-  handed an address already in static use. A plausible contributor to the mgmt-IP drift in §4a.
+  handed an address already in static use. A plausible contributor to the management-IP drift
+  recorded with the de-stacking notes (`orient-dt` §6).
 - **`option domain-name "example.org";`** is still the Debian sample default and is handed to
   every client, which then appends it to lookups (`…weconnecttheweb.co.nz.example.org`). A
   wasted round trip per resolution, and it breaks short-name lookups.
@@ -116,7 +117,7 @@ network.
 
 Two capture-reading notes: identify the far-end device from **LLDP** in the capture
 (`-Y lldp -e lldp.port.id`) rather than guessing from the MAC — a switch's L3 interface MAC need
-not match the base MAC in §2. And under **TLS 1.3 the server certificate is encrypted**, so an
+not match the base MAC recorded in `bench-state.md`. And under **TLS 1.3 the server certificate is encrypted**, so an
 absent cert subject is expected, not a failure; look for `tls.alert_message` instead, and treat
 `content_type 22,20` in one record as normal middlebox-compat mode.
 

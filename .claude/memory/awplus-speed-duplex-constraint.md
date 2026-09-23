@@ -2,6 +2,7 @@
 name: awplus-speed-duplex-constraint
 description: "Half-duplex is impossible at 1 Gig and above — device duplex differences are a consequence of port speed range, not an independent feature flag; NOT documented in the CLI reference"
 metadata: 
+  verified: 2026-09-23
   node_type: memory
   type: reference
   originSessionId: da9b3bee-f2e0-4c80-972d-0db43518083d

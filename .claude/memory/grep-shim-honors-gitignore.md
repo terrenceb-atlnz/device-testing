@@ -1,9 +1,9 @@
 ---
 name: grep-shim-honors-gitignore
-description: "`grep` in this shell is a function wrapping ugrep --ignore-files, so it silently skips .gitignored paths (.venv, node_modules, ask-ck/var/) — zero hits reads as real absence; use `command grep` to bypass"
+description: "`grep` in this shell is a function wrapping ugrep --ignore-files, so it silently skips .gitignored paths (.venv, node_modules, ask-ck/db/) — zero hits reads as real absence; use `command grep` to bypass"
 metadata:
   type: project
-  verified: 2026-08-31
+  verified: 2026-09-23
 ---
 
 `grep` in the Claude Code shell is **not** `/usr/bin/grep`. It is a shell **function** that

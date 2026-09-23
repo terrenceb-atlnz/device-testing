@@ -2,6 +2,7 @@
 name: awplus-cli-confirmations-need-enter
 description: "AW+ CLI (y/n) confirmations need `y` + ENTER; only the BOOTLOADER Boot Menu takes a bare keypress. Applying the bootloader rule to the CLI left `reload` sitting unanswered - silent, no reboot, uptime unchanged - and I misdiagnosed it as serial flow control"
 metadata:
+  verified: 2026-09-23
   node_type: memory
   type: feedback
 ---

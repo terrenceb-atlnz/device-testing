@@ -2,6 +2,7 @@
 name: legacy-scripts-vs-framework
 description: "The four fixes every legacy corpus script needs on a current testbox framework (py3-only, read-only Switch.name, TBv4 paths) — plus the gate strings and topology assumptions that rot silently and fail mid-run"
 metadata: 
+  verified: 2026-09-23
   node_type: memory
   type: project
   originSessionId: de51741a-eb27-4ad0-8c77-bf78c701dd63
@@ -45,8 +46,8 @@ turning a 10-cycle hunt for an intermittent fault into one data point. A script 
 is no evidence its gates work: the prior run passed the single-monitor gate only by luck.
 
 **Where the framework can be READ from this host (2026-09-14):** `/home/st-art/framework` exists
-only on the testboxes — a `framework` symlink at the Test-cases repo root points there and is
-dangling on the dev host. The readable copy is the human-owned NFS clone
+only on the testboxes (a `framework` symlink at the Test-cases repo root used to point there,
+dangling on the dev host; Terrence removed it on 2026-09-15). The readable copy is the human-owned NFS clone
 `<testbox_home>/DeviceSkrips/framework` (systest `framework.git`, Feb 2026), which is what
 `build_script_index.py` harvests the surface doc from. Checked against tb470 by md5: `ATPackets.py`
 is byte-identical; `ATTestSet.py` on the box is NEWER (2026-09-11 vs 2026-02-10), so the clone —
@@ -60,6 +61,7 @@ fragments from these same scripts ([[pytest-creator-askck]]).
 **How to apply:** never patch `ck.db` or anything under `/home/st-art/framework` — Terrence
 called out both as "explicitly bad things" (2026-07-29). Extract `scripts.source_text` to a
 staging copy, keep a `.orig` beside it, verify it against `scripts.sha1`, and patch the copy.
-Staging at the root of testbox_home works because that path IS `/home/terrenceb` on the testbox
-over NFS, so no SCP step is needed. See [[setup-file-declares-topology]] and
+The lab home IS `/home/terrenceb` on the testbox over NFS, so a file there needs no SCP step —
+but since 2026-09-11 nothing is written outside the three repos without Terrence's consent for
+that write (root `CLAUDE.md`): stage in the owning repo, or in `/tmp/<scratch>/` on the box. See [[setup-file-declares-topology]] and
 [[testbox-console-access]].

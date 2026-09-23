@@ -2,6 +2,7 @@
 name: setup-file-declares-topology
 description: "Terrence: stack membership, stackports and testbox cabling are DECLARED in the .setup file — never infer them from case text"
 metadata: 
+  verified: 2026-09-23
   node_type: memory
   type: feedback
   originSessionId: abd89457-f2c0-4012-98a9-43e0e61a4c45
@@ -28,7 +29,7 @@ silently on exactly the new cases it was built for.
 **How to apply:** when a rule needs a topology fact, the answer is to PARSE the `.setup`, not
 to infer it. Nothing in `CK_server` parses `.setup` today — that is the outstanding follow-up,
 and it would make the stackport lint exact instead of heuristic. Schema and a real worked
-example are checked in at `ask-ck/pytest-create/SETUP-FILE-REFERENCE.md` (written because
+example are checked in at `ask-ck/functions/pytest-creator/SETUP-FILE-REFERENCE.md` (written because
 this format kept being re-derived). Related: [[pytest-creator-askck]].
 
 **Caveat found 2026-07-29 — `.setup` is declarative, not verified.** It is still the right

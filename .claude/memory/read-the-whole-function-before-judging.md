@@ -2,6 +2,7 @@
 name: read-the-whole-function-before-judging
 description: "Terrence, 2026-08-13: read a function to its END before judging behaviour from it, and never substitute a hand-rolled probe for the code path you are making a claim about — I read 25 lines of _pdu_cmd, curl'd the PDU, got a 401, and reported the bench as broken"
 metadata:
+  verified: 2026-09-23
   node_type: memory
   type: feedback
 ---

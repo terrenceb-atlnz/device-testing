@@ -2,6 +2,7 @@
 name: prefer-pragmatic-fix-over-infra-debugging
 description: When incidental infrastructure breaks mid-task, take the deterministic pragmatic fix and move on rather than deep-debugging it
 metadata:
+  verified: 2026-09-23
   type: feedback
 ---
 

@@ -2,6 +2,7 @@
 name: awplus-service-gated-routing-daemons
 description: "On IE520 awplus_main, OSPF/RIP/VRRP/PIM-SM reject with \"daemon is not running or feature license is not available\" until `service ospf|rip|vrrp|pim` is issued — NOT a licence problem; never declare a feature unavailable from one rejected command"
 metadata: 
+  verified: 2026-09-23
   node_type: memory
   type: feedback
   originSessionId: 49dcf692-ded5-46ac-ab73-fffb9e6ddec8
@@ -38,7 +39,8 @@ interface vlan10
 
 There is no `area` option under `ipv6 ospf ?` on the interface, and no attachment command in
 the `router ipv6 ospf` sub-mode either, so probing leads you to conclude it cannot be done.
-It is documented: [[awplus-cli-wiki-on-the-share]], page `ipv6-router-ospf-area.md`. Once
+It is documented: [[awplus-cli-wiki-on-the-share]], page
+`claude/github-copilot-awplus-wiki/awplus_cli_wiki/commands/ipv6-router-ospf-area.md` (checked 2026-09-23). Once
 both ends had it, the adjacency went Full and survived 5/5 link flaps.
 
 Two more from the same session: **`service bgp` is `% Incomplete command` on the AR4050S**
