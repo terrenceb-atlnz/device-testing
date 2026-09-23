@@ -15,10 +15,10 @@
 | [885](885.log)   | Named Hardware on static LAG - mac | **PASS** (LAG not straddling) |
 | [890](890.log)   | Named Hardware on static LAG - udp | **PASS** (LAG not straddling) |
 | [889](889.log)   | Named Hardware on static LAG - tcp port ranges | **PASS** (LAG not straddling) |
-| [38413](38413.log) | deny/permit for standard IPv6 access list | **UNMEASURED** |
-| [942](942.log)   | Named IPv6 Hardware on port send-to-mirror IP | **UNMEASURED** |
+| [38413](38413.log) | deny/permit for standard IPv6 access list | **UNSUPPORTED** — not configurable on the IE520 (re-confirmed on awplus_main-20260923-20, 2026-09-24) |
+| [942](942.log)   | Named IPv6 Hardware on port send-to-mirror IP | **UNSUPPORTED** — not configurable on the IE520 (re-confirmed on awplus_main-20260923-20, 2026-09-24) |
 
-**11 PASS / 2 UNMEASURED.** Both UNMEASURED are cases whose *subject* does not
+**11 PASS / 2 UNSUPPORTED.** Both UNSUPPORTED are cases whose *subject* does not
 exist on this platform (a standard IPv6 ACL has no application point; there is no
 `send-to-mirror` action) — not work left undone.
 
@@ -29,7 +29,7 @@ tb470 `eth2` into stack `port2.0.2`, captured with tcpdump on `eth1` via the
 x230. Every case takes a **no-ACL baseline first**, so a later drop is provably
 the ACL and not a dead path. ACL hit counters corroborate each result.
 
-## The two UNMEASURED, and why
+## The two UNSUPPORTED, and why
 
 - **38413** — a *standard* IPv6 ACL builds fine but has **no traffic-filtering
   application point** on this platform. `ipv6 traffic-filter` resolves hardware

@@ -29,6 +29,12 @@ sshd/PAM, routes, packages, services):
 2. Give him the `sudo install …` / `ip route add …` lines, with the revert line.
 3. Or ask him to switch to manual mode and approve the call.
 
+**Also DUT-side trust changes (2026-09-24).** The classifier blocked Claude from running
+`crypto key pubkey-chain knownhosts ip <tb470>` on the AR4050S, calling it "Unauthorized
+Persistence", even though the script only answered `yes` on a byte-exact host-key match.
+Treat any device command that adds trust (knownhosts, user keys, AAA credentials) the same
+way: give Terrence the exact lines to type on the console.
+
 Never try to route around a denial. Verify afterwards with byte-compares (`cmp` staged vs
 installed) and `sshd -T -C`. Related: [[bench-cannot-open-tcp-to-office-pcs]],
 [[ie520-master-ignores-remote-backup-server]].

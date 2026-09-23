@@ -48,4 +48,5 @@
 - [Bench cannot open TCP to office PCs](bench-cannot-open-tcp-to-office-pcs.md) — lab→10.33.22.x TCP is dropped (ping passes); servers the bench connects TO go on tb470, never the dev PC; test the transport first
 - [IE520 master ignores remote backup server](ie520-master-ignores-remote-backup-server.md) — accepts `atmf backup server`, never mounts it; use the AR4050S as master (x230 lacks AMF-MASTER-X)
 - [Bench scripts stop on CLI errors](bench-scripts-stop-on-cli-errors.md) — a `% ` line looks like success to a prompt driver; gate each dependent step on proven state (the masterless-AMF slip)
-- [tb470 root changes go through Terrence](tb470-root-changes-go-through-terrence.md) — auto mode blocks keys/sshd/routes as persistence: stage in /tmp/ckorient/work, he pastes, or manual mode
+- [tb470 root changes go through Terrence](tb470-root-changes-go-through-terrence.md) — auto mode blocks keys/sshd/routes AND device knownhosts/keys as persistence: stage in /tmp/ckorient/work, he pastes/types, or manual mode
+- [AMF recovery residue + second reboot](atmf-recovery-residue-and-reboots.md) — a node that FAILED recovery reads 'Special Link Not Present' and the master aborts its backup ('safe mode') until it REBOOTS; a good recovery reboots twice

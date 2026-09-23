@@ -1,15 +1,15 @@
 # Authentication group — IE520, tb470, 2026-09-22
 
-7 cases. **1 PASS / 6 UNMEASURED — but read the split before reading the count.**
+7 cases. **2 PASS / 3 FAIL / 2 UNMEASURED** after the 2026-09-24 guest-VLAN re-run (was 1 PASS / 6 UNMEASURED on 2026-09-22) — **read the split before reading the count.**
 
 | case | title | verdict |
 | --- | --- | --- |
 | [33375](33375.log) | MAC Auth / Web Auth | **PASS** (both halves, end to end) |
 | [38432](38432.log) | IEEE 802.1X - Authentication with TACACS+ | **UNMEASURED** — no TACACS+ server exists; **802.1X itself PROVEN** |
-| [28126](guest-vlan-28126-28129.log) | L3 guest vlan IPv4, hw fwd disabled | **UNMEASURED** — needs 2 supplicants + line rate |
-| [28127](guest-vlan-28126-28129.log) | L3 guest vlan IPv4, hw fwd enabled | **UNMEASURED** — same |
-| [28128](guest-vlan-28126-28129.log) | L3 guest vlan IPv6, hw fwd disabled | **UNMEASURED** — same |
-| [28129](guest-vlan-28126-28129.log) | L3 guest vlan IPv6, hw fwd enabled | **UNMEASURED** — same |
+| [28126](28126.log) | L3 guest vlan IPv4, hw fwd disabled | **FAIL** (re-run 2026-09-24) — step 2: unknown unicast floods to the other supplicant; CPU forwarding proven; rate UNMEASURED |
+| [28127](28127.log) | L3 guest vlan IPv4, hw fwd enabled | **FAIL** (re-run 2026-09-24) — step 2: unknown unicast floods to the other supplicant; hardware forwarding proven; rate UNMEASURED |
+| [28128](28128.log) | L3 guest vlan IPv6, hw fwd disabled | **FAIL** (re-run 2026-09-24) — IPv6 blocked in the case's no-address and different-subnet variants |
+| [28129](28129.log) | L3 guest vlan IPv6, hw fwd enabled | **PASS functional** (re-run 2026-09-24); rate UNMEASURED |
 | [38435](38435.log) | Tri-auth / VCS - Master Failover | **UNMEASURED** — case has NO STEPS in ck.db |
 
 ## What was actually proven on the DUT
@@ -31,10 +31,10 @@ port into VLAN 200 untagged.
 - **38432** — its subject is TACACS+, which does not exist on this bench (no
   binary at any absolute path, 0 dpkg matches, no TCP/49 listener). 802.1X was
   proven against RADIUS instead, and that is recorded as the substitute it is.
-- **28126–28129** — all four need L3 traffic **between two supplicants** (this
-  bench has one usable supplicant port) and their distinguishing claim is a
-  **rate** claim (loss vs line rate) that scapy at ~10 pps cannot separate. The
-  case text names ixia.
+- **28126–28129** — superseded by the 2026-09-24 re-run (rows above): with eth1 and
+  eth3 both on the stack there are now two supplicant ports. The functional half
+  (CPU vs hardware path, via `show platform counter sdma`) is measured; the rate half
+  (loss vs line rate) still needs an ixia.
 - **38435** — `num_steps = 0` in ck.db. No procedure, no expected result.
 
 ## Two non-obvious findings

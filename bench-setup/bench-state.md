@@ -37,7 +37,63 @@ pairing possible.
 their original names on purpose: they are the last of the old scheme, lifted off the box
 before it was cleaned up, and the name records where they came from.
 
-## Current state — 2026-09-23 late (`IE520-sa` is now stack ID 1 → `port1.0.x`; ATMF campaign PARKED — AMF network `tb470` up, the AR4050S is AMF master in RUNNING config only)
+## Current state — 2026-09-24 (AMF TORN DOWN and written on all four devices; last measured ~10:10 NZST — the wrap could NOT re-read the bench, the test network went down)
+
+**Measured 2026-09-24, up to ~10:10 NZST** (device clocks ~22:10 UTC on 09-23), by console
+reads of all four devices and host pings. **At ~10:15 NZST tb470 stopped answering** (ssh and
+ping; other testboxes and its gateway 10.36.201.1 fine; Terrence: "the test network is
+temporarily down"). **Nothing below was re-read at wrap time.** The next `/orient-dt` must
+re-read everything, and check tb470's uptime: if it rebooted, its runtime route is gone (below).
+Cabling, builds, boot, stack IDs and addressing are unchanged from the "2026-09-23 late" record
+below; the `setup` fences are unchanged.
+
+### What changed from the 2026-09-23 late record
+
+1. **AMF removed from all four devices, then `write`** (Terrence: "the same config but with no
+   AMF config"). Measured before the write: all four read `Network Name : Not Set`, 1 node; each
+   running-config diff was exactly the AMF lines plus trunk→access on the same VLAN. After the
+   write: startup == running on all four, 0 `atmf` lines in any startup.
+   - Stack: `sa1` = access **vlan 10**, `sa2` = access (vlan 1), `sa3` = access (vlan 1); the LAG
+     members followed. No `atmf master`/`recovery-server`/virtual-link.
+   - `IE520-sa`: no virtual-link, no network-name; `sa3` access. Its recovery files were cleared
+     (`clear atmf recovery-file`) before the vlink was removed.
+   - 4050: `sa1` + `port1.0.3-1.0.4` access **vlan 10**. **`port1.0.2` (still `shutdown`) set to
+     access vlan 10 — INFERRED**: no pre-AMF capture of that port exists; vlan 10 matches its
+     other ports' pre-AMF form.
+   - x230: `sa2` + `port1.0.3-1.0.4` access **vlan 100**.
+   - Keys: manager userkeys **destroyed on the stack and the x230**; the stack's knownhosts
+     entry removed (list empty). **The 4050's manager userkey (`SHA256:YDtOg/YU…`) is KEPT** for
+     ATMF 38474, which is parked until the end of the queue.
+2. **`IE520-sa` was wiped (`atmf cleanup`) and auto-recovered** for ATMF 38475 (PASS). Its
+   config was restored byte-identical, then the AMF lines were removed as above. Its reboot
+   history now carries the cleanup/recovery reboots of 2026-09-23 ~20:34–21:06 UTC. `show atmf`
+   reads `Restricted login : Disabled` since the recovery (was Enabled); not in the config.
+3. **USB sticks:** stack member 3's stick now also holds an `atmf/tb470/…` backup tree (data,
+   not config). `IE520-sa`'s stick holds no recovery file after the clear.
+4. **Temporary test config all reverted and re-read** (ACL lists, a `10.90.0.1/16` vlan1
+   secondary, guest VLAN 200 + dot1x + `aaa authentication dot1x default`). The stack's
+   running-config equalled its saved startup at ~10:05 NZST.
+5. **Spanning tree: expected unchanged (`no spanning-tree rstp enable` on all devices) — NOT
+   VERIFIED.** The 38152 phase-1 call (enable RSTP; DUT priority 4096, SA 8192) was issued just
+   as tb470 went unreachable; its ssh almost certainly failed before running, but that was not
+   confirmed. **Next session: `show running-config | include spanning` on the stack, SA and x230
+   before anything else.** The ring was never closed: x230 `port1.0.10` stays `shutdown`.
+6. **Terrence, 2026-09-24: the 4050's boot pointer is fine as it is.** `show boot` names
+   `flash:/AR4050S-5.5.1-2.1.rel (file exists)` while it runs `AR4050S-tb470.rel`
+   (`awplus_main-20260918-7`). Do not raise it again.
+
+### tb470 host — unchanged from the late record, kept deliberately for ATMF 38474
+
+The sshd drop-in `60-atmf-backup-tb470.conf` + `/etc/ssh/atmf-backup-keys/terrenceb`, the
+**runtime** route `10.10.10.0/27 via 10.38.215.10 dev eth1` (lost if tb470 rebooted), and
+`/tmp/atmfbk`. The ARP responder used for 6057 was stopped (verified: no process). No `ethtool`
+changes were made.
+
+### Last measured host paths (~10:05 NZST)
+
+eth1→.10, eth1→.2, eth2→.40, eth2→.41, eth3→.66, eth1→10.10.10.2: all 0% loss.
+
+## Current state — 2026-09-23 late (`IE520-sa` is now stack ID 1 → `port1.0.x`; ATMF campaign PARKED — AMF network `tb470` up, the AR4050S is AMF master in RUNNING config only) — SUPERSEDED 2026-09-24 (AMF torn down — above)
 
 **Measured 2026-09-23 late** (device clocks ~03:55 UTC): console reads of all four devices
 (`show stack`/`stack detail`/`boot`/`system`/`reboot history`/`file systems`, running- vs

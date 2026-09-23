@@ -1,0 +1,52 @@
+TEST 28128 -- L3 traffic on guest vlan (IPv6) - Hw forwarding disabled
+===========================================================================
+Run:    2026-09-24 (device clock 2026-09-23 ~21:40-22:05 UTC), tb470
+Build:  awplus_main-20260923-20
+DUT:    IE520 3-member VCStack "IE520-stk" (members 1/3/4)
+Setup:  two supplicant ports on stack member 3 -- port3.0.9 (tb470 eth3, sender) and
+        port3.0.13 (tb470 eth1, receiver). eth2 (vlan1, behind IE520-sa) also captured.
+        Guest VLAN config on both ports:
+            vlan database / vlan 200 state enable
+            aaa authentication dot1x default group radius   (no server: nobody authenticates)
+            interface port3.0.9,port3.0.13 / dot1x port-control auto / auth guest-vlan 200
+        `show auth supplicant`: both ports dot1x, "No supplicants"; `show vlan 200`: both (u).
+        hw-forwarding ON adds `auth guest-vlan hw-forwarding` on both ports.
+Traffic: from eth3, 50 pps: 500 frames to eth1's MAC ("known"), then 100 frames to an
+        unlearned MAC 02:00:00:00:99:99 ("unknown"). One frame from each host first so
+        the DUT learns both MACs in the port's current VLAN.
+CPU path: stack member 3 `show platform counter sdma` -- RX/TX packet counter -- read
+        just before and just after each send. Background CPU traffic is ~800-950 packets
+        per 14 s, so the evidence is the like-for-like comparison: the SAME traffic with
+        hw-forwarding off vs on. The difference is the frames the CPU handled.
+Rate:   the loss-vs-line-rate half of the case needs a line-rate generator (ixia).
+        This bench sends at 50 pps, so that half is UNMEASURED throughout.
+Step 2: the case gives step 2 the same description as step 1 and expects "completely
+        blocked". Interpreted, from the folder title "Suppress unicast flooding on Guest
+        VLAN", as UNKNOWN unicast between supplicants. That is an interpretation.
+
+BASELINE (feature OFF, both ports plain vlan1)
+      IPv4 known 500 -> eth1 500, eth2 0       IPv4 unknown 100 -> eth1 100, eth2 100 (flood)
+      IPv6 known 500 -> eth1 500, eth2 0       IPv6 unknown 100 -> eth1 100, eth2 100 (flood)
+IPv6:   src 2001:db8:200::65 -> dst 2001:db8:200::1 (both in 2001:db8:200::/64).
+
+VERDICT: FAIL -- with hw-forwarding disabled, IPv6 between supplicants is COMPLETELY
+         BLOCKED unless the guest VLAN has an IPv6 address in the traffic's own subnet.
+         The case itself defines the three variants below (guest VLAN with no IP address /
+         same subnet / different subnet) and expects EVERY one of them to forward via the
+         CPU ("loss ... bottleneck by cpu throughput ... verify traffic going via cpu").
+         Variants 1 and 3 deliver nothing and the CPU counters do not rise: the traffic
+         is dropped, not CPU-forwarded.
+
+      variant (vlan200 IPv6 address)             known 500 -> eth1   unknown 100 -> eth1   member 3 sdma tx
+      1  none                                        0/500               0/100             1116
+      2  2001:db8:200::10/64  (same subnet)        500/500             100/100             1695
+      3  2001:db8:300::10/64  (different subnet)     0/500               0/100             1130
+      (eth2 received 0 in every variant)
+
+  Variant 2 is CPU-forwarded: its tx is ~580 above variants 1 and 3, which matches the
+  600 frames. Variants 1 and 3 forward nothing at all, so no loss rate can be read: the
+  traffic is not delivered at any rate. For comparison, the IPv4 run on the same ports
+  and in the same state (28126) forwarded 500/500 with no guest-VLAN address.
+  With hw-forwarding ON (28129) all three variants forward 500/500.
+
+Cleanup: as 28126 (same run); vlan200's IPv6 address removed first.

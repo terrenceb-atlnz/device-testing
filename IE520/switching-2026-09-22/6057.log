@@ -1,157 +1,63 @@
 TEST 6057 -- ARP Learning with full tables
 ===========================================================================
-Run: 2026-09-22 13:08:45  tb470
-The case has no steps in ck.db. Tested as the title states: drive ARP
-learning hard and see how the table behaves as it fills.
+Run:    2026-09-24 (device clock 2026-09-23 21:27-21:33 UTC), tb470
+Build:  awplus_main-20260923-20
+DUT:    IE520 3-member VCStack "IE520-stk" (members 1/3/4), router MAC 0000.cd37.0d6f
+Case:   num_steps = 0 in ck.db. Tested as the title states: fill the DUT's ARP table
+        through its OWN resolution, then see how learning behaves when it is full.
+        (Replaces the 2026-09-22 PARTIAL, which could not fill the table: the DUT does not
+        learn from gratuitous ARP -- 6000 sent, 0 learned -- and there were no responders.)
 
---- baseline ---
-show arp counter
-                   ^
-% Invalid input detected at '^' marker.
+VERDICT: PASS for ARP learning up to capacity; the full-table behaviour is MEASURED and
+         is a finding for review, not a clean pass:
+         the table caps at 2045 entries, and while it is full the DUT CANNOT RESOLVE A NEW
+         REAL NEIGHBOUR -- `ping` fails with "sendmsg: No buffer space available".
 
-IE520-stk#  show arp counter: unsupported
+METHOD
+  - DUT: temporary `ip address 10.90.0.1/16 secondary` on vlan1 (on-link targets).
+  - tb470 eth1 sends routed UDP (src 10.38.215.1, dst 10.90.x.y, one frame per address,
+    300 pps) to the DUT router MAC, so the DUT must ARP for every destination.
+  - An ARP responder on tb470 eth3 (vlan1, stack port3.0.9) answers every who-has for
+    10.90.0.0/16 with a unique MAC 02:90:00:00:hi:lo, and counts requests seen.
+  - After each batch: count the 10.90 rows in `show arp`.
 
---- give vlan1 a large secondary subnet so many ARP sources are on-link ---
-configure terminal
-Enter configuration commands, one per line.  End with CNTL/Z.
-IE520-stk(config)#interface vlan1
-IE520-stk(config-if)#ip address 10.90.0.1/16 secondary
-IE520-stk(config-if)#exit
-IE520-stk(config)#end
-IE520-stk#  add 10.90.0.1/16 secondary: ok
+STEP 0 -- baseline: 10.90 rows in `show arp` = 0 (5 real neighbours).
 
---- flood gratuitous ARPs from many distinct senders on that subnet ---
-show arp counter
-                   ^
-% Invalid input detected at '^' marker.
+FILL
+      addresses sent   DUT ARP requests seen   10.90 rows in show arp
+           500                  500                     500
+          1000                 1000                    1000
+          2000                 2000                    2000
+          4000                 2040                    2040
+          6000                 2040                    2040     <- plateau
+  Final `show arp`: 2045 rows = 2040 x 10.90 (10.90.1.0 .. 10.90.8.247, learned in order)
+  + 5 real neighbours. Every request the DUT sent got a reply and became an entry (1:1).
+  Once the table held 2045 entries the DUT sent NO further ARP requests at all.
 
-IE520-stk#  batch 1: sent 1000 gratuitous ARPs in 1.0s  -> (counter unavailable)
-show arp counter
-                   ^
-% Invalid input detected at '^' marker.
+WITH THE TABLE FULL
+      ping 10.38.215.65 (already in the table)   3/3
+      ping 10.10.10.2   (already in the table)   3/3
+      ping 10.38.215.2  (x230, NOT in the table)  0/3
+          ping: sendmsg: No buffer space available   (x3)
+  Re-checked at 21:32:42, about 2 min after the last fill: 2040 x 10.90 rows still
+  present, and 10.38.215.2 still 0/3 with the same error. `show log` recorded nothing
+  about ARP or table exhaustion. The stack stayed `Normal operation` throughout.
 
-IE520-stk#  batch 2: sent 2000 gratuitous ARPs in 1.4s  -> (counter unavailable)
-show arp counter
-                   ^
-% Invalid input detected at '^' marker.
+RECOVERY
+  `no ip address 10.90.0.1/16 secondary` -> `show arp` dropped to 1 row (10.10.10.2 on
+  vlan10): the removal flushed the WHOLE vlan1 neighbour table, the real hosts included.
+      ping 10.38.215.2 -> 3/3, and it is learned: 10.38.215.2 001a.eb91.cca1 vlan1 sa2
+  Host paths afterwards: eth1->.10, eth1->.2, eth2->.40, eth2->.41, eth3->.66,
+  eth1->10.10.10.2 all 0% loss.
 
-IE520-stk#  batch 3: sent 4000 gratuitous ARPs in 2.1s  -> (counter unavailable)
+FOR REVIEW
+  1. Capacity ~2045 ARP entries on this build. Not documented here; could be deliberate.
+  2. At capacity new neighbours are refused (ENOBUFS), not admitted by evicting stale
+     entries, and nothing is logged. Entries learned 2+ min earlier and never used again
+     were still held. Whether this is the intended full-table policy is the question the
+     case exists to ask -- a DUT whose table is filled by transient destinations stops
+     reaching new real neighbours until the entries age out or are cleared.
+  3. Not measured: how long until entries age out on their own (the default ARP timeout
+     was not waited out).
 
---- does the DUT still ARP correctly for a real neighbour after the flood? ---
-ping 10.38.215.33 repeat 3
-PING 10.38.215.33 (10.38.215.33) 56(84) bytes of data.
-64 bytes from 10.38.215.33: icmp_seq=1 ttl=64 time=1.03 ms
-64 bytes from 10.38.215.33: icmp_seq=2 ttl=64 time=0.912 ms
-64 bytes from 10.38.215.33: icmp_seq=3 ttl=64 time=0.938 ms
-
---- 10.38.215.33 ping statistics ---
-3 packets transmitted, 3 received, 0% packet loss, time 2017ms
-rtt min/avg/max/mdev = 0.912/0.958/1.025/0.048 ms
-IE520-stk#  ping the live host on vlan1: ['3 packets transmitted, 3 received, 0% packet loss, time 2017ms']
-show stack
-Virtual Chassis Stacking summary information
-
-ID   Pending ID  MAC address        Priority  Status  Role
-1    -           84e3.2787.0ac0     128       Ready   Backup Member
-2    -           84e3.2787.0780     2         Ready   Backup Member
-3    -           84e3.2787.0740     128       Ready   Active Master
-4    -           84e3.2787.09c0     128       Ready   Backup Member
-
-Operational Status                 Normal operation
-Stack MAC address                  0000.cd37.0d6f (Virtual MAC)
-IE520-stk#  stack: ['Operational Status                 Normal operation']
-
-VERDICT: see EVALUATION
-
---- teardown ---
-configure terminal
-Enter configuration commands, one per line.  End with CNTL/Z.
-IE520-stk(config)#interface vlan1
-IE520-stk(config-if)#no ip address 10.90.0.1/16 secondary
-IE520-stk(config-if)#exit
-IE520-stk(config)#end
-IE520-stk#  remove secondary subnet: ok
-clear arp-cache
-IE520-stk#  clear arp-cache: ok
-
-=== RE-MEASURE with an entry count (show arp counter is unsupported here) ===
-configure terminal
-Enter configuration commands, one per line.  End with CNTL/Z.
-IE520-stk(config)#interface vlan1
-IE520-stk(config-if)#ip address 10.90.0.1/16 secondary
-IE520-stk(config-if)#exit
-IE520-stk(config)#end
-IE520-stk#  secondary subnet: ok
-show arp
-IP Address      LL Address       Interface            Port        Type
-IE520-stk#  before flood: 0 entries on 10.90/16, 0 total
-show arp
-IP Address      LL Address       Interface            Port        Type
-IE520-stk#  after  2000 gratuitous ARPs: 0 entries on 10.90/16, 0 total
-show arp
-IP Address      LL Address       Interface            Port        Type
-IE520-stk#  after  6000 gratuitous ARPs: 0 entries on 10.90/16, 0 total
-
-ping 10.38.215.33 repeat 3
-PING 10.38.215.33 (10.38.215.33) 56(84) bytes of data.
-64 bytes from 10.38.215.33: icmp_seq=1 ttl=64 time=1.74 ms
-64 bytes from 10.38.215.33: icmp_seq=2 ttl=64 time=0.704 ms
-64 bytes from 10.38.215.33: icmp_seq=3 ttl=64 time=1.22 ms
-
---- 10.38.215.33 ping statistics ---
-3 packets transmitted, 3 received, 0% packet loss, time 2016ms
-rtt min/avg/max/mdev = 0.704/1.221/1.742/0.423 ms
-IE520-stk#  ping a real neighbour after the flood: ['3 packets transmitted, 3 received, 0% packet loss, time 2016ms']
-show stack
-Virtual Chassis Stacking summary information
-
-ID   Pending ID  MAC address        Priority  Status  Role
-1    -           84e3.2787.0ac0     128       Ready   Backup Member
-2    -           84e3.2787.0780     2         Ready   Backup Member
-3    -           84e3.2787.0740     128       Ready   Active Master
-4    -           84e3.2787.09c0     128       Ready   Backup Member
-
-Operational Status                 Normal operation
-Stack MAC address                  0000.cd37.0d6f (Virtual MAC)
-IE520-stk#  stack: ['Operational Status                 Normal operation']
-configure terminal
-Enter configuration commands, one per line.  End with CNTL/Z.
-IE520-stk(config)#interface vlan1
-IE520-stk(config-if)#no ip address 10.90.0.1/16 secondary
-IE520-stk(config-if)#exit
-IE520-stk(config)#end
-IE520-stk#  teardown: ok
-
-===========================================================================
-VERDICT: PARTIAL -- ARP learning PROVEN; "full tables" NOT MEASURABLE here.
-===========================================================================
-
-PROVEN -- and this is the useful result:
-  **The DUT does not learn ARP entries from unsolicited (gratuitous) ARP.**
-      6000 gratuitous ARP replies from 6000 distinct sender IP/MAC pairs on an
-      on-link 10.90.0.0/16 secondary subnet  ->  0 entries in `show arp`
-  Learning from the DUT's OWN resolution works normally:
-      ping 10.38.215.33  ->  2/2, and immediately:
-      10.38.215.33  00f0.4d00.7717  vlan1  port2.0.2  dynamic
-  So the empty table is not a broken display -- it is the DUT correctly
-  declining to populate its cache from unsolicited ARP, which is the
-  anti-poisoning behaviour you want.
-
-PROVEN -- stability under the flood:
-  after 13000 gratuitous ARPs in total the DUT still resolved and pinged a real
-  neighbour 3/3, and the stack stayed `Normal operation` throughout.
-
-NOT MEASURABLE -- "with full tables":
-  The table cannot be FILLED from this bench. Because the DUT only learns from
-  its own resolutions, filling requires thousands of addresses that actually
-  answer ARP. There is one host NIC on the ingress port and no responder
-  population, so the fill condition the case names cannot be created.
-  A traffic generator emulating thousands of live hosts (the ixia the other
-  cases assume) would close this.
-
-  Also noted: `show arp counter` is NOT supported on this build
-  ("% Invalid input"). `show arp` and `show arp global` both work and were used
-  instead.
-
-CASE NOTE: AWPTCM-T6057 has num_steps = 0 in ck.db, so the shape above is my
-interpretation of the title, stated explicitly rather than implied.
+Cleanup: secondary removed (vlan1 = .10/.40/.66 as before), responder stopped.

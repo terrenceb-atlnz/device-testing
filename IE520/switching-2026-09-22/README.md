@@ -1,6 +1,6 @@
 # switching group — IE520, tb470, 2026-09-22
 
-11 cases. **6 PASS · 1 PARTIAL · 4 UNMEASURED.**
+11 cases. **7 PASS · 4 UNMEASURED** after the 2026-09-24 re-run of 6057 (was 6 PASS · 1 PARTIAL · 4 UNMEASURED).
 
 | case | title | verdict |
 | --- | --- | --- |
@@ -10,7 +10,7 @@
 | [38417](38417.log) | IGMP Snooping disabled - multicast packets | **PASS** |
 | [8633](8633.log) | IGMP Snooping enabled - multicast packets | **PASS** |
 | [29770](29770.log) | UDP broadcast helper | **PASS** |
-| [6057](6057.log) | ARP Learning with full tables | **PARTIAL** — learning proven, "full" not reachable |
+| [6057](6057.log) | ARP Learning with full tables | **PASS + finding** (re-run 2026-09-24) — table caps at 2045; while full a NEW neighbour cannot be resolved (`No buffer space available`) |
 | [45788](45788.log) | 5005 EPSR performance test on SFP port | **UNMEASURED** — bench: no SFP fitted |
 | [45789](45789.log) | 5005 EPSR performance test on SFP+ port | **UNMEASURED** — bench: no free SFP+ |
 | [24032](24032.log) | 5706 L2 platform test | **UNMEASURED** — **case-scope mismatch** |
@@ -21,8 +21,8 @@
 - **Bench limits** (more hardware fixes them): 45788/45789 need SFP transceivers
   fitted — every non-stackport cage reads `not present`, and the only populated
   SFP ports are the stackports carrying the VCStack. 12067 needs a line-rate
-  generator with two ports. 6057's "full tables" needs thousands of hosts that
-  actually answer ARP.
+  generator with two ports. (6057's "full tables" was closed on 2026-09-24 with an
+  ARP responder on tb470 -- see its log.)
 - **Case-scope mismatch** (hardware will never fix it): **24032** is "Run the
   5706 automated test". That is a platform suite for a different product; running
   it against an IE520 would not produce a meaningful IE520 result. The question
