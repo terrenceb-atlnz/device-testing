@@ -1,0 +1,288 @@
+###
+### !! GENERATED FILE -- DO NOT HAND-EDIT.
+###    Source: claude/device-testing/bench-setup/bench-state.md on the NFS lab home
+###    (/media/terrenceb/mnt/testbox_home/... from the dev host). Edit THERE, then run
+###    `bench_setup.py apply`, which writes this file in place and verifies by readback.
+###    An edit made here is discarded by the next apply, silently and without warning.
+###    Every previous version is snapshotted in that directory's backups/ -- which is
+###    why there are no longer .bak files sitting beside this one.
+###
+### ============================================================================
+### tb470.setup -- REWRITTEN 2026-09-18: the 4-MEMBER IE520 VCStack (stk_a) plus an
+### AR4050S-5G (swi_e) joined to it over ONE LACP aggregate, static routing between
+### them, three testbox edges. Measured by bench_probe.py sweeping /dev/u0-u6, LLDP on
+### BOTH ends of every inter-device link, and raw-frame injection captured on the far
+### TB NIC. Supersedes the 2026-09-15 4-member-only file; previous versions are dated
+### in the bench-setup backups/ dir named above. Read items 1-5 before binding anything.
+###
+###  1. !! THE FOUR IE520s ARE ONE STACK (stk_a), not four devices. Read live
+###     2026-09-18 (`show stack`, `show stack detail`):
+###         ID 1  S/N 264A23061  MAC 84e3.2787.0ac0  /dev/u2  Backup Member  prio 128
+###         ID 2  S/N 264A23068  MAC 84e3.2787.0780  /dev/u3  Backup Member  prio 2
+###         ID 3  S/N 264A23066  MAC 84e3.2787.0740  /dev/u5  ACTIVE MASTER  prio 128
+###         ID 4  S/N 264A23052  MAC 84e3.2787.09c0  /dev/u4  Backup Member  prio 128
+###         Virtual Chassis ID 3439 (0xd6f); Stack MAC 0000.cd37.0d6f (Virtual MAC)
+###         Operational Status: Normal operation; all four Ready
+###         Ring 27/28: m1.28<->m2.27, m2.28<->m4.27, m4.28<->m3.27, m3.28<->m1.27
+###         ==> ring order 1 - 2 - 4 - 3 - 1
+###     ==> All four members are declared in [switch] because Setup.py's __checkMember
+###         requires it, and [stack] stk_a lists all four. On a formed VCStack every
+###         member console is relayed to the master CLI, so init_swi() on ANY member
+###         reaches the SAME CLI -- never bind two members as DUT + link partner, that
+###         measures one device against itself. The link partner on this bench is swi_e.
+###     ==> MASTER IS NOT PINNED BY PRIORITY HERE. Member 2 is priority 2 (lowest, so it
+###         wins a FRESH election) yet member 3 is Active Master today -- a running
+###         master is never pre-empted, so mastership stays where the last failover left
+###         it. READ `show stack` before any step that depends on which member is master;
+###         it moves after every failover.
+###
+###  2. !! PORT NUMBERING IS BY MEMBER ID, and a wrong range fails SILENTLY. Member N's
+###     ports are portN.0.x: member 1 = port1.0.x (/dev/u2), member 2 = port2.0.x
+###     (/dev/u3), member 3 = port3.0.x (/dev/u5), member 4 = port4.0.x (/dev/u4).
+###     Config naming the wrong member's range is ACCEPTED with no error (this once
+###     presented as a DHCP option-61 defect that did not exist). Confirm the member ID
+###     before any step that names a port.
+###
+###  3. !! MEMBER 3 (S/N 264A23066, /dev/u5) IS THE SUSPECT-HARDWARE UNIT -- AND TODAY
+###     THE MASTER. It carries a long run of "Unexpected System reboot" entries. All
+###     fleet units take unattended reboots (member 2 logged a NEW signature on
+###     2026-09-15: "critical process (marvell) failure"). Check `show reboot history`
+###     on EVERY member before calling any unexplained stack event a defect.
+###
+###  4. !! AW+ `show boot` IS NOT A USABLE FIELD -- THE BOOTLOADER OVERRIDES IT. Every
+###     member RUNS IE520-awplus_main-20260913-1734.rel (read from `show system`), while
+###     `show boot` reads "Current boot image : flash:/IE520-tb470.rel (file not found)".
+###     That is EXPECTED and NOT an action item. Read the running build from `show
+###     system` / `show version`, never from `show boot`.
+###
+###  5. !! swi_e (AR4050S-5G, /dev/u1) IS THE ONLY OTHER DEVICE, AND IT IS A ROUTER
+###     joined to the stack by ONE LACP AGGREGATE (po1 on both ends; `channel-group 1
+###     mode active` on stack port1.0.2 + port4.0.2 and on 4050 port1.0.2 + port1.0.4).
+###     The two [portlink] swi_a-swi_e / swi_d-swi_e lines below are the two MEMBER LINKS
+###     of that one aggregate -- they are NOT two independent DUT<->partner paths, and
+###     the .setup format has no section for aggregation. The LAG carries ONLY transit
+###     vlan10 (10.10.10.0/27: stack .1, 4050 .2) with static routes each way; vlan1 is
+###     NOT bridged across it. Spanning tree is DISABLED on both devices (`no
+###     spanning-tree rstp enable`) -- the LAG is what keeps this loop-free, so do NOT
+###     break the aggregate on one end only while RSTP is off. Full L2/L3 design and the
+###     end-to-end verification: bench-state.md "Current state -- 2026-09-18".
+###
+### ============================================================================
+### PERMANENT PLATFORM FACTS -- these have each cost hardware time; do not re-derive.
+###
+### IE520 HAS NO ONBOARD MANAGEMENT ETHERNET. `show interface eth0` answers
+### "% Can't find interface eth0". The "eth0" a bootloader offers for TFTP boot is an
+### ASIX USB-to-Ethernet dongle in the switch's USB port, visible ONLY to the
+### bootloader and only DURING BOOT. ==> TESTBOX-SIDE CARRIER IS NOT A VALID
+### PRE-FLIGHT CHECK: a correctly cabled TFTP boot path is indistinguishable from an
+### unplugged one until the DUT is power-cycled.
+###
+### ONLY 10.38.215.0/24 HAS AN UPSTREAM RETURN PATH, and tb470 has NO NAT
+### (`nft list ruleset` is 0 bytes, iptables not installed). Never move a lab segment
+### off it. Proven 2026-08-04.
+###
+### FLASH IS SPIFlash AND IS EXTRAORDINARILY SLOW: a 41 MB flash-to-flash copy takes
+### ~12 minutes, during which the unit answers NOTHING -- console silent even to a
+### bare CR. That looks exactly like a crash. Never power-cycle mid-write.
+###
+### OPENING OR CLOSING A SERIAL PORT DROPS DTR AND THE IE520 READS THAT AS A BREAK,
+### which can park a unit in the bootloader. Drive these consoles with a tool that
+### does `stty -hupcl` first (failover-300/console.py does); leave minicom with
+### Ctrl-A Q, never by closing the window.
+###
+### init_portlink() RETURNS (None, None) SILENTLY when no link matches, so a missing
+### cable grades as a script defect. Check with tool/pt_preflight.py BEFORE booking
+### bench time.
+### ============================================================================
+
+### TOPOLOGY PROFILES this bench implements -- the contract generated scripts target.
+### Spec: ask-ck/pytest-create/TOPOLOGY-PROFILES.md ; checker: tool/pt_profiles.py
+###
+### !! ck_profile IS DELIBERATELY EMPTY. As at 2026-09-18 the hardware could implement:
+###      - `base` (an inter-DEVICE swi<->swi copper link): the stack<->swi_e LAG member
+###        links exist (swi_a port1.0.2 <-> swi_e port1.0.2, swi_d port4.0.2 <-> swi_e
+###        port1.0.4). NOTE they are two legs of ONE aggregate carrying vlan10 only.
+###      - `tblink` (a DIRECT testbox<->DUT link): three exist (tb eth1 <-> member 3
+###        port3.0.2, tb eth2 <-> member 2 port2.0.2, tb eth3 <-> swi_e port1.0.1).
+###    Declaring a profile is Terrence's decision and has NOT been taken. Do not add a
+###    profile the hardware does not implement, and do not add one without that decision.
+###
+### ck_cap_* records capabilities VERIFIED ON THE DEVICE, never inferred from docs.
+### `polarity` is documented for 29 products NOT including ie520, yet the IE520 supports
+### it (confirmed at the console 2026-07-30 via `polarity ?`). Absence from the harvested
+### CLI reference means UNKNOWN, not unsupported. swi_a..swi_d are IE520. swi_e (AR4050S)
+### has had NO capability verified on the device yet, so it has no ck_cap_ line.
+### Keep these values COMMA-FREE except ck_profile: the framework turns a
+### comma-bearing [misc] value into a list.
+[misc]
+ck_profile     =
+ck_role_dut    = stk_a
+ck_cap_swi_a   = polarity
+ck_cap_swi_b   = polarity
+ck_cap_swi_c   = polarity
+ck_cap_swi_d   = polarity
+
+### PDU/sentry outlets. Format: pwr_X = (pdu, <IP>, <outlet>)
+### The outlet field is parsed with int() (Setup.py: int(outTuple[2]) for any
+### non-awplus type), so it MUST be the numeric outlet -- the PDU front-panel LETTER
+### is a label only. A-H = 1-8: D = 4, E = 5, F = 6, H = 8.
+### PDU 10.36.150.14. Outlet map is per PHYSICAL UNIT / console (NOT per member ID),
+### measured 2026-09-14, Terrence-confirmed 2026-09-15, unchanged 2026-09-18:
+###   F/6 = /dev/u2 = member 1 (swi_a)      E/5 = /dev/u5 = member 3 (swi_c, master)
+###   H/8 = /dev/u3 = member 2 (swi_b)      D/4 = /dev/u4 = member 4 (swi_d)
+### !! swi_e (AR4050S, /dev/u1): OUTLET UNKNOWN as at 2026-09-18 -- no pwr_e declared.
+###    Add it here AND in [powerlink] once Terrence identifies it.
+[power]
+pwr_a = (pdu, 10.36.150.14, 6)
+pwr_b = (pdu, 10.36.150.14, 8)
+pwr_c = (pdu, 10.36.150.14, 5)
+pwr_d = (pdu, 10.36.150.14, 4)
+
+### swi_a = IE520 stack member 1 (S/N 264A23061, /dev/u2) -- PDU F/6 -- port1.0.x
+### swi_b = IE520 stack member 2 (S/N 264A23068, /dev/u3) -- PDU H/8 -- port2.0.x  prio 2
+### swi_c = IE520 stack member 3 (S/N 264A23066, /dev/u5) -- PDU E/5 -- port3.0.x
+###         !! SUSPECT HARDWARE (header item 3) and ACTIVE MASTER at 2026-09-18
+###         (mastership moves after every failover -- read `show stack`).
+### swi_d = IE520 stack member 4 (S/N 264A23052, /dev/u4) -- PDU D/4 -- port4.0.x
+### swi_e = AR4050S-5G "4050-5g" (S/N A10401G214000005, base MAC 0000.cd40.0394,
+###         /dev/u1) -- PDU outlet UNKNOWN -- port1.0.1-1.0.8 switch ports + eth1/eth2
+###         WAN (unused). Standalone router; vlan1 10.38.215.70/27 STATIC, vlan10
+###         10.10.10.2/27 on po1. Running awplus_main-20260918-7 (AR4050S-tb470.rel),
+###         bootloader 5.2.8, boot config flash:/default.cfg. See header item 5.
+### swi_f = x230-10GP "x230-10GP" (S/N G26ZE80EN, base MAC 001a.eb91.cca1, /dev/u0)
+###         !! CONSOLE IS 9600 BAUD -- every other console here is 115200. At 115200 the
+###         port returns NUL bytes and reads exactly like a dead or still-booting device.
+###         AW+ 5.5.5 (awplus_5.5.5_2-20260918-7), bootloader 3.2.16, boot config
+###         flash:/default.cfg. All ports access vlan 100; SVI 10.38.215.2/27.
+###         Joined to the stack by static LAG sa2 (port1.0.3 + port1.0.4). PDU outlet
+###         UNKNOWN -- not declared in [power]/[powerlink].
+###         NO MRP SUPPORT (`show mrp`/`mrp` unrecognised) -- see Open items.
+### NOT DECLARED: /dev/u6 = ABSENT since 2026-09-18 (the x230-52GT V2 of 09-15 is gone).
+### Console<->unit is re-derived EVERY RUN by bench_probe.py from the login banners
+### (`awplus` bare = Active Master, `awplus-N` = member N, `4050-5g` = swi_e) and
+### `show system serialnumber`. Do NOT trust a recorded mapping: this file has had
+### IE520 S/Ns on the opposite consoles before, and /dev/uN enumeration shifts.
+[switch]
+swi_a = /dev/u2
+swi_b = /dev/u3
+swi_c = /dev/u5
+swi_d = /dev/u4
+swi_e = /dev/u1
+swi_f = /dev/u0
+
+[baudrates]
+swi_a = 115200
+swi_b = 115200
+swi_c = 115200
+swi_d = 115200
+swi_e = 115200
+
+### The four IE520s as one virtual chassis. Members are listed by their [switch] names,
+### which Setup.py validates with __checkMember. The list order here is NOT the member
+### ID and does not set it (member IDs are 1/2/3/4 -> swi_a/swi_b/swi_c/swi_d, header
+### item 1). swi_e is NOT a member -- it is the stack's link partner.
+[stack]
+stk_a = swi_a, swi_b, swi_c, swi_d
+
+### NON-DEFAULT stacking ports only -- deliberately EMPTY. IE520 ports 27 and 28 are the
+### DEDICATED defaults and all eight (four members x 27/28) are in use as the ring:
+###   m1.28<->m2.27, m2.28<->m4.27, m4.28<->m3.27, m3.28<->m1.27  (ring 1-2-4-3-1),
+###   all "Learnt neighbor", re-measured 2026-09-18.
+### Notes carried forward:
+###   - `no stackport` DOES stick on 27/28 across a reboot (verified 2026-08-18).
+###     It needs `write` + reboot to take effect, and `switchport resiliencylink` is
+###     rejected while a port is still a stackport, so repurposing is a two-pass job.
+###   - `stack virtual-chassis-id` has NO `no` form.
+###   - The "never cable 27/28 between two units" hazard applies to STANDALONE units
+###     both claiming ID 1 with a shared chassis-id; it does not apply to a properly
+###     formed stack, which is what is cabled now.
+[configured_stackport]
+
+### Maps each device to its [power] outlet -- what lets a test power-cycle a device.
+### A device with no powerlink does NOT fail fast: ATSwitch.__power() logs
+### "Power object is not available" and returns False WITHOUT raising, so a suite
+### calling dut.off() carries on and then waits for a bootloader banner that can
+### never appear, at AWPConsoleCore's flat 1800 s default.
+### !! Power-cycling ANY of swi_a..swi_d cycles ONE MEMBER OF A LIVE 4-MEMBER STACK --
+###    a stack failover event, not a standalone reboot. A test written for a standalone
+###    DUT will not measure what it thinks it is measuring.
+### !! swi_e (AR4050S) HAS NO POWERLINK because its PDU outlet is unknown (2026-09-18).
+###    Any test that power-cycles swi_e will hit the silent-False path above.
+[powerlink]
+swi_a = pwr_a
+swi_b = pwr_b
+swi_c = pwr_c
+swi_d = pwr_d
+
+### All four IE520 members boot from flash (IE520-awplus_main-20260913-1734.rel -- the
+### only .rel in each member's flash). Setup.py applies a stack-level value to every
+### member, so stk_a is declared too. swi_e boots AR4050S-tb470.rel from its own flash
+### (`show system`: Current software AR4050S-tb470.rel, boot config flash:/default.cfg).
+### !! AW+ `show boot` on the IE520s IS NOT A USABLE FIELD -- THE BOOTLOADER OVERRIDES
+###    IT (header item 4). `show boot` reads "Current boot image : flash:/IE520-tb470.rel
+###    (file not found)" while every member RUNS IE520-awplus_main-20260913-1734.rel.
+###    That is EXPECTED; do NOT chase the "(file not found)". Read the build from
+###    `show system`/`show version`. [boot_from_flash]=True here declares that these
+###    units boot from flash (they do, via the bootloader), not the old TFTP netboot path.
+[boot_from_flash]
+stk_a = True
+swi_a = True
+swi_b = True
+swi_c = True
+swi_d = True
+swi_e = True
+
+### <devA>-<devB> = <portOnA>-<portOnB>, comma-separated. The literal device "tb" =
+### the testbox itself. Each declared link is CONSUMED by one init_portlink() call,
+### so two calls between the same pair need two links declared here.
+###
+### A portlink names the MEMBER switch, never the stack: Setup.py keys links on the
+### member and `get_temporary_testbox_portlink()` walks the other stack members
+### itself when the queried member has no direct link.
+###
+### ===== MEASURED 2026-09-23 -- LLDP both ends, host-MAC learning per port, ping =====
+### Terrence recabled 2026-09-23. TWO STATIC LAGs now, and every TB NIC lands DIRECTLY
+### on the stack -- neither partner device is in a host path any more.
+###
+### Inter-device links:
+###   stack member 3 (swi_c) port3.0.2  <->  swi_e port1.0.3   ┐ STATIC LAG sa1, vlan10
+###   stack member 4 (swi_d) port4.0.2  <->  swi_e port1.0.4   ┘ STRADDLES stack units 3+4
+###   stack member 1 (swi_a) port1.0.2  <->  swi_f port1.0.3   ┐ STATIC LAG sa2, vlan1
+###   stack member 1 (swi_a) port1.0.9  <->  swi_f port1.0.4   ┘ (swi_f side vlan100)
+###
+### Testbox edges (each host MAC learned on a PHYSICAL stack port):
+###   tb eth1 10.38.215.1/27   00f0.4d00.7716  <->  member 3 (swi_c) port3.0.13 (vlan1)
+###   tb eth2 10.38.215.33/27  00f0.4d00.7717  <->  member 2 (swi_b) port2.0.2  (vlan1)
+###   tb eth3 10.38.215.65/27  00f0.4d00.7718  <->  member 3 (swi_c) port3.0.9  (vlan1)
+### These eight links plus the eight 27/28 stackport cables are the ONLY cables here.
+###
+### !! BOTH LAGs ARE AGGREGATES, NOT INDEPENDENT PATHS. Consuming one member with
+###    init_portlink() and treating it as its own path is wrong -- traffic hashes across
+###    both members. For sa2 it is worse than wrong: the two stack<->swi_f links are
+###    PARALLEL, RSTP is disabled on every device here, and the ONLY thing stopping that
+###    being a broadcast loop is that they are aggregated. Do not un-bundle one end.
+###    There is no .setup section for aggregation, hence this note.
+###
+### !! `lacp global-passive-mode` silently enrols a freed port into a new aggregation.
+###    It has caused a failure on all three devices (stack 09-21, swi_e 09-22 -- a ring
+###    with NO blocking port, because STP runs on the aggregator and that aggregator was
+###    down -- and swi_f 09-23). It is now DISABLED on all three. Leave it off.
+###
+### ADDRESSING as at 2026-09-23 (details: "Current state -- 2026-09-23"):
+###   stack vlan1 10.38.215.10/27 primary + 10.38.215.40/27 + 10.38.215.66/27 secondary
+###   (eth1's, eth2's and eth3's /27s, one bridged L2 domain);
+###   stack vlan10 10.10.10.1/27 on sa1; swi_e vlan10 10.10.10.2/27 on sa1.
+###   swi_e vlan1 10.38.215.70/27 -- NO LONGER has a TB edge (eth3 moved to the stack).
+###   swi_f all ports vlan100, SVI 10.38.215.2/27.
+###   RSTP disabled on all three. Verified end to end 2026-09-23: eth1/eth2/eth3 0% loss,
+###   vlan10 transit 3/3, transit THROUGH the DUT (inject eth2, capture eth1) 10/10.
+[portlink]
+### tb- lines first, then inter-switch links (SETUP-FILE-REFERENCE.md checklist).
+### Two tb-swi_c lines: eth1 and eth3 both land on member 3, on different ports.
+tb-swi_c = eth1-port3.0.13
+tb-swi_b = eth2-port2.0.2
+tb-swi_c = eth3-port3.0.9
+swi_c-swi_e = port3.0.2-port1.0.3
+swi_d-swi_e = port4.0.2-port1.0.4
+swi_a-swi_f = port1.0.2-port1.0.3
+swi_a-swi_f = port1.0.9-port1.0.4

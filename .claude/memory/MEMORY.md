@@ -24,7 +24,7 @@
 - [IE520 silent-reboot watch 2026-09-02](ie520-silent-reboot-watch-2026-09-02.md) — DEFERRED to a weekend run; caught member 1's silent reboot; 3 harness defects to fix first; only console.py survives
 - [IE520 DoS test method](ie520-dos-test-method.md) — AWPTCM DoS suite on tb470: attacks must TRANSIT the switch; batch sendp (fastdos.py); disarm `no dos <type>`; method in DOS-METHOD.md
 - [Prefer a pragmatic fix over infra debugging](prefer-pragmatic-fix-over-infra-debugging.md) — when incidental infra breaks mid-task, take the deterministic fix (static IP, skip); don't rabbit-hole
-- [IE520 4-stack flash-prep](ie520-4stack-flashprep.md) — REVERSED 2026-09-14: the 2-member cap was an OLD-build limit
+- [IE520 4-stack flash-prep](ie520-4stack-flashprep.md) — REVERSED 2026-09-14: the 2-member cap was an OLD-build limit. FLASHING MEMBERS: a large push master→member FAILS (NFS timeout, re-hit 2026-09-23) — make each member master in turn + local TFTP
 - [IE520 mcast/L3 test method](ie520-mcast-l3-test-method.md) — IGMP/MLD-snooping + directed-broadcast on tb470 with ONE host NIC: u4=querier, u5 ping=source, host scapy=receiver; gotchas inside
 - [AW+ service-gated routing daemons](awplus-service-gated-routing-daemons.md) — "daemon is not running or feature license" = run `service ospf|rip|vrrp|pim` first; PIM-DM has no service cmd
 - [Claude cannot push — Terrence pushes](claude-cannot-push-terrence-pushes.md) — company permissions deny `git push` every time (and any overwrite)
@@ -44,3 +44,4 @@
 - [LACP passive hides links from STP](lacp-passive-hides-links-from-stp.md) — auto-enrols freed ports; STP runs on the AGGREGATOR so a live link forwards where STP cannot block. Hit all 3 devices
 - [Sentinel session keeps long runs moving](sentinel-session-keeps-long-runs-moving.md) — the CAMPAIGN is the unit of work
 - [IE520 AWPTCM campaign 2026-09-22](ie520-awptcm-campaign-2026-09-22.md) — pointer to the 72-case run: 39 PASS / 1 PARTIAL / 32 UNMEASURED across 7 group dirs
+- [Act on Terrence-stated live faults](act-on-terrence-stated-live-faults.md) — "there is a loop, just fix it": shut a leg and configure, verify AFTER; run literal commands literally
