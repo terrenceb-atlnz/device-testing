@@ -14,8 +14,11 @@ Physical facts SENSED by the probe and written into the .md:
   console<->serial, stack membership + member IDs, per-member build/.rel,
   host NIC <-> member switch port.
 Facts DECLARED (not sensed) come from the static scaffold below -- PDU outlet per
-unit, port caps, ck_profile, baud. Because both live and template carry the same
-declared values, they never show as a diff; only sensed reality can.
+unit, baud. Because both live and template carry the same declared values, they
+never show as a diff; only sensed reality can.
+
+No [misc] section is emitted (2026-09-23): Ask-CK's generated scripts discover the
+topology through the framework, and nothing read ck_profile / ck_role_dut / ck_cap_*.
 
 NOTE (2026-09-15): the id->serial and boot parsing are written defensively and must
 be validated against a real sweep -- see `_members_from_probe`.
@@ -33,8 +36,6 @@ OUTLET_BY_SERIAL = {           # PDU outlet per physical unit (by serial); PDU i
     "264A23066": 5,            # /dev/u5  member 3  (E)
     "264A23052": 4,            # /dev/u4  member 4  (D)
 }
-CAP = "polarity"               # every IE520 supports it (verified at the console)
-PROFILE = ""                   # ck_profile deliberately empty
 DEFAULT_BAUD = 115200
 STALE_HOURS = 48               # .rel age boundary for the advisory warning
 
@@ -307,13 +308,6 @@ def generate(probe):
                            ports[0] if ports else "-", mems[0] if mems else "-"))
     w("```")
     w("")
-
-    w("## §misc")
-    w("")
-    mc = ["[misc]", "ck_profile     = " + PROFILE, "ck_role_dut    = " + stack_names[0]]
-    for mid in ids:
-        mc.append("ck_cap_%s   = %s" % (swi[mid], CAP))
-    fence(mc)
 
     return "\n".join(L) + "\n"
 

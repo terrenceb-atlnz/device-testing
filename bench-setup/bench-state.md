@@ -157,7 +157,9 @@ Verified: `eth1`→`.10`, `eth2`→`.40`, `eth2`→`.41` and `eth3`→`.66` are 
 - **`IE520-sa`'s PDU outlet (H/8) was not re-verified** after the unit was pulled from the
   stack. Confirm it before any test power-cycles it.
 - Declare the SFP+ link in `[portlink]` once a ring case has brought it up and verified it.
-- `ck_profile` is still undeclared (Terrence's decision).
+- ~~`ck_profile` is still undeclared (Terrence's decision).~~ **Moot 2026-09-23:** the whole
+  `[misc]` block is removed; generated scripts discover the topology (§2). Not yet applied to
+  the box.
 
 ## Current state — 2026-09-23 (x230-10GP added as a third device; TWO static LAGs; all three TB NICs on the stack) — SUPERSEDED 2026-09-23 evening (member 2 pulled out as the standalone `IE520-sa`, `sa3` added, every IE520 on `awplus_main-20260923-20` — above)
 
@@ -998,41 +1000,30 @@ file's own header so they are unmissable at the point of use.
 
 ```
 
-## §2. Topology profiles and verified capabilities
+## §2. Topology discovery — no `[misc]` (2026-09-23)
 
-`ck_profile` is deliberately empty. The stack now has three inter-device partners (`sa1` → 4050,
-`sa2` → x230, `sa3` → the standalone IE520), so `base` is satisfiable — declaring it is a
-decision, not a measurement.
+**There is no `[misc]` section, on purpose.** Ask-CK's generated scripts discover the topology
+through the framework at run time. They bind `swi_a`, and its stack when it is in one. They take
+the cables from `[portlink]` via `get_all_port_links()`, and read each port's media from the DUT
+(`show interface status`, `show system pluggable`). Nothing is pre-declared: Terrence,
+2026-09-21, *"the information shouldnt require pre-loading variables to know it."*
+
+The `[misc]` block that used to be here (`ck_profile`, `ck_role_dut`, `ck_cap_*`) was removed on
+2026-09-23. Nothing read it, neither the scripts nor Ask-CK's tools nor the framework (whose
+`[misc]` is optional). **LAG member links are ordinary partner links** for a generated script
+(Terrence, 2026-09-23).
+
+**Verified capability, kept as a record:** the IE520 (swi_a..swi_d) supports `polarity`,
+confirmed at the console on 2026-07-30 via `polarity ?`. The harvested CLI reference documents
+it for 29 products, and the IE520 is not one of them. Absence from that reference means UNKNOWN,
+not unsupported. swi_e (AR4050S) and swi_f (x230) have had no capability verified on the device.
 
 ```setup
-### TOPOLOGY PROFILES this bench implements -- the contract generated scripts target.
-### Spec: ask-ck/pytest-create/TOPOLOGY-PROFILES.md ; checker: tool/pt_profiles.py
-###
-### !! ck_profile IS DELIBERATELY EMPTY. As at 2026-09-23 (evening) the hardware could
-###    implement:
-###      - `base` (an inter-DEVICE swi<->swi copper link): the stack has THREE partners,
-###        each over a static LAG (sa1 -> swi_e, sa2 -> swi_f, sa3 -> swi_b; header item
-###        5). NOTE every one is two legs of ONE aggregate.
-###      - `tblink` (a DIRECT testbox<->DUT link): tb eth1 <-> member 3 port3.0.13 and
-###        tb eth3 <-> member 3 port3.0.9 land on the stack; tb eth2 <-> swi_b port2.0.2
-###        lands on the STANDALONE IE520 and reaches the stack only through sa3.
-###    Declaring a profile is Terrence's decision and has NOT been taken. Do not add a
-###    profile the hardware does not implement, and do not add one without that decision.
-###
-### ck_cap_* records capabilities VERIFIED ON THE DEVICE, never inferred from docs.
-### `polarity` is documented for 29 products NOT including ie520, yet the IE520 supports
-### it (confirmed at the console 2026-07-30 via `polarity ?`). Absence from the harvested
-### CLI reference means UNKNOWN, not unsupported. swi_a..swi_d are IE520. swi_e (AR4050S)
-### has had NO capability verified on the device yet, so it has no ck_cap_ line.
-### Keep these values COMMA-FREE except ck_profile: the framework turns a
-### comma-bearing [misc] value into a list.
-[misc]
-ck_profile     =
-ck_role_dut    = stk_a
-ck_cap_swi_a   = polarity
-ck_cap_swi_b   = polarity
-ck_cap_swi_c   = polarity
-ck_cap_swi_d   = polarity
+### NO [misc] SECTION, on purpose (2026-09-23). Ask-CK's generated scripts DISCOVER the
+### topology through the framework: swi_a (+ its stack), cables from [portlink] via
+### get_all_port_links(), and media read from the DUT. Do not pre-declare roles here.
+### LAG member links are ordinary partner links. Record: claude/device-testing/
+### bench-setup/bench-state.md §2.
 
 ```
 

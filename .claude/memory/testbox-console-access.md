@@ -45,5 +45,5 @@ first, or every command is typed into a `login:` prompt and returns `Login incor
 looks exactly like a dead device); credentials come from the framework, not the `.setup`
 (`manager` + `['friend','P@ssw0rd','awplus']`); `powerOn` defaults **True** and switches the
 PDU outlet on, so pass `powerOn=False` for anything read-only; and `Stack.members` is a
-`set`, so "any member" is nondeterministic. Working example: `ask-ck/test-composer/bench_probe.py`.
+`set`, so "any member" is nondeterministic. Working example: `claude/device-testing/bench-setup/bench_probe.py` (the Test-cases copy was deleted 2026-09-23).
 
