@@ -396,9 +396,11 @@ Consequences, all of them live while the units are stacked:
   two-DUT campaign applied when they were two standalone switches.
 - **Power-cycling a member cycles one member of a live stack** — a failover event, not a standalone
   reboot. A test written for a standalone DUT will not measure what it thinks it is.
-- **A topology profile (`ck_profile`) needs cabling, not an edit.** `base`/`fibre` need an
-  inter-DEVICE link, which cannot exist inside one L2 device; `tblink` needs a direct testbox↔DUT
-  cable. Whether one exists today is in bench-state.md.
+- **A link partner needs cabling, not an edit.** A generated script finds its cables through the
+  framework (`get_all_port_links()`); nothing in `[misc]` declares them (the `ck_profile` contract
+  was retired 2026-09-21). A partner must be a separate DEVICE — a link between two members of one
+  stack sits inside one L2 device — and a testbox link needs a direct testbox↔DUT cable. Whether
+  one exists today is in bench-state.md.
 - **The "never cable 27/28" hazard is scoped to two _standalone_ units** both claiming ID 1 under
   one chassis-id; it does **not** apply to a properly formed stack. `no stackport` on 27/28 *does*
   stick across a reboot, needs `write` + reboot, and `switchport resiliencylink` is rejected while a
