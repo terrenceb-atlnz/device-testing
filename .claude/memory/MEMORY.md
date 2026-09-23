@@ -2,7 +2,7 @@
 
 - [tb470 routing memory](tb470-topology-and-setup.md) — WHERE each tb470 fact lives (one fact, one home): bench-state.md GENERATES tb470.setup; mechanics → orient-dt skill; always `show stack`
 - [AW+ speed/duplex constraint](awplus-speed-duplex-constraint.md) — half duplex impossible ≥1 Gig; NOT documented, so a docs harvest alone can't capture cross-command physical rules
-- [The .log IS the deliverable](log-is-the-deliverable.md) — for lab cases the per-case <case-id>.log is enough; no after-action-<id>.md per test unless Terrence asks
+- [The .log IS the deliverable](log-is-the-deliverable.md) — ONE <case-id>.log per case = the LATEST run only: step outputs + proof of verdict, no side-stories; raw captures stay in tb470 /tmp
 - [grep shim honors .gitignore](grep-shim-honors-gitignore.md) — `grep` is a FUNCTION wrapping ugrep --ignore-files, so 0 hits in .venv/ node_modules/ var/ looks like absence; use `command grep`
 - [Testbox console access](testbox-console-access.md) — ssh tbNNN → uN alias → /dev/uN; drive it with pyserial, not minicom
 - [.setup declares topology](setup-file-declares-topology.md) — stack, stackports and cabling are declared there; never infer them from case text; verify consoles are live
@@ -37,7 +37,7 @@
 - [ssh PATH has no sbin](ssh-path-has-no-sbin.md) — `ssh tbNNN 'command -v foo'` misses /usr/sbin and /sbin; it proves presence, never absence. Check absolute paths, dpkg, or a listening socket
 - [AW+ config prompts abort and log you out](awplus-config-prompts-abort-and-logout.md) — `mls qos enable`/`no mls qos`/`atmf secure-mode enable-all` PROMPT (y/n)
 - [IE520 MAC-auth username format](ie520-mac-auth-username-format.md) — the DUT sends `00-f0-4d-00-77-17` (lowercase, hyphenated); no auth-mac username-format command exists
-- [AW+ CLI wiki on the share](awplus-cli-wiki-on-the-share.md) — 3437 command pages at claude/github-copilot-awplus-wiki/awplus_cli_wiki/commands/ with syntax, MODE and platform tables
+- [AW+ CLI wiki on the share](awplus-cli-wiki-on-the-share.md) — 3437 command pages with syntax, MODE and platform tables; NO IE520 pages (cousins IE560/IE360/x230v2/IE340 absent too) → read x230; the IE520 mode can differ
 - [tb470 bench structural limits](tb470-bench-structural-limits.md) — CORRECTED 2026-09-23: the port limit was UNCABLED ports + 3 host NICs, not one copper port per member
 - [Campaign measurement discipline](campaign-measurement-discipline.md) — baseline the feature OFF first, make traffic TRANSIT the DUT, split PROVEN from NOT MEASURABLE
 - [STP mode change re-enables spanning tree](stp-mode-change-reenables-spanning-tree.md) — a `spanning-tree mode` change silently drops `no spanning-tree <mode> enable`
@@ -45,3 +45,7 @@
 - [Sentinel session keeps long runs moving](sentinel-session-keeps-long-runs-moving.md) — the CAMPAIGN is the unit of work
 - [IE520 AWPTCM campaign 2026-09-22](ie520-awptcm-campaign-2026-09-22.md) — pointer to the 72-case run: 39 PASS / 1 PARTIAL / 32 UNMEASURED across 7 group dirs
 - [Act on Terrence-stated live faults](act-on-terrence-stated-live-faults.md) — "there is a loop, just fix it": shut a leg and configure, verify AFTER; run literal commands literally
+- [Bench cannot open TCP to office PCs](bench-cannot-open-tcp-to-office-pcs.md) — lab→10.33.22.x TCP is dropped (ping passes); servers the bench connects TO go on tb470, never the dev PC; test the transport first
+- [IE520 master ignores remote backup server](ie520-master-ignores-remote-backup-server.md) — accepts `atmf backup server`, never mounts it; use the AR4050S as master (x230 lacks AMF-MASTER-X)
+- [Bench scripts stop on CLI errors](bench-scripts-stop-on-cli-errors.md) — a `% ` line looks like success to a prompt driver; gate each dependent step on proven state (the masterless-AMF slip)
+- [tb470 root changes go through Terrence](tb470-root-changes-go-through-terrence.md) — auto mode blocks keys/sshd/routes as persistence: stage in /tmp/ckorient/work, he pastes, or manual mode

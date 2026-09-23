@@ -49,5 +49,17 @@ the IE520. Absence from a table is a reason to TEST, not a reason to record UNME
 (Conversely `neighbor-fall-over-bfd-bgp.md` also omits the IE520, and there the command
 genuinely was not usable end to end — so the table predicts nothing either way. Test it.)
 
+**THE WIKI HAS NO IE520 PAGES AT ALL (checked 2026-09-23).** Its platforms are AR4050,
+AT-TQ7403R, x230, x908Gen2, x930, x950 — and there are no pages for the IE520 or for the models
+Terrence names as its closest relatives: **IE560, IE360, x230v2, and "close-ish" IE340.** Of
+those, only **x230** is in the wiki (3420 pages), so read the x230 section of a page. The
+**Mode and default values can still differ on the IE520**, as measured on awplus_main-20260923-20:
+- `crypto key pubkey-chain knownhosts ...`: the wiki says Privileged Exec, but the IE520 rejects
+  it there (caret at `pubkey-chain`) and accepts it in **Global Config**.
+- `crypto key generate userkey manager rsa`: the wiki's default is 2048 bits; the IE520 made a
+  **3072**-bit key.
+If a documented command is `% Invalid input` in its documented mode, try the other mode before
+concluding it is absent. The `show` variant existing is a hint that the command exists.
+
 Related: [[ckdb-cli-command-hyphen-collapse]] for reading exact CLI tokens out of ck.db;
 [[read-the-transcripts-before-driving-hardware]] for the same principle applied to menus.

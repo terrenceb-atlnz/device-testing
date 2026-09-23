@@ -39,6 +39,16 @@ uptime change, console alive) reads like a stalled or dead box.
   only written out when the expected pattern matched, so a timeout discarded exactly the
   transcript needed to diagnose it.
 
+**NOT EVERY CLI PROMPT IS `(y/n)` (2026-09-23).** `crypto key pubkey-chain knownhosts ip <host>`
+(Global Config on the IE520) prints `# <host>:22 SSH-2.0-...`, then the **whole host key**
+(`<host> ssh-rsa AAAA...`, not a fingerprint), then `Are you sure you want to add this public key
+(yes/no)?`. It needs the WORD `yes\r`/`no\r`. Any other line, e.g. `end`, just re-asks ` (yes/no) ?`.
+My driver waited for `(y/n)`, answered nothing, and its next command went into the prompt. To
+verify the key, compare the printed blob with the server's `/etc/ssh/ssh_host_rsa_key.pub`
+field 2; a fingerprint match can never succeed against that output. **Match the prompt text
+you saw, not the one you expect; if neither `(y/n)` nor `(yes/no)` appears, answer nothing and
+read the screen.**
+
 **A related serial fact, and a warning about how I used it.** In pyserial, `dsrdtr=True` enables
 **DSR/DTR hardware flow control** — it does *not* mean "leave DTR alone". I set it to stop the
 port-open DTR drop from sending a BREAK, which was wrong on its own terms. To avoid the DTR drop,

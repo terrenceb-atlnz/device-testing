@@ -35,6 +35,20 @@ cases are blocked on TACACS+ and port count. A reader should get the true pictur
 opening every file. A campaign-level pointer memory is worth writing too:
 [[ie520-awptcm-campaign-2026-09-22]]. Grading rules: [[campaign-measurement-discipline]].
 
+**TIGHTENED 2026-09-23 (Terrence, ATMF 38474/38475):** *"Please ensure that the end-result of
+these is ONE log file of the most RECENT run, no fluff or side-stories. just the outputs and
+proof it passed."* So:
+- **One `<case-id>.log` per case, holding the latest run only.** A repeat REPLACES the earlier
+  run's log; git history keeps the old one.
+- Its content is the **step outputs and the proof of the verdict**: the case steps, the
+  commands, the device output that shows each step's result, and the verdict.
+- **Leave out the side-stories**: setup detours, blocked approaches, prior-run comparisons,
+  infrastructure findings. Those go in the session handover or a memory.
+- **Raw console captures** (`*-raw.log`, `console-*.log`) are working files. Write them to
+  tb470 `/tmp/ckorient/work/`, not the run directory, and never commit them.
+
+This probably generalises to every lab case; apply it by default unless he asks for more.
+
 Note this **qualifies** the `orient-dt` skill's §8 line that "the deliverable convention
 is `after-action-<suite>.md` in that run's directory" — that still holds for a **campaign**
 (a whole suite, or an investigation spanning many rounds), but not for each individual test

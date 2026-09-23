@@ -1,0 +1,125 @@
+TEST 38475 -- ATMF - recover from USB drive
+===========================================================================
+Run:    2026-09-23 (lab date; device clocks 2026-09-23 00:26-00:47 UTC), tb470
+Build:  awplus_main-20260923-20 on the DUT and the master
+DUT:    IE520-sa -- the STANDALONE IE520 (S/N 264A23068, /dev/u3), AMF MEMBER.
+        It is the unit that used to be stack member 2; it still held STACK ID 2
+        (ports port2.0.x) when this case started.
+Master: IE520-stk (3-member stack), AMF master of network "tb470"
+USB:    28.9 GB stick in the DUT (Terrence moved it there 2026-09-23)
+Case precondition: "DUT requires virtual-link for this test"
+
+VERDICT: FAIL at step 5 -- "Automatic node recovery failed - user intervention
+         required". Steps 1-4 PASS. The DUT DID find and apply the recovery file on
+         the USB drive, but came back without its virtual link, so it could not reach
+         a master. Two confounds and one candidate root cause are recorded below;
+         n = 1, so a clean repeat is recommended before this is filed as a defect.
+         (2026-09-21: UNMEASURED -- `atmf cleanup` refused on a VCStack. Running it
+         on the standalone is what made this attempt possible.)
+
+PRECONDITION -- virtual link as the DUT's ONLY AMF path                 done
+  DUT:    atmf virtual-link id 1 ip 10.38.215.41 remote-id 2 remote-ip 10.38.215.40
+  Master: atmf virtual-link id 2 ip 10.38.215.40 remote-id 1 remote-ip 10.38.215.41
+  Then `no switchport atmf-link` + `switchport mode access` on sa3 at BOTH ends, so
+  the L2 AMF link was gone and the tunnel carried AMF alone:
+    master: vlink2  2 10.38.215.40  1 10.38.215.41  Tunnel State Complete
+            show atmf links -> vlink2 Downlink Full IE520-sa Forwarding; nodes 4
+    DUT:    vlink1 Uplink Full IE520-stk Forwarding; Role Member; nodes 4
+
+STEP 1 -- "The DUT should be a member of an AMF network"                PASS
+  IE520-sa: Network Name tb470, Role Member, Current ATMF Nodes 4.
+
+STEP 2 -- "Insert a USB drive into the DUT"                              PASS
+  show file systems: usbstick 28.9G, usb:, Avail Y.
+  (`show atmf backup` on a member answers "% Error: Device configuration does not
+  support ATMF backup commands." -- a master-only command, not a fault.)
+
+STEP 3 -- "Save the configuration ... should create a recovery file on the USB.
+           Recover file should be present on the USB drive"              PASS (see note)
+  dir usb:  atmf_recovery_file 2272 B 00:26:40, atmf_recovery_file_hash 16 B 00:26:54
+  The file IS present. NOTE -- it was written at 00:26:40, i.e. when the virtual
+  link was configured, NOT by the save: two saves (`copy running-config
+  startup-config` ~00:28:45 and `write` 00:29:23, then 90 s of polling) left its
+  date and size unchanged. That matches the documented behaviour ("AMF recovery
+  files are created for nodes with special links" -- virtual links, area links)
+  rather than the case text's "the save creates it".
+  `show atmf recovery-file` just before the wipe:
+      DUT (IE520-sa):     "Special Link Not Present"  (!)  USB 00:26:40, local 00:22:34
+      master (IE520-stk): "Special Link Present"  USB Media Not Found, local /
+                          4050-5g / x230-10GP copies 00:22:36
+  The DUT reporting NO special link while its virtual link was Full is the
+  candidate root cause for step 5 -- see FINDINGS.
+
+STEP 4 -- "Enter the command atmf cleanup"                               PASS
+      IE520-sa# atmf cleanup
+      This command will erase all NVS, all flash contents except for
+      the boot release, a GUI resource file, and installed licenses,
+      and then reboot the device.
+      Proceed ? (y/n): y                                   (00:33:19)
+  Rebooted (BootROM 1.41, bootloader master-20260822-535, IE520-tb470.rel):
+      "Warning: flash:/default.cfg does not exist, loading factory defaults."
+      "awplus login:" at t+196 s. Flash afterwards: only IE520-tb470.rel, the GUI
+      file and log/ -- the erase did what it says.
+  Safety step taken first: one sa3 leg shut on the master side (port4.0.9), so the
+  wiped DUT could not form an asymmetric LAG with the stack.
+
+STEP 5 -- "When the DUT reboots it should recover its configuration file
+           from the USB drive"                                           FAIL
+  DUT log (device clock):
+      00:34:55  Updating ATMF backup location to "usb"
+      00:37:12  atmffsd: ATMF recovery file detected in external media
+      00:37:12  atmffsd: ATMF recovery file successfully retrieved
+      00:37:12  atmffsd: Unable to remove recovery link                 <-- user.err
+      00:37:38  Host name change [host_84e3_2787_0780 -> IE520-sa]
+      00:38:43  Enabling all ports
+      00:40:13  atmffsd: Recovery file processing successful, attempting to recover
+                as IE520-sa
+      00:40:13  atmffsd: Checking controller and master node availability
+      00:45:13  atmffsd: Failed to find any master nodes
+      00:45:13  atmffsd: Automatic node recovery failed - user intervention required
+  What the DUT came back with (show running-config, 00:42):
+      RESTORED   hostname IE520-sa, manager credentials, vlan1 10.38.215.41/27,
+                 atmf network-name tb470, stack virtual-chassis-id 3439,
+                 sa3 = port2.0.9 + port2.0.13 as a TRUNK with switchport atmf-link
+      MISSING    the virtual link -- `show atmf virtual-links`: "Virtual Links
+                 Configured: 0". It is the ONLY path this case gives the DUT to its
+                 master, and the reason the recovery file exists at all.
+      STALE      the sa3 trunk + atmf-link state is the config as it stood at
+                 ~00:26:40 (the recovery file's timestamp); the saved config at
+                 00:29 had sa3 as a plain access port.
+  Result: DUT Role Member, Current ATMF Nodes 1; its sa3 Down/Init/Blocking.
+  Master: IE520-sa absent from `show atmf nodes` (3 nodes); vlink2 RequestReset /
+  Blocking. IP reachability was fine throughout -- the master pinged 10.38.215.41
+  3/3 at 00:42 -- so the missing piece was the tunnel config, not the path.
+
+=========================== FINDINGS ======================================
+1. The recovery file on USB was found, retrieved and applied, but the node came back
+   WITHOUT its virtual link, logged "Unable to remove recovery link", and ended in
+   "Automatic node recovery failed - user intervention required".
+2. Before the wipe the DUT itself reported "Special Link Not Present" although its
+   virtual link was Full/Forwarding; the master reported "Special Link Present".
+   If the member never registers its virtual link as a special link, a recovery
+   file without the tunnel is exactly what you would expect -- candidate root cause.
+3. The recovery file tracked the special-link event (00:26:40), not the saves; what
+   was recovered was that snapshot, not the saved configuration.
+
+=========================== CONFOUNDS -- read before filing =================
+A. THE DUT WAS A FORMER STACK MEMBER. It held stack ID 2 (port2.0.x). The NVS erase
+   reset it to ID 1, so the recovered port2.0.x lines landed on PHANTOM ports
+   (`provisioned`) and sa3 stayed down. This is an artefact of how this bench made
+   its standalone, and it breaks sa3 -- but it does NOT explain finding 1: the
+   virtual link is IP-based, and vlan1 10.38.215.41 came back up and was reachable.
+B. n = 1.
+   ==> Clean repeat: renumber the standalone to ID 1 first; rebuild the virtual
+       link; confirm `show atmf recovery-file` on the DUT reads "Special Link
+       Present" BEFORE wiping. If it still reads "Not Present" with a Full tunnel,
+       that alone reproduces finding 2 without needing the wipe.
+
+=========================== BENCH STATE AT EXIT ===========================
+DUT IE520-sa: stack ID 1 (ports now port1.0.x), recovered config in RUNNING only --
+  flash holds NO default.cfg, so a reboot returns it to factory defaults (and it
+  would re-read the USB recovery file). Reachable at 10.38.215.41 over its port1.0.13
+  <-> stack port1.0.13; eth2 on its port1.0.2.
+Master: vlink2 still configured; sa3 access mode, no atmf-link; port4.0.9 SHUT
+  (unsaved) -- one sa3 leg only, deliberately, until the DUT's sa3 is rebuilt.
+AMF network: master + 4050-5g + x230-10GP (3 nodes), secure mode off.

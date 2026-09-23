@@ -1,0 +1,123 @@
+TEST 38472 -- ATMF - Master
+===========================================================================
+Run:    2026-09-23 (lab date; device clocks read 2026-09-22 ~00:14-00:23 UTC), tb470
+Build:  DUT awplus_main-20260923-20 (IE520-tb470.rel, Build date Tue Sep 22 14:25:56 UTC 2026)
+DUT:    IE520 3-member VCStack "IE520-stk" (members 1/3/4, master = member 3), AMF MASTER
+Nodes:  4050-5g   (AR4050S-5G, awplus_main-20260918-7)     over static LAG sa1
+        x230-10GP (x230-10GP,  awplus_5.5.5_2-20260918-7)  over static LAG sa2
+        IE520-sa  (standalone IE520, awplus_main-20260923-20) over static LAG sa3
+AMF:    network-name "tb470"; `switchport atmf-link` on the stack's sa1/sa2/sa3 and on
+        each member's end of its LAG. sa1 kept vlan10 as trunk native (both ends);
+        x230 sa2 kept vlan100 as trunk native so its untagged path was unchanged.
+
+VERDICT: PASS -- all five steps.
+         The 2026-09-21 run of this case FAILED at step 4 (secure mode: nodes never
+         rejoined, OneWay/Blocking) on awplus_main-20260913-1734. Today step 4 passes.
+
+STEP 0 -- baseline (feature OFF)                                        done
+  All four devices: ATMF Enabled, Network Name "Not Set", 1 node, no atmf lines in
+  running-config. Data paths checked first: stack -> 10.10.10.2 (vlan10 over sa1),
+  -> 10.38.215.2 (x230 SVI over sa2), -> 10.38.215.41 (IE520-sa over sa3), 3/3 each.
+
+STEP 1 -- "Setup an AMF network with the DUT as the AMF master"         PASS
+  DUT: Network Name tb470 / Node Name IE520-stk / Role Master / Current ATMF Nodes 4
+  show atmf nodes (DUT):
+    * IE520-stk   AT-IE520-28GSX  Master Y  S  none       depth 0
+      IE520-sa    AT-IE520-28GSX         N  S  IE520-stk  depth 1
+      x230-10GP   x230-10GP              N  N  IE520-stk  depth 1
+      4050-5g     AR4050S-5G             N  N  IE520-stk  depth 1
+  show atmf links (DUT): sa1 -> 4050-5g, sa2 -> x230-10GP, sa3 -> IE520-sa, all
+    Downlink / Up / Full / Forwarding. Each member reads its LAG as Uplink/Full to
+    IE520-stk and "Current ATMF Nodes 4".
+  Data paths after the build: the same three pings 3/3, and all four tb470 host
+  paths (eth1->.10, eth2->.40, eth2->.41, eth3->.66) 0% loss.
+
+STEP 2 -- "Check nodes leaving and joining does not affect the DUT"     PASS
+  Method: `shutdown` / `no shutdown` of the member's own LAG, on the MEMBER, so the
+  DUT is never the device being changed. DUT polled every 5 s (times are upper
+  bounds at that granularity).
+      member      gone -> DUT nodes / role / other links     back -> DUT nodes / role
+      4050-5g     3 / Master / sa2,sa3 Full   (<=6 s)          4 / Master  (<=12 s)
+      x230-10GP   3 / Master / sa1,sa3 Full   (<=6 s)          4 / Master  (<=12 s)
+      IE520-sa    3 / Master / sa1,sa2 Full   (<=6 s)          4 / Master  (<=12 s)
+      all three   1 / Master                  (<=6 s)          4 / Master  (<=12 s)
+  The DUT held mastership throughout, the node count tracked every leave and join
+  exactly, and the untouched adjacencies stayed Full/Forwarding. The departed
+  member's link read Down / Init / Blocking while it was gone.
+  (The 09-21 run could only exercise this at n=1; today n=3, singly and together.)
+
+STEP 3 -- "atmf working-set group all creates a working set with all nodes"  PASS
+      IE520-stk# atmf working-set group all
+      ========================================
+      4050-5g, IE520-sa, IE520-stk, x230-10GP:
+      ========================================
+      Working set join
+      tb470[4]#
+  POSITIVE PROOF it is a real working set: one command inside it executed on ALL
+  FOUR nodes and each answered for itself:
+      tb470[4]# show atmf | include Node Name
+        4050-5g:   Node Name : 4050-5g
+        IE520-sa:  Node Name : IE520-sa
+        IE520-stk: Node Name : IE520-stk
+        x230-10GP: Node Name : x230-10GP
+  `atmf working-set group local` returned to "IE520-stk#", where the same command
+  answered for the DUT alone.
+
+STEP 4 -- "atmf secure-mode enable-all; all nodes should leave and rejoin"  PASS
+      IE520-stk# atmf secure-mode enable-all
+      Total number of nodes 4
+      4 nodes support secure-mode
+      Enable secure-mode across the ATMF network ? (y/n): y
+  Timeline (DUT log, device clock):
+      00:21:02  "Please wait while nodes leave and rejoin the network"
+      00:21:19  x230-10GP, 4050-5g, IE520-sa have left (1 member)
+      00:21:21  Sec_Audit - each of the three nodes "preauthorized"
+      00:21:33  all three have joined (4 members)
+      00:21:37  "All 4 nodes have joined the Secure-mode network."
+  After (DUT):  Secure Mode Enabled, Current ATMF Nodes 4, sa1/sa2/sa3 Full/Forwarding
+      show atmf secure-mode: Certificates Total 4, Active 4, Revoked 0, Rejected 0,
+                             Provisional Authorization 0, Pending Requests 0,
+                             Trusted Master IE520-stk
+      show atmf secure-mode certificate: IE520-stk, 4050-5g, x230-10GP, IE520-sa --
+                             all signed by IE520-stk, expire 22 Mar 2027, Active
+      show atmf authorization pending: empty
+  Every member: Secure Mode Enabled, Trusted Master IE520-stk, Nodes 4, its link
+  Uplink/Full/Forwarding. Rejoin completed ~35 s after the command.
+
+STEP 5 -- "Disable secure mode"                                         PASS
+      IE520-stk# no atmf secure-mode enable-all
+      % Warning: All security certificates will be deleted.
+      Disable secure-mode across the ATMF network ? (y/n): y
+      00:22:41  all three members left;  00:22:46  all three rejoined
+      00:22:49  "All 4 nodes have joined the non-Secure-mode network."
+  After: DUT and all members Secure Mode Disabled, Nodes 4, every link Full/Forwarding;
+  `show atmf secure-mode` -> "% Error: Secure Mode is disabled."
+
+=========================== COMPARISON WITH 2026-09-21 ====================
+                     2026-09-21 (FAIL)                    2026-09-23 (PASS)
+  DUT build          awplus_main-20260913-1734            awplus_main-20260923-20
+  DUT                4-member stack                       3-member stack
+  AMF link(s)        ONE LACP aggregate (po1)             THREE static LAGs (sa1-sa3)
+  other nodes        4050-5g only                         4050-5g, x230-10GP, IE520-sa
+  step 4             OneWay/Blocking, 1 node, >10 min     Full/Forwarding, 4 nodes, ~35 s
+
+  CAVEAT -- more than the build changed. The link type (LACP -> static) and the node
+  set both differ, so this run shows secure mode WORKS on the new build over static
+  aggregates; it does not by itself prove the build is what fixed the 09-21 failure.
+  The 09-21 open question ("broken, or only over an LACP aggregate?") is answered for
+  STATIC aggregates only. An LACP control on this build would close it fully --
+  that needs a bench reconfiguration and was not run.
+
+=========================== SIDE EFFECT -- ACT ON IT =======================
+Both `atmf secure-mode enable-all` and `no atmf secure-mode enable-all` end with:
+    "The running configuration has been updated and written on all nodes."
+i.e. the command WRITES STARTUP-CONFIG ON EVERY NODE. After this case the AMF config
+(network-name, atmf master, atmf-link trunks, trunk natives) is in the SAVED config of
+all four devices. A reload now brings the AMF network back -- consistently, with
+secure mode off everywhere. It must be torn down AND `write`n on each device before
+the bench is considered restored (done after the remaining ATMF cases; see the
+group README / bench state at exit).
+
+=========================== BENCH STATE AT EXIT ===========================
+AMF network tb470 LEFT UP deliberately -- ATMF 38474/38475 run next against it (with
+IE520-sa as their DUT). Secure mode OFF on all four nodes. All four host paths 0% loss.

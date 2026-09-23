@@ -37,7 +37,97 @@ pairing possible.
 their original names on purpose: they are the last of the old scheme, lifted off the box
 before it was cleaned up, and the name records where they came from.
 
-## Current state — 2026-09-23 evening (3-member stack + a STANDALONE IE520 `IE520-sa`; THREE static LAGs; every IE520 on `awplus_main-20260923-20`)
+## Current state — 2026-09-23 late (`IE520-sa` is now stack ID 1 → `port1.0.x`; ATMF campaign PARKED — AMF network `tb470` up, the AR4050S is AMF master in RUNNING config only)
+
+**Measured 2026-09-23 late** (device clocks ~03:55 UTC): console reads of all four devices
+(`show stack`/`stack detail`/`boot`/`system`/`reboot history`/`file systems`, running- vs
+startup-config, `show atmf`/`links`/`nodes`, LLDP), the tb470 host (`ip -br addr`, carrier,
+routes, `sshd -T`) and pings. Cabling, addressing, builds and boot are unchanged from the evening
+record below. What changed is the standalone's stack ID, a second USB stick, and the ATMF test
+config this session left running.
+
+### What changed from the evening record
+
+1. **`IE520-sa` (swi_b) is stack ID 1, so its ports are `port1.0.x`.** The NVS erase done by
+   `atmf cleanup` (ATMF 38475 run 1, 00:33 UTC) reset it from ID 2. The evidence:
+   - `show stack`: ID 1, `Standalone unit`.
+   - Stack LLDP: `port1.0.13` ↔ `84e3.2787.0780 port1.0.13`, and `port4.0.9` ↔
+     `84e3.2787.0780 port1.0.9`.
+   - The tb `eth2` MAC `00f0.4d00.7717` is learned on the SA's `port1.0.2`.
+
+   **Its port names now overlap stack member 1's range, so always name the device as well as
+   the port.** Its config provisions switches 1–4, which only creates phantom `port2/3/4.0.x`.
+   The NVS erase also wiped its reboot history. The single entry, `2026-09-23 00:34:50
+   Unexpected System reboot`, is the cleanup's own reboot.
+2. **`sa3`, SA side = `port1.0.13` + `port1.0.9`.** SFP+ to the x230 = SA `port1.0.25`
+   (10GBASE-SR, `notconnect`); x230 `port1.0.10` is still `disabled`.
+3. **A second USB stick** (28.8 GB, Terrence) is in **stack member 3**, the only member whose
+   `usb:` is available. It holds old `.rel` files plus an `atmf_recovery_file` (2928 B,
+   03:53:02 UTC) that the stack node wrote when the stick went in. The first stick (28.9 GB)
+   stays in `IE520-sa`.
+4. **`tb470.setup` re-applied** with swi_b's `port1.0.x` names (fences re-measured by LLDP and
+   MAC learning). The same apply carried the **`[misc]` removal** recorded earlier on
+   2026-09-23 (§2), which had not yet reached the box.
+
+### Devices and consoles — unchanged from the evening record except swi_b's ID
+
+| console | device | identity | software |
+| --- | --- | --- | --- |
+| `/dev/u0` | x230-10GP (`swi_f`) | **9600 baud** | `awplus_5.5.5_2-20260918-7` |
+| `/dev/u1` | AR4050S-5G `4050-5g` (`swi_e`) | S/N A10401G214000005; **AMF master (running only)** | `awplus_main-20260918-7` |
+| `/dev/u2` | stack member 1 (`swi_a`) | S/N 264A23061, Backup, up 04:30 | `awplus_main-20260923-20` |
+| `/dev/u3` | standalone `IE520-sa` (`swi_b`) | S/N 264A23068, **stack ID 1**, up 03:21 | `awplus_main-20260923-20` |
+| `/dev/u4` | stack member 4 (`swi_d`) | S/N 264A23052, Backup, up 04:29 | `awplus_main-20260923-20` |
+| `/dev/u5` | stack member 3 (`swi_c`) | S/N 264A23066, **Active Master**, up 05:02, **USB stick** | `awplus_main-20260923-20` |
+
+- **Stack:** `Normal operation`, 3/3 Ready, ring 1–3–4–1.
+- **Boot:** every IE520 reads `flash:/IE520-tb470.rel (file exists)`.
+- **Reboots:** no new `show reboot history` entries on any stack member since the 09-22
+  23:24 UTC reconvergence.
+- **Flash:** 65 MB free on each IE520.
+- **Host:** tb `eth1`/`eth2`/`eth3` have carrier.
+
+### AMF state — PARKED mid-ATMF (nothing below was `write`n this session)
+
+| node | running-config | startup-config | stored on the device, not in config |
+| --- | --- | --- | --- |
+| `4050-5g` | `atmf network-name tb470`, **`atmf master`**, atmf-link on sa1 | network-name + atmf-link, **no `atmf master`** | manager RSA-3072 userkey `SHA256:YDtOg/YU…` |
+| `IE520-stk` | network-name; atmf-link on **sa1, sa2, sa3** (sa3 now trunk); **not master** | network-name, **`atmf master`**, `no atmf backup guests enable`, atmf-link on sa1, sa2 | manager userkey `SHA256:zOsTvQR8…`; knownhosts #1 `10.38.215.1 rsa SHA256:t+C9p31P…` |
+| `IE520-sa` | network-name; sa3 **trunk + atmf-link**; **no virtual link** | (saved 01:54:07 UTC) sa3 access, **`atmf virtual-link id 1 ip 10.38.215.41 remote-id 2 remote-ip 10.38.215.40`** | — |
+| `x230-10GP` | network-name; atmf-link on sa2 | same | manager userkey `SHA256:7C40Iz3R…` (unused) |
+
+`show atmf nodes` on the 4050 shows 4 nodes: `IE520-stk` at depth 1, `IE520-sa` and
+`x230-10GP` at depth 2.
+
+**AMF-master capability, measured:**
+- The AR4050S's FULL licence carries AMF-MASTER-20…250.
+- The x230 refuses with `% ATMF requires AMF-MASTER-X license`.
+- The IE520 stack can be master but never uses a configured remote backup server
+  ([[ie520-master-ignores-remote-backup-server]]).
+
+### tb470 host additions (ATMF 38474 remote backup server)
+
+- **sshd:** `/etc/ssh/sshd_config.d/60-atmf-backup-tb470.conf` + `/etc/ssh/atmf-backup-keys/terrenceb`
+  hold **the 4050's key only**. It is honoured only for connections **to `10.38.215.1` from
+  `10.10.10.2/31`**, key-only; `sshd -T -C` confirms that and that nothing else changed. The
+  one-line revert is in the file header. Terrence installed them by paste at ~15:51 local.
+- **Route:** a runtime `10.10.10.0/27 via 10.38.215.10 dev eth1`, which is gone on reboot.
+  tb470 → `10.10.10.2` is 3/3.
+- **Backup path:** `/tmp/atmfbk` (tmpfs, empty).
+- **rsync:** NOT installed. Terrence has approved installing it if a backup needs it.
+
+### Standing hazards — additions to the evening list (which all still hold)
+
+- **A reboot rewrites the AMF picture.** The 4050 would come back as a member, the stack as
+  master (from startup), and `IE520-sa` with its virtual link and sa3 access. Re-read
+  `show atmf` on all four after any reboot.
+
+### Open items — additions
+
+- ATMF 38474 and the 38475 repeat are **mid-flight**. The sequence, and the teardown after
+  them, are in `IE520/SESSION-HANDOVER-2026-09-23.md`.
+
+## Current state — 2026-09-23 evening (3-member stack + a STANDALONE IE520 `IE520-sa`; THREE static LAGs; every IE520 on `awplus_main-20260923-20`) — SUPERSEDED 2026-09-23 late (`IE520-sa` renumbered to stack ID 1 by `atmf cleanup`; ATMF parked — above)
 
 **Measured 2026-09-23 evening** (probe stamp `2026-09-22T23:32:01Z` — the device clocks and
 the probe run in UTC, the record uses the lab's local date) by `bench_probe.py` sweeping
@@ -902,7 +992,8 @@ file's own header so they are unmissable at the point of use.
 ###    why there are no longer .bak files sitting beside this one.
 ###
 ### ============================================================================
-### tb470.setup -- REWRITTEN 2026-09-23 (evening): a 3-MEMBER IE520 VCStack (stk_a),
+### tb470.setup -- REWRITTEN 2026-09-23 (evening; swi_b's port names updated 2026-09-23
+### late, when it became stack ID 1 -- LLDP + MAC-learning re-measured): a 3-MEMBER IE520 VCStack (stk_a),
 ### a STANDALONE IE520 (swi_b, "IE520-sa" -- the old member 2), an AR4050S-5G (swi_e)
 ### and an x230-10GP (swi_f), each partner joined to the stack by a STATIC LAG; three
 ### testbox edges. Measured by bench_probe.py sweeping /dev/u0-u6 (u0 re-read by hand at
@@ -920,9 +1011,10 @@ file's own header so they are unmissable at the point of use.
 ###         Operational Status: Normal operation; all three Ready
 ###         Ring 27/28: m1.27<->m3.28, m1.28<->m4.27, m3.27<->m4.28 ==> ring 1 - 3 - 4 - 1
 ###     swi_b = S/N 264A23068 (/dev/u3), hostname IE520-sa, OWN MAC 84e3.2787.0780 (stack
-###         virtual-mac OFF), "Standalone unit". It KEEPS STACK ID 2, so its ports are
-###         port2.0.x, and its config still provisions switches 1/3/4 (phantom
-###         port1/3/4.0.x -- harmless, ignore them).
+###         virtual-mac OFF), "Standalone unit". It is STACK ID 1 since 2026-09-23 late (the
+###         NVS erase of `atmf cleanup` reset it from 2), so its ports are port1.0.x -- the
+###         SAME names as stack member 1's. Its config provisions switches 1-4 (phantom
+###         port2/3/4.0.x -- harmless, ignore them).
 ###     ==> stk_a's three members are declared in [switch] because Setup.py's
 ###         __checkMember requires it. On a formed VCStack every member console is
 ###         relayed to the master CLI, so init_swi() on ANY stack member reaches the SAME
@@ -936,8 +1028,9 @@ file's own header so they are unmissable at the point of use.
 ###
 ###  2. !! PORT NUMBERING IS BY MEMBER ID, and a wrong range fails SILENTLY. Member N's
 ###     ports are portN.0.x: member 1 = port1.0.x (/dev/u2), member 3 = port3.0.x
-###     (/dev/u5), member 4 = port4.0.x (/dev/u4). swi_b (standalone, /dev/u3) keeps
-###     ID 2 = port2.0.x. Config naming the wrong range is ACCEPTED with no error (this
+###     (/dev/u5), member 4 = port4.0.x (/dev/u4). swi_b (standalone, /dev/u3) is ID 1 =
+###     port1.0.x, which OVERLAPS stack member 1's names: always name the DEVICE as well
+###     as the port. Config naming the wrong range is ACCEPTED with no error (this
 ###     once presented as a DHCP option-61 defect that did not exist). Confirm the
 ###     member ID before any step that names a port.
 ###
@@ -959,16 +1052,22 @@ file's own header so they are unmissable at the point of use.
 ###           vlan10 transit only (10.10.10.0/27: stack .1, 4050 .2).
 ###     sa2 = stack port1.0.2 + port1.0.9   <-> swi_f (x230) port1.0.3 + port1.0.4,
 ###           vlan1 (x230 side vlan100).
-###     sa3 = stack port1.0.13 + port4.0.9  <-> swi_b (IE520-sa) port2.0.13 + port2.0.9,
+###     sa3 = stack port1.0.13 + port4.0.9  <-> swi_b (IE520-sa) port1.0.13 + port1.0.9,
 ###           vlan1.
 ###     Their [portlink] lines are the MEMBER LINKS of three aggregates, NOT independent
 ###     DUT<->partner paths; the .setup format has no section for aggregation. Spanning
 ###     tree is DISABLED on all four devices. sa2 and sa3 are each TWO PARALLEL links, so
 ###     aggregation is the ONLY thing keeping them loop-free: do NOT break either
-###     aggregate on one end while RSTP is off. swi_b port2.0.25 <-> swi_f port1.0.10
+###     aggregate on one end while RSTP is off. swi_b port1.0.25 <-> swi_f port1.0.10
 ###     (SFP+) is cabled but HELD SHUT on swi_f (saved): bringing it up closes a
 ###     stack - swi_b - swi_f ring. Full design: bench-state.md "Current state --
-###     2026-09-23 evening".
+###     2026-09-23 evening"; swi_b's ID change: "Current state -- 2026-09-23 late".
+###
+###  6. !! AN AMF NETWORK ("tb470") IS UP ACROSS ALL FOUR DEVICES (2026-09-23 late, ATMF
+###     campaign parked mid-flight). swi_e (AR4050S) is AMF master in RUNNING config only;
+###     the stack's STARTUP still says `atmf master`; every partner LAG is an atmf-link
+###     (trunk). A reboot changes who is master. Read bench-state.md "Current state --
+###     2026-09-23 late" before any test that touches AMF, trunking or a reboot.
 ###
 ### ============================================================================
 ### PERMANENT PLATFORM FACTS -- these have each cost hardware time; do not re-derive.
@@ -1064,11 +1163,12 @@ the wrong consoles before.
 ```setup
 ### swi_a = IE520 stack member 1 (S/N 264A23061, /dev/u2) -- PDU F/6 -- port1.0.x
 ### swi_b = IE520 STANDALONE "IE520-sa" (S/N 264A23068, /dev/u3) -- PDU H/8 (NOT
-###         re-verified) -- port2.0.x (it keeps stack ID 2). Was stack member 2 until
-###         2026-09-23. Own MAC 84e3.2787.0780; vlan1 10.38.215.41/27 only; bootloader
-###         master-20260822-535. Joined to the stack by static LAG sa3 (port2.0.13 +
-###         port2.0.9); carries tb eth2 on port2.0.2; port2.0.25 (SFP+ SR) is cabled to
-###         swi_f port1.0.10 and held down. See header items 1 and 5.
+###         re-verified) -- port1.0.x (stack ID 1 since 2026-09-23 late; it was ID 2).
+###         Was stack member 2 until 2026-09-23. Own MAC 84e3.2787.0780; vlan1
+###         10.38.215.41/27 only; bootloader master-20260822-535. Joined to the stack by
+###         static LAG sa3 (port1.0.13 + port1.0.9); carries tb eth2 on port1.0.2;
+###         port1.0.25 (SFP+ SR) is cabled to swi_f port1.0.10 and held down. See header
+###         items 1, 2 and 5.
 ### swi_c = IE520 stack member 3 (S/N 264A23066, /dev/u5) -- PDU E/5 -- port3.0.x
 ###         ACTIVE MASTER at 2026-09-23 (mastership moves after every failover -- read
 ###         `show stack`); longest unattended-reboot history (header item 3).
@@ -1085,7 +1185,7 @@ the wrong consoles before.
 ###         AW+ 5.5.5 (awplus_5.5.5_2-20260918-7), bootloader 3.2.16, boot config
 ###         flash:/default.cfg. All ports access vlan 100; SVI 10.38.215.2/27.
 ###         Joined to the stack by static LAG sa2 (port1.0.3 + port1.0.4); port1.0.10
-###         (SFP+ SR) is cabled to swi_b port2.0.25 and HELD SHUT (saved). PDU outlet
+###         (SFP+ SR) is cabled to swi_b port1.0.25 and HELD SHUT (saved). PDU outlet
 ###         UNKNOWN -- not declared in [power]/[powerlink].
 ###         NO MRP SUPPORT (`show mrp`/`mrp` unrecognised) -- see Open items.
 ### NOT DECLARED: /dev/u6 = ABSENT since 2026-09-18 (the x230-52GT V2 of 09-15 is gone).
@@ -1145,10 +1245,11 @@ stk_a = swi_a, swi_c, swi_d
 ###     front-panel ports.
 ###   - `switchport resiliencylink` is rejected while a port is still a stackport.
 ###   - `stack virtual-chassis-id` has NO `no` form.
-###   - swi_b still carries chassis-id 3439, ID 2 and live stackports: cabling its 27/28
-###     into the stack would (inferred) bring it back as member 2. The "never cable
-###     27/28 between two units" hazard proper is two STANDALONE units both claiming
-###     ID 1 under one chassis-id.
+###   - swi_b still carries chassis-id 3439 and live stackports, and since 2026-09-23
+###     late it is ID 1 -- the SAME ID as stack member 1. Cabling its 27/28 into the
+###     stack would (inferred) hit the duplicate-member-ID path (member 4 logged
+###     "Rebooting due to VCS duplicate member-ID" on 2026-09-13). Renumber it before
+###     it ever rejoins.
 [configured_stackport]
 
 ```
@@ -1231,15 +1332,18 @@ file; nothing is declared without it.
 ###   stack member 4 (swi_d) port4.0.2   <->  swi_e port1.0.4    ┘ STRADDLES stack units 3+4
 ###   stack member 1 (swi_a) port1.0.2   <->  swi_f port1.0.3    ┐ STATIC LAG sa2, vlan1
 ###   stack member 1 (swi_a) port1.0.9   <->  swi_f port1.0.4    ┘ (swi_f side vlan100)
-###   stack member 1 (swi_a) port1.0.13  <->  swi_b port2.0.13   ┐ STATIC LAG sa3, vlan1
-###   stack member 4 (swi_d) port4.0.9   <->  swi_b port2.0.9    ┘ STRADDLES stack units 1+4
+###   stack member 1 (swi_a) port1.0.13  <->  swi_b port1.0.13   ┐ STATIC LAG sa3, vlan1
+###   stack member 4 (swi_d) port4.0.9   <->  swi_b port1.0.9    ┘ STRADDLES stack units 1+4
 ###   sa1 and sa3 are LLDP-confirmed on both ends this evening. sa2 carries the morning's
 ###   measurement: swi_f advertised no LLDP this evening, but both sa2 legs read
 ###   `connected` on both ends.
+###   RE-MEASURED 2026-09-23 late: swi_b is now stack ID 1, so its end of sa3 is
+###   port1.0.13 + port1.0.9 (stack LLDP: 1.0.13 <-> 84e3.2787.0780 port1.0.13, 4.0.9 <->
+###   84e3.2787.0780 port1.0.9) and eth2's MAC is learned on swi_b port1.0.2.
 ###
 ### CABLED BUT DELIBERATELY NOT DECLARED -- each is held SHUT, so there is no evidence
 ### either passes traffic, and an init_portlink() on one would hand a test a dead link:
-###   swi_b port2.0.25 (AT-SP10SR) <-> swi_f port1.0.10 (AT-SP10SR), 10G SFP+ -- shut on
+###   swi_b port1.0.25 (AT-SP10SR) <-> swi_f port1.0.10 (AT-SP10SR), 10G SFP+ -- shut on
 ###     swi_f, saved. Bringing it up closes a stack - swi_b - swi_f ring with RSTP off
 ###     everywhere. Declare it once a ring case has brought it up under RSTP/EPSR and
 ###     verified it.
@@ -1248,7 +1352,7 @@ file; nothing is declared without it.
 ###
 ### Testbox edges (each host MAC learned on a PHYSICAL port):
 ###   tb eth1 10.38.215.1/27   00f0.4d00.7716  <->  stack member 3 (swi_c) port3.0.13
-###   tb eth2 10.38.215.33/27  00f0.4d00.7717  <->  swi_b port2.0.2 -- the STANDALONE IE520
+###   tb eth2 10.38.215.33/27  00f0.4d00.7717  <->  swi_b port1.0.2 -- the STANDALONE IE520
 ###   tb eth3 10.38.215.65/27  00f0.4d00.7718  <->  stack member 3 (swi_c) port3.0.9
 ### Those eleven links plus the six 27/28 stackport cables of the stack ring are the ONLY
 ### cables here.
@@ -1283,10 +1387,10 @@ file; nothing is declared without it.
 ### tb-swi_c carries two links: eth1 and eth3 both land on member 3, on different ports.
 ### tb-swi_b is the STANDALONE IE520, not a stack member.
 tb-swi_c = eth1-port3.0.13, eth3-port3.0.9
-tb-swi_b = eth2-port2.0.2
+tb-swi_b = eth2-port1.0.2
 swi_c-swi_e = port3.0.2-port1.0.3
 swi_d-swi_e = port4.0.2-port1.0.4
 swi_a-swi_f = port1.0.2-port1.0.3, port1.0.9-port1.0.4
-swi_a-swi_b = port1.0.13-port2.0.13
-swi_d-swi_b = port4.0.9-port2.0.9
+swi_a-swi_b = port1.0.13-port1.0.13
+swi_d-swi_b = port4.0.9-port1.0.9
 ```

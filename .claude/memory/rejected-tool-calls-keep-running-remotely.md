@@ -23,7 +23,26 @@ rejected; `ps` later showed it still alive at 3m25s, holding `/dev/ttyUSB1`. The
 *different* script reading empty bytes from `/dev/u5` — two readers on one port, which looks
 exactly like a dead console.
 
+**Incident 3 (2026-09-23) — it ran to the end and collided with Terrence's own session.** He
+rejected a config script (standalone `sa3` rebuild + stack `no shutdown` + `write`) because he
+needed the console for his boss. It had already started: 82 s later `fuser` showed my
+`python3` AND his `minicom` both on `/dev/ttyUSB7`, and every command, including the `write`,
+had gone out. Its reply was stolen by minicom (`#-s`), so completion had to be verified
+afterwards. Killed by PID within ~90 s of the rejection. Then, killing his minicom on request:
+**minicom ignored SIGTERM**, and SIGHUP is what closed it (after `stty -F <tty> -hupcl`).
+
+**Incident 4 (2026-09-23, 14:51): rejected while he switched permission modes, and it ran
+anyway.** The master-side script (repoint the AMF backup server, add a knownhosts entry) was
+rejected, but it had already been dispatched. Found 1:33 later, it had changed config (a route
+removed, server 1 replaced), was holding `/dev/ttyUSB1`, and had left the master at a
+`(yes/no)` prompt. It then died on its own: its stdout was the dead ssh channel, so the next
+`print()` raised BrokenPipe. That skipped the log write for its last step, so the console state
+had to be read fresh (bare CR, then `no`). **Scripts that `print()` before writing their log
+lose the step that matters. Write the log line first.**
+
 **How to apply — after ANY rejected or interrupted tool call that touched the bench:**
+0. Do this FIRST, in the very next call, before replying: a rejection often means Terrence
+   is about to use the hardware himself, so a leftover process means two readers on his port.
 1. `pgrep -af python3` / `ps -eo pid,etime,cmd` on the testbox. The leftover may be a bare
    `python3 -` from a heredoc, so a pattern match on the script name finds nothing — check
    elapsed time and the parent `bash -c` line.
