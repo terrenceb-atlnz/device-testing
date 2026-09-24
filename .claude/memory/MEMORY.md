@@ -50,3 +50,4 @@
 - [Bench scripts stop on CLI errors](bench-scripts-stop-on-cli-errors.md) — a `% ` line looks like success to a prompt driver; gate each dependent step on proven state (the masterless-AMF slip)
 - [tb470 root changes go through Terrence](tb470-root-changes-go-through-terrence.md) — auto mode blocks keys/sshd/routes AND device knownhosts/keys as persistence: stage in /tmp/ckorient/work, he pastes/types, or manual mode
 - [AMF recovery residue + second reboot](atmf-recovery-residue-and-reboots.md) — a node that FAILED recovery reads 'Special Link Not Present' and the master aborts its backup ('safe mode') until it REBOOTS; a good recovery reboots twice
+- [tb470 reboot leaves /nfsHome unmounted](tb470-reboot-nfshome-unmounted.md) — /home/st-art/st-art → /nfsHome dangles, so tb470.setup 'vanishes' (file intact); Terrence runs `sudo mount /nfsHome`; a reset also wipes /tmp + runtime routes

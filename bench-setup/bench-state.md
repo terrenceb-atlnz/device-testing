@@ -37,7 +37,7 @@ pairing possible.
 their original names on purpose: they are the last of the old scheme, lifted off the box
 before it was cleaned up, and the name records where they came from.
 
-## Current state — 2026-09-24 (AMF TORN DOWN and written on all four devices; last measured ~10:10 NZST — the wrap could NOT re-read the bench, the test network went down)
+## Current state — 2026-09-24 (AMF TORN DOWN and written on all four devices; RE-MEASURED 14:18–14:40 NZST after a tb470 reset — `.setup` re-verified and applied)
 
 **Measured 2026-09-24, up to ~10:10 NZST** (device clocks ~22:10 UTC on 09-23), by console
 reads of all four devices and host pings. **At ~10:15 NZST tb470 stopped answering** (ssh and
@@ -46,6 +46,39 @@ temporarily down"). **Nothing below was re-read at wrap time.** The next `/orien
 re-read everything, and check tb470's uptime: if it rebooted, its runtime route is gone (below).
 Cabling, builds, boot, stack IDs and addressing are unchanged from the "2026-09-23 late" record
 below; the `setup` fences are unchanged.
+
+### Afternoon re-measurement — 2026-09-24 14:18–14:40 NZST (supersedes the "not re-read" caveat above)
+
+After tb470 came back (Terrence reset it; `uptime -s` = 11:57:54, but it did not answer on its
+10.36.201.x management network until ~14:15), the bench was re-read with `bench_probe.py`
+(u0 by hand at 9600) and LLDP on every inter-device link. **Everything below matches the
+morning record; nothing on any DUT changed.**
+- **Consoles ↔ units:** u2 member 1 (264A23061), u5 member 3 = Active Master (264A23066, by
+  elimination: u2/u4 banners `IE520-stk-1`/`-4`), u4 member 4 (264A23052), u3 `IE520-sa`
+  (264A23068, stack ID 1, `Standalone unit`), u1 4050, u0 x230 (G26ZE80EN, 9600); u6 absent.
+- **Stack:** 1/3/4 `Ready`, `Normal operation`; boot pointers `flash:/IE520-tb470.rel (file
+  exists)` on every IE520; x230 `flash:/x230-tb470.rel (file exists)`; 4050 as recorded.
+- **Reboot history:** no new entry on any device (SA's latest = the 38475 recovery reboot,
+  2026-09-23 21:07:30 UTC).
+- **Spanning tree VERIFIED OFF** on all four (`no spanning-tree rstp enable`, no priority
+  lines) — the 38152 phase-1 call never ran. **Running == startup on all four.**
+- **Host edges** (MAC learned on a physical port): eth1 → stack `port3.0.13`, eth3 → stack
+  `port3.0.9`, eth2 → SA `port1.0.2`. All five host paths 0% loss.
+- **LLDP, both ends, all six inter-device links:** stack 3.0.2↔4050 1.0.3, 4.0.2↔4050 1.0.4,
+  1.0.13↔SA 1.0.13, 4.0.9↔SA 1.0.9, and — via a temporary `lldp run` on the x230, removed again
+  (running == startup re-checked) — 1.0.2↔x230 1.0.3, 1.0.9↔x230 1.0.4.
+- **`tb470.setup` applied** (`backups/2026-09-24T024005Z.*`): data change `[boot_from_flash]
+  swi_f = True` (x230 boot source read for the first time); stale fence comments fixed (AMF
+  item, sa2 LLDP, x230 boot note). Strict configparser load: clean, 8 sections.
+- **tb470 after the reset:** `/nfsHome` was NOT mounted, so `/home/st-art/st-art` (→
+  `/nfsHome/st-art/`) dangled and `configs/tb470.setup` "did not exist" — the file itself was
+  intact (same sha1, reachable at `/home/st-art/configs/`, same NFS export). Terrence ran
+  `sudo mount /nfsHome`. The ATMF runtime route `10.10.10.0/27` and `/tmp/atmfbk` are GONE; the
+  sshd drop-in survives. Recreate the route (Terrence) before resuming 38474.
+- **Open:** `bench_topology.py generate` mis-models this bench — it treats the standalone
+  `IE520-sa` (ID 1) as a second stack `stk_b` colliding with `swi_a`, and its hardcoded
+  09-15 scaffold (outlets, 4 stack members, no 4050/x230) produced 21 false mismatches. Its
+  output was NOT used; the `.setup` was verified line by line against the raw probe instead.
 
 ### What changed from the 2026-09-23 late record
 
@@ -73,8 +106,8 @@ below; the `setup` fences are unchanged.
 4. **Temporary test config all reverted and re-read** (ACL lists, a `10.90.0.1/16` vlan1
    secondary, guest VLAN 200 + dot1x + `aaa authentication dot1x default`). The stack's
    running-config equalled its saved startup at ~10:05 NZST.
-5. **Spanning tree: expected unchanged (`no spanning-tree rstp enable` on all devices) — NOT
-   VERIFIED.** The 38152 phase-1 call (enable RSTP; DUT priority 4096, SA 8192) was issued just
+5. **Spanning tree: VERIFIED unchanged at 14:2x NZST (afternoon re-measurement above) — was
+   NOT VERIFIED at the morning wrap.** The 38152 phase-1 call (enable RSTP; DUT priority 4096, SA 8192) was issued just
    as tb470 went unreachable; its ssh almost certainly failed before running, but that was not
    confirmed. **Next session: `show running-config | include spanning` on the stack, SA and x230
    before anything else.** The ring was never closed: x230 `port1.0.10` stays `shutdown`.
@@ -1049,7 +1082,8 @@ file's own header so they are unmissable at the point of use.
 ###
 ### ============================================================================
 ### tb470.setup -- REWRITTEN 2026-09-23 (evening; swi_b's port names updated 2026-09-23
-### late, when it became stack ID 1 -- LLDP + MAC-learning re-measured): a 3-MEMBER IE520 VCStack (stk_a),
+### late, when it became stack ID 1 -- LLDP + MAC-learning re-measured; RE-VERIFIED 2026-09-24
+### by bench_probe.py + LLDP on every inter-device link, both ends): a 3-MEMBER IE520 VCStack (stk_a),
 ### a STANDALONE IE520 (swi_b, "IE520-sa" -- the old member 2), an AR4050S-5G (swi_e)
 ### and an x230-10GP (swi_f), each partner joined to the stack by a STATIC LAG; three
 ### testbox edges. Measured by bench_probe.py sweeping /dev/u0-u6 (u0 re-read by hand at
@@ -1119,11 +1153,9 @@ file's own header so they are unmissable at the point of use.
 ###     stack - swi_b - swi_f ring. Full design: bench-state.md "Current state --
 ###     2026-09-23 evening"; swi_b's ID change: "Current state -- 2026-09-23 late".
 ###
-###  6. !! AN AMF NETWORK ("tb470") IS UP ACROSS ALL FOUR DEVICES (2026-09-23 late, ATMF
-###     campaign parked mid-flight). swi_e (AR4050S) is AMF master in RUNNING config only;
-###     the stack's STARTUP still says `atmf master`; every partner LAG is an atmf-link
-###     (trunk). A reboot changes who is master. Read bench-state.md "Current state --
-###     2026-09-23 late" before any test that touches AMF, trunking or a reboot.
+###  6. NO AMF CONFIG ON ANY DEVICE (removed and saved 2026-09-24; every partner LAG is an
+###     ACCESS port again). The AR4050S (swi_e) still holds a manager SSH userkey for the
+###     parked ATMF 38474. Detail: bench-state.md "Current state -- 2026-09-24".
 ###
 ### ============================================================================
 ### PERMANENT PLATFORM FACTS -- these have each cost hardware time; do not re-derive.
@@ -1348,8 +1380,10 @@ bootloader-overridden and must be ignored (header item 4).
 ### from every unit, so IE520-tb470.rel is the only .rel in each flash. Setup.py applies
 ### a stack-level value to every member, so stk_a is declared too. swi_e boots
 ### AR4050S-tb470.rel from its own flash (`show system`: Current software
-### AR4050S-tb470.rel, boot config flash:/default.cfg). swi_f (x230) is NOT declared:
-### its boot source has not been read on the device.
+### AR4050S-tb470.rel, boot config flash:/default.cfg; its `show boot` pointer names
+### AR4050S-5.5.1-2.1.rel -- Terrence 2026-09-24: leave it). swi_f (x230) boots
+### x230-tb470.rel from its own flash (read 2026-09-24: `show boot` Current boot image
+### flash:/x230-tb470.rel (file exists), `show system` Current software x230-tb470.rel).
 ### !! Read the IE520 build from `show system`/`show version`, never from `show boot`
 ###    (header item 4) -- the bootloader overrides the AW+ pointer; it merely agrees
 ###    today. [boot_from_flash]=True declares that these units boot from flash (they do,
@@ -1361,6 +1395,7 @@ swi_b = True
 swi_c = True
 swi_d = True
 swi_e = True
+swi_f = True
 
 ```
 
@@ -1390,9 +1425,10 @@ file; nothing is declared without it.
 ###   stack member 1 (swi_a) port1.0.9   <->  swi_f port1.0.4    ┘ (swi_f side vlan100)
 ###   stack member 1 (swi_a) port1.0.13  <->  swi_b port1.0.13   ┐ STATIC LAG sa3, vlan1
 ###   stack member 4 (swi_d) port4.0.9   <->  swi_b port1.0.9    ┘ STRADDLES stack units 1+4
-###   sa1 and sa3 are LLDP-confirmed on both ends this evening. sa2 carries the morning's
-###   measurement: swi_f advertised no LLDP this evening, but both sa2 legs read
-###   `connected` on both ends.
+###   sa1 and sa3 are LLDP-confirmed on both ends this evening. sa2: swi_f does not run
+###   LLDP; RE-MEASURED 2026-09-24 with a temporary `lldp run` on swi_f (removed again,
+###   running == startup): swi_f 1.0.3 <-> stack port1.0.2, swi_f 1.0.4 <-> stack port1.0.9.
+###   ALL SIX inter-device links (sa1, sa2, sa3) LLDP-confirmed on both ends 2026-09-24.
 ###   RE-MEASURED 2026-09-23 late: swi_b is now stack ID 1, so its end of sa3 is
 ###   port1.0.13 + port1.0.9 (stack LLDP: 1.0.13 <-> 84e3.2787.0780 port1.0.13, 4.0.9 <->
 ###   84e3.2787.0780 port1.0.9) and eth2's MAC is learned on swi_b port1.0.2.

@@ -1,4 +1,50 @@
-# Session handover — tb470 IE520 — 2026-09-24
+# Session handover — tb470 IE520 — 2026-09-24 (updated at the afternoon wrap)
+
+## TL;DR — afternoon (current; the morning TL;DR follows)
+
+- **The bench is whole and verified.** tb470 was reset (Terrence) and came back at ~14:15. The
+  bench was RE-MEASURED 14:18–14:40: no DUT changed, spanning tree is off on all four devices,
+  running == startup everywhere, and there are no new reboots.
+- **`tb470.setup` was re-verified line by line** against a `bench_probe.py` sweep plus LLDP on
+  all six inter-device links, then applied (`backups/2026-09-24T024005Z.*`).
+  - The one data change: `[boot_from_flash] swi_f = True`.
+  - Comments fixed: the AMF note, the sa2 LLDP proof, the x230 boot note.
+- **Found:** after the reset, `/nfsHome` was not mounted, so the canonical `.setup` path
+  dangled. Terrence mounted it. The ATMF route `10.10.10.0/27` and `/tmp/atmfbk` were lost in
+  the reset (§A).
+- **No tests were run this afternoon** (Terrence: "do not continue tests yet"). The next step
+  is still 38152 phase 1 (§7 below).
+
+## A. Afternoon session (2026-09-24, 14:15–14:45)
+
+1. **tb470 reset.** `uptime -s` reads 11:57:54, but the box was unreachable (ARP FAILED from
+   tb105 on the same `bootnet`) until ~14:15. **After it came back,
+   `/home/st-art/st-art/configs/tb470.setup` did not resolve:**
+   - `/home/st-art/st-art` is a symlink to `/nfsHome/st-art/`, and fstab mounts
+     `10.36.250.11:/home` on BOTH `/home` and `/nfsHome`. Only `/home` came up.
+   - The file was intact: the same sha1 `7630ccf0…` at `/home/st-art/configs/tb470.setup`.
+   - Fix (root, so Terrence ran it): `sudo mount /nfsHome`.
+   - **Any framework run bound to the canonical path fails until this is done.**
+     Memory: `tb470-reboot-nfshome-unmounted`.
+2. **Probe plus reconciliation.** `bench_probe.py` (u0 read by hand at 9600, the known probe
+   defect).
+   - `bench_topology.py generate` produced 21 FALSE mismatches: it models the standalone
+     `IE520-sa` as a second stack and uses a stale 09-15 scaffold. Its output was not used.
+   - Instead every `.setup` line was checked against the raw probe output: consoles/serials,
+     stack 1/3/4, baud, host edges, `[portlink]`, boot.
+   - sa2's per-port pairing was proven with a temporary `lldp run` on the x230, removed again
+     afterwards (running == startup re-checked).
+3. **`.setup` applied and IN SYNC** at `273ade07…`. A strict configparser load passes. The PDU
+   outlets are unchanged and still unverified for SA (H/8). The two held-shut links stay
+   undeclared.
+4. **Before resuming 38474:** Terrence re-adds
+   `sudo ip route add 10.10.10.0/27 via 10.38.215.10 dev eth1`, and `/tmp/atmfbk` is recreated
+   (`mkdir /tmp/atmfbk`).
+
+---
+
+# Morning session (SUPERSEDED where it conflicts with the afternoon above)
+
 
 ## TL;DR
 
@@ -76,12 +122,9 @@ cd bench-setup && ./bench_setup.py apply     # SKIPPED at wrap (needs tb470): ar
 
   Revert when 38474 is done or dropped:
   `sudo rm -r /etc/ssh/sshd_config.d/60-atmf-backup-tb470.conf /etc/ssh/atmf-backup-keys && sudo systemctl reload ssh && sudo ip route del 10.10.10.0/27 via 10.38.215.10`.
-- **RSTP: NOT VERIFIED.**
-  - The 38152 phase-1 call (below) was issued as tb470 dropped. Its ssh almost certainly
-    failed before running, but this is unconfirmed.
-  - If it did run, the running configs (NOT written) would carry `spanning-tree rstp enable`
-    on the stack, SA and x230, plus priority 4096 on the stack and 8192 on the SA.
-  - The ring is still open either way: x230 `port1.0.10` stays shut.
+- **RSTP: VERIFIED OFF at the afternoon wrap** (§A). The 38152 phase-1 call never ran; all four
+  devices read `no spanning-tree rstp enable` with no priority lines, and x230 `port1.0.10`
+  stays shut.
 - **USB:** stack member 3's stick holds an `atmf/tb470/` backup tree from 38475 (data).
 - **tb470 `/tmp/ckorient/`** holds this session's raw captures (`t38474/`, `t38475/`,
   `teardown/`, `t6057/`, `tguest/`, …). They are lost if tb470 rebooted. The logs already
@@ -288,4 +331,5 @@ in `git log -1`. **NOT pushed:** Claude cannot push here, so Terrence runs `git 
 - Bench record: `bench-setup/bench-state.md` "Current state — 2026-09-24".
 - Previous handover (ATMF background, 38474 plumbing): `IE520/SESSION-HANDOVER-2026-09-23.md`.
 - Memories written or updated this session: `atmf-recovery-residue-and-reboots` (new),
-  `tb470-root-changes-go-through-terrence` (device trust changes are blocked too).
+  `tb470-root-changes-go-through-terrence` (device trust changes are blocked too),
+  `tb470-reboot-nfshome-unmounted` (new, afternoon).
