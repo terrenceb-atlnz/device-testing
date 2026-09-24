@@ -9,9 +9,10 @@ twice.
 
 **OPEN QUESTION FOR TERRENCE:** this harness is worth running twice — every
 remaining campaign group needs it. The guard points at
-`ask-ck/functions/test-composer/` (where `bench_probe.py` lives) as the home for
-bench scripts. That is a different repo from this one, so it is a placement
-decision rather than something to do silently. Until then the code lives in the
+`ask-ck/functions/test-composer/` as the home for bench scripts, but `bench_probe.py`
+has lived in THIS repo's `bench-setup/` since 2026-09-23 (consolidated into the one
+bench-state tool on 2026-09-25), so the natural home is now `bench-setup/` here. It is
+still a placement decision rather than something to do silently. Until then the code lives in the
 session scratchpad and this note records how to rebuild it.
 
 ## What it does

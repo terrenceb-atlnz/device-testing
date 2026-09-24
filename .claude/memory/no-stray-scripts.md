@@ -38,7 +38,8 @@ instruction cannot fix it. Two specific causes:
 
 A third contributor: the canonical tool was genuinely insufficient (it could
 not read a stack member that had fallen out of its stack). **Fix the tool; do
-not write beside it.** That became `bench_probe.py --device/--cmd`.
+not write beside it.** That became `bench_probe.py --device/--cmd` (a flag on the tool of the
+day; the consolidated 2026-09-25 `bench_probe.py` no longer has it, but the rule stands).
 
 **How to apply:**
 

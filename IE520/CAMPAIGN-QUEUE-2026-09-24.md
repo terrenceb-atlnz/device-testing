@@ -66,7 +66,9 @@ NOTED (no decision needed now; carried into the plan).
   `show bfd peer`). Being re-run (queue #2). NOTED.
 - **I-10 `bench_topology.py generate` mis-models tb470.** It treats the standalone SA as
   `stk_b` and uses a stale 09-15 scaffold. It is not used; bench-state.md is edited by hand.
-  Tool fix? NOTED.
+  Tool fix? NOTED. **RESOLVED 2026-09-25:** `bench_topology.py` and `bench_setup.py` retired;
+  the consolidated `bench_probe.py` (plan E-11) models the standalone correctly and read MATCH
+  against the deployed `.setup` on its first live run.
 - **I-11 Daemons that need a restart to go away.** `no service pim6` (09-24) and
   `no service ospf6` (09-22) both answer "Save the config and restart for this change to
   take effect". Nothing references the daemons, so the stack is left unrebooted. NOTED.
@@ -247,12 +249,54 @@ UNSUPPORTED under Terrence's 09-23 ruling. What remains needs hands, root, or a 
 
 ### E. Repo and tooling
 
-8. **I-10:** fix or retire `bench_topology.py generate`'s stale 09-15 scaffold (it mis-models
-   the standalone SA). Until then bench-state.md stays hand-edited (current practice).
+8. **I-10:** ~~fix or retire `bench_topology.py generate`'s stale 09-15 scaffold~~ **DONE
+   2026-09-25** by item 11: both old scripts are deleted.
 9. **I-11:** the pim6/ospf6/bfd daemons linger until the next stack reboot. The 38435 member
    reloads have since restarted members 3 and 4, but the daemon state was not re-read. Check
    `show running-config | include service` at the next orient.
 10. **I-24:** read 4050 `port1.0.2`'s VLAN when next on the 4050 console.
+11. **Consolidate the bench-state tooling into one script** (Terrence, 2026-09-25; replaces
+    `bench_probe.py`, `bench_topology.py` and `bench_setup.py`, and supersedes item 8).
+    **BUILT 2026-09-25, before the DLF test at Terrence's request:** `bench-setup/bench_probe.py`
+    (the name is fixed by Test-cases' `ask-ck/functions/test-composer/bench_probe.md` pointer).
+    First live run 10:55–10:57 NZST: 1 m 56 s, all six consoles read (x230 at 9600 included —
+    the old baud defect is gone), `lldp run` switched on and off on the x230 only, **MATCH**
+    against the deployed `.setup`. Static facts seeded in `tb470.static`. Memory:
+    `bench-probe-one-tool`. Still open: whether to `apply` the generated (comment-free) `.setup`
+    to the box — sections are identical, only the hand-written `###` header would go.
+
+    The pipeline:
+    1. **Capture.** A short, fixed list of read-only `show` commands per console: serialnumber,
+       `show stack`, interface status, LLDP neighbours, the MAC table and `show running-config`.
+       Save the raw output to disk so the parser can be re-run without the hardware.
+    2. **Parse.** Offline, from the saved files only.
+    3. **Generate.** A bench-state.md in `.setup` format.
+    4. **Diff.** Compare it against `tb470.setup`.
+
+    Target: about 10 s per IE520, the same cost as a `show run` config check.
+
+    Decisions (Terrence, 2026-09-25):
+    - **Static facts.** PDU outlets, the PDU's IP and anything else no `show` command can
+      reveal are a one-time user entry, kept in a hand-declared static section. That loss is
+      accepted; don't re-open it.
+    - **LLDP.** Switch-to-switch cabling comes from LLDP, so the script first checks whether
+      `lldp run` is on for each device. If it's off, the script turns it on for the capture
+      and turns it off again at the end. Devices where it was already on are left as found.
+    - **Direction.** The tool keeps both functions for now: diff-check, and optionally create
+      the `.setup` from the measured file. In future only the diff-check will be used, with
+      the `.setup` as the intended template.
+    - **Drop the prose.** The generated bench-state.md holds only the measured state, with no
+      history, "last test" notes or reasons for a port's state. ART tests don't use that
+      information. With run-to-run variance, the last test's notes often conflict with the new
+      test's config, so they mislead more than they help.
+    - **Where durable bench knowledge goes instead.** Anything that matters beyond one run goes
+      where the repo already keeps that kind of fact:
+      - platform and tooling mechanics → the orient-dt skill
+      - non-obvious cross-session lessons → memories
+      - what a session did → its handover
+    - **When building it:** sweep the current bench-state.md prose once and move anything
+      durable to those homes. Update orient-dt and wrap-dt, which point at its "Current state —
+      <date>" section.
 
 **Order of work:** A first, because it is cheap and unblocks D and parts of E; then C if
 Terrence is at the box (it is the only case left in the queue); then B when someone is

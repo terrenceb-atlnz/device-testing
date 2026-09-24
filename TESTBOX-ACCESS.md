@@ -17,15 +17,17 @@ this machine (verified 2026-07-28) plus the mechanism the PyTest Creator uses
 > ## ⛔ This document is NOT the source of truth for bench connection information
 >
 > **For tb470 the source of truth is `~/claude/device-testing/bench-setup/bench-state.md`.**
-> What is cabled to what, which console fronts which device, stack membership and bench
-> addresses are recorded there, along with the evidence for each and an explicit note of what
-> is inferred rather than measured. That file always carries the current state under that
-> name; superseded versions are dated into its `backups/`.
+> What is cabled to what, which console fronts which device, stack membership, baud and boot
+> source are MEASURED into it by `bench-setup/bench_probe.py run` (on tb470; since 2026-09-25 the
+> one bench-state tool). It is generated, carries no prose, and always holds the latest run under
+> that name. A unit's `swi_` name and PDU outlet come from `bench-setup/tb470.static`
+> (hand-entered once).
 >
-> `/home/st-art/st-art/configs/tb470.setup` is **generated** from it (`bench_setup.py apply`)
-> and reflects the same state — `SETUP-FILE-REFERENCE.md` explains the format. **Do not
-> hand-edit it on the box**; the next apply discards the edit. And never write a `.bak`
-> beside it: history belongs in `bench-setup/backups/`.
+> `/home/st-art/st-art/configs/tb470.setup` is that file's ```setup fence, written to the box by
+> `bench_probe.py apply` (superseded versions are dated into `bench-setup/backups/`) —
+> `SETUP-FILE-REFERENCE.md` explains the format. **Do not hand-edit it on the box** and never
+> write a `.bak` beside it. `bench_probe.py run` diffs the bench against it: MATCH, MISMATCH or
+> NEEDS-CHECK.
 >
 > To read the bench without SSH, `bench-setup/tb470.setup.current` is an always-current local
 > copy on the NFS lab home — no need to `scp` it down.
@@ -247,10 +249,11 @@ use, the six binding traps (`console.mode('#')` first, framework credentials not
 `powerOn=False`, `Stack.members` is an unordered set, baud from `[baudrates]`, `setup.log`
 ownership), and the measured `terminal monitor` boundary between them.
 
-Canonical read-only probe: `bench-setup/bench_probe.py` in this repo (the standalone source of
-truth since 2026-09-15; the older copy in Test-cases' `ask-ck/functions/test-composer/` predates it). Cabling-discovery *method*
-(LACP partner system-ID, MAC table from both ends, and why link state alone proves nothing) and
-its results are recorded in `bench-state.md` §8 alongside the evidence for each line.
+Canonical bench tool: `bench-setup/bench_probe.py` in this repo (consolidated 2026-09-25: capture →
+bench-state.md → diff → apply; Test-cases' `ask-ck/functions/test-composer/bench_probe.md` points at
+it). Cabling is proven by LLDP on both ends plus host-MAC learning on a physical port — link state
+alone proves nothing — and the tool switches `lldp run` on and off itself where a device lacks it.
+Its results ARE `bench-state.md` (the Links table names the proof for each line).
 
 The one thing worth repeating here, because it is an *access* fact: **a console held by another
 operator** (`/var/lock/LCK..*`, `pgrep minicom`, `fuser -v /dev/uN`) must be reported as
