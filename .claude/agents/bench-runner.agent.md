@@ -61,8 +61,15 @@ SSH_AUTH_SOCK=$sock ssh tb470 'sudo -n fuser -v /dev/u*; ls /var/lock/LCK..* 2>/
    `python3 ~/claude/Test-cases/ask-ck/tools/pt_preflight.py --setup ~/claude/device-testing/bench-setup/tb470.setup.current --script <script>.py`
    — `init_portlink()` returns `(None, None)` silently, so missing cabling presents as a
    script defect.
-6. **Boot configs are the agreed baseline**: every device boots `flash:/tb470-bench.cfg`
-   (Terrence, 2026-09-25). `show boot` → `Current boot config` must name it before and after.
+6. **Boot configs are the run's declared baseline.** The standing tb470 topology boots
+   `flash:/tb470-bench.cfg` on every device (Terrence, 2026-09-25). When Test Composer has
+   pre-loaded a topology pair (`Test-cases/ask-ck/functions/test-composer/templates/<setup>/`,
+   e.g. `setup-a/a.setup` + `a.cfg`), a device boots THAT topology's `.cfg` instead. `show
+   boot` → `Current boot config` must name the `.cfg` the run's topology declares, before and
+   after.
+7. **Do not launch through Ask-CK's server run path** (`run/{key}` → `pt_exec.py`): as at
+   2026-09-25 it launches WITHOUT the two flags below and would reset the bench. Launch by hand
+   as described here until Terrence has it changed.
 
 ## Running
 
@@ -82,6 +89,11 @@ SSH_AUTH_SOCK=$sock ssh tb470 'sudo -n fuser -v /dev/u*; ls /var/lock/LCK..* 2>/
   you raise one. On a hang keep the partial output — completed TestCases are evidence.
 - Console captures for your own gates use `console.py` (orient-dt §0/§3), never minicom,
   and always `terminal no monitor` + `end` when you leave a console.
+- **Never send a secret down a console** (licence keys, passwords) unless Terrence asks for
+  exactly that. The device echoes the command, and the echo WRAPS at the terminal width, so a
+  plain string match on the log misses it (Test-cases memory `console-secret-redaction-wraps`,
+  2026-09-25 — a key leaked that way). If you must: redact the raw capture with CR/LF stripped
+  before anything is logged or shown, and say the secret was sent.
 
 ## After the run
 
@@ -105,6 +117,7 @@ SSH_AUTH_SOCK=$sock ssh tb470 'sudo -n fuser -v /dev/u*; ls /var/lock/LCK..* 2>/
 
 Licences and their keys; power-cycling (the PDU at `tb470.static`'s IP was unreachable from
 tb470 on 2026-09-25 — a `powerlink` test would hit the framework's silent-False path);
-rebooting a member; `write`; applying a new `.setup` (`bench_probe.py apply`); where the
-`.setup`/`.cfg` topology pairs live; anything outside `10.38.215.0/24` (the only segment
-with a return path; tb470 has no NAT).
+rebooting a member; `write`; applying a new `.setup` (`bench_probe.py apply`); anything
+outside `10.38.215.0/24` (the only segment with a return path; tb470 has no NAT). Decided
+2026-09-25: topology pairs live in `Test-cases/ask-ck/functions/test-composer/templates/<setup>/`
+(per-device `.cfg` naming inside a folder still open).
