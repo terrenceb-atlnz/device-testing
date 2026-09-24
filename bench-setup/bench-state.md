@@ -37,7 +37,7 @@ pairing possible.
 their original names on purpose: they are the last of the old scheme, lifted off the box
 before it was cleaned up, and the name records where they came from.
 
-## Current state — 2026-09-24 (AMF TORN DOWN and written on all four devices; RE-MEASURED 14:18–14:40 NZST after a tb470 reset — `.setup` re-verified and applied)
+## Current state — 2026-09-24 (AMF TORN DOWN and written on all four devices; RE-MEASURED 14:18–14:40 NZST after a tb470 reset — `.setup` re-verified and applied; RE-READ ~17:05 NZST at the evening wrap — config unchanged, stack members 3 and 4 reloaded by 38435)
 
 **Measured 2026-09-24, up to ~10:10 NZST** (device clocks ~22:10 UTC on 09-23), by console
 reads of all four devices and host pings. **At ~10:15 NZST tb470 stopped answering** (ssh and
@@ -79,6 +79,37 @@ morning record; nothing on any DUT changed.**
   `IE520-sa` (ID 1) as a second stack `stk_b` colliding with `swi_a`, and its hardcoded
   09-15 scaffold (outlets, 4 stack members, no 4050/x230) produced 21 false mismatches. Its
   output was NOT used; the `.setup` was verified line by line against the raw probe instead.
+
+### Evening wrap — 2026-09-24 ~17:05 NZST (measured; supersedes the afternoon block where they differ)
+
+The afternoon-to-evening test campaign (IE520/CAMPAIGN-QUEUE-2026-09-24.md) reconfigured the
+stack, IE520-sa and the x230 case by case. Every change was reverted and diffed against a
+pre-test `show running-config` copy (IDENTICAL each time). Nothing was `write`n. Re-read at
+the wrap:
+- **Running == startup on all four devices** (only the "Startup-config saved on" header
+  differs). Stack: `no spanning-tree rstp enable`, `loop-protection loop-detect ldf-interval 1
+  fast-block` (the baseline), no `mls qos`, no pim6/bfd/radius/auth lines.
+- **Stack:** 1/3/4 `Ready`, `Normal operation`, **member 3 = Active Master** (the same as
+  before; the master moved 3 → 4 → 3 during 38435). Boot `flash:/IE520-tb470.rel (file
+  exists)`; `awplus_main-20260923-20`.
+- **Reboot history (stack), new today:** `2026-09-24 04:12:11 Expected User Request`
+  (member 3) and `04:21:45 Expected User Request` (member 4). Both were deliberate
+  (`reload stack-member`, 38435). Member 3 uptime 0 d 00:44, member 4 0 d 00:35, member 1
+  1 d 05:32. SA and x230: no new entries.
+- **IE520-sa:** `Standalone unit`, stack ID 1, uptime 7 h 51 m. **x230:** boot
+  `flash:/x230-tb470.rel (file exists)`; port1.0.10 still `shutdown`.
+- **SFP+ link SA `port1.0.25` ↔ x230 `port1.0.10`: FAULTY (measured 2026-09-24 afternoon).**
+  Both optics show Tx/Rx light (~0.6 mW), both ends admin up, and forced 10G changes nothing;
+  the link never comes up. The SA cage is the suspect (inferred). It is cabled and held shut
+  on the x230 end. The ring cases (38152/38153 remaining steps, EPSR) need it moved to SA
+  `port1.0.26` by hand.
+- **tb470 host:** unchanged from the afternoon. No ethtool changes, no routes or addresses
+  added. The fd32:…::1/64 addresses on eth1/2/3 were present at the morning orient and are
+  the host's own. The 38474 items are kept (sshd drop-in and keys; the route and
+  `/tmp/atmfbk` are still absent since the reset). **Capability:** `tcpreplay` 4.5.1 is
+  installed and drives ~983 Mbps per NIC (1514-byte frames, two NICs at once), which is line
+  rate for the 1G host edges. `pktgen.ko` is also present, unused.
+- **Host paths at the wrap:** eth1→.2 (x230), eth1→.10, eth2→.40, eth3→.66: 0% loss.
 
 ### What changed from the 2026-09-23 late record
 

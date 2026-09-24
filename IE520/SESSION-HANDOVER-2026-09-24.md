@@ -1,6 +1,109 @@
-# Session handover — tb470 IE520 — 2026-09-24 (updated at the afternoon wrap)
+# Session handover — tb470 IE520 — 2026-09-24 (updated at the EVENING wrap, ~17:10 NZST)
 
-## TL;DR — afternoon (current; the morning TL;DR follows)
+## TL;DR — evening (current; the afternoon and morning TL;DRs follow)
+
+- **The bench is whole and unchanged in config.** All four devices have running == startup
+  (nothing was written). The stack is 1/3/4 Ready with member 3 the master. Two deliberate
+  member reloads (3 and 4) during 38435 are the only new reboot-history entries. Host paths
+  are at 0% loss. Record: bench-state.md "Evening wrap" block.
+- **Terrence's instruction:** run the remaining cases autonomously, log non-test decisions as
+  issues, choose blockers with the options recorded, then plan the fixes and wrap. **The
+  queue, all 27 issues (I-1…I-27) and the PLAN are in
+  [CAMPAIGN-QUEUE-2026-09-24.md](CAMPAIGN-QUEUE-2026-09-24.md). Read that first.**
+- **Run this afternoon/evening, each reverted and diffed IDENTICAL against a pre-test copy:**
+
+  | case(s) | verdict | log |
+  | --- | --- | --- |
+  | IPv6 mcast 38144 11724 11740 11722 11736 30681 20930 | 7 PASS | `ipv6-2026-09-22/` |
+  | 38430 BGP4+ BFD fall-over | PASS (I-14: case premise; peer = IE520-sa, I-13) | `ipv6-2026-09-22/38430.log` |
+  | QoS 13549 strict priority / 13553 WRR | 2 PASS (+ finding I-17) | `qos-2026-09-22/` |
+  | 38435 tri-auth / VCS master failover | PASS (redraft, I-20) | `auth-2026-09-22/38435.log` |
+  | 28126–28129 rate halves | 28129 → PASS; 28126/28127 step-1 rate PASS (step-2 FAIL stands); 28128 FAIL stands | `auth-2026-09-22/` |
+  | 16452 / 16453 loop-protection | 2 PASS (I-23) | `stp-2026-09-22/` |
+  | 38432 | re-labelled UNSUPPORTED (Terrence's 09-23 ruling applied) | `auth-2026-09-22/38432.log` |
+
+- **What unblocked most of it:** `tcpreplay` on tb470 gives ~983 Mbps per NIC, which is line
+  rate. The "harness peaks at ~26 Mbps" limit no longer holds. It also makes 3116 and 12067
+  (ruled skip) measurable (I-19).
+- **Still BLOCKED:**
+  - 38474 needs tb470 root (route, `/tmp/atmfbk`) and the 4050 knownhosts fetch (I-1, I-2,
+    I-21).
+  - 38152/38153 remaining steps and EPSR need the SFP+ SA↔x230 link, which is faulty (I-3,
+    hands).
+  - MRP: the partners have no CLI.
+- **Watcher:** a session-only hourly cron (`:17`) re-wakes this session if work is left. The
+  queue is finished, so it has nothing to do. It dies with the session (and was deleted at
+  this wrap).
+
+## E. Evening session (2026-09-24, ~15:00–17:10) — findings
+
+**Measured**
+- **QoS, stack (I-17, possible defect):**
+  - UNTAGGED traffic entering on a remote member (sa3 on members 1/4, egress on member 3)
+    is sent from egress queue 0. The same CoS-0 traffic entering locally uses queue 2, as
+    the map says. Under strict priority, remote traffic therefore always loses.
+  - `mls qos cos 5` on a port is accepted, but that port's untagged traffic does not move
+    queue.
+  - Tagged PCP traffic follows the map from any member.
+- **Strict priority and WRR work.** The higher queue gets 100% whichever member it enters
+  on. WRR 30:10 / 10:30 / 20:20 gives received ratios 2.99 / 0.33 / 1.00.
+- **The IE520 uses scheduler-sets for WRR:**
+  `mls qos scheduler-set N wrr-queue group G weight W queues Q`, then
+  `mls qos scheduler-set N` on the port. There is no interface `wrr-queue weight`, and
+  `show mls qos scheduler-set N` is `% Invalid input`.
+- **BFD on the IE520 is service-gated** (`service bfd`). The show command is `show bfd peer`.
+  - BFD fall-over drops BGP within ~2 s when BFD's packets are lost.
+  - A TCP-only ACL leaves BFD up, and BGP ends on its hold timer (+114 s).
+  - Neither BGP nor BFD state changes are logged (I-16).
+  - `no service bfd` drops the console from config to exec.
+- **ACLs on the IE520:**
+  - A later-added rule is appended AFTER an existing `permit any any` (I-15).
+  - `ipv6 traffic-filter` is refused on static-channel members; it goes on the `saN`
+    interface.
+- **VCS master failover with tri-auth:** a ~2.2 s outage on every path; all dot1x, web and
+  MAC sessions survive; a new 802.1X auth succeeds against the new master's local RADIUS.
+  - Tri-auth also works on a static aggregator (sa3).
+  - The web login is refused ("previous authentication in progress") while the port's
+    802.1X attempt is Connecting.
+- **Guest VLAN, CPU path** (hw-forwarding off): 100% up to 20 Mbps; 95.1% IPv4 / 98.3% IPv6
+  at 100 Mbps. Hardware path: line rate, no loss.
+  - The first line-rate burst after an SVI address change lost ~12 ms of traffic. Settled
+    runs lose nothing.
+- **Loop-protection:**
+  - fast-block IS clearable: `no loop-protection loop-detect`, then re-add without
+    `fast-block`.
+  - link-down err-disables the port and the far end goes notconnect.
+  - port-disable Blocks the port while the link stays up at both ends.
+- **Static IPv6 mroute:** all downstreams must go in ONE command (I-12). `ipv6 mld
+  static-group` with no interface lists the group on EVERY port of the VLAN, including the
+  phantom member-2 range (I-27).
+
+**Inferred**
+- I-17 looks like the stacking path losing the ingress-assigned CoS for untagged frames. Not
+  proven: a tagged-vs-untagged run from the same remote port would isolate it.
+
+**OPEN questions:** all in the queue file's issue list (status OPEN) and its Plan §A.
+
+**Next steps:** the queue file's Plan (A decisions → C root/38474 → B hands/SFP+ → D case
+text → E tooling).
+
+**Recipes added this session** (tb470 `/tmp/ckorient` helpers as in §8):
+```bash
+# line-rate traffic: build a 500-frame pcap with scapy (1514 B, dst = eth1 MAC), then
+sudo tcpreplay -i eth3 --topspeed --duration=10 --loop=0 /tmp/ckorient/q/eth3.pcap   # ~983 Mbps
+# count per source at the receiver: exact while "0 packets dropped by kernel"
+sudo tcpdump -i eth1 -nn -s 64 -B 65536 -w /dev/null ether src <mac>   # SIGINT -> counts
+# DUT egress queues:  clear mls qos interface port3.0.13 queue-counters / show ... queue-counters
+# tagged ingress: port3.0.9 + sa3 (both ends) + SA port1.0.2 as trunk, allowed vlan add 50;
+#   egress port3.0.13 access vlan 50; eth1 sends a 1 pps learn frame
+# two-link loop without the SFP+ ring: take sa2's legs out of BOTH LAGs into an empty vlan 60
+#   (stack port1.0.2,1.0.9 / x230 port1.0.3,1.0.4); keep it open (x230 port1.0.4 shut)
+#   except while measuring; restore: actions off, fast-block back, re-bundle, then no shut
+# a master reload drops EVERY backup console's CLI session (it is remote to the master):
+#   re-login (session()) after the reload before issuing the next command
+```
+
+## TL;DR — afternoon (superseded by the evening TL;DR above where they differ)
 
 - **The bench is whole and verified.** tb470 was reset (Terrence) and came back at ~14:15. The
   bench was RE-MEASURED 14:18–14:40: no DUT changed, spanning tree is off on all four devices,

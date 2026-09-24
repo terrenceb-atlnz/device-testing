@@ -1,6 +1,6 @@
 # STP & storm control group — IE520, tb470, 2026-09-22
 
-8 cases. **6 PASS / 2 UNMEASURED.**
+8 cases. **8 PASS.** (2026-09-24: 16452/16453 re-run on a real loop — PASS.)
 
 | case | title | verdict |
 | --- | --- | --- |
@@ -10,8 +10,8 @@
 | [38151](38151.log) | MSTP - Basic operation test | **PASS** (case has no steps) |
 | [38152](38152.log) | RSTP - Basic operation | **PASS** on 3 of 4 assertions |
 | [38153](38153.log) | STP - Basic operation | **PASS** on 3 of 4 assertions |
-| [16452](16452.log) | loop-protection action: port disable | **UNMEASURED** |
-| [16453](16453.log) | loop-protection action: link down | **UNMEASURED** |
+| [16452](16452.log) | loop-protection action: port disable | **PASS** (re-run 2026-09-24; fast-block cleared by re-arming loop-detect) |
+| [16453](16453.log) | loop-protection action: link down | **PASS** (re-run 2026-09-24) |
 
 ## The DUT is the root bridge in all three modes
 
@@ -60,13 +60,12 @@ two legs meet the DUT in **vlan 1** and **vlan 10**, which do not bridge on the
 DUT. Making it one domain would merge the routed vlan10 transit into vlan1 and
 break the L3 topology the other groups depend on.
 
-## The two UNMEASURED
+## 16452 / 16453 (UNMEASURED on 2026-09-22, PASS on 2026-09-24)
 
-- **16452** — `% Port-disable action is not supported with fast blocking`, and
-  fast-block could not be cleared without disabling loop-detect wholesale.
-- **16453** — the action armed correctly (so `link-down` *is* compatible with
-  fast-block), but the ring never closed: the x230's leg sat in an unformed
-  channel-group. Recorded as an incomplete stimulus, **not** as a failure.
+- **16452** — 09-22: `% Port-disable action is not supported with fast blocking`. 09-24:
+  fast-block cleared by `no loop-protection loop-detect` + re-arming without the keyword.
+- **16453** — 09-22: the loop never closed. 09-24: a real two-link loop (sa2's legs in an
+  empty vlan 60) — link-down err-disables the port and the far end goes notconnect.
 
 ## Bench state at exit
 

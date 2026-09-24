@@ -26,7 +26,7 @@
 - [Prefer a pragmatic fix over infra debugging](prefer-pragmatic-fix-over-infra-debugging.md) — when incidental infra breaks mid-task, take the deterministic fix (static IP, skip); don't rabbit-hole
 - [IE520 4-stack flash-prep](ie520-4stack-flashprep.md) — REVERSED 2026-09-14: the 2-member cap was an OLD-build limit. FLASHING MEMBERS: a large push master→member FAILS (NFS timeout, re-hit 2026-09-23) — make each member master in turn + local TFTP
 - [IE520 mcast/L3 test method](ie520-mcast-l3-test-method.md) — IGMP/MLD-snooping + directed-broadcast on tb470 with ONE host NIC: u4=querier, u5 ping=source, host scapy=receiver; gotchas inside
-- [AW+ service-gated routing daemons](awplus-service-gated-routing-daemons.md) — "daemon is not running or feature license" = run `service ospf|rip|vrrp|pim` first; PIM-DM has no service cmd
+- [AW+ service-gated routing daemons](awplus-service-gated-routing-daemons.md) — "daemon is not running" = run `service ospf|rip|vrrp|pim|pim6|bfd` first; `show bfd peer`, not `session`
 - [Claude cannot push — Terrence pushes](claude-cannot-push-terrence-pushes.md) — company permissions deny `git push` every time (and any overwrite)
 - [verify-setup topology flow](verify-setup-topology-flow.md) — bench_topology.py: probe→live physical-topology .md, semantic diff vs an IMMUTABLE .setup template
 - [IE520 console prints no kernel log](ie520-console-prints-no-kernel-log.md) — boot goes silent at `Starting kernel ...`
@@ -38,7 +38,7 @@
 - [AW+ config prompts abort and log you out](awplus-config-prompts-abort-and-logout.md) — `mls qos enable`/`no mls qos`/`atmf secure-mode enable-all` PROMPT (y/n)
 - [IE520 MAC-auth username format](ie520-mac-auth-username-format.md) — the DUT sends `00-f0-4d-00-77-17` (lowercase, hyphenated); no auth-mac username-format command exists
 - [AW+ CLI wiki on the share](awplus-cli-wiki-on-the-share.md) — 3437 command pages with syntax, MODE and platform tables; NO IE520 pages (cousins IE560/IE360/x230v2/IE340 absent too) → read x230; the IE520 mode can differ
-- [tb470 bench structural limits](tb470-bench-structural-limits.md) — CORRECTED 2026-09-23: the port limit was UNCABLED ports + 3 host NICs, not one copper port per member
+- [tb470 bench structural limits](tb470-bench-structural-limits.md) — CORRECTED 09-23 (ports) + 09-24: tcpreplay gives LINE RATE (~983 Mbps/NIC); left: no MRP, TACACS+, SFP+ link faulty
 - [Campaign measurement discipline](campaign-measurement-discipline.md) — baseline the feature OFF first, make traffic TRANSIT the DUT, split PROVEN from NOT MEASURABLE
 - [STP mode change re-enables spanning tree](stp-mode-change-reenables-spanning-tree.md) — a `spanning-tree mode` change silently drops `no spanning-tree <mode> enable`
 - [LACP passive hides links from STP](lacp-passive-hides-links-from-stp.md) — auto-enrols freed ports; STP runs on the AGGREGATOR so a live link forwards where STP cannot block. Hit all 3 devices

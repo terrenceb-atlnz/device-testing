@@ -1,6 +1,6 @@
 # QoS group — IE520, tb470, 2026-09-22
 
-12 cases. **9 PASS / 3 UNMEASURED.**
+12 cases. **11 PASS / 1 UNMEASURED.** (2026-09-24: 13549 and 13553 re-run with tcpreplay line-rate congestion — PASS.)
 
 | case | title | verdict |
 | --- | --- | --- |
@@ -13,8 +13,8 @@
 | [13594](13594.log) | Single Rate Policing standard test | **PASS** |
 | [13595](13595.log) | Twin Rate Policing Standard test | **PASS** |
 | [13604](13604.log) | static LAG based policing - single-rate | **PASS** (LAG not straddling) |
-| [13549](13549.log) | defaults to strict priority queueing | **UNMEASURED** — needs congestion |
-| [13553](13553.log) | wrr weightings applied | **UNMEASURED** — needs congestion |
+| [13549](13549.log) | defaults to strict priority queueing | **PASS** (re-run 2026-09-24; untagged queue-assignment finding) |
+| [13553](13553.log) | wrr weightings applied | **PASS** (re-run 2026-09-24; 2.99:1 at 3:1) |
 | [38148](38148.log) | IPv6 QoS - Exploratory testing | **UNMEASURED** — case has no steps |
 
 ## Method
@@ -40,11 +40,11 @@ are offered far above the CIR and counted at egress.
   (stack `port1.0.2` → x230 `port1.0.3` → x230 `port1.0.1` → eth1) was put into
   trunk mode with native vlan 999 so vlan 1 egressed tagged. Restored afterwards.
 
-## The three UNMEASURED
+## The UNMEASURED
 
-- **13549 / 13553** — strict-priority and WRR are only observable under
-  congestion. The case method needs 2 × 1 Gbps ingress onto one 1 Gbps egress;
-  this bench has one usable ingress port and scapy peaks at ~26 Mbps.
+- (13549 / 13553 were here on 2026-09-22 for want of congestion; re-run
+  2026-09-24 with two NICs × tcpreplay at ~983 Mbps into one 1G egress — PASS.
+  The untagged queue-assignment finding is in 13549.log NOTES.)
 - **38148** — `num_steps = 0`. No procedure to execute. IPv6 QoS was still
   exercised and passed via 13819.
 

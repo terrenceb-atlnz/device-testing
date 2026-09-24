@@ -1,16 +1,16 @@
 # Authentication group — IE520, tb470, 2026-09-22
 
-7 cases. **2 PASS / 3 FAIL / 2 UNMEASURED** after the 2026-09-24 guest-VLAN re-run (was 1 PASS / 6 UNMEASURED on 2026-09-22) — **read the split before reading the count.**
+7 cases. **3 PASS / 3 FAIL / 1 UNSUPPORTED** after the 2026-09-24 guest-VLAN re-run and the 38435 redraft run (was 1 PASS / 6 UNMEASURED on 2026-09-22) — **read the split before reading the count.**
 
 | case | title | verdict |
 | --- | --- | --- |
 | [33375](33375.log) | MAC Auth / Web Auth | **PASS** (both halves, end to end) |
-| [38432](38432.log) | IEEE 802.1X - Authentication with TACACS+ | **UNMEASURED** — no TACACS+ server exists; **802.1X itself PROVEN** |
-| [28126](28126.log) | L3 guest vlan IPv4, hw fwd disabled | **FAIL** (re-run 2026-09-24) — step 2: unknown unicast floods to the other supplicant; CPU forwarding proven; rate UNMEASURED |
-| [28127](28127.log) | L3 guest vlan IPv4, hw fwd enabled | **FAIL** (re-run 2026-09-24) — step 2: unknown unicast floods to the other supplicant; hardware forwarding proven; rate UNMEASURED |
+| [38432](38432.log) | IEEE 802.1X - Authentication with TACACS+ | **UNSUPPORTED** (Terrence, 09-23: no TACACS+) — **802.1X itself PROVEN** |
+| [28126](28126.log) | L3 guest vlan IPv4, hw fwd disabled | **FAIL** (re-run 2026-09-24) — step 2: unknown unicast floods to the other supplicant; CPU forwarding proven; loses 4.9% at 100 Mbps (step 1 rate PASS) |
+| [28127](28127.log) | L3 guest vlan IPv4, hw fwd enabled | **FAIL** (re-run 2026-09-24) — step 2: unknown unicast floods to the other supplicant; hardware forwarding proven; line rate, no loss (step 1 rate PASS) |
 | [28128](28128.log) | L3 guest vlan IPv6, hw fwd disabled | **FAIL** (re-run 2026-09-24) — IPv6 blocked in the case's no-address and different-subnet variants |
-| [28129](28129.log) | L3 guest vlan IPv6, hw fwd enabled | **PASS functional** (re-run 2026-09-24); rate UNMEASURED |
-| [38435](38435.log) | Tri-auth / VCS - Master Failover | **UNMEASURED** — case has NO STEPS in ck.db |
+| [28129](28129.log) | L3 guest vlan IPv6, hw fwd enabled | **PASS** (re-run 2026-09-24) — line rate, no loss, all 3 variants |
+| [38435](38435.log) | Tri-auth / VCS - Master Failover | **PASS** (redrafted, run 2026-09-24) — all 3 sessions survive master failover; ~2.2 s outage; re-auth on new master |
 
 ## What was actually proven on the DUT
 
@@ -34,8 +34,9 @@ port into VLAN 200 untagged.
 - **28126–28129** — superseded by the 2026-09-24 re-run (rows above): with eth1 and
   eth3 both on the stack there are now two supplicant ports. The functional half
   (CPU vs hardware path, via `show platform counter sdma`) is measured; the rate half
-  (loss vs line rate) still needs an ixia.
-- **38435** — `num_steps = 0` in ck.db. No procedure, no expected result.
+  was measured the same afternoon with tcpreplay (see each log's RATE section).
+- (38435 was here on 2026-09-22 — `num_steps = 0`; run 2026-09-24 as the redraft "stack-master
+  failover with the master as auth server" — PASS, see its log.)
 
 ## Two non-obvious findings
 

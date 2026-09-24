@@ -12,7 +12,7 @@ Five ATMF cases executed against the tb470 bench. Per-case deliverable is the
 | [38472](38472.log) | ATMF - Master | **FAIL** — steps 1/2/3/5 pass, step 4 (secure mode) fails |
 | [38480](38480.log) | ATMF - Application proxy - IP filter | **PASS** |
 | [38481](38481.log) | ATMF - Application proxy - mac filter | **PASS** |
-| [38475](38475.log) | ATMF - recover from USB drive | **UNMEASURED** — `atmf cleanup` refused on a VCStack |
+| [38475](38475.log) | ATMF - recover from USB drive | ~~UNMEASURED~~ — **superseded: PASS on 2026-09-24**, see [../atmf-2026-09-23/38475.log](../atmf-2026-09-23/38475.log) (standalone IE520-sa as the node) |
 | [38479](38479.log) | ATMF - node provision | **PASS** (DUT = x230-10GP) |
 
 ## Bench

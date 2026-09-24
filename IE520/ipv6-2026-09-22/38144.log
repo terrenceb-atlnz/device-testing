@@ -1,35 +1,47 @@
 TEST 38144 -- PIM-SMv6 - DUT can route IPv6 multicast traffic
 ===========================================================================
-Run: 2026-09-22, tb470
+Run:    2026-09-24 (device clock 2026-09-24 ~03:30 UTC), tb470
+Build:  awplus_main-20260923-20
+DUT:    IE520 3-member VCStack "IE520-stk" (members 1/3/4), sole PIM-SMv6 router and RP
+Case:   no steps in ck.db; tested as the title states.
+        (Replaces the 2026-09-22 UNMEASURED "needs more hosts": the bench now has three
+        host NICs, two of them on the stack, and the rest was done by reconfiguration.)
 
-VERDICT: UNMEASURED -- BENCH LIMIT: IPv6 multicast routing needs more hosts
-         than this bench has ports.
+VERDICT: PASS -- the DUT routes IPv6 multicast from a source VLAN into two receiver VLANs,
+         with the (S,G) route installed in hardware.
 
-Every case in this set requires an IPv6 multicast topology with SEPARATE
-sources and receivers on DIFFERENT DUT ports -- multiple hosts joining the same
-group, different hosts joining different groups, leaves from dynamic groups,
-and routes ageing out when a source stops. Each of those is a statement about
-traffic to one port versus another.
+TOPOLOGY (temporary reconfiguration, reverted after the IPv6 multicast group -- see teardown)
+      source    tb470 eth3 -> port3.0.9  vlan30  fd32:b1f0:dff8:d703::10/64 (RP)
+      receiver  tb470 eth1 -> port3.0.13 vlan20  fd32:b1f0:dff8:d701::10/64
+      receiver  tb470 eth2 -> IE520-sa port1.0.2 -> sa3 -> vlan1  fd32:b1f0:dff8:d702::10/64
+  DUT: service pim6; ipv6 forwarding; ipv6 multicast-routing; ipv6 pim sparse-mode on
+  vlan1/20/30; ipv6 mld on vlan1/20; ipv6 pim rp-address fd32:b1f0:dff8:d703::10.
+  Receivers = the tb470 kernel's own MLDv2 joins (a socket join per NIC); source = 20
+  frames from eth3, src fd32:b1f0:dff8:d703::1, hop limit 16; counted on the wire.
 
-THE PORT BUDGET IS THE BLOCKER. Each IE520-28GSX member has exactly ONE usable
-copper port; the rest are empty SFP cages:
-    port1.0.2  -> x230 (the egress/observation path)
-    port2.0.2  -> tb470 eth2 (the only injection point)
-    port3.0.2  -> no cable
-    port4.0.2  -> the LAG to the AR4050S
-That gives one source and one observation point. A source and two independent
-receivers -- the minimum for "different hosts joining different groups" -- is
-not constructible.
+STEP 0 -- baseline, multicast routing OFF (VLANs and addresses in place)
+      eth1 and eth2 joined ff1e::1:100; 20 frames sent  ->  eth1 0/20, eth2 0/20
 
-WHAT IS PROVEN ELSEWHERE, on the same platform and path:
-  - IPv6 multicast FORWARDING and MLD snooping behave correctly: snooping
-    disabled floods 10/10, enabled prunes to 1/10 then 0/10
-    (switching T10300 / T10304).
-  - IPv6 unicast routing via OSPFv3 installs learned prefixes (T38427), and
-    IPv6 neighbour discovery answers correctly (T8734).
-So IPv6 itself is exercised; what is missing is the multi-host multicast
-topology these particular cases are written around.
+WITH PIM-SMv6
+      show ipv6 pim sparse-mode rp mapping:  ff00::/8 Static, RP fd32:b1f0:dff8:d703::10
+      show ipv6 mld groups:
+        ff1e::1:100   vlan20 (port3.0.13)   Last Reporter fe80::3f84:db77:9294:e805  (eth1)
+        ff1e::1:100   vlan1 (sa3)           Last Reporter fe80::86e3:27ff:fe87:780   (IE520-sa)
+      traffic: 20 frames -> eth1 20/20, eth2 20/20
+      show ipv6 mroute:
+        (fd32:b1f0:dff8:d703::1, ff1e::1:100), Owner PIM-SMv6, Flags: TF
+          Incoming interface: vlan30
+          Outgoing interface list: vlan1, vlan20
+      show hsl fib (hardware):
+        Group (ff1e::1:100) Source (fd32:b1f0:dff8:d703::1)  L2 L3 Entry, Mirror To CPU: No
+          L3 IIf = 330; L3 outgoing 301 (vlan1), 320 (vlan20)
+        IPv6 (S,G) Forwarding Entries: 1
 
-TO UNBLOCK: at least two more cabled ports on the DUT (ideally a traffic
-generator acting as several receivers), which is the same recable that unblocks
-the ACL/QoS LAG cases and the guest-VLAN group.
+NOTES
+  - vlan1's reporter is IE520-sa itself: the SA's MLD snooping (report suppression on)
+    proxied eth2's join up its router port (sa3), as a snooping switch should.
+  - `service pim6` is REQUIRED first: without it `ipv6 multicast-routing` answers
+    "% PIM-SMv6 protocol daemon is not running or feature license is not available".
+  - `show platform table ipmulti` exists but lists only an "IPv4 Multicast Route Table"
+    (per member: the 224.0.0.0/24 link entry) -- no IPv6 section at all, even with the
+    (S,G) above installed. The IPv6 hardware entry is visible in `show hsl fib` instead.

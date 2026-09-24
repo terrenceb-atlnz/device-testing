@@ -1,35 +1,73 @@
 TEST 20930 -- IPv6 Static Multicast Routing - Interop with Static MLD
 ===========================================================================
-Run: 2026-09-22, tb470
+Run:    2026-09-24 (~15:30-15:45 NZST), tb470
+Build:  awplus_main-20260923-20
+DUT:    IE520 3-member VCStack "IE520-stk"
+Case:   ATKK Topology_A2, TestInt1 upstream, TestInt2-TestInt4 downstream, Ixia. Procedure
+        (translated): 3. send multicast from TestInt1, confirm TestInt2-4 receive it;
+        4. confirm the route is registered (show ip mroute); 5. send MLD Done from
+        TestInt2-4, confirm they STILL receive it ("static group, so it is not deleted").
+Setup:  as 38144.log (same session), PIM removed so the static route is the only forwarder:
+      upstream    tb470 eth3 -> port3.0.9  vlan30  (source fd32:b1f0:dff8:d703::1)
+      downstream  tb470 eth1 -> port3.0.13 vlan20
+      downstream  tb470 eth2 -> IE520-sa port1.0.2 -> sa3 -> vlan1
+  Two downstream VLANs rather than the case's three (the bench has three host NICs).
+  Group ff1e::1:600; 20 frames per burst from eth3, hop limit 16, counted on the wire.
+  IE520-sa's MLD snooping was turned off on its vlan1 for this case only, so that the SA's
+  own snooping could not decide what reaches eth2. It was restored afterwards (below).
+  (Replaces the 2026-09-22 UNMEASURED "needs more hosts".)
 
-VERDICT: UNMEASURED -- BENCH LIMIT: IPv6 multicast routing needs more hosts
-         than this bench has ports.
+VERDICT: PASS -- the static route forwards to both downstream VLANs with no host joined, and
+         keeps forwarding after both hosts send MLD leaves.
 
-Every case in this set requires an IPv6 multicast topology with SEPARATE
-sources and receivers on DIFFERENT DUT ports -- multiple hosts joining the same
-group, different hosts joining different groups, leaves from dynamic groups,
-and routes ageing out when a source stops. Each of those is a statement about
-traffic to one port versus another.
+CONFIG (DUT)
+  interface vlan1/vlan20/vlan30: no ipv6 pim sparse-mode   (ipv6 multicast-routing stays on)
+  ipv6 multicast route fd32:b1f0:dff8:d703::1 ff1e::1:600 vlan30 vlan1,vlan20
+  interface vlan20: ipv6 mld static-group ff1e::1:600
+  interface vlan1:  ipv6 mld static-group ff1e::1:600
 
-THE PORT BUDGET IS THE BLOCKER. Each IE520-28GSX member has exactly ONE usable
-copper port; the rest are empty SFP cages:
-    port1.0.2  -> x230 (the egress/observation path)
-    port2.0.2  -> tb470 eth2 (the only injection point)
-    port3.0.2  -> no cable
-    port4.0.2  -> the LAG to the AR4050S
-That gives one source and one observation point. A source and two independent
-receivers -- the minimum for "different hosts joining different groups" -- is
-not constructible.
+STEP 0 -- baseline, PIM off, no static route, no joins
+      eth1 0/20, eth2 0/20
 
-WHAT IS PROVEN ELSEWHERE, on the same platform and path:
-  - IPv6 multicast FORWARDING and MLD snooping behave correctly: snooping
-    disabled floods 10/10, enabled prunes to 1/10 then 0/10
-    (switching T10300 / T10304).
-  - IPv6 unicast routing via OSPFv3 installs learned prefixes (T38427), and
-    IPv6 neighbour discovery answers correctly (T8734).
-So IPv6 itself is exercised; what is missing is the multi-host multicast
-topology these particular cases are written around.
+STEP 3 -- send from the upstream -> both downstreams receive (no host has joined)
+      eth1 20/20, eth2 20/20
+      show ipv6 mld groups: ff1e::1:600 on vlan20 (port3.0.13) and on every vlan1 port,
+      Expires "stopped", Last Reporter "::" (static)
 
-TO UNBLOCK: at least two more cabled ports on the DUT (ideally a traffic
-generator acting as several receivers), which is the same recable that unblocks
-the ACL/QoS LAG cases and the guest-VLAN group.
+STEP 4 -- the route is registered in the table
+      show ipv6 mroute:
+        (fd32:b1f0:dff8:d703::1, ff1e::1:600), Owner IMI, Flags: F
+          Incoming interface: vlan30
+          Outgoing interface list: vlan1, vlan20
+      show hsl fib (hardware):
+        Group (ff1e::1:600) Source (fd32:b1f0:dff8:d703::1)  L2 L3 Entry, Mirror To CPU: No
+          L3 IIf = 330; L3 outgoing 301 (vlan1), 320 (vlan20)
+        IPv6 (S,G) Forwarding Entries: 1
+
+STEP 5 -- the downstream hosts send MLD Done -> they still receive
+  eth1 and eth2 join ff1e::1:600, then leave (socket close). The tb470 kernel speaks MLDv2,
+  so its "Done" is a CHANGE_TO_INCLUDE {} record. Captured leaving each NIC (to ff02::16):
+      eth1: +0.0s CHANGE_TO_EXCLUDE (join), +0.3s join, +7.6s CHANGE_TO_INCLUDE (leave), +8.2s leave
+      eth2: +0.0s CHANGE_TO_EXCLUDE (join), +0.4s join, +7.6s CHANGE_TO_INCLUDE (leave), +7.9s leave
+      while joined:            eth1 20/20, eth2 20/20
+      8 s after the leaves:    eth1 20/20, eth2 20/20
+      show ipv6 mld groups after the leaves:
+        ff1e::1:600  vlan20 (port3.0.13)  00:02:38  stopped  fe80::3f84:db77:9294:e805 (eth1)
+        ff1e::1:600  vlan1 (sa3)          00:02:33  stopped  fe80::cfe7:b827:c695:6034 (eth2)
+        -- the entries still stand, uptime NOT reset by the leave
+      show ipv6 mroute: unchanged (Owner IMI, in vlan30, out vlan1 + vlan20)
+
+NOTES
+  - Adding the downstreams one line at a time is refused. A second
+    "ipv6 multicast route <S> <G> vlan30 vlan1" answers "% Static multicast route already
+    exists for fd32:b1f0:dff8:d703::1, ff1e::1:600". All downstreams go in ONE command
+    ("vlan1,vlan20" was accepted, and it is stored that way in running-config).
+  - "ipv6 mld static-group" with no "interface" parameter installs the group on EVERY port
+    of the VLAN in show ipv6 mld groups. On vlan1 that includes sa2, sa3 and the port2.0.x
+    range of member 2, which is provisioned ("switch 2 provision ie520-28") but absent (the
+    stack is members 1/3/4). Observed; not graded.
+  - The first attempt's leave capture used BPF "icmp6", which cannot match MLD (it sits
+    behind a hop-by-hop header), so step 5 was repeated with the capture above. The traffic
+    counts were the same in both runs.
+  - IE520-sa after the case: "ipv6 mld snooping" restored on vlan1 (running-config no
+    longer shows "no ipv6 mld snooping").

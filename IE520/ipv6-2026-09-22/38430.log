@@ -1,43 +1,71 @@
-
 TEST 38430 -- BGP4+ - BFD fall-over
 ===========================================================================
-Run: 2026-09-22 15:13:53  tb470
+Run:    2026-09-24 15:40-15:52 NZST (device clock 03:40-03:52 UTC), tb470
+Build:  awplus_main-20260923-20
+DUT:    IE520 3-member VCStack "IE520-stk", AS 65001, 2001:db8:1::1/64 on vlan1
+Peer:   IE520-sa (standalone IE520, same build), AS 65002, 2001:db8:1::2/64 on vlan1,
+        reached over the static LAG sa3.
+        Why not the AR4050S (the 2026-09-22 peer): it has no BFD commands at all. The x230 has
+        neither BFD nor a BGP licence. (CAMPAIGN-QUEUE issue I-13.)
+        (Replaces the 2026-09-22 UNMEASURED. That attempt never ran `service bfd`, and it used
+        `show bfd session`, which is not an AW+ command; the command is `show bfd peer`.)
 
-configure terminal
-Enter configuration commands, one per line.  End with CNTL/Z.
-IE520-stk(config)#router bgp 65001
-IE520-stk(config-router)#neighbor 2001:db8:10::2 fall-over bfd
-IE520-stk(config-router)#exit
-IE520-stk(config)#end
-IE520-stk#--- DUT: neighbor ... fall-over bfd : ACCEPTED ---
---- peer: [('neighbor 2001:db8:10::1 fall-over bfd', ["% Invalid input detected at '^' marker."])] ---
-show bfd session
-                   ^
-% Invalid input detected at '^' marker.
+VERDICT: PASS (with a case-text issue, CAMPAIGN-QUEUE I-14).
+         The BFD session comes up with no errors. When BFD's packets are lost, BFD fall-over
+         terminates the BGP session within ~2 s. With the case's literal ACL, which stops TCP
+         only, BFD correctly stays up and BGP ends on its hold timer (+114.5 s).
 
-IE520-stk#--- show bfd session ---
-    ^
-    % Invalid input detected at '^' marker.
+CONFIG (both ends, mirrored)
+  service bfd              (without it: "% BFD protocol daemon is not running")
+  interface vlan1 / ipv6 address 2001:db8:1::{1,2}/64
+  router bgp 6500{1,2} / neighbor <peer> remote-as <AS>
+    address-family ipv6 / neighbor <peer> activate
+  then: neighbor <peer> fall-over bfd
+  BGP4+ reached Established before BFD was added. Adding fall-over bfd reset the session once
+  ("Last Reset ... due to BGP Notification ... Cease/Other Configuration Change"). It
+  re-established at once.
 
-VERDICT: see session state above
+STEP 1 -- "Configure BFD fall-over for BGP neighbour" -> "BFD session should up and no errors"
+  DUT show bfd peer:
+    peer 2001:db8:1::2 local-address 2001:db8:1::1 vrf default interface vlan1
+      Active mode, Status: up, Diagnostics: ok, Remote diagnostics: ok, Peer Type: dynamic
+      Local/Remote timers: Detect-multiplier 3, Rx 300ms, Tx 300ms
+  Peer show bfd peer: the mirror image, Status: up, Diagnostics: ok
+  DUT show bgp ipv6 neighbors 2001:db8:1::2:
+    BGP state = Established; "Bidirectional Forwarding Detection is enabled"; hold 90 / keepalive 30
+  show log | include BFD|bfd|BGP|bgp: no errors. The only non-command line is
+    "BGP[2118]: [NETWORK] Server Sock: Successfully opened a listening socket on port 179".
+  -> PASS
 
-===========================================================================
-VERDICT: UNMEASURED -- BFD cannot be brought up across this pair.
-===========================================================================
-DUT side:  `neighbor 2001:db8:10::2 fall-over bfd`  -> **ACCEPTED**
-Peer side: `neighbor 2001:db8:10::1 fall-over bfd`  -> % Invalid input
-DUT:       `show bfd session`                       -> % Invalid input
+STEP 2 -- "Configure an access-list on the peer to stop TCP traffic ... kill the BGP session
+          without shutting down the port" -> "BFD should detect that the neighbour is
+          unreachable and the BGP session should be terminated"
+  On the peer: ipv6 access-list NOTCP38430 { deny tcp any any; permit ipv6 any any }
+  on sa3 (ipv6 traffic-filter). Applied 15:43:08. The DUT was sampled every ~4.8 s:
+      +3.8 s .. +109.7 s  BGP Established,  BFD Status: up   (MsgRc frozen at 11 from +23 s)
+      +114.5 s            BGP Connect,      BFD Status: up
+  Peer, after:  "Last Reset ... Notification sent (Hold Timer Expired)"; BFD still up
+  -> The session WAS terminated, but by the BGP hold timer, not by BFD. BFD stayed up
+     throughout. That is correct BFD behaviour: the ACL passes BFD's UDP, so the forwarding
+     path BFD monitors never failed.
 
-So the DUT accepts the BGP-side configuration but exposes no BFD session view,
-and the AR4050S will not take the peer half at all. A BFD session needs both
-ends; with one end unable to configure it and no way to observe a session on
-the other, the case's first assertion ("BFD session should be up and no errors
-should be seen") cannot be evaluated.
+  Supplementary (2b): the same ACL, with BFD's own traffic also denied ahead of the permit:
+    ipv6 access-list NOBFD38430 { deny tcp any any; deny udp any any eq 3784;
+                                  deny udp any any eq 3785; permit ipv6 any any }  on sa3
+    first DUT sample (~2 s after the rule readback, which itself took ~5 s):
+      BGP Connect, Up/Down 00:00:07 -- the session had already dropped
+      show bfd peer: Status: init -> down, Diagnostics: control detection time expired
+  -> BFD detected the loss (3 x 300 ms) and fall-over terminated BGP within seconds of the
+     filter being applied, instead of the 90 s hold time.
 
-The AW+ CLI wiki page `neighbor-fall-over-bfd-bgp.md` does not list the IE520
-among its platforms. That is consistent with what was measured, but it was
-TESTED rather than assumed -- the platform tables are a guide, not a gate
-(`ipv6-router-ospf-area.md` also omits the IE520 and that command works).
-
-NOT REACHED: the case's second half (apply an access-list on the peer to kill
-the BGP session and confirm BFD detects the failure faster than BGP hold time).
+NOTES
+  - The peer refuses the traffic-filter on the member ports of a static aggregator:
+    "% port1.0.9: Cannot attach ACL to an interface that is a member of a static-channel-
+    group. Try attaching the ACL to "sa" interface." It is accepted on sa3.
+  - In an IE520 hardware ACL, a rule added later without a sequence number goes to the END
+    (seq 12, after the permit), so it never matches. Rebuild the list to put a deny first.
+  - Neither unit logs a BFD or BGP state change in `show log`, including the hold-timer
+    expiry and the BFD down.
+  - `no service bfd` returns the console from (config) straight to exec on both units.
+  - Teardown: BGP, the addresses, the ACL and `service bfd` removed on both. Both running-
+    configs diff IDENTICAL against their pre-test copies.

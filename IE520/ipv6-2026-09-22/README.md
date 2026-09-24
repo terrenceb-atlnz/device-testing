@@ -1,6 +1,7 @@
 # IPv6 routing & protocol group — IE520, tb470, 2026-09-22
 
-16 cases. **6 PASS / 10 UNMEASURED.**
+16 cases. **14 PASS / 2 UNMEASURED.** (2026-09-24: the 7 IPv6 multicast cases re-run and PASS, after the
+bench gained two more host NICs on the stack — see the per-case logs; 38144.log has the topology.)
 
 | case | title | verdict |
 | --- | --- | --- |
@@ -10,10 +11,16 @@
 | [3111](3111.log) | BGP4+ Advertising Default Route | **PASS** (peer installs it) |
 | [3112](3112.log) | BGP4+ Establish peer and create prefixlist | **PASS** |
 | [3114](3114.log) | BGP4+ Disconnect / Reconnect Links | **PASS** (3/3) |
-| [38430](38430.log) | BGP4+ - BFD fall-over | **UNMEASURED** — peer can't configure BFD |
+| [38430](38430.log) | BGP4+ - BFD fall-over | **PASS** (re-run 2026-09-24, IE520-sa as peer; case-text issue) |
 | [3116](3116.log) | BGPv4 - Unicast Traffic | **UNMEASURED** — needs line rate |
 | [8770](8770.log) | IPv6 Neighbors - in silicon | **UNMEASURED** — needs ~5000 emulated neighbours |
-| [20930](20930.log) · [38144](38144.log) · [11722](11722.log) · [11736](11736.log) · [11740](11740.log) · [11724](11724.log) · [30681](30681.log) | IPv6 multicast / PIM-SMv6 (7 cases) | **UNMEASURED** — need more hosts than the bench has ports |
+| [38144](38144.log) | PIM-SMv6 - DUT can route IPv6 multicast traffic | **PASS** (re-run 2026-09-24) |
+| [11724](11724.log) | PIM-SMv6 - Multiple hosts joining different groups | **PASS** (re-run 2026-09-24) |
+| [11740](11740.log) | PIM-SMv6 - Different hosts joining same multicast group | **PASS** (re-run 2026-09-24) |
+| [11722](11722.log) | PIM-SSMv6 with multiple Source and Groups | **PASS** (re-run 2026-09-24) |
+| [11736](11736.log) | Sending leave for dynamic groups does not affect static groups | **PASS** (re-run 2026-09-24) |
+| [30681](30681.log) | IPv6 multicast routes time out once traffic stops | **PASS** (re-run 2026-09-24) |
+| [20930](20930.log) | IPv6 Static Multicast Routing - Interop with Static MLD | **PASS** (re-run 2026-09-24) |
 
 ## What was actually established
 
@@ -48,22 +55,29 @@ conclude the interface could not be attached at all — the command lives under
 > Note the IE520 is absent from several platform tables for commands that work
 > on it, so treat the tables as a guide, not a gate.
 
-## Why 10 are UNMEASURED — all bench, none product
+## Why 2 are UNMEASURED — all bench, none product
 
-- **7 multicast/PIM-SMv6 cases** need separate sources and receivers on
-  *different* DUT ports. Each IE520 member has one usable copper port, giving one
-  injection point and one observation point. "Different hosts joining different
-  groups" is not constructible.
+(The 7 multicast/PIM-SMv6 cases were UNMEASURED here on 2026-09-22 for want of
+receivers; they were re-run and PASS on 2026-09-24.)
+
 - **3116** is a line-rate claim; this harness peaks at ~26 Mbps.
 - **8770** needs ~5000 *responding* neighbours.
-- **38430** needs BFD at both ends; the DUT accepts the BGP-side config but the
-  AR4050S rejects it and the DUT exposes no `show bfd session`.
+- (38430 was here on 2026-09-22; re-run 2026-09-24 with `service bfd` and the IE520-sa as
+  peer — PASS, see its log.)
 
 IPv6 itself is well exercised across the campaign — ND (8734), unicast routing
 (38427), multicast forwarding and MLD snooping (switching 10300/10304), IPv6 ACLs
 (ACL 929/931/963) and IPv6 QoS classification (QoS 13819).
 
 ## Bench state at exit
+
+**2026-09-24 re-run:** all IPv6 multicast config removed from the stack. Its
+`show running-config` diffs clean against the pre-test copy: no PIM6, MLD, static
+route, VLANs 20/30 or IPv6 addresses. port3.0.9 and port3.0.13 are back in vlan1.
+IE520-sa's `ipv6 mld snooping` is restored on vlan1. `no service pim6` reports "save
+and restart to take effect". Host paths eth1/eth2/eth3 are at 0% loss.
+
+2026-09-22:
 
 All routing config removed from both devices: no BGP, no OSPFv3, no prefix-list,
 vlan10 back to IPv4-only (`10.10.10.1/27`). Stack `Normal operation`, transit

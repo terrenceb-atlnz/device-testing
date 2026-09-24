@@ -1,6 +1,6 @@
 ---
 name: awplus-service-gated-routing-daemons
-description: "On IE520 awplus_main, OSPF/RIP/VRRP/PIM-SM reject with \"daemon is not running or feature license is not available\" until `service ospf|rip|vrrp|pim` is issued — NOT a licence problem; never declare a feature unavailable from one rejected command"
+description: "On IE520 awplus_main, OSPF/RIP/VRRP/PIM-SM/PIM6/BFD reject with \"daemon is not running (or feature license…)\" until `service ospf|rip|vrrp|pim|pim6|bfd` is issued — NOT a licence problem; never declare a feature unavailable from one rejected command (a 09-22 BFD verdict was)"
 metadata: 
   verified: 2026-09-23
   node_type: memory
@@ -48,6 +48,14 @@ Two more from the same session: **`service bgp` is `% Incomplete command` on the
 identical across platforms. And `no service ospf6` still reports "Save the config and restart
 for this change to take effect" — the daemon lingers until reboot, which is harmless once
 nothing references it.
+
+**AGAIN 2026-09-24: BFD and PIM6.** `show bfd peer` says `% BFD protocol daemon is not
+running` until `service bfd`. The 2026-09-22 38430 verdict ("the DUT exposes no BFD session
+view") was built on never running it, and on `show bfd session`, which is not an AW+ command
+(it is `show bfd peer`). With `service bfd` on both IE520s, BFD came up and fall-over worked.
+`ipv6 multicast-routing` likewise needs `service pim6` first. The AR4050S has no BFD CLI at
+all, and the x230 has neither BFD nor BGP, so the gating set really does differ per
+platform. `no service bfd` drops the console out of config mode.
 
 **How to apply:** when an AW+ protocol command says "daemon is not running", check
 `show running-config | include service` and the corpus for `service <daemon>` BEFORE concluding

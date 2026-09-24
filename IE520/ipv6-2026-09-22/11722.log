@@ -1,35 +1,30 @@
 TEST 11722 -- PIM-SSMv6 with multiple Source and Groups
 ===========================================================================
-Run: 2026-09-22, tb470
+Run:    2026-09-24 (device clock 2026-09-24 ~03:05-03:10 UTC), tb470
+Build:  awplus_main-20260923-20
+DUT:    IE520 3-member VCStack "IE520-stk", sole PIM-SMv6 router and RP
+Setup:  as 38144.log (same session): source eth3 -> port3.0.9 vlan30 (RP fd32:b1f0:dff8:d703::10);
+        receiver eth1 -> port3.0.13 vlan20; receiver eth2 -> IE520-sa -> sa3 -> vlan1.
+        Receivers are tb470 kernel MLDv2 joins; sources are 20 frames each from eth3;
+        counts are taken on the wire. Baseline with multicast routing off: 0/20 on both
+        receivers (38144.log).
+        (Replaces the 2026-09-22 UNMEASURED "needs more hosts".)
+SSM:    `ipv6 pim ssm default` (ff3x::/32).
 
-VERDICT: UNMEASURED -- BENCH LIMIT: IPv6 multicast routing needs more hosts
-         than this bench has ports.
+VERDICT: PASS -- PIM joins exactly the source named in each MLDv2 report.
 
-Every case in this set requires an IPv6 multicast topology with SEPARATE
-sources and receivers on DIFFERENT DUT ports -- multiple hosts joining the same
-group, different hosts joining different groups, leaves from dynamic groups,
-and routes ageing out when a source stops. Each of those is a statement about
-traffic to one port versus another.
+STEP 1 -- "Send in streams for the same group but from different sources, send in a join for
+          a specific group" -> "PIM should join the correct source specified in the MLD v2 packet"
+  eth1: MLDv2 join (ff3e::1:400, source fd32:b1f0:dff8:d703::1)
+  eth2: MLDv2 join (ff3e::1:400, source fd32:b1f0:dff8:d703::2)
+      stream to ff3e::1:400        eth1 (vlan20)   eth2 (vlan1)
+      from S1 ...d703::1             20/20           0/20
+      from S2 ...d703::2              0/20          20/20
 
-THE PORT BUDGET IS THE BLOCKER. Each IE520-28GSX member has exactly ONE usable
-copper port; the rest are empty SFP cages:
-    port1.0.2  -> x230 (the egress/observation path)
-    port2.0.2  -> tb470 eth2 (the only injection point)
-    port3.0.2  -> no cable
-    port4.0.2  -> the LAG to the AR4050S
-That gives one source and one observation point. A source and two independent
-receivers -- the minimum for "different hosts joining different groups" -- is
-not constructible.
-
-WHAT IS PROVEN ELSEWHERE, on the same platform and path:
-  - IPv6 multicast FORWARDING and MLD snooping behave correctly: snooping
-    disabled floods 10/10, enabled prunes to 1/10 then 0/10
-    (switching T10300 / T10304).
-  - IPv6 unicast routing via OSPFv3 installs learned prefixes (T38427), and
-    IPv6 neighbour discovery answers correctly (T8734).
-So IPv6 itself is exercised; what is missing is the multi-host multicast
-topology these particular cases are written around.
-
-TO UNBLOCK: at least two more cabled ports on the DUT (ideally a traffic
-generator acting as several receivers), which is the same recable that unblocks
-the ACL/QoS LAG cases and the guest-VLAN group.
+      show ipv6 mld groups detail:
+        vlan20 (port3.0.13)  ff3e::1:400  Group mode: Include   source fd32:b1f0:dff8:d703::1  Fwd Yes
+        vlan1 (sa3)          ff3e::1:400  Group mode: Include   source fd32:b1f0:dff8:d703::2  Fwd Yes
+      show ipv6 mroute ff3e::1:400:
+        (fd32:b1f0:dff8:d703::1, ff3e::1:400) PIM-SMv6 TF  in vlan30  out vlan20
+        (fd32:b1f0:dff8:d703::2, ff3e::1:400) PIM-SMv6 TF  in vlan30  out vlan1
+      show ipv6 pim sparse-mode mroute ff3e::1:400: both (S,G) Upstream State JOINED, SPT bit 1

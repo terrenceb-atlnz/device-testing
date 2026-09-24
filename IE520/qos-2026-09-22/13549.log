@@ -1,25 +1,63 @@
 TEST 13549 -- QoS: switchport interface - defaults to strict priority queueing
 ===========================================================================
-Run: 2026-09-22, tb470
+Run:    2026-09-24 ~15:55-16:10 NZST, tb470
+Build:  awplus_main-20260923-20
+DUT:    IE520 3-member VCStack "IE520-stk"
+        (Replaces the 2026-09-22 UNMEASURED "requires congestion this bench cannot create".
+        The bench now has two host NICs that can drive ingress, and tb470 has tcpreplay,
+        which sends ~983 Mbps per NIC.)
 
-VERDICT: UNMEASURED -- requires congestion this bench cannot create.
+VERDICT: PASS -- the default scheduler is strict priority: 100% of the higher queue is
+         transmitted, and the lower queue gets only what is left. This holds in both
+         directions, so it follows the queue, not the port.
 
-The case's own method: "Use 2 x 1gig input to egress a single 1 gig port, to
-create congestion. 1 ingress stream set to use particular egress queue. 2nd
-egress stream to use a different queue."
+TOPOLOGY (temporary, reverted -- see teardown)
+  Two ingress streams, each ~983 Mbps (tcpreplay --topspeed, 1518-byte tagged frames,
+  10 s, simultaneous), converge on ONE 1G egress:
+      ingress A  tb470 eth3 -> port3.0.9 (member 3), trunk, vlan 50 tagged
+      ingress B  tb470 eth2 -> IE520-sa port1.0.2 (trunk, vlan 50) -> sa3 (trunk, vlan 50)
+                 -> enters the stack on members 1/4
+      egress     port3.0.13 (member 3), access vlan 50 -> tb470 eth1
+  Queue selection = the 802.1p PCP in the tag ("Ingress traffic should be tagged").
+  Received counts: tcpdump on eth1, one per source MAC, all with "0 packets dropped by
+  kernel". Cross-checked against the DUT's egress queue counters on port3.0.13.
+  eth1 sends a 1 pps learn frame so its MAC stays known in vlan 50.
 
-Strict-priority queueing is only OBSERVABLE under congestion -- with an
-uncongested egress every queue drains and all streams pass, so the scheduler's
-priority order has no effect to measure. Creating congestion needs TWO 1 Gbps
-ingress streams converging on one 1 Gbps egress.
+STEP -- "Default config: sho mls qos int portx.x.x"
+  mls qos enable (y/n prompt: y); no scheduling config applied.
+  show mls qos interface port3.0.13: "Scheduler-set: None", 8 egress queues, each
+    Status Enabled, Queue Limit 12%, Egress Rate Limit 0 Kb; Trust Mode: Ports default priority
+  (No scheduler-set = the strict-priority default. The per-queue text does not print the
+  word "strict"; the behaviour below is the evidence.)
+  show mls qos maps cos-queue:  COS 0 1 2 3 4 5 6 7 -> QUEUE 2 0 1 3 4 5 6 7
 
-This bench has ONE usable ingress port. Each IE520-28GSX member has exactly
-one copper port: port1.0.2 is the egress (to the x230), port2.0.2 is the
-ingress, port3.0.2 has no cable, port4.0.2 is the LAG to the AR4050S. There is
-no second cabled ingress, and scapy from a single host peaks at ~26 Mbps in
-this harness -- 2.5% of what is needed to congest a gigabit port.
+TRAFFIC -- "100% of traffic from higher queue number should always be transmitted. Only
+           buffered packets for lower queue should be transmitted."
+  run                                  eth3 (A) rx/sent       eth2 (B) rx/sent       queues (port3.0.13)
+  R0 both PCP 0 (same queue)           380936/819501  46.5%   443252/817501  54.2%   both Q2
+  RA A=PCP5 (Q5), B=PCP2 (Q1)          819501/819501 100.0%     4660/817001   0.6%   Q5 tx 819501; Q1 drop 812341
+  RB A=PCP2 (Q1), B=PCP5 (Q5)            8025/818001   1.0%   815501/815501 100.0%   Q5 tx 815501; Q1 drop 809976
+  RC A=PCP2 top, B=PCP5 at 600 Mbps    323762/820501  39.5%   500000/500000 100.0%   Q5 tx 500000; Q1 tx 323762
+  - The higher queue is delivered 100% in every run, whichever port and member it enters on
+    (RA vs RB).
+  - The lower queue gets only the leftover: ~0.6-1% against a line-rate higher queue, and
+    ~384 Mbps (1G - 600M) in RC.
+  - With both streams in the same queue (R0), the egress shares roughly evenly.
 
-TO CLOSE: a second cabled ingress port and a line-rate traffic source.
-Both are bench-access items. The default queueing configuration itself can be
-read with `show mls qos interface <port>` without traffic, but that shows
-configuration, not behaviour, and is not what the case asks for.
+NOTES -- queue assignment for UNTAGGED traffic (a separate observation, not graded here;
+         CAMPAIGN-QUEUE I-17)
+  A first attempt used untagged frames, with the ingress CoS set per port, which is this
+  case's sister 13553's method. Egress queue counters on port3.0.13 showed:
+  - Untagged traffic entering on member 3 (port3.0.9) went to Q2 (CoS 0 -> Q2, per the map).
+  - The same untagged traffic entering on members 1/4 (via sa3) went to Q0, with QoS off and
+    with QoS on. Under strict priority that local stream beat it every time (e.g. 820501/820501
+    vs 2672/822501).
+  - `mls qos cos 5` on port3.0.9 was accepted (`show mls qos interface port3.0.9`: "Default
+    CoS: 5"), but that port's untagged traffic stayed in Q2 instead of moving to Q5.
+  Tagged traffic follows the map from either member (above), which is why the case's own
+  "tagged" setup was used for the verdict.
+
+TEARDOWN
+  no mls qos (y/n: y); ports and sa3 back to access; vlan 50 removed on both units.
+  Stack and IE520-sa running-configs diff IDENTICAL against their pre-test copies;
+  show mls qos: Disable. Host paths eth1/eth2/eth3: 0% loss.

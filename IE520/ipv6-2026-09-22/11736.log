@@ -1,35 +1,27 @@
 TEST 11736 -- Sending leave for dynamics groups, making sure does not effect static groups
 ===========================================================================
-Run: 2026-09-22, tb470
+Run:    2026-09-24 (device clock 2026-09-24 ~03:05-03:10 UTC), tb470
+Build:  awplus_main-20260923-20
+DUT:    IE520 3-member VCStack "IE520-stk", sole PIM-SMv6 router and RP
+Setup:  as 38144.log (same session): source eth3 -> port3.0.9 vlan30 (RP fd32:b1f0:dff8:d703::10);
+        receiver eth1 -> port3.0.13 vlan20; receiver eth2 -> IE520-sa -> sa3 -> vlan1.
+        Receivers are tb470 kernel MLDv2 joins; sources are 20 frames each from eth3;
+        counts are taken on the wire. Baseline with multicast routing off: 0/20 on both
+        receivers (38144.log).
+        (Replaces the 2026-09-22 UNMEASURED "needs more hosts".)
+Case:   "Same test setup as AW+_3506" (not in ck.db). Interpreted: a static MLD group and a
+        dynamic group on the same receiver interface; the host joins both, then leaves both.
 
-VERDICT: UNMEASURED -- BENCH LIMIT: IPv6 multicast routing needs more hosts
-         than this bench has ports.
+VERDICT: PASS -- the leave removes the dynamic group and leaves the static group forwarding.
 
-Every case in this set requires an IPv6 multicast topology with SEPARATE
-sources and receivers on DIFFERENT DUT ports -- multiple hosts joining the same
-group, different hosts joining different groups, leaves from dynamic groups,
-and routes ageing out when a source stops. Each of those is a statement about
-traffic to one port versus another.
+      vlan20: ipv6 mld static-group ff1e::1:500
+      eth1 dynamically joins ff1e::1:500 AND ff1e::1:501
 
-THE PORT BUDGET IS THE BLOCKER. Each IE520-28GSX member has exactly ONE usable
-copper port; the rest are empty SFP cages:
-    port1.0.2  -> x230 (the egress/observation path)
-    port2.0.2  -> tb470 eth2 (the only injection point)
-    port3.0.2  -> no cable
-    port4.0.2  -> the LAG to the AR4050S
-That gives one source and one observation point. A source and two independent
-receivers -- the minimum for "different hosts joining different groups" -- is
-not constructible.
-
-WHAT IS PROVEN ELSEWHERE, on the same platform and path:
-  - IPv6 multicast FORWARDING and MLD snooping behave correctly: snooping
-    disabled floods 10/10, enabled prunes to 1/10 then 0/10
-    (switching T10300 / T10304).
-  - IPv6 unicast routing via OSPFv3 installs learned prefixes (T38427), and
-    IPv6 neighbour discovery answers correctly (T8734).
-So IPv6 itself is exercised; what is missing is the multi-host multicast
-topology these particular cases are written around.
-
-TO UNBLOCK: at least two more cabled ports on the DUT (ideally a traffic
-generator acting as several receivers), which is the same recable that unblocks
-the ACL/QoS LAG cases and the guest-VLAN group.
+  BEFORE the leave
+      show ipv6 mld groups:  ff1e::1:500 vlan20 Expires "static";  ff1e::1:501 vlan20 00:04:17
+      traffic to eth1:       ff1e::1:500 20/20,  ff1e::1:501 20/20
+  eth1 leaves both groups (the kernel's MLDv2 leave when the join sockets close)
+  AFTER the leave (8 s)
+      show ipv6 mld groups:  ff1e::1:500 vlan20 Expires "stopped" (still listed); ff1e::1:501 GONE
+      traffic to eth1:       ff1e::1:500 20/20 (static, unaffected),  ff1e::1:501 0/20
+      show ipv6 mroute ff1e::1:500 -> out vlan20;  ff1e::1:501 -> empty outgoing list

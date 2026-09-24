@@ -1,6 +1,6 @@
 ---
 name: tb470-bench-structural-limits
-description: "What the tb470 bench physically cannot test and why. CORRECTED 2026-09-23: the port limit was UNCABLED ports + host-NIC count, not one copper port per member; three patch leads on 09-23 removed much of it. Real remaining limits: ~26 Mbps offered load, no MRP partners, no TACACS+, no ixia."
+description: "What the tb470 bench physically cannot test and why. CORRECTED 2026-09-23 (port limit was uncabled ports) and 2026-09-24 (NO rate limit: tcpreplay drives ~983 Mbps per NIC, line rate). Real remaining limits: no MRP partners, no TACACS+, no ixia-style multi-stream analyser, the SA↔x230 SFP+ link is faulty."
 metadata:
   node_type: memory
   type: project
@@ -40,7 +40,19 @@ straddling pair that existed was broken when `port1.0.2` was recabled to the x23
 **ONE RECABLE is the highest-value bench change available** — a second cabled port, ideally
 on a different stack member, unblocks roughly 14 cases across four groups.
 
-## 2. No line rate — scapy peaks at ~26 Mbps
+## 2. ~~No line rate — scapy peaks at ~26 Mbps~~ — WRONG, corrected 2026-09-24
+
+**Superseded.** `tcpreplay` 4.5.1 is installed on tb470. `tcpreplay -i ethN --topspeed
+--duration=10 --loop=0 <500-frame pcap>` drives **~983 Mbps per NIC**, two NICs at once, which
+is line rate on the 1G edges. Count exactly at the receiver with one
+`tcpdump -w /dev/null ether src <mac>` per stream: it stays exact while it reports "0 packets
+dropped by kernel". On 2026-09-24 this unblocked strict-priority/WRR (13549/13553), the
+guest-VLAN rate halves (28126–28129) and the QoS finding. 3116/12067 (ruled skip) are now
+measurable too. The only limit left is scapy itself (~26 Mbps), so don't use it for load.
+Also present, unused: `pktgen.ko`. Recipe: SESSION-HANDOVER-2026-09-24 §E. See
+[[campaign-measurement-discipline]].
+
+### original text
 
 2.6% of a gigabit port. Anything whose assertion is a RATE claim cannot be discriminated:
 strict-priority/WRR queueing (needs congestion), 802.3x flow control (needs a congested

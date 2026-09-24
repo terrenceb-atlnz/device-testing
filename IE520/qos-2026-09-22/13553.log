@@ -1,29 +1,37 @@
 TEST 13553 -- QoS: switchport interface - wrr weightings applied
 ===========================================================================
-Run: 2026-09-22, tb470
+Run:    2026-09-24 ~16:10-16:15 NZST, tb470
+Build:  awplus_main-20260923-20
+DUT:    IE520 3-member VCStack "IE520-stk"
+Setup:  same topology and measurement as 13549.log (same session): two ~983 Mbps tagged
+        streams converge on port3.0.13, counted per source MAC on eth1 (0 kernel drops)
+        and on the DUT's egress queue counters.
+        eth3 -> port3.0.9 frames carry PCP 5 (-> Q5); eth2 -> SA -> sa3 frames carry PCP 4 (-> Q4).
+        (Replaces the 2026-09-22 UNMEASURED "requires congestion".)
 
-VERDICT: UNMEASURED -- requires congestion this bench cannot create.
+VERDICT: PASS -- the received ratio between the two WRR queues matches the configured weights.
 
-The case's own method: "Use 2 x 1gig input to egress a single 1 gig port, to
-create congestion. 1 ingress stream set to use particular egress queue. 2nd
-egress stream to use a different queue."
+DEVIATIONS FROM THE CASE TEXT (both forced by the platform)
+  - The case assigns CoS with `mls qos cos 5` / `mls qos cos 4` on untagged ingress ports.
+    On this build a port's default CoS does not change the queue of its untagged traffic
+    (13549.log NOTES, CAMPAIGN-QUEUE I-17), so the CoS is carried in the 802.1p tag instead.
+  - The case's interface command `wrr-queue weight <w> queues <q>` does not exist on the
+    IE520 (`% Invalid input` at "queues"). WRR is set through a scheduler-set:
+      mls qos scheduler-set 1 wrr-queue group 1 weight <6-255> queues 5
+      mls qos scheduler-set 1 wrr-queue group 1 weight <6-255> queues 4
+      interface port3.0.13 / mls qos scheduler-set 1
+    show mls qos interface port3.0.13 -> "Scheduler-set: 1".
+    (`show mls qos scheduler-set 1` answers "% Invalid input".)
 
-Strict-priority queueing is only OBSERVABLE under congestion -- with an
-uncongested egress every queue drains and all streams pass, so the scheduler's
-priority order has no effect to measure. Creating congestion needs TWO 1 Gbps
-ingress streams converging on one 1 Gbps egress.
+STEP -- "Transmit traffic 2 x 1gig destined for two wrr queues" -> "The output should reflect
+        the ratio of wrr weightings"
+  weights Q5:Q4   eth3 (Q5) rx/sent        eth2 (Q4) rx/sent        received Q5:Q4   queue counters Q5 tx / Q4 tx
+  30:10           616879/819501  75.3%     206373/818001  25.2%     2.99 : 1         616879 / 206383
+  10:30           206492/818001  25.2%     616867/815501  75.6%     0.33 : 1         206492 / 616878
+  20:20           412075/817001  50.4%     412570/819501  50.3%     1.00 : 1         412075 / 412581
+  The egress carries ~823k frames per 10 s (line rate) in every run. It is divided between
+  the two queues in the configured ratio to within 1%, and it follows the weights when they
+  are reversed.
 
-This bench has ONE usable ingress port. Each IE520-28GSX member has exactly
-one copper port: port1.0.2 is the egress (to the x230), port2.0.2 is the
-ingress, port3.0.2 has no cable, port4.0.2 is the LAG to the AR4050S. There is
-no second cabled ingress, and scapy from a single host peaks at ~26 Mbps in
-this harness -- 2.5% of what is needed to congest a gigabit port.
-
-TO CLOSE: a second cabled ingress port and a line-rate traffic source.
-Both are bench-access items. The default queueing configuration itself can be
-read with `show mls qos interface <port>` without traffic, but that shows
-configuration, not behaviour, and is not what the case asks for.
-
-CASE-SPECIFIC NOTE: this case asks that "the output should reflect the ratio of
-wrr weightings". A ratio between queues can only appear when the queues are
-backlogged, i.e. under the same congestion T13549 needs. Identical blocker.
+TEARDOWN: as 13549.log (no mls qos; scheduler-set removed from port3.0.13; vlan 50 and the
+  trunks reverted). Both units diff IDENTICAL against their pre-test copies.
