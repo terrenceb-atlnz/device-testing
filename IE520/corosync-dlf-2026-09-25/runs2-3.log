@@ -1,0 +1,58 @@
+COROSYNC FLOW-CONTROL BUG -- DLF runs 2 and 3 (non-master ingress; both directions at once)
+===========================================================================
+Run:    2026-09-25 11:32-11:38 NZST (device clock 23:32-23:38 UTC 09-24), tb470
+Build:  awplus_main-20260923-20 (stack and IE520-sa)
+DUT:    IE520 3-member VCStack "IE520-stk", members 1/3/4, member 3 = Active Master, all
+        Ready, Normal operation. Static LAG sa3 (stack port1.0.13 + port4.0.9 <-> IE520-sa
+        port1.0.13 + port1.0.9) carries eth2's traffic INTO the stack on members 1 and 4.
+Bug:    see warmup-run1.log (corosync "Enabling/Disabling flow control" log storm with
+        `terminal monitor` on while DLF crosses the stack link).
+
+VERDICT: NOT REPRODUCED. Line-rate DLF into the non-master members (run 2), and line-rate
+         DLF into the master AND the non-master members at the same time (run 3), were
+         flooded in hardware with the expected egress behaviour, the CPUs saw ~1,000
+         packets per window, and the stack logged NOTHING: no corosync line, no "flow
+         control" line, one dhclient Solicit on the console in six minutes.
+
+SETUP (as run 1; sender frames 1496 B built = 1500 on the wire, dst 02:00:00:00:99:99,
+       UDP 5010 -> 10, never learned -- MAC gate confirmed absent before the runs)
+  tb eth2 (00f0.4d00.7717) -> IE520-sa port1.0.2 -> sa3 -> stack members 1 + 4   sender 2
+  tb eth3 (00f0.4d00.7718) -> master port3.0.9                                    sender 3
+  tb eth1 (00f0.4d00.7716) -> master port3.0.13                                   receiver
+  tcpreplay --topspeed --loop=0 --duration=10 per sender; tcpdump -w /dev/null per
+  (receiver, sender) pair filtered on the sender's MAC + UDP sport 5010; kernel drops 0.
+
+RUN 2 -- DLF from eth2 only (ingress IE520-sa, enters the stack on members 1/4 via sa3)
+  window 11:34:24-11:34:34   sent eth2 822,501 @ 984.2 Mbps, 82,234 pps
+  rx eth1 <- eth2  822,501 (100%)      rx eth3 <- eth2  822,501 (100%)
+  CPU rx per member (sdma rxDmaPcktCnt, clear-on-read; before-run values are the
+  accumulation since run 1): before {1: 28,057, 3: 34,154, 4: 29,808}; during/after run 2
+  {1: 950, 3: 1,169, 4: 1,008} -- the flood stayed in hardware on every member.
+  `show log | include flow control` after: only the command's own echo.
+
+RUN 3 -- DLF from eth3 (master) and eth2 (via sa3 -> members 1/4) AT ONCE
+  window 11:35:04-11:35:14   sent eth3 800,001 @ 957.4 Mbps   eth2 822,001 @ 983.6 Mbps
+  rx eth1 <- eth2  387,019   rx eth1 <- eth3  436,247   (sum 823,266 = eth1's 1G egress
+                                                          saturated by two 1G floods; the
+                                                          drop is egress congestion, ~47/53)
+  rx eth2 <- eth3  800,001 (100%)      rx eth3 <- eth2  822,001 (100%)
+  CPU rx per member after run 3: {1: 1,274, 3: 1,540, 4: 1,357}.
+  Console during the run (`terminal monitor`): one line, "dhclient: XMT: Solicit on vlan1".
+
+AFTER (23:37 UTC): `show log | include corosync` and `| include flow control` list only
+  the IMISH echoes of those commands (23:15, 23:20, 23:34, 23:37). `terminal no monitor`
+  sent; console left at the exec prompt.
+
+NOTES
+  - Two senders at once: tcpreplay on eth3 fell to 957 Mbps while eth2 held 984 -- the
+    host, not the DUT (the same NIC did 984 alone in run 1).
+  - Together with run 1 this covers: DLF into the master, into the non-master members, and
+    into both simultaneously, each at 1G line rate with 1500-byte frames, for 10 s. On this
+    build the corosync symptom did not appear. What this bench cannot do: 10G ingress, or a
+    DIRECT NIC on member 1 (eth2's path enters via the SA and the LAG). Terrence's planned
+    recable (an eth port from u5 to member 1, replacing the x230 link) gives the direct
+    member-1 ingress; repeat run 3 after it.
+  - Method file: the drivers (tdlf1.py, tdlf2.py) live in the session scratchpad; recipe =
+    scapy-built pcap of 500 identical 1496-B frames, tcpreplay --topspeed, tcpdump counting
+    with -s 64 -B 65536, sdma read before/after, `terminal monitor` on the master console
+    read by a thread that logs each line as it arrives.
