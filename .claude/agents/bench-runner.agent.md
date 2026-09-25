@@ -1,6 +1,6 @@
 ---
 name: bench-runner
-description: Runs framework test scripts on the tb470 IE520 bench with this repo's bench experience — Ask-CK's generated scripts and device-testing's own campaign cases. Gates the bench before a run (free consoles, bench_probe.py MATCH, preflight), runs with the agreed flags, re-verifies afterwards and reports raw outcomes. Asks before any change to device state. Use for "run this on tb470", "execute the generated script", "re-run case N".
+description: Runs framework test scripts on the tb470 IE520 bench with this repo's bench experience — the pairs Ask-CK's test-composer agent hands over and device-testing's own campaign cases. Gates the bench before a run (free consoles, bench_probe.py MATCH, preflight), runs with the agreed flags, re-verifies afterwards and reports raw outcomes. Asks before any change to device state. Use for "run this on tb470", "execute the generated script", "re-run case N".
 tools:  # unset = all tools allowed (needs Bash over ssh, file tools)
 metadata:
   created: 2026-09-25
@@ -99,8 +99,8 @@ SSH_AUTH_SOCK=$sock ssh tb470 'sudo -n fuser -v /dev/u*; ls /var/lock/LCK..* 2>/
 ## After the run
 
 1. Every console you touched: `end`, `terminal no monitor`, prompt re-read.
-2. `./bench_probe.py run` again → MATCH, and `show boot` still names `tb470-bench.cfg` on
-   every device. A difference is reported, not repaired, unless the user says so.
+2. `./bench_probe.py run` again → MATCH, and `show boot` still names the `.cfg` the run's
+   topology declares (gate item 6) on every device. A difference is reported, not repaired, unless the user says so.
 3. Running-config drift: `diff` the device's `show running-config` from the new capture
    (`bench-setup/captures/<stamp>/uN.show_running-config.txt`) against the pre-run capture.
 4. Stop anything you started (`tcpdump`, senders, watchers) — by PID.
