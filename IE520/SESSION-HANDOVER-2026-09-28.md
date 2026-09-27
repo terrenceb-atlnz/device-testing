@@ -190,10 +190,11 @@ memory `ie520-dos-test-method`.
 wiki-listed x230/4050, so the same stimulus could not be shown detecting on a platform that
 supports it. Confirm on a reference platform before filing the defect.
 
-**Follow-up (not done):** `Test-cases/ask-ck/functions/test-composer/dos_campaign.py` still has the
-two bugs behind the old wrong result — `b_ipoptions` builds the illegal multicast source MAC
-`01:00:01:00:00:01`, and `run_case` grades ipoptions "N/A (needs L3 routed path)". A Test-cases
-session should fix both (valid unicast src MAC; grade FAIL when armed+attack does not err-disable).
+**Follow-up (DONE 2026-09-28, Test-cases `a41e838`):** `dos_campaign.py` fixed — all six builders
+use the sending NIC's valid unicast MAC (not the illegal `01:00:01:00:00:01`); ipoptions is graded
+like every case (armed+attack must err-disable or FAIL); the "N/A (needs L3)" branch removed; and
+the stale bench parameters refreshed to the standing 2026-09-27 topology with a reconcile-vs-
+bench-state.md header.
 
 **Bench state:** unchanged and MATCH. All scratch config (vlan90/SVI, port move, host IP, dos arm)
 reverted; `bench_probe.py run` = MATCH after the run; tb470:/tmp/ckdos removed.

@@ -31,7 +31,7 @@ robust to the err-disable-recovery timing flake.
    source MAC on BOTH a bridged path AND a genuinely routed path (scratch vlan90 SVI, dst = stack
    router MAC), RR and illegal LSRR options (wire-verified ihl 6/7), ~3200 pps vs a 20 pps
    threshold. The earlier 'needs L3 routed path' theory is DISPROVEN; the 2026-09-04 illegal
-   multicast source MAC (01:00:01:00:00:01, still in dos_campaign.py's b_ipoptions) was a real bug
+   multicast source MAC (01:00:01:00:00:01, fixed in dos_campaign.py 2026-09-28, Test-cases a41e838) was a real bug
    but not the cause. The other five DoS types fire on this bench, so the engine + method work —
    ipoptions specifically does not. CONTROL (2026-09-28): x230 detects the same stimulus (Attacks
    detected 1, err-disable); the AR4050S build has no `dos` feature at all. So it is a CONFIRMED
