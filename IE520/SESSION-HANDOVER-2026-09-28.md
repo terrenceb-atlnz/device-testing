@@ -79,8 +79,12 @@ Inferred: 09-25's successful x230 reads were timing luck under the same bug.
 ## 4. OPEN
 
 - **x230 `exec-timeout 0 0`** — keep/save or remove? (Terrence.)
-- **PDU 10.36.150.14** — Terrence was plugging it back in this session; not re-checked. Until it
-  answers, any `powerlink` step hits the framework's silent-False path.
+- ~~**PDU 10.36.150.14** — Terrence was plugging it back in this session; not re-checked.~~
+  **RESOLVED 2026-09-28:** Terrence confirmed the PDU is up; verified reachable from tb470
+  (`ping 10.36.150.14` = 0% loss). `powerlink` power-cycle steps work again (it was unplugged for
+  the 09-24 network upgrade). No memory recorded the down-state — it lived only in the 09-24/25
+  handovers; the one memory that names the PDU (`ie520-bootloader-console-driving`) already had it
+  working. tb470.static's `[pdu] ip = 10.36.150.14` is unchanged and correct.
 - **The x230's ACCESS licence retry** (from 09-25) — status not checked this session.
 - **restore_cfg.py** still needs generalising (paths, tty map, file name) before Test Composer's
   "load `<setup>.<device>.cfg` onto `<device>`" can use it.
