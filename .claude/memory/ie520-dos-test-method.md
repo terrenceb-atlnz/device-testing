@@ -1,6 +1,6 @@
 ---
 name: ie520-dos-test-method
-description: How to run the AWPTCM DoS suite (T5437-5442) on the tb470 IE520 bench — transit traffic, batched senders, disarm syntax; ipoptions RESOLVED 2026-09-28 = FAIL (armed but 0 detections, any path) — candidate product defect
+description: How to run the AWPTCM DoS suite (T5437-5442) on the tb470 IE520 bench — transit traffic, batched senders, disarm syntax; ipoptions RESOLVED 2026-09-28 = FAIL, CONFIRMED IE520 defect (x230 detects same stimulus; 4050 lacks the feature)
 metadata:
   type: reference
 ---
@@ -33,7 +33,9 @@ robust to the err-disable-recovery timing flake.
    threshold. The earlier 'needs L3 routed path' theory is DISPROVEN; the 2026-09-04 illegal
    multicast source MAC (01:00:01:00:00:01, still in dos_campaign.py's b_ipoptions) was a real bug
    but not the cause. The other five DoS types fire on this bench, so the engine + method work —
-   ipoptions specifically does not. Caveat: no cross-platform control (no host NIC on x230/4050).
+   ipoptions specifically does not. CONTROL (2026-09-28): x230 detects the same stimulus (Attacks
+   detected 1, err-disable); the AR4050S build has no `dos` feature at all. So it is a CONFIRMED
+   IE520-specific defect, safe to file.
    Verdict: teardrop/land/ping-of-death/smurf/synflood PASS; ipoptions FAIL. Detail: 5437.log.
 
 Pass criterion: armed+attack → port `err-disable` (`show dos interface`, Attacks detected > 0);

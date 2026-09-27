@@ -56,7 +56,12 @@ The other five DoS types fire on this same bench, so the DoS engine and the tran
 on the IE520 — ipoptions specifically is a no-op. Arming works on a master-member port; the old
 port1.0.1 'Cannot update hardware filter' was member-1-specific. One caveat: no cross-platform
 control was run (no host NIC lands directly on the wiki-listed x230/4050), so confirm on a
-reference platform before filing. Full method + evidence: 5437.log.
+**Cross-platform control done 2026-09-28 (caveat resolved).** eth3 recabled to reference
+platforms: the AR4050S build (arc-awplus_main-20260924-26) has NO `dos` switchport feature at all
+(`dos ?`/`show dos` unrecognized) — not a usable control. The x230-10GP (which HAS the feature)
+DID detect: armed `dos ipoptions` on port1.0.1, fired the same Record-Route frames from eth3 ->
+Attacks detected : 1, port err-disable, immediately. So the IE520's 0-detections is a genuine
+IE520-specific defect, safe to file. Full method + evidence: 5437.log.
 
 ## The tool (version-tracked)
 `claude/Test-cases/ask-ck/test-composer/dos_campaign.py` — the whole suite in one file:

@@ -5,7 +5,10 @@ on BOTH the bridged and a genuinely routed path (scratch vlan90 SVI, dst = stack
 RR and LSRR options wire-verified, ~3200 pps: `dos ipoptions` armed but counted 0 and never shut
 the port. The 'needs L3 routed path' theory below is DISPROVEN. Arming works on a master-member
 port (the old port1.0.1 'Cannot update hardware filter' was member-1-specific). Full result and
-method: ../5437.log. The notes below are the historical investigation, kept for provenance.
+method: ../5437.log. CONTROL 2026-09-28: eth3 recabled to the x230 (a platform that HAS the
+feature) — it detected the same stimulus (Attacks detected 1, err-disable); the AR4050S build has
+no `dos` feature at all. Confirmed IE520-specific defect. The notes below are the historical
+investigation, kept for provenance.
 
 ---
 

@@ -200,3 +200,23 @@ reverted; `bench_probe.py run` = MATCH after the run; tb470:/tmp/ckdos removed.
 
 **Campaign effect:** the DoS group is now 5 PASS / 1 FAIL (was 5 PASS / 1 UNMEASURED). 5437 is no
 longer an open "resume or close" ruling; it is a new "raise as defect?" question.
+
+### §9 update — cross-platform control done (Terrence recabled eth3)
+
+Terrence moved eth3 off the stack to test reference platforms. Control complete:
+- **AR4050S port1.0.1**: the `dos` switchport feature is ABSENT on this build
+  (arc-awplus_main-20260924-26) — `dos ?`/`show dos` unrecognized. Not a usable control. (The AW+
+  wiki lists AR4050 for `dos`, but is self-inconsistent; the live build has no such command.)
+- **x230-10GP port1.0.1** (S/N G26ZE80EN, feature present): armed `dos ipoptions action shutdown`,
+  fired the SAME Record-Route frames from eth3 (valid src MAC) → **Attacks detected : 1, port
+  ERR-DISABLE**, immediately.
+
+⇒ The caveat in §9 is resolved. The identical stimulus that the IE520 ignored (0 detections, both
+paths) trips the x230 at once, so T5437 is a **CONFIRMED IE520-specific product defect**, safe to
+file. Records updated: 5437.log, DOS-METHOD.md, BOOKMARK.md, memory ie520-dos-test-method.
+
+**Bench note:** eth3 is currently on the x230 (Terrence's temporary recable), so the bench is off
+its recorded topology. bench-state.md was NOT regenerated for this temporary move. When eth3 is
+cabled back to stack member 3 port3.0.9, `bench_probe.py run` should read MATCH again. All DUT
+config changes on the x230 (and the earlier stack test) were reverted; only read-only/help probes
+were run on the AR4050S. tb470:/tmp/ckdos scratch removed.
