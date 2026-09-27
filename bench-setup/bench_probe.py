@@ -142,6 +142,25 @@ class Probe:
             time.sleep(0.03)
         return buf
 
+    def _expect(self, timeout=15.0):
+        """Read until the output ENDS in `login:`, `Password:` or a CLI prompt. The login dialog
+        must wait on the prompt itself, not on a quiet gap: AW+ prints `Login incorrect` 2+ s
+        after a rejected password, which outlasts any quiet window, and every later line then
+        answers the wrong prompt (the x230 at 9600, 2026-09-28)."""
+        buf = ""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            chunk = self.s.read(4096)
+            if chunk:
+                buf += chunk.decode(errors="replace").replace("\x00", "")
+                tail = buf.rstrip()
+                if (tail.lower().endswith(("login:", "password:"))
+                        or PROMPT_RE.search(tail[-120:])):
+                    return buf + self._drain(quiet=0.3, timeout=3.0, need_prompt=False)
+                continue
+            time.sleep(0.03)
+        return buf
+
     def _send(self, line, quiet=0.8, timeout=30.0, need_prompt=True):
         self.s.write((line + "\r").encode())
         return self._drain(quiet=quiet, timeout=timeout, need_prompt=need_prompt)
@@ -190,23 +209,26 @@ class Probe:
 
     def login(self):
         self.s.write(b"\r")
-        out = self._drain(quiet=1.0, timeout=8.0, need_prompt=False)
-        if "password:" in out.lower() and "login:" not in out.lower():
-            self.s.write(b"\r")                      # port left mid-dialog: reset it
-            out = self._drain(quiet=1.0, timeout=8.0, need_prompt=False)
-        if "login:" in out.lower():
-            self.s.write((USERNAME + "\r").encode())
-            self._drain(quiet=1.0, timeout=10.0, need_prompt=False)
+        out = self._expect(10.0)
+        # A `Password:` with no dialog of ours in flight: the port was left mid-dialog, a bare
+        # CR at `login:` was taken as an empty username, or a CR sent at the wrong baud during
+        # detection arrived as a garbage one. Fail it with a CR and wait for the fresh `login:`.
+        for _ in range(3):
+            tail = out.rstrip().lower()
+            if not tail.endswith("password:") or "new password" in tail[-40:]:
+                break
+            self.s.write(b"\r")
+            out = self._expect(15.0)
+        if out.rstrip().lower().endswith("login:"):
             for pw in PASSWORDS:
+                self.s.write((USERNAME + "\r").encode())
+                self._expect(10.0)
                 self.s.write((pw + "\r").encode())
-                out = self._drain(quiet=1.2, timeout=12.0, need_prompt=False)
+                out = self._expect(15.0)
                 if "new password" in out.lower():
                     return False, "forced password-change dialog; refused"
-                if PROMPT_ANYWHERE_RE.search(out):
+                if PROMPT_ANYWHERE_RE.search(out) or not out.rstrip().lower().endswith("login:"):
                     break
-                if "login:" in out.lower():
-                    self.s.write((USERNAME + "\r").encode())
-                    self._drain(quiet=1.0, timeout=10.0, need_prompt=False)
         if "new password" in out.lower():
             return False, "forced password-change dialog; refused"
         if not PRIV_RE.search(out.rstrip()[-120:]):

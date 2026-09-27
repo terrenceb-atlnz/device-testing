@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 41cd590a-840f-44c2-ac1d-f420ac15666e
-  modified: 2026-09-25T00:00:00.000Z
+  modified: 2026-09-28T00:00:00.000Z
 ---
 
 **Terrence, 2026-09-25:** "consolidate scripts down to one, that reads the output and makes the
@@ -34,6 +34,9 @@ Test-cases' `ask-ck/functions/test-composer/bench_probe.md` points at that path)
 - LLDP proves switch-to-switch cabling: a device with `lldp run` OFF gets it switched on for the
   capture and off again at the end (verified by re-reading the running-config; in `finally`).
 - Keep `apply` for now ("we currently can make use of both"); in future only the diff-check.
+  **Applied 2026-09-28** (Terrence: "execute those things"): the deployed `.setup` is now the
+  generated 1166-byte fence — no `###` prose; the 22 KB commented file is in
+  `backups/2026-09-27T190048Z.tb470.setup`. Framework `LoadSetup` parses it.
 - **No prose in bench-state.md.** Run-to-run variance made the "last test" notes mislead more
   than help. Mechanics → orient-dt; cross-session lessons → memories; what a session did → its
   handover.
@@ -49,6 +52,10 @@ never joined up. One measured pipeline replaces all three.
   that console's saved running-config (the md says so in Advisories).
 - A new unit → add its serial to `tb470.static` (name, outlet) or answer the prompt.
 - MATCH ≠ healthy: it means the bench IS the template. Read the Advisories block too.
+- A `login_failed` on a console whose banner reads fine is a DRIVER suspect first: until
+  2026-09-28 the x230 (9600) failed every run with correct creds because login waited on quiet,
+  not on the prompt (fixed: `Probe._expect()`; mechanics in orient-dt §3). Byte-log the
+  dialog before doubting the password.
 
 Related: [[tb470-topology-and-setup]], [[setup-file-declares-topology]],
 [[testbox-console-access]], [[tb470-reboot-nfshome-unmounted]].

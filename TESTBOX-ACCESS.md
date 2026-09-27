@@ -287,14 +287,22 @@ SSH_AUTH_SOCK=$sock ssh "$BOX" "mkdir -p $WORK"
 SSH_AUTH_SOCK=$sock scp <script>.py <lib>.py <topology>.setup "$BOX:$WORK/"
 SSH_AUTH_SOCK=$sock ssh "$BOX" "
   cd $WORK && ln -sfn /home/st-art/framework framework &&
-  sudo -n PYTHONPATH=/home/st-art python3 ./<script>.py -s <topology>.setup -v
+  sudo -n PYTHONPATH=/home/st-art python3 ./<script>.py -s <topology>.setup -v --noupdate --nodefaultcfg
 "
 ```
 
+- **`--noupdate --nodefaultcfg` are not optional** (Terrence, 2026-09-25). §3b says what the
+  framework does to every bound device without them. The server path carries them in
+  `pt_exec.FRAMEWORK_RUN_FLAGS` (Test-cases `57d2021`). On tb470, runs go through this repo's
+  **`bench-runner`** agent (`.claude/agents/bench-runner.agent.md`), which gates the bench before
+  and after.
 - The `-s <…>.setup` argument names the topology file (`SETUP-FILE-REFERENCE.md`); the
-  script never hardcodes a port. A generated script (since 2026-09-21) binds the `swi_a` slot and
-  discovers its cables through `get_all_port_links()`, reading media from the DUT; legacy scripts
-  bind with `init_portlink(...)`, which returns `(None, None)` silently for an undeclared link.
+  script never hardcodes a port. A generated script (since 2026-09-25, Test-cases `1cb72db`)
+  initialises every device the `.setup` declares with `setup.init_all_devices(powerOn=False)`,
+  takes `swi_a` from that table, and discovers its cables through `get_all_port_links()` — which
+  returns only INITIALISED links, so binding `swi_a` alone discovered nothing — reading media from
+  the DUT. Legacy scripts bind with `init_portlink(...)`, which returns `(None, None)` silently
+  for an undeclared link.
 - Results are the framework's stdout; `pt_exec.parse_framework_log()` turns it into
   per-TestCase PASS/FAIL. On a hang (e.g. a physical step waiting on an operator) keep the
   partial output — do not discard completed TestCases.
@@ -355,6 +363,54 @@ batch — this cost a mid-run case here.
 > CLI grounding) needs no portlinks at all, and several were executed there successfully. The
 > distinction is portlinks, not "can't run scripts here". Also note tb105 runs as user
 > `terrenceb`, not `st-art`, and needs no `sudo` for serial access.
+
+### 3b. What the framework's default setup does to a bench — and why every run skips it ✅
+
+Verified 2026-09-25 on tb470 by the first framework run of a generated script (T33235), which
+reset all four bench devices, and by reading `/home/st-art/framework` (read-only). Recorded from
+the Test-cases session's handoff (`bench-setup/handoff-from-test-cases-2026-09-25/README.md`).
+
+**Without `--nodefaultcfg`, ATTestSet's setup resets every device the script initialises**
+(`__pre_configure` → `_DefaultConfigThread`), in this order:
+1. builds a `default.cfg` in Python (`ATSwitch.generate_default_config`: hostname
+   `<dev>_<suite>_<set>`, every port `shutdown`, stacking lines) and echoes it into flash through
+   **`start-shell`** — there is no template file on disk to replace;
+2. `no boot conf` / `boot conf default.cfg`;
+3. loads and unloads licences — **only when the script's `FEATURES` is non-empty** (framework
+   default `[]`; the Ask-CK frame uses `['ALL']`, the corpus idiom 291/306). It removes every
+   licence not in `/home/st-art/feature_license_keys.env` for that platform except the keep-list
+   `ACCESS, VCSPLUS, AT-FL-CF9-VCSPL, No-License-Lock`, compared **case-sensitively** — the x230's
+   lowercase `access` was removed that way, which took its `start-shell` with it; `NZ` and `FULL`
+   were stripped from the IE520s, `FULL` from the 4050. Nothing ever re-adds a removed licence;
+4. reboots each device into `default.cfg`;
+5. **without `--noupdate`**: TFTP-copies `<platform>-<hostname>.rel` into flash and sets it as the
+   boot image. tb470's `/tftproot` is a **tmpfs** (emptied by every tb470 reboot), so the copy
+   failed (`% Source file not found`), the failure path deleted crash files from the stack's flash
+   to "free space", and the run hung until killed.
+
+`--nodefaultcfg` skips 1–5 and the power cycle; the framework still runs `configure()`, saves the
+running config as `<hostname>.cfg` through the CLI (`copy run` + `boot conf`, no shell needed) and
+tears down to it. `-n/--noconf` would also skip `configure()` and tear-down — not what a run wants.
+
+**What the bench expects instead:** each device boots its topology's own config —
+`flash:/tb470-bench.cfg` for the standing tb470 bench (every device since 2026-09-25), and
+`claude/Test-cases/ask-ck/functions/test-composer/templates/<setup>/<setup>.<device>.cfg` for a
+composed topology (one per device, one shared by a whole stack). A config file is written onto a
+device the framework's way — `start-shell`, one `echo '<line>' >> <tmp>` per line, md5 against the
+source, `sudo cp` into `/flash/`, `boot config-file`, reboot, diff the running config — which needs
+the `ACCESS` (or `FULL`) feature; without it only CLI `copy running-config` works. The tool that
+did this on 2026-09-25 is `bench-setup/restore_cfg.py`.
+
+**Other traps the same day:**
+- **A killed run leaves a console in a root shell** (`[root@… ~]#`). The next run's `show`
+  commands then answer `ash: show: not found` and discovery reads every link as `absent`. Send a
+  bare CR to every console before a run and `exit` any shell.
+- **Two tools on one console fail** with `SerialException: device reports readiness to read but
+  returned no data`. `fuser -v /dev/u*` first — another session's `bench_probe.py run` held the
+  stack consoles once that afternoon.
+- **A licence key sent down a console comes back in the echo, wrapped mid-token** — redact
+  wrap-tolerantly (memory `console-secret-redaction-wraps`); `license <name> <key>` then asks
+  "(y/n)" and wants `y` + Enter. One install on the stack master installs on every member.
 
 ---
 

@@ -31,12 +31,12 @@ section refers to these by NAME**; when something moves, fix this table and noth
 | **skills** | `.claude/skills/orient-dt`, `.claude/skills/wrap-dt` | renamed from `orient-ie520`/`wrap-ie520` on 2026-09-11 |
 | **framework** | `framework -> /home/st-art/framework` | READ-ONLY; not ours |
 | **resiliency-link evidence** | `IE520/stack-tests/resiliency-link/after-action-17688.md` | |
-| **TESTBOX-ACCESS.md** | `TESTBOX-ACCESS.md` (repo root; Test-cases symlinks to it, 2026-09-25) | SSH agent socket, `.setup` is declarative, framework run flags (§3/§3b) |
-| **TB470-HOST-NETWORKING.md** | `TB470-HOST-NETWORKING.md` (repo root; Test-cases symlinks to it) | host NICs, DHCP/TFTP, return path |
+| **TESTBOX-ACCESS.md** | `claude/Test-cases/TESTBOX-ACCESS.md` ¹ | SSH agent socket, `.setup` is declarative |
+| **TB470-HOST-NETWORKING.md** | `claude/Test-cases/TB470-HOST-NETWORKING.md` ¹ | host NICs, DHCP/TFTP, return path |
 | **bench_probe.py** (THE bench-state tool, consolidated 2026-09-25) | `bench-setup/bench_probe.py` | Run ON tb470: `./bench_probe.py run` = **capture** (7 `show` commands per console, `/dev/u0`–`u6` in parallel, raw text saved under `bench-setup/captures/<UTC stamp>/`, gitignored) → **generate** bench-state.md → **diff** against the deployed `.setup` (exit 0 MATCH / 1 MISMATCH / 2 NEEDS-CHECK — carrier down, MAC not learned, console busy/down). Switches `lldp run` on and back off itself where a device had it off (running-config only). `./bench_probe.py apply` writes the fence to the box (snapshot pair → `backups/`, readback; refuses over a hand-edit). `generate <capture-dir>` re-parses a saved capture without the bench; `diff`/`render` run anywhere. ~2 min for six consoles. Replaced `bench_setup.py` and `bench_topology.py`. Memory: `bench-probe-one-tool` |
 | **tb470.static** | `bench-setup/tb470.static` | the facts no `show` command reveals, hand-entered once: swi_ name per SERIAL, PDU IP and outlet (`-` = unknown → no `[powerlink]`). The probe asks on a terminal when it meets an unlisted unit |
 | **tb470.setup.current** | `bench-setup/tb470.setup.current` | local copy of the deployed `.setup`, refreshed by `apply`; read by Test-cases' `pt_preflight.py` so no ssh is needed |
-| **fw_async_test.py / fw_async_chatter.py** | `claude/Test-cases/ask-ck/functions/test-composer/` ¹ | the §3 chatter regression |
+| **fw_async_test.py / fw_async_chatter.py** | `claude/Test-cases/ask-ck/test-composer/` ¹ | the §3 chatter regression |
 | **working style** | `claude/Test-cases/CLAUDE.md` §"How we work" ¹ | |
 
 ¹ Still in the Test-cases repo and **expected to move into this repo**. If a path is stale,
@@ -217,11 +217,11 @@ for a provisioning problem or a defect once.
 | **No battery-backed RAM / NVS** | Any case depending on it is permanently unsupported. Also: the clock does not survive a power cycle without NTP. |
 | **No onboard management ethernet** (`show interface eth0` → `% Can't find interface eth0`) | The `eth0` a `.setup` names for TFTP boot is an **ASIX USB-to-Ethernet dongle** in the switch's USB port, visible **only to the bootloader**. Cabling a front-panel port gives it no download path. |
 | **No SSH and no telnet** on these units | They answer on 80/443, but **the console is the only CLI path**. Enabling `ssh server` would itself need CLI access. |
-| **Flash is SPIFlash and is extraordinarily slow** | A 41 MB flash-to-flash copy is **~12 minutes**, and during it the unit answers **nothing** — console silent even to a bare CR, ping and ARP failing. This looks exactly like a crash. **Never power-cycle mid-write.** Also: `cmd()` returns on `Copying...` without verifying the file landed. **Counter-observation 2026-09-23** (`awplus_main-20260923-20` load, one TFTP write each on two units): a 40 MB TFTP write into flash took **206–268 s** and added **+0 bytes** — faster than the ~12 min here and contrary to the `+352` row below. Two samples only; re-measure before generalising, and budget for the slow case. |
+| **Flash is SPIFlash and is extraordinarily slow** | A 41 MB flash-to-flash copy is **~12 minutes**, and during it the unit answers **nothing** — console silent even to a bare CR, ping and ARP failing. This looks exactly like a crash. **Never power-cycle mid-write.** Also: `cmd()` returns on `Copying...` without verifying the file landed. |
 | **Cross-member flash copy beats TFTP** | `copy awplus-2/flash:/<f> flash:/<f>` moved 41 MB in **3.5 min** vs ~12 min for TFTP, and needs no IP address. |
 | **Opening or closing a serial port drops DTR, and the IE520 reads that as a BREAK** | It can park a unit in the bootloader. Drive these consoles with a tool that does `stty -hupcl` first; leave minicom with `Ctrl-A Q`, never by closing the window. A `sysrq: HELP` banner on open means a BREAK was just sent. |
 | **USB dongle and stick share one rear port through a hub** | u4's stick has dropped off the bus unprompted with nobody touching it. If a USB case fails oddly, **suspect the hub before the product.** |
-| **Every TFTP-written release is `+352` bytes** vs source | Deterministic across transfers and devices, so it is an AW+ write artefact, not corruption. Images boot. Not a finding. **Flash-to-flash copies are +0 bytes** — the artefact is TFTP-specific. (2026-09-23 saw +0 on two TFTP writes — see the SPIFlash row; compare sizes rather than expect +352.) |
+| **Every TFTP-written release is `+352` bytes** vs source | Deterministic across transfers and devices, so it is an AW+ write artefact, not corruption. Images boot. Not a finding. **Flash-to-flash copies are +0 bytes** — the artefact is TFTP-specific. |
 | **The CLI is media-blind** | On fibre, `speed`/`duplex`/`polarity` are all still offered and nothing errors, so a speed matrix pointed at fibre records a false *"DUT failed to set speed"*. Media is knowable only from the `Type` column of `show interface <port> status`. |
 | **1000BASE-T copper SFPs (AT-SPTX / -SPTXa / -SPTXc) facing a host NIC only link when FORCED** (2026-09-09) | Autoneg on both ends left every such edge `notconnect` while the host (Intel igc) reported `Link detected: yes` — a half-link that reads exactly like a wiring error. The recipe that linked 3 of 3 good ports: switch `speed 1000` + `duplex full` + shut/no-shut, host `ethtool -s ethN autoneg on advertise 0x20`, allow ~20 s. Switch-to-switch copper SFP links never needed this. Mind the TFTP-NIC caveat in §1 before pinning. |
 | **A dead SFP cage still reads the module's EEPROM** (2026-09-09) | `show system pluggable` lists the SFP; the port never links. Stack `port1.0.1` and u4 `port1.0.1` each defeated 2 SFPs × 2 cables × 2 NICs that all linked one cage over. Isolate by swapping the cable at the **switch** end — if the fault stays with the port, it is the cage. Route around it to a free cage; don't debug it. |
@@ -333,15 +333,6 @@ upgrade; this table is what it defends.
 abort on a healthy device: it returns from the post-password read after 1.2 s of quiet, before the
 prompt prints, then sends a redundant `enable` and gives up, reporting `no privileged prompt` —
 which reads exactly like dead hardware.
-
-**A login dialog must wait on the PROMPT, never on a quiet gap** (measured 2026-09-28, x230 at
-9600, byte-logged). Three AW+ behaviours combine: a bare CR at `login:` is taken as an empty
-username and answered `Password:`; a CR sent at the wrong baud during detection arrives as a
-garbage username the same way; and `Login incorrect` is printed **~2.2 s** after the rejected
-password — longer than any quiet window. A quiet-based driver then answers every later prompt one
-step late (`enable` typed as a username, the real password never sent to a real `Password:`) and
-reports `login_failed` with correct credentials. `bench_probe.py` had exactly this until
-`Probe._expect()` (2026-09-28); copy that shape into any new driver.
 
 **Read the source and the prior logs before driving anything by hand.** Before sending a
 keystroke, read the framework function that already automates it and the prior `swi_a_*.log` for

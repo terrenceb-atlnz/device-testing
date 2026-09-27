@@ -65,12 +65,16 @@ SSH_AUTH_SOCK=$sock ssh tb470 'sudo -n fuser -v /dev/u*; ls /var/lock/LCK..* 2>/
 6. **Boot configs are the run's declared baseline.** The standing tb470 topology boots
    `flash:/tb470-bench.cfg` on every device (Terrence, 2026-09-25). When Test Composer has
    pre-loaded a topology pair (`Test-cases/ask-ck/functions/test-composer/templates/<setup>/`,
-   e.g. `setup-a/a.setup` + `a.cfg`), a device boots THAT topology's `.cfg` instead. `show
+   `<setup>.setup` plus one `<setup>.<device>.cfg` per device, e.g. `setup-a/a.setup` +
+   `a.swi_a.cfg`, `a.swi_b.cfg`; one per stack), a device boots THAT topology's `.cfg` instead. `show
    boot` → `Current boot config` must name the `.cfg` the run's topology declares, before and
    after.
-7. **Do not launch through Ask-CK's server run path** (`run/{key}` → `pt_exec.py`): as at
-   2026-09-25 it launches WITHOUT the two flags below and would reset the bench. Launch by hand
-   as described here until Terrence has it changed.
+7. **Ask-CK's server run path (`run/{key}` → `pt_exec.py`) is permitted** since Test-cases
+   `57d2021` (2026-09-25): `pt_exec.FRAMEWORK_RUN_FLAGS` carries `--noupdate --nodefaultcfg`.
+   Before using it, confirm the tuple is still there
+   (`grep -n FRAMEWORK_RUN_FLAGS ~/claude/Test-cases/ask-ck/CK-main/CK_server/pt_exec.py`); if
+   either flag is gone, launch by hand as below. The server path runs none of these gates, so
+   gate items 1–6 and the after-run checks are still yours either way.
 
 ## Running
 
