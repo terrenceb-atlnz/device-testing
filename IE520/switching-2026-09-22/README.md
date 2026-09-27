@@ -1,6 +1,6 @@
 # switching group — IE520, tb470, 2026-09-22
 
-11 cases. **7 PASS · 4 UNMEASURED** after the 2026-09-24 re-run of 6057 (was 6 PASS · 1 PARTIAL · 4 UNMEASURED).
+11 cases. **7 PASS · 2 UNMEASURED · 2 SKIPPED** — 6057 re-run 2026-09-24; 24032 and 12067 SKIPPED by Terrence's ruling 2026-09-23 (was 6 PASS · 1 PARTIAL · 4 UNMEASURED).
 
 | case | title | verdict |
 | --- | --- | --- |
@@ -13,15 +13,16 @@
 | [6057](6057.log) | ARP Learning with full tables | **PASS + finding** (re-run 2026-09-24) — table caps at 2045; while full a NEW neighbour cannot be resolved (`No buffer space available`) |
 | [45788](45788.log) | 5005 EPSR performance test on SFP port | **UNMEASURED** — bench: no SFP fitted |
 | [45789](45789.log) | 5005 EPSR performance test on SFP+ port | **UNMEASURED** — bench: no free SFP+ |
-| [24032](24032.log) | 5706 L2 platform test | **UNMEASURED** — **case-scope mismatch** |
-| [12067](12067.log) | Flow control operation with MDI | **UNMEASURED** — bench: no wire rate |
+| [24032](24032.log) | 5706 L2 platform test | **SKIPPED** (Terrence's ruling, 2026-09-23) — **case-scope mismatch** |
+| [12067](12067.log) | Flow control operation with MDI | **SKIPPED** (Terrence's ruling, 2026-09-23) — was bench: no wire rate; tcpreplay now gives ~983 Mbps, reopen is open (queue I-19) |
 
 ## Bench limits vs case-scope — they need different answers
 
 - **Bench limits** (more hardware fixes them): 45788/45789 need SFP transceivers
   fitted — every non-stackport cage reads `not present`, and the only populated
-  SFP ports are the stackports carrying the VCStack. 12067 needs a line-rate
-  generator with two ports. (6057's "full tables" was closed on 2026-09-24 with an
+  SFP ports are the stackports carrying the VCStack. 12067 needed a line-rate
+  generator with two ports (2026-09-24: tcpreplay now gives ~983 Mbps per NIC; 12067 is SKIPPED by
+  ruling, reopen open — queue I-19). (6057's "full tables" was closed on 2026-09-24 with an
   ARP responder on tb470 -- see its log.)
 - **Case-scope mismatch** (hardware will never fix it): **24032** is "Run the
   5706 automated test". That is a platform suite for a different product; running

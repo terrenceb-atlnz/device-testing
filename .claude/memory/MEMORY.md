@@ -43,7 +43,7 @@
 - [STP mode change re-enables spanning tree](stp-mode-change-reenables-spanning-tree.md) — a `spanning-tree mode` change silently drops `no spanning-tree <mode> enable`
 - [LACP passive hides links from STP](lacp-passive-hides-links-from-stp.md) — auto-enrols freed ports; STP runs on the AGGREGATOR so a live link forwards where STP cannot block. Hit all 3 devices
 - [Sentinel session keeps long runs moving](sentinel-session-keeps-long-runs-moving.md) — the CAMPAIGN is the unit of work
-- [IE520 AWPTCM campaign 2026-09-22](ie520-awptcm-campaign-2026-09-22.md) — pointer to the 72-case run: 39 PASS / 1 PARTIAL / 32 UNMEASURED across 7 group dirs
+- [IE520 AWPTCM campaign 2026-09-22](ie520-awptcm-campaign-2026-09-22.md) — 72-case run + 09-23/24 re-runs: now 52 PASS / 3 FAIL / 3 UNSUPP / 7 UNMEASURED / 5 SKIPPED (+2 STP 3-of-4)
 - [Act on Terrence-stated live faults](act-on-terrence-stated-live-faults.md) — "there is a loop, just fix it": shut a leg and configure, verify AFTER; run literal commands literally
 - [Bench cannot open TCP to office PCs](bench-cannot-open-tcp-to-office-pcs.md) — lab→10.33.22.x TCP is dropped (ping passes); servers the bench connects TO go on tb470, never the dev PC; test the transport first
 - [IE520 master ignores remote backup server](ie520-master-ignores-remote-backup-server.md) — accepts `atmf backup server`, never mounts it; use the AR4050S as master (x230 lacks AMF-MASTER-X)

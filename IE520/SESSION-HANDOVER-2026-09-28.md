@@ -128,3 +128,42 @@ Run it from `/tmp/ckorient/` on tb470 with the console free. It logs in and leav
 - Memory updated: `.claude/memory/bench-probe-one-tool.md` (apply done; login_failed = driver
   suspect first).
 - orient-dt §3: "A login dialog must wait on the PROMPT" paragraph.
+
+## 8. Addendum — verdict reconciliation (after the wrap, same session)
+
+Terrence asked for the test history by family, then: "sort the dissonance, let me know what i
+actually need to rule on, THEN fix everything, THEN publish."
+
+**The conflict, sorted.** The 09-24 morning handover's OPEN #2 ("28126/28127 step 2: is that
+reading right?") was answered the same afternoon: Terrence ruled FAIL (CAMPAIGN-QUEUE-2026-09-24.md
+I-4, "Ruled FAIL by Terrence 09-24"). The logs never carried the ruling, which is how it resurfaced
+as open. The grade is settled; what is still open is whether to RAISE 28126/28127/28128 as defects.
+28128's FAIL never depended on the step-2 reading.
+
+**Records fixed (no verdict was changed by Claude):**
+- 28126.log, 28127.log: RULING line under VERDICT; auth README rows cite I-4; stale "Why the six
+  are UNMEASURED" heading re-dated.
+- 38148, 24032, 12067, 3116, 8770 logs: `VERDICT: SKIPPED -- Terrence's ruling, 2026-09-23`
+  (38432's pattern), original kept as `ORIGINAL VERDICT (2026-09-22)`; 3116/12067 note that
+  tcpreplay removed the line-rate limit. qos/switching/ipv6 READMEs: rows and headline counts.
+- stp README header: 38152/38153 are 3-of-4, PASS-vs-PARTIAL rule pending.
+- acl README: the "one usable copper port" claim corrected (three per member, 2026-09-23).
+- DOS-METHOD.md + memory `ie520-dos-test-method`: "ipoptions needs L3" marked UNPROVEN
+  (illegal multicast source MAC, dos/routed-ipoptions-2026-09-04/BOOKMARK.md).
+- memory `ie520-awptcm-campaign-2026-09-22` + index: current counts (was 39/1/32).
+- 5700 recount from the after-actions: 46 PASS / 5 FAIL (2003.10 = budget ceiling) / 9
+  UNSUPPORTED / 1 excluded (2002.113). The 2005.4 FAIL is an 08-11 re-run inside run-20260810/.
+
+**Current 72-case campaign:** 52 PASS · 3 FAIL · 2 PASS-on-3-of-4 (38152/38153) · 3 UNSUPPORTED ·
+7 UNMEASURED (5 MRP, 45788, 45789) · 5 SKIPPED.
+
+**What Terrence needs to rule on** (the published page carries the same list with context):
+- Verdicts: 38430 PASS (I-14, + I-13 peer); PASS-vs-PARTIAL rule for 38152/38153/943; the six
+  08-13 stack cases with no verdict (17041 17348 17545 17554 38374 38375) — grade or re-run;
+  5437 resume or close; 38474 debug or drop; reopen 3116/12067 (I-19); no-step cases (I-6).
+- Raise as defects (plan A.2): I-17, 28126/28127, 28128, 6057 (I-5), I-16, I-15, 2003.7/.14
+  (ask bootloader team), 17688 (re-run on current build first?), I-7.
+- Review CHOSEN test designs: I-20, I-22, I-23.
+- Housekeeping: I-26 superseded ATMF logs, I-25 USB tree, I-27 `switch 2 provision` (still in
+  the stack config, capture 2026-09-27T191150Z), x230 `exec-timeout 0 0`, 38474's tb470 sshd
+  drop-in + 4050 userkey (revert command: SESSION-HANDOVER-2026-09-24.md line ~227).

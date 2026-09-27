@@ -1,6 +1,6 @@
 # IPv6 routing & protocol group — IE520, tb470, 2026-09-22
 
-16 cases. **14 PASS / 2 UNMEASURED.** (2026-09-24: the 7 IPv6 multicast cases re-run and PASS, after the
+16 cases. **14 PASS / 2 SKIPPED** (3116 and 8770, Terrence's ruling 2026-09-23; were UNMEASURED). (2026-09-24: the 7 IPv6 multicast cases re-run and PASS, after the
 bench gained two more host NICs on the stack — see the per-case logs; 38144.log has the topology.)
 
 | case | title | verdict |
@@ -12,8 +12,8 @@ bench gained two more host NICs on the stack — see the per-case logs; 38144.lo
 | [3112](3112.log) | BGP4+ Establish peer and create prefixlist | **PASS** |
 | [3114](3114.log) | BGP4+ Disconnect / Reconnect Links | **PASS** (3/3) |
 | [38430](38430.log) | BGP4+ - BFD fall-over | **PASS** (re-run 2026-09-24, IE520-sa as peer; case-text issue) |
-| [3116](3116.log) | BGPv4 - Unicast Traffic | **UNMEASURED** — needs line rate |
-| [8770](8770.log) | IPv6 Neighbors - in silicon | **UNMEASURED** — needs ~5000 emulated neighbours |
+| [3116](3116.log) | BGPv4 - Unicast Traffic | **SKIPPED** (Terrence's ruling, 2026-09-23) — needed line rate; tcpreplay now gives it, reopen is open (queue I-19) |
+| [8770](8770.log) | IPv6 Neighbors - in silicon | **SKIPPED** (Terrence's ruling, 2026-09-23) — needs ~5000 emulated neighbours |
 | [38144](38144.log) | PIM-SMv6 - DUT can route IPv6 multicast traffic | **PASS** (re-run 2026-09-24) |
 | [11724](11724.log) | PIM-SMv6 - Multiple hosts joining different groups | **PASS** (re-run 2026-09-24) |
 | [11740](11740.log) | PIM-SMv6 - Different hosts joining same multicast group | **PASS** (re-run 2026-09-24) |
@@ -55,12 +55,13 @@ conclude the interface could not be attached at all — the command lives under
 > Note the IE520 is absent from several platform tables for commands that work
 > on it, so treat the tables as a guide, not a gate.
 
-## Why 2 are UNMEASURED — all bench, none product
+## Why 2 were UNMEASURED — all bench, none product (both SKIPPED by ruling since)
 
 (The 7 multicast/PIM-SMv6 cases were UNMEASURED here on 2026-09-22 for want of
 receivers; they were re-run and PASS on 2026-09-24.)
 
-- **3116** is a line-rate claim; this harness peaks at ~26 Mbps.
+- **3116** is a line-rate claim; on 2026-09-22 this harness peaked at ~26 Mbps. That limit no
+  longer holds (tcpreplay ~983 Mbps per NIC, 2026-09-24).
 - **8770** needs ~5000 *responding* neighbours.
 - (38430 was here on 2026-09-22; re-run 2026-09-24 with `service bfd` and the IE520-sa as
   peer — PASS, see its log.)

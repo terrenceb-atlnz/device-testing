@@ -1,6 +1,6 @@
 ---
 name: ie520-dos-test-method
-description: How to run the AWPTCM DoS suite (T5437-5442) on the tb470 IE520 bench — transit traffic, batched senders, disarm syntax, ipoptions needs L3
+description: How to run the AWPTCM DoS suite (T5437-5442) on the tb470 IE520 bench — transit traffic, batched senders, disarm syntax; ipoptions UNRESOLVED (the 'needs L3' claim is unproven)
 metadata:
   type: reference
 ---
@@ -30,6 +30,10 @@ robust to the err-disable-recovery timing flake.
    the flat-L2 (bridged, non-routing) bench it never fires even with valid LSRR/RR options at
    rate. Verdict: teardrop/land/ping-of-death/smurf/synflood PASS; ipoptions config-verified
    only, needs a routed topology to exercise.
+   **⚠ 2026-09-28: UNPROVEN.** The packets behind this claim used an ILLEGAL multicast source
+   MAC (`01:00:01:00:00:01`) that the devices drop anyway (`dos/routed-ipoptions-2026-09-04/
+   BOOKMARK.md`). Craft DoS frames with a valid unicast source MAC; whether `dos ipoptions`
+   counts is still unanswered (5437 inconclusive).
 
 Pass criterion: armed+attack → port `err-disable` (`show dos interface`, Attacks detected > 0);
 disarmed+attack → port stays connected.

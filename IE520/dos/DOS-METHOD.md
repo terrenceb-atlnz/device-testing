@@ -47,6 +47,13 @@ being examined, so `dos ipoptions` never fires — even with valid LSRR/RR optio
 high rate, aimed at the x230 OR at the switch itself. Exercising it needs a ROUTED path
 (ingress subnet A → IE520 routes → egress subnet B), which this bench does not implement.
 
+> **⚠ 2026-09-28: treat this caveat as UNPROVEN.** The 2026-09-04 investigation
+> (`routed-ipoptions-2026-09-04/BOOKMARK.md`) found that the crafted packets used an ILLEGAL
+> multicast source MAC (`01:00:01:00:00:01`, from `dos_campaign.py`'s `b_ipoptions`) that the
+> devices drop regardless of L3 content, so this flat-L2 result may be a harness artifact. With
+> a valid unicast source MAC the IE520 processes and forwards most options. Whether
+> `dos ipoptions` counts/err-disables is STILL UNANSWERED; 5437 is inconclusive until it is.
+
 ## The tool (version-tracked)
 `claude/Test-cases/ask-ck/test-composer/dos_campaign.py` — the whole suite in one file:
 builds up the scenario, runs all six cases (arm → batched transit fire → verify err-disable →

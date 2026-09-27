@@ -1,6 +1,8 @@
 # STP & storm control group — IE520, tb470, 2026-09-22
 
-8 cases. **8 PASS.** (2026-09-24: 16452/16453 re-run on a real loop — PASS.)
+8 cases. **8 PASS**, of which 38152 and 38153 pass 3 of 4 assertions (alternate-path step
+UNMEASURED) — whether that grades PASS or PARTIAL is a rule awaiting Terrence (2026-09-28).
+(2026-09-24: 16452/16453 re-run on a real loop — PASS.)
 
 | case | title | verdict |
 | --- | --- | --- |

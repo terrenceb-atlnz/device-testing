@@ -1,6 +1,6 @@
 # QoS group — IE520, tb470, 2026-09-22
 
-12 cases. **11 PASS / 1 UNMEASURED.** (2026-09-24: 13549 and 13553 re-run with tcpreplay line-rate congestion — PASS.)
+12 cases. **11 PASS / 1 SKIPPED** (38148, Terrence's ruling 2026-09-23; was UNMEASURED). (2026-09-24: 13549 and 13553 re-run with tcpreplay line-rate congestion — PASS.)
 
 | case | title | verdict |
 | --- | --- | --- |
@@ -15,7 +15,7 @@
 | [13604](13604.log) | static LAG based policing - single-rate | **PASS** (LAG not straddling) |
 | [13549](13549.log) | defaults to strict priority queueing | **PASS** (re-run 2026-09-24; untagged queue-assignment finding) |
 | [13553](13553.log) | wrr weightings applied | **PASS** (re-run 2026-09-24; 2.99:1 at 3:1) |
-| [38148](38148.log) | IPv6 QoS - Exploratory testing | **UNMEASURED** — case has no steps |
+| [38148](38148.log) | IPv6 QoS - Exploratory testing | **SKIPPED** (Terrence's ruling, 2026-09-23) — case has no steps |
 
 ## Method
 
@@ -40,7 +40,7 @@ are offered far above the CIR and counted at egress.
   (stack `port1.0.2` → x230 `port1.0.3` → x230 `port1.0.1` → eth1) was put into
   trunk mode with native vlan 999 so vlan 1 egressed tagged. Restored afterwards.
 
-## The UNMEASURED
+## The UNMEASURED of 2026-09-22 (38148 since SKIPPED by ruling)
 
 - (13549 / 13553 were here on 2026-09-22 for want of congestion; re-run
   2026-09-24 with two NICs × tcpreplay at ~983 Mbps into one 1G egress — PASS.

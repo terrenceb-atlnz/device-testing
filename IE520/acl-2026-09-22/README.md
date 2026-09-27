@@ -41,9 +41,11 @@ the ACL and not a dead path. ACL hit counters corroborate each result.
 
 ## Limitations that cap several PASSes — all bench, not product
 
-- **No straddling LAG** (881/885/890/889). `sa1` had ONE member. Each
-  IE520-28GSX member has exactly one usable copper port; the only straddling
-  pair was broken when `port1.0.2` was recabled to the x230. Needs a recable.
+- **No straddling LAG** (881/885/890/889). `sa1` had ONE member. The 2026-09-22 reading
+  that each IE520-28GSX member has exactly one usable copper port was WRONG (corrected
+  2026-09-23: three copper ports per member, `.2/.9/.13`; the limit was cabling). Since the
+  2026-09-23 recable, cable pairs that straddle stack members exist (members 3+4 to the 4050,
+  1+4 to the IE520-sa — bench-state.md Links), so these four could be re-run on a straddling LAG.
 - **Mirror destination not observable** (943, 830). `port3.0.2` is the only
   spare copper port and has no cable, so a mirrored frame cannot be captured
   and the port's TX counters stay 0. Cabling any NIC to `port3.0.2` closes this.
