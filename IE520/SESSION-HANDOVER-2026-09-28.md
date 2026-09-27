@@ -167,3 +167,36 @@ as open. The grade is settled; what is still open is whether to RAISE 28126/2812
 - Housekeeping: I-26 superseded ATMF logs, I-25 USB tree, I-27 `switch 2 provision` (still in
   the stack config, capture 2026-09-27T191150Z), x230 `exec-timeout 0 0`, 38474's tb470 sshd
   drop-in + 4050 userkey (revert command: SESSION-HANDOVER-2026-09-24.md line ~227).
+
+## 9. Addendum — T5437 resumed and RESOLVED (Terrence: "resume 5437, sort that now")
+
+**Verdict: FAIL — candidate product defect.** `dos ipoptions` on the IE520
+(awplus_main-20260923-20) arms and shows Enabled but never counts an attack or shuts the port.
+
+Tested on member 3 port3.0.9 (arming works there; the old port1.0.1 "Cannot update hardware
+filter" was member-1-specific), source tb470 eth3 with a **valid unicast MAC** this time:
+- **Bridged path** (access vlan1, dst = x230 MAC as learned on sa2): RR and LSRR, 0 detections.
+- **Routed path** (scratch vlan90 SVI, dst = stack router MAC, dst IP in vlan1, `ip routing` on):
+  RR and LSRR, 0 detections.
+- Options wire-verified (tcpdump on eth3: `options (RR,EOL)`, ihl 6/7), ~3200 pps vs a 20 pps
+  threshold. The other five DoS types fire on this bench, so the engine + injection method work.
+
+This overturns BOTH earlier readings: the 2026-09-03 "needs L3 routed path" (the routed path also
+fails) and the 2026-09-04 illegal-MAC theory (fixed, still 0). Records updated: `IE520/dos/5437.log`
+(the deliverable), `routed-ipoptions-2026-09-04/BOOKMARK.md` (CLOSED), `IE520/dos/DOS-METHOD.md`,
+memory `ie520-dos-test-method`.
+
+**One caveat:** no cross-platform control was run — no tb470 host NIC lands directly on the
+wiki-listed x230/4050, so the same stimulus could not be shown detecting on a platform that
+supports it. Confirm on a reference platform before filing the defect.
+
+**Follow-up (not done):** `Test-cases/ask-ck/functions/test-composer/dos_campaign.py` still has the
+two bugs behind the old wrong result — `b_ipoptions` builds the illegal multicast source MAC
+`01:00:01:00:00:01`, and `run_case` grades ipoptions "N/A (needs L3 routed path)". A Test-cases
+session should fix both (valid unicast src MAC; grade FAIL when armed+attack does not err-disable).
+
+**Bench state:** unchanged and MATCH. All scratch config (vlan90/SVI, port move, host IP, dos arm)
+reverted; `bench_probe.py run` = MATCH after the run; tb470:/tmp/ckdos removed.
+
+**Campaign effect:** the DoS group is now 5 PASS / 1 FAIL (was 5 PASS / 1 UNMEASURED). 5437 is no
+longer an open "resume or close" ruling; it is a new "raise as defect?" question.

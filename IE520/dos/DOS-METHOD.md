@@ -39,20 +39,24 @@ Port status Disabled). Disarmed + same attack → port stays **connected**. Both
 | T5439 | ping-of-death | err-disable (2977)       | stays up          | PASS |
 | T5440 | smurf         | err-disable (detected)   | stays up          | PASS |
 | T5441 | synflood      | err-disable (detected)   | stays up          | PASS |
-| T5437 | ipoptions     | NOT detected on L2       | n/a               | CONFIG VERIFIED, detection not exercisable — see 5437.log |
+| T5437 | ipoptions     | NOT detected (any path)  | stays up          | FAIL — armed but 0 detections on bridged AND routed paths (2026-09-28); candidate product defect. See 5437.log |
 
-**IP OPTIONS caveat.** IP options are parsed on the L3/ROUTING path. On this flat single-vlan1
-(bridged, non-routing) bench the option-bearing frames are forwarded without their options
-being examined, so `dos ipoptions` never fires — even with valid LSRR/RR options on the wire at
-high rate, aimed at the x230 OR at the switch itself. Exercising it needs a ROUTED path
-(ingress subnet A → IE520 routes → egress subnet B), which this bench does not implement.
+**IP OPTIONS — RESOLVED 2026-09-28: FAIL, candidate product defect.** `dos ipoptions` on the
+IE520 (awplus_main-20260923-20) is accepted and shows Enabled, but never counts or shuts the port.
+Verified on BOTH a bridged path (access vlan1, dst = a host behind the switch) AND a genuinely
+routed path (scratch vlan90 SVI, dst = stack router MAC, dst IP in another subnet — the DUT
+L3-routes and parses the options), with Record-Route AND the illegal LSRR option, wire-verified
+(ihl 6/7), valid unicast source MAC, ~3200 pps (threshold is 20 pps). Attacks detected stayed 0
+every time; the port never err-disabled.
 
-> **⚠ 2026-09-28: treat this caveat as UNPROVEN.** The 2026-09-04 investigation
-> (`routed-ipoptions-2026-09-04/BOOKMARK.md`) found that the crafted packets used an ILLEGAL
-> multicast source MAC (`01:00:01:00:00:01`, from `dos_campaign.py`'s `b_ipoptions`) that the
-> devices drop regardless of L3 content, so this flat-L2 result may be a harness artifact. With
-> a valid unicast source MAC the IE520 processes and forwards most options. Whether
-> `dos ipoptions` counts/err-disables is STILL UNANSWERED; 5437 is inconclusive until it is.
+This overturns the earlier readings. The 2026-09-03 'needs L3 routed path' theory is DISPROVEN
+(the routed path also fails). The 2026-09-04 illegal-MAC bug (source MAC 01:00:01:00:00:01, from
+`dos_campaign.py`'s `b_ipoptions`, dropped before counting) was real but not the whole story.
+The other five DoS types fire on this same bench, so the DoS engine and the transit method work
+on the IE520 — ipoptions specifically is a no-op. Arming works on a master-member port; the old
+port1.0.1 'Cannot update hardware filter' was member-1-specific. One caveat: no cross-platform
+control was run (no host NIC lands directly on the wiki-listed x230/4050), so confirm on a
+reference platform before filing. Full method + evidence: 5437.log.
 
 ## The tool (version-tracked)
 `claude/Test-cases/ask-ck/test-composer/dos_campaign.py` — the whole suite in one file:

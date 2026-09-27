@@ -1,36 +1,57 @@
 AWPTCM-T5437 (1.0) — DoS: IP OPTION
-tb470 IE520 stack (DUT) · port1.0.1 · 2026-09-03 · clean flat-vlan1 bench
+tb470 IE520 stack (DUT, awplus_main-20260923-20) · armed on member 3 port3.0.9 · 2026-09-28
 
-RESULT: CONFIG VERIFIED; DETECTION NOT EXERCISABLE ON THIS BENCH (needs a routed path).
-Method + gotchas: see DOS-METHOD.md in this directory. NOT a device defect — a bench-topology
-limitation (see below). Re-run once a routed topology is available.
+RESULT: FAIL — candidate product defect. `dos ipoptions` is accepted and reports Enabled, but
+        NEVER detects: 0 attacks counted and the port never err-disabled, on BOTH the bridged and
+        the routed path, with well-formed IP options and a valid unicast source MAC, at ~3200 pps
+        (documented threshold is 20 pps). The other five DoS types DO fire on this same bench
+        (see their logs), so the DoS subsystem and the injection method both work here — ipoptions
+        specifically is a no-op on the IE520.
 
-Attack: IP packets carrying IP options ("illegal IP options" per the case).
-Tools tried (all batched, high rate, valid on the wire):
-  - stock ip_options.py: IPOption_EOL()  (a legal end-of-list option)
-  - fastopt.py / fastopt2.py: IPOption_LSRR (loose source route), IPOption_RR (record route),
-    aimed BOTH at the x230 (transit) AND at the IE520 itself (10.38.215.66).
-Wire check (tcpdump on eth3) confirmed the frames carried the option and ihl>5, e.g.:
-  IP (... options (LSRR 10.38.215.90,EOL)) 10.38.215.90 > 10.38.215.71: ICMP echo request
-  (1946 such packets in ~2s -- rate is not the problem).
+  This SUPERSEDES the 2026-09-03 "CONFIG VERIFIED, needs L3 routed path" result and the
+  2026-09-04 paused investigation. Both were wrong about the cause:
+    - 2026-09-04 found the crafted frames used an ILLEGAL multicast source MAC
+      (01:00:01:00:00:01) the switch drops before any counting — a real harness bug, now fixed.
+    - But with that fixed (valid unicast src MAC 00:f0:4d:00:77:18), and on a genuinely ROUTED
+      path, it STILL does not detect. So "needs L3" was also wrong. It simply does not work.
 
---- show dos interface port1.0.1 (armed) ---
-  ipoptions           : Enabled
-     Action           : Shutdown port
-     Attacks detected : 0        <- stayed 0 in every variant
---- show interface port1.0.1 status ---
-  port1.0.1   connected          <- never shut down
+METHOD (all stimulus = benign ICMP echo carrying an IP option; this is DEFENCE verification)
+  Source   : tb470 eth3 (00:f0:4d:00:77:18), cabled to stack member 3 port3.0.9 (bench-state.md).
+  Options  : Record-Route (RR, IP ihl=6) and Loose Source Route (LSRR, ihl=7). Both wire-verified
+             on eth3 with tcpdump 'ip[0]&0x0f>5' — e.g. "options (RR,EOL) 10.38.215.65 > 10.38.215.2".
+  Rate     : 6000 frames in ~1.9 s ≈ 3200 pps, per option, per path — >150x the 20 pps threshold.
+  Arm      : `dos ipoptions action shutdown` on port3.0.9 → `show dos interface` = ipoptions Enabled.
+             (Arming SUCCEEDS on a master-member port. The 2026-09-04 "Cannot update hardware
+             filter" was specific to member 1 / port1.0.1, not a general failure.)
 
-WHY (root cause):
-  IP options are parsed on the L3 / ROUTING path. This bench is a flat single-vlan1, purely
-  BRIDGED (non-routing) segment, so option-bearing frames are L2-forwarded to the x230 without
-  their IP options ever being examined -- nothing to trigger `dos ipoptions`. The other five
-  DoS types (teardrop/land/ping-of-death/smurf/synflood) are caught by L2-L4 ingress inspection
-  and DO fire on the bridged path (see their logs). IP OPTION is the one that needs L3.
+  Path 1 — BRIDGED (port3.0.9 access vlan1; dst MAC 02:1a:eb:91:cc:a1 = x230 as learned on sa2,
+           a host BEHIND the switch, not the switch's own router MAC):
+             armed + RR    → Attacks detected : 0 ; port connected
+             armed + LSRR  → Attacks detected : 0 ; port connected
+  Path 2 — ROUTED (scratch vlan90 SVI 10.90.0.1/24; port3.0.9 → vlan90; dst MAC 00:00:cd:37:0d:6f
+           = stack router MAC; dst IP 10.38.215.2 in vlan1, so the DUT L3-routes and parses the
+           options — `ip routing` on, 10.90.0.0/24 directly connected, confirmed):
+             armed + RR    → Attacks detected : 0 ; port connected
+             armed + LSRR  → Attacks detected : 0 ; port connected
 
-TO EXERCISE IT (future): give the IE520 a routed path -- ingress subnet A (tb470/vlan1) routed
-by the IE520 to egress subnet B (a second vlan, e.g. the x230 re-addressed onto it) -- so the
-option-bearing packets are ROUTED and their options parsed. That requires reconfiguring the
-clean flat-vlan1 bench (a second vlan/subnet + inter-vlan routing) and was not done here.
+  Negative control (bridged, disarmed with `no dos ipoptions`, re-fire RR): port stays connected —
+  as expected, and it also stays connected while ARMED, which is the defect.
 
-STATE AFTER: port1.0.1 up, dos config removed (baseline). Running-config only; reverts on reload.
+WHY THIS IS A SOLID NEGATIVE
+  - Options are real and on the wire (tcpdump), not malformed (ihl 6/7).
+  - Source MAC is a valid unicast (the 2026-09-04 illegal-MAC bug is fixed).
+  - Both the bridged and the routed path were tested — the old "needs L3" escape is closed.
+  - Rate is far above threshold.
+  - Same bench, same injection method: teardrop/land/ping-of-death/smurf/synflood all err-disable
+    (2026-09-03 logs), so the DoS engine and the transit method work on the IE520.
+
+CAVEAT (one, honest)
+  A cross-platform control (arm `dos ipoptions` on a wiki-listed platform — x230 or AR4050S — and
+  show the SAME stimulus detecting) was NOT run: no tb470 host NIC lands directly on the x230 or
+  the 4050, so option frames cannot be injected cleanly into one of their access ports from a host.
+  The wiki's dos.md lists AR4050/x230/x908Gen2/x930/x950 and NOT the IE520, and describes ipoptions
+  as a hardware ingress count. Confirm on a reference platform before filing the defect.
+
+STATE AFTER: port3.0.9 restored to default access vlan1, no dos config, connected. Scratch vlan90
+  + SVI removed. tb470 eth3 restored to 10.38.215.65/27. `bench_probe.py run` = MATCH after the run.
+  Evidence transcripts were in tb470:/tmp/ckdos (tmpfs, removed at teardown).

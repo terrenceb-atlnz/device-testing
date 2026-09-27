@@ -1,6 +1,6 @@
 ---
 name: ie520-dos-test-method
-description: How to run the AWPTCM DoS suite (T5437-5442) on the tb470 IE520 bench — transit traffic, batched senders, disarm syntax; ipoptions UNRESOLVED (the 'needs L3' claim is unproven)
+description: How to run the AWPTCM DoS suite (T5437-5442) on the tb470 IE520 bench — transit traffic, batched senders, disarm syntax; ipoptions RESOLVED 2026-09-28 = FAIL (armed but 0 detections, any path) — candidate product defect
 metadata:
   type: reference
 ---
@@ -26,14 +26,15 @@ robust to the err-disable-recovery timing flake.
 3. **Disarm is `no dos <type>`** (for smurf `no dos smurf`, dropping the `broadcast A.B.C.D`),
    NOT `no dos <type> action shutdown` — the latter is accepted but leaves detection enabled.
    Recover an err-disabled port with `no shutdown`.
-4. **`dos ipoptions` needs the L3/ROUTED path** — IP options are parsed only on routing, so on
-   the flat-L2 (bridged, non-routing) bench it never fires even with valid LSRR/RR options at
-   rate. Verdict: teardrop/land/ping-of-death/smurf/synflood PASS; ipoptions config-verified
-   only, needs a routed topology to exercise.
-   **⚠ 2026-09-28: UNPROVEN.** The packets behind this claim used an ILLEGAL multicast source
-   MAC (`01:00:01:00:00:01`) that the devices drop anyway (`dos/routed-ipoptions-2026-09-04/
-   BOOKMARK.md`). Craft DoS frames with a valid unicast source MAC; whether `dos ipoptions`
-   counts is still unanswered (5437 inconclusive).
+4. **`dos ipoptions` is a NO-OP on the IE520 — FAIL, candidate product defect (2026-09-28).**
+   Armed it shows Enabled but counts 0 and never shuts the port, verified with a valid unicast
+   source MAC on BOTH a bridged path AND a genuinely routed path (scratch vlan90 SVI, dst = stack
+   router MAC), RR and illegal LSRR options (wire-verified ihl 6/7), ~3200 pps vs a 20 pps
+   threshold. The earlier 'needs L3 routed path' theory is DISPROVEN; the 2026-09-04 illegal
+   multicast source MAC (01:00:01:00:00:01, still in dos_campaign.py's b_ipoptions) was a real bug
+   but not the cause. The other five DoS types fire on this bench, so the engine + method work —
+   ipoptions specifically does not. Caveat: no cross-platform control (no host NIC on x230/4050).
+   Verdict: teardrop/land/ping-of-death/smurf/synflood PASS; ipoptions FAIL. Detail: 5437.log.
 
 Pass criterion: armed+attack → port `err-disable` (`show dos interface`, Attacks detected > 0);
 disarmed+attack → port stays connected.
