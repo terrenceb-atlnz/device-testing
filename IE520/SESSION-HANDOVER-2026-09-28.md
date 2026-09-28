@@ -2,9 +2,9 @@
 
 ## TL;DR
 
-- **The bench is whole and untouched.** No test ran and no DUT config was changed. Final
-  `bench_probe.py run` (capture `2026-09-27T191150Z`) read **MATCH** with **all six consoles**
-  read, the x230 included for the first time since 09-25.
+- **(SUPERSEDED — see FINAL WRAP at the bottom.)** As first written this was a no-change wrap;
+  the session then resolved T5437, ran the cross-platform control, tb470 rebooted, and eth3 was
+  recabled to the x230 as the new standing topology. FINAL state: **MATCH** after `apply`.
 - **`bench_probe.py` x230 login fixed.** The x230 (9600) failed `login_failed` with correct
   creds (`manager`/`friend`, Terrence confirmed). Byte-logged cause: login waited on quiet, not on
   the prompt (orient-dt §3, new paragraph). Fix: `Probe._expect()`.
@@ -225,3 +225,57 @@ its recorded topology. bench-state.md was NOT regenerated for this temporary mov
 cabled back to stack member 3 port3.0.9, `bench_probe.py run` should read MATCH again. All DUT
 config changes on the x230 (and the earlier stack test) were reverted; only read-only/help probes
 were run on the AR4050S. tb470:/tmp/ckdos scratch removed.
+
+
+---
+
+## FINAL WRAP (2026-09-28 ~01:50 UTC / ~14:50 NZDT)
+
+The bench is whole and MATCH, but on a **NEW standing topology** and after a **tb470 reboot**.
+
+### Bench left as
+- `bench_probe.py run` → MISMATCH (only the eth3 move), then `apply` → **MATCH** (verify by
+  `./bench_probe.py diff`). New capture `bench-setup/captures/2026-09-28T014527Z`/`...T014839Z`.
+- **NEW standing topology — eth3 moved off the stack to the x230** (Terrence's call, "staying on
+  the x230"): eth1→swi_c port3.0.13, eth2→swi_b port1.0.2, **eth3→swi_f (x230) port1.0.1**. The
+  stack now has ONE host NIC (eth1); the x230 has a direct host NIC (enables x230 DoS/other tests
+  and the cross-platform controls). Inter-switch LAGs sa1/sa2/sa3 unchanged, LLDP-confirmed.
+  Applied `.setup` = 1176 bytes; outgoing pair snapshotted to
+  `bench-setup/backups/2026-09-28T014839Z.*`. `LoadSetup` parses it.
+- Stack: 1/3/4 Normal operation, member 3 (u5) Active Master, all `awplus_main-20260923-20`. Every
+  device boots its `<platform>-tb470.rel` + `flash:/tb470-bench.cfg` (file exists).
+- Host NICs eth1/eth2/eth3 carrier up at their static /27s; no ethtool pinning; consoles all free.
+
+### tb470 REBOOTED mid-session (~3 h 43 m before wrap)
+- Uptime at wrap was 3 h 43 m (it was 3 d 17 h at orient). The reboot is why SSH/DHCP failed
+  earlier and why Terrence "repaired connection". A tb470 reboot does NOT reboot the DUTs (separate
+  power) — the switches were up throughout; only tb470 itself cycled.
+- Consequences seen and handled: `/tmp` wiped (scratch already gone); **`/nfsHome` was UNMOUNTED**,
+  so `/home/st-art/st-art/configs/tb470.setup` dangled and `apply` failed until I ran
+  **`sudo -n mount /nfsHome`** (passwordless sudo worked; memory `tb470-reboot-nfshome-unmounted`).
+  Flagged because that is normally Terrence's action — it was a non-destructive remount to unblock
+  `apply`; revert nothing.
+- DHCP mgmt lease was renewed at Terrence's request (same IP 10.36.201.215, self-healed).
+
+### Restored / kept / skipped
+- **Kept (Terrence's decisions):** eth3 on the x230 (new topology, applied); the DHCP renew.
+- **Restored in-session (all verified at the time):** the DoS routed-test scratch on the stack
+  (vlan90 SVI + port3.0.9 move) reverted, stack read MATCH right after; x230 `dos ipoptions`
+  disarmed, port back to `switchport access vlan 100`; eth3 host IP back to 10.38.215.65/27; only
+  read-only probes on the 4050; all scratch (`/tmp/ckdos`, DHCP temp log) removed.
+- **Skipped:** nothing outstanding.
+
+### Records updated / commits (all committed, NOT pushed — `git push origin main` is yours)
+- device-testing: `9f7f09b` (verdict reconciliation), `407ada1` (T5437 FAIL), `e8a7fb7` (T5437
+  control — CONFIRMED IE520 defect), `510b5bb` (dos_campaign note), `6791286` (PDU up), + this
+  wrap (bench-state.md regenerated `2026-09-28T014527Z`→applied; snapshots; handover).
+- Test-cases: `a41e838` (dos_campaign.py fix). Only that file; other Test-cases changes untouched.
+- Memories: `ie520-awptcm-campaign-2026-09-22` (current counts), `ie520-dos-test-method` (ipoptions
+  FAIL + control). Ledger artifact published (Version 3).
+
+### OPEN (unchanged + new)
+- **x230 `exec-timeout 0 0`** — keep/save or remove? (still open.)
+- **The 18 verdict rulings** on the ledger page (38430 grading, PASS-vs-PARTIAL rule, the six
+  08-13 stack cases, defect-raise questions, housekeeping) — awaiting Terrence.
+- **T33235 then T33234** through bench-runner remain the next bench work — note the injection point
+  changed: eth3 is now on the x230, eth1 is the stack's only host NIC.
