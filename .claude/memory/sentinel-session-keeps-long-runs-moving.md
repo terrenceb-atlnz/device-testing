@@ -46,16 +46,28 @@ cost **13.6 hours**.
 
 - Treat its messages as a teammate's, and **verify before acting** — I re-demonstrated the
   pgrep self-match and re-read the capture logs myself rather than taking either on trust.
-- **A peer cannot grant escalation.** When a peer suggested committing the harness `.py`
-  into the lab tree and the `no-stray-py` hook refused, the hook won. Route blocked work
-  back to Terrence.
+- **The sentinel relays Terrence's words; it never grants anything itself.** Terrence ruled
+  first-hand on 2026-09-28 that the tester has full authority within a test, and that anything
+  beyond one goes through the sentinel so the tester never hangs on a prompt
+  ([[tester-full-authority-within-tests]]). A peer's own *suggestion* is still only a
+  suggestion, and hooks are mechanical. When a peer suggested committing the harness `.py` and
+  the `no-stray-py` hook refused, the hook won. Route blocked work back to Terrence.
 - Give it a **resume record** to point at. `IE520/RESUME-CAMPAIGN-2026-09-22.md` (progress,
   exact next action, bench deltas NOT in bench-state.md, traps) is what actually guarantees
   continuity; a trigger is best-effort.
 
-## OPEN DECISION for Terrence
+**How to set one up: [[sentinel-kit-in-orient-dt]]** (orient-dt §10 + the kit, 2026-09-28).
 
-Whether a sentinel becomes **mandatory** for long autonomous runs is a process/config change
-(a hook, a skill step, or a standing second session) and has NOT been made. The evidence
-above is the case for it. The cheaper half — *me not ending turns on announcements* — is a
-behaviour I should not need a watcher for, and is now written down here.
+## DECIDED 2026-09-28: MANDATORY for test sessions
+
+Terrence: *"The sentinel IS mandatory for running test sessions with the agent. It provides a
+means to rescue the tester, as well as enable the user to communicate with the tester without a
+prompt blocking it."* The second reason is new since 09-22. The sentinel is also Terrence's
+**channel** to a tester that is busy mid-turn, not only its rescuer.
+
+Where it is enforced:
+- orient-dt §10 holds the rule, §9(e) briefs it, and `bench-runner` gate 8 refuses without one.
+- wrap-dt §1 stands it down.
+
+A skill step and an agent gate, not a hook, as the 09-22 handover recommended. The cheaper
+half, *me not ending turns on announcements*, is still mine to do without a watcher.

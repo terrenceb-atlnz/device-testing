@@ -42,7 +42,9 @@
 - [Campaign measurement discipline](campaign-measurement-discipline.md) — baseline the feature OFF first, make traffic TRANSIT the DUT, split PROVEN from NOT MEASURABLE
 - [STP mode change re-enables spanning tree](stp-mode-change-reenables-spanning-tree.md) — a `spanning-tree mode` change silently drops `no spanning-tree <mode> enable`
 - [LACP passive hides links from STP](lacp-passive-hides-links-from-stp.md) — auto-enrols freed ports; STP runs on the AGGREGATOR so a live link forwards where STP cannot block. Hit all 3 devices
-- [Sentinel session keeps long runs moving](sentinel-session-keeps-long-runs-moving.md) — the CAMPAIGN is the unit of work
+- [Sentinel session keeps long runs moving](sentinel-session-keeps-long-runs-moving.md) — MANDATORY for test sessions (Terrence 2026-09-28): rescues the tester + is his channel to it; the CAMPAIGN is the unit of work
+- [Tester has full authority within tests](tester-full-authority-within-tests.md) — Terrence 2026-09-28: config/write/reload/DUT power-cycle/restore need no consent; beyond a test → NEEDS TERRENCE to the sentinel, keep going, never a blocking prompt
+- [Sentinel kit — don't rebuild it](sentinel-kit-in-orient-dt.md) — watching/unsticking a peer session: orient-dt §10 + `.claude/skills/orient-dt/sentinel/` (sentinel.sh, brief, 15-min cron); ListAgents → SendMessage
 - [IE520 AWPTCM campaign 2026-09-22](ie520-awptcm-campaign-2026-09-22.md) — 72-case run + 09-23/24 re-runs: now 52 PASS / 3 FAIL / 3 UNSUPP / 7 UNMEASURED / 5 SKIPPED (+2 STP 3-of-4)
 - [Act on Terrence-stated live faults](act-on-terrence-stated-live-faults.md) — "there is a loop, just fix it": shut a leg and configure, verify AFTER; run literal commands literally
 - [Bench cannot open TCP to office PCs](bench-cannot-open-tcp-to-office-pcs.md) — lab→10.33.22.x TCP is dropped (ping passes); servers the bench connects TO go on tb470, never the dev PC; test the transport first

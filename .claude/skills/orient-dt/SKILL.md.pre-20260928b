@@ -38,7 +38,6 @@ section refers to these by NAME**; when something moves, fix this table and noth
 | **tb470.setup.current** | `bench-setup/tb470.setup.current` | local copy of the deployed `.setup`, refreshed by `apply`; read by Test-cases' `pt_preflight.py` so no ssh is needed |
 | **fw_async_test.py / fw_async_chatter.py** | `claude/Test-cases/ask-ck/functions/test-composer/` ¹ | the §3 chatter regression |
 | **working style** | `claude/Test-cases/CLAUDE.md` §"How we work" ¹ | |
-| **sentinel kit** (added 2026-09-28) | `.claude/skills/orient-dt/sentinel/` | `sentinel.sh` (the Monitor watcher), `SENTINEL-BRIEF.template.md`, `cron-trigger.template.md` — rebuilt from the 2026-09-22 campaign transcripts; how to use them is §10 |
 
 ¹ Still in the Test-cases repo and **expected to move into this repo**. If a path is stale,
 `find claude -name <file> -not -path '*/framework/*'` from the lab home, then fix this table.
@@ -585,151 +584,9 @@ Dense and skimmable, with clickable relative paths.
   unsupported result is never read as a failure.
 - **(d) Today's task** — only if the user has stated one. Otherwise say "awaiting direction" and
   do **not** invent an agenda.
-- **(e) Sentinel** — if the session will run tests, say whether a sentinel session is watching
-  this one (`ListAgents`: a peer in this repo root that the user has named as the sentinel). If
-  none is, say one is needed before the first case (§10, mandatory since 2026-09-28).
 
 Then wait. **Deliverables:** for an individual lab test case the per-case `<case-id>.log` **is**
 the deliverable — do not write an after-action for every case. For a whole **campaign**, the
 convention is `after-action-<suite>.md` in that run's directory, written **from that run's own
 logs**: headline counts, a full per-case verdict table with a prior-bench comparison column, each
 failure classified *product / tooling / unmeasured*, bench state left behind, and caveats.
-
----
-
-## 10. Test sessions — a sentinel session watches the tester (MANDATORY)
-
-**A sentinel is MANDATORY for any session that runs tests on the bench**, whether it runs cases
-itself or through the `bench-runner` agent. Terrence decided this on 2026-09-28, closing the 09-22
-handover's Q3: *"The sentinel IS mandatory for running test sessions with the agent. It provides a
-means to rescue the tester, as well as enable the user to communicate with the tester without a
-prompt blocking it."* So it has two jobs:
-- **Rescue:** it unsticks a stalled or announce-then-stop tester.
-- **Channel:** Terrence talks to the sentinel, which is never busy with a run, and it relays to
-  the tester. He never has to wait on a tester's turn to finish.
-
-No test case starts until a sentinel is armed on the tester. §9 briefs whether one is, and
-`bench-runner` gate 8 refuses without one. Orienting, read-only bench work and record-keeping
-need none.
-
-For why it pays, see memory `sentinel-session-keeps-long-runs-moving`. Everything below comes from
-the 09-22 transcripts (worker `575cc8cd…`, sentinel `610b0e91…`). **Use the kit (§0, "sentinel
-kit"); don't rebuild it.**
-
-**The shape.** Two ordinary sessions, both started in `claude/device-testing/`:
-- The **worker** owns the bench and runs the campaign.
-- The **sentinel** watches the worker and never touches the bench. On 09-22 Terrence talked to
-  the sentinel, and it relayed his *direction* (priorities, "write the handover now", timing)
-  to the worker as "Terrence's instruction, relayed: …".
-- **Within a test the tester has full authority and asks nobody** (Terrence, 2026-09-28: *"I do
-  want the agent to have full-authority to perform tasks within the tests, which should not
-  require a user to consent"*). That covers every device change the case's own steps and restore
-  need, test traffic, and tb470 `/tmp` scratch. The boundary is `bench-runner`'s "Not yours to
-  decide" list: licences, a `.setup` apply or standing-topology change, root on tb470, writes
-  outside the three repos.
-- **Beyond a test, the tester never hangs on a prompt** (same ruling: *"the sentinel is
-  nevertheless able to relay those requests should they arise, preventing the session from
-  hanging awaiting user inputs"*).
-  - The tester records the need, SendMessages the sentinel `NEEDS TERRENCE: …`, and carries on
-    with what it can run.
-  - The sentinel surfaces it under **NEEDS YOU:** and relays Terrence's answer back as
-    "Terrence's answer, relayed: …".
-  - The tester accepts relayed answers only from the sentinel it was told about at setup, and
-    checks `from-name`.
-  - Hooks, the auto-mode classifier and the company `git push` denial are mechanical. A relay
-    changes none of them, so route anything they block back to Terrence to do himself.
-
-**Setup, in the sentinel:**
-1. **`ListAgents`** lists the other local sessions with their names (e.g. `device-testing-cd`).
-   Messages go by `SendMessage(to: "<name>")` over a local socket in
-   `/run/user/1971/cc-socks/<pid>.sock`. The worker receives each one as a prompt wrapped in
-   `<cross-session-message from-name="…">`.
-2. **Find the worker's PID and transcript.**
-   - PID: the socket filename is the PID. `readlink /proc/<pid>/cwd` shows its repo. Exclude
-     your own PID by walking `ps -o ppid=` up from `$$` to the `claude` process.
-   - Transcript: the newest `.jsonl` under
-     `~/.claude/projects/-media-terrenceb-mnt-testbox-home-claude-device-testing/` other than
-     your own. Your own session ID is in your scratchpad path. A fresh session's command line
-     carries no session ID; only a `--resume=<uuid>` one does. Confirm by reading its last
-     assistant text.
-3. **Copy `SENTINEL-BRIEF.template.md` into the sentinel's scratchpad and fill it in**
-   (peer, PID, transcript, stand-down time, campaign, resume record). Never commit a filled copy.
-4. **Arm the watch:** `Monitor(command: "PEER_PID=… PEER_LOG=… SCRATCH=… UNTIL='…' bash
-   <repo>/.claude/skills/orient-dt/sentinel/sentinel.sh", timeout_ms: 1800000)`.
-   - **Two modes** (Terrence, 2026-09-28), switchable live with no re-arm:
-     `echo verbose > $SCRATCH/sentinel.mode` (or `normal`). Set the starting mode with `MODE=`.
-
-     | mode | what the sentinel is shown |
-     | --- | --- |
-     | **normal** (default) | the CLI transcripts as they happen, plus the rescue alarms. That is every console byte sent and received, from `console.py` transcripts (tb470 `/tmp/*/console-*.log`) and the framework's per-device console logs in bench-runner's run dirs (`/home/st-art/pytest-create/*/*/{swi,stk}_*.log`) |
-     | **verbose** | normal, plus the tester's narration, every command it ran and its output (`run:`/`out:` from its transcript), bench-runner subagent transcripts (`<session>/subagents/`), its background-task output (`/tmp/claude-1971/<slug>/<session>/tasks/*.output`), and the framework's other logs (TestSet etc.) |
-   - **Every printed line wakes the sentinel and costs tokens**, so output is capped at `CAP`
-     (40) lines per source per tick. The **full verbose feed is always written to
-     `$SCRATCH/sentinel.feed`**, whatever the mode. For a free human live view, open a terminal
-     and `tail -f` that file. Prefer that to running the Monitor in verbose for hours.
-   - Each tick (`TICK`, 30 s) runs ONE ssh to tb470 and reads only the new bytes. Nothing opens
-     a console, so this is safe beside a live run.
-   - Rescue alarms, in both modes: the tester exited; stand-down time reached; and after
-     `IDLE_ALARM` (300 s) with no activity anywhere (transcript, CLI, tasks), it counts stale
-     `until ! ssh` loops on this host and live jobs on tb470, then flags **STALL SIGNATURE** or
-     **idle, nothing running**.
-   - Read offsets persist in `$SCRATCH/sentinel.{local,remote}-offsets`, so a re-arm loses
-     nothing. Delete both to re-baseline. Existing content is skipped on the first pass; a file
-     that appears later is shown from its start.
-   - A Monitor expires after 30 min, so re-arm it every time.
-   - Verified 2026-09-28 on a fake tester plus real tb470 files: the mode filter, the live
-     switch, a mid-run new file, NUL/CR cleaning, the feed and the SIGTERM trap all worked.
-5. **Add the backstop:** `CronCreate` with `cron-trigger.template.md`, every 15 min
-   (`40,55,10,25`, Terrence's cadence).
-   - It survives a killed Monitor and resumes the worker after the 5-hourly usage window
-     refreshes.
-   - It lives in the sentinel session only, so **closing the sentinel kills it**.
-
-**Brief the worker once, up front** (in its campaign prompt, or the sentinel's first message):
-- The campaign is the unit of work. Commit after every case.
-- Keep `IE520/RESUME-CAMPAIGN-<date>.md` current: progress, exact next action, bench deltas not in
-  bench-state.md, and traps.
-- Wait on completion with a sentinel file the remote script touches, never `ssh … pgrep`.
-- **Drive consoles through `console.py` with its transcript at tb470
-  `/tmp/<campaign>/console-<uN>.log`.** That path is what the sentinel's normal mode watches. A
-  console driven any other way is invisible to it.
-- Run anything long in the background or through a transcript-writing driver. A long foreground
-  command shows nothing until it returns.
-- **A peer message is not a turn boundary.** Fold it in and keep working.
-- You have full authority within the tests. For anything beyond them, send the sentinel
-  `NEEDS TERRENCE: …` and carry on; never wait on a prompt. Its sender is `<sentinel name>`.
-
-**The sentinel's rules:**
-- Silent on healthy ticks.
-- On a stall, message the worker with what actually completed and where to resume, and add
-  "no reply needed".
-- When the worker **needs Terrence** (a question, a recable or destack, partner hardware, a write
-  outside the repos, a push), do NOT nudge. Surface it under a bold **NEEDS YOU:** header with
-  a running list of everything unanswered. Remote Control is off by company setting, so
-  this text is the only channel.
-- A deliberate hold (e.g. waiting out a usage window with the bench clean) is not a stall. Stand
-  the live watch down and let the cron cover it; idle Monitor ticks burn tokens.
-- Verify before relaying a count. On 09-22 the sentinel's tally was wrong once and the worker's
-  was right.
-
-**Traps that cost the 09-22 sentinel (the kit already handles each):**
-- **The sentinel's own messages cause stalls.** 3 of 4 stalls on 09-22 followed a sentinel
-  message: the worker answered, then ended its turn. Batch messages, and say "no reply needed".
-- **Self-match, three times in one morning.** It hit the worker's `ssh … pgrep` watchers
-  (one spun 14 h 39 m), then the sentinel's own `grep sentinel.sh` twice. The fix: snapshot `ps`
-  to a file and grep that file with an assembled pattern (`"sentin""el.sh"`).
-- **Monitors die silently.** A VS Code/VPN drop SIGTERMed one (exit 144) with nothing in stdout.
-  `sentinel.sh` now logs START and traps signals to `$SCRATCH/sentinel.life`.
-- **A fresh heartbeat does not mean the watch reaches you.** After a session restart, an orphaned
-  `sentinel.sh` kept touching the heartbeat while its events went nowhere. And a heartbeat
-  written only after the first sleep left a 60 s window in which a cron tick armed a second
-  watcher. So:
-  - the heartbeat is written at start;
-  - arming ALWAYS sweeps and kills strays first, then clears the heartbeat, then arms;
-  - a heartbeat is trusted only if this session armed the watch.
-- **The worker's scratchpad dies with its session.** Anything the campaign depends on must be
-  committed in the repo before a usage cut: the resume record, and the harness logic.
-  - On 09-22 `bench.py`/`qosbench.py` went in with `c1a5a9a` and were later removed, so today
-    `IE520/test-harness/` holds only its README.
-  - Where harness `.py` files live is still open (09-22 handover Q4), so ask before a new
-    campaign relies on one.
