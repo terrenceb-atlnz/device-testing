@@ -284,13 +284,21 @@ BOX=st-art@<testbox>                         # profile default user is st-art, k
 WORK=/home/st-art/pytest-create/<CASE_KEY>/<RUN_ID>
 
 SSH_AUTH_SOCK=$sock ssh "$BOX" "mkdir -p $WORK"
-SSH_AUTH_SOCK=$sock scp <script>.py <lib>.py <topology>.setup "$BOX:$WORK/"
+# ck_media.py is REQUIRED beside the script (2026-09-29): every generated script does
+# `import ck_media` (media discovery at init and the per-case media asserts). The server run
+# path ships it from ask-ck/tools/pt_media.py under that name; a by-hand run must too.
+cp ask-ck/tools/pt_media.py <staging>/ck_media.py
+SSH_AUTH_SOCK=$sock scp <script>.py <lib>.py <staging>/ck_media.py <topology>.setup "$BOX:$WORK/"
 SSH_AUTH_SOCK=$sock ssh "$BOX" "
   cd $WORK && ln -sfn /home/st-art/framework framework &&
   sudo -n PYTHONPATH=/home/st-art python3 ./<script>.py -s <topology>.setup -v --noupdate --nodefaultcfg
 "
 ```
 
+- **`ck_media.py` is not optional either** (found 2026-09-29): both generated scripts on disk import it
+  — T33234 inside `_ck_discover()` at init, T33235 in `assert_role_media_now()` — and this recipe
+  used to copy only the script, the library and the `.setup`. `run_script` ships
+  `_media_helper_source()` (`ask-ck/tools/pt_media.py`) as `MEDIA_HELPER_NAME`; by hand, copy it yourself.
 - **`--noupdate --nodefaultcfg` are not optional** (Terrence, 2026-09-25). §3b says what the
   framework does to every bound device without them. The server path carries them in
   `pt_exec.FRAMEWORK_RUN_FLAGS` (Test-cases `57d2021`). On tb470, runs go through this repo's
