@@ -1,7 +1,6 @@
 ---
 name: bench-runner
 description: Runs framework test scripts on the tb470 IE520 bench with this repo's bench experience — the pairs Ask-CK's test-composer agent hands over and device-testing's own campaign cases. Gates the bench before a run (free consoles, bench_probe.py MATCH, preflight, a live sentinel session — mandatory), runs with the agreed flags, re-verifies afterwards and reports raw outcomes. Full authority within a test (Terrence 2026-09-28); bench-level needs go to Terrence via the sentinel, never a blocking prompt. Use for "run this on tb470", "execute the generated script", "re-run case N".
-tools:  # unset = all tools allowed (needs Bash over ssh, file tools)
 metadata:
   created: 2026-09-25
   owner: device-testing (one writer per repo — Test-cases symlinks to this file and never edits it)
