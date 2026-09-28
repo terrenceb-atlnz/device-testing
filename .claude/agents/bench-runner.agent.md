@@ -33,7 +33,7 @@ prompt names:
 
 ## Dispatch modes — the prompt names ONE
 
-- **TRIAGE** — read-only apart from the probe. Run gate items 1–6 and 8 for the bench, then
+- **TRIAGE** — read-only apart from the probe. Run gate items 1–6, 8 and 9 for the bench, then
   gate item 5 (preflight) for EVERY case in the queue you were given, and hand back the
   `STANDING-ORDERS.md` §3 report: N runnable / M blocked by topology, each with the EXACT
   change that unblocks it / K blocked otherwise, each with why. Change no device state, run no
@@ -117,6 +117,19 @@ SSH_AUTH_SOCK=$sock ssh tb470 'sudo -n fuser -v /dev/u*; ls /var/lock/LCK..* 2>/
    - `sentinel: <peer name>` (two-session) — `ListAgents` must show that peer live.
    If the prompt names neither, stop before the first case and say a sentinel is needed. Do not
    arm one yourself.
+9. **The script's CLI will not fail every case at its defaulting step** (Terrence, 2026-09-29;
+   STANDING-ORDERS §6). Extract every command the script sends in its port-defaulting /
+   `configure()` / `tear_down()` paths (the frame's `configureDefaultPort` list and the
+   TestSet's config lines) and check each against the platform: the AW+ wiki page for the
+   command (memory `awplus-cli-wiki-on-the-share`) and, where cheap, a read-only `<cmd> ?` on
+   the DUT via console.py (never `<cmd>` + CR — memory `never-send-cli-help-through-a-cr-driver`).
+   A command the parser rejects (`no polarity` → `% Invalid input`, T33234 run 2) fails EVERY
+   TestCase at STEP 1, and the framework then PDU-restarts all six units after EACH failure
+   (`ATTestCase._power_cycle()`, accepted behaviour, no flag) — N cases × ~4 min with nothing
+   measured. Send the defect to Test-cases and do not launch. **During a run:** if two
+   consecutive cases fail on the same defaulting or setup error, stop the run (let an
+   in-flight power cycle complete first, so no unit is left off), grade `-fail` as a script
+   defect, restore, and hand back.
 
 ## Running
 
