@@ -39,6 +39,8 @@ section refers to these by NAME**; when something moves, fix this table and noth
 | **fw_async_test.py / fw_async_chatter.py** | `claude/Test-cases/ask-ck/functions/test-composer/` ¹ | the §3 chatter regression |
 | **working style** | `claude/Test-cases/CLAUDE.md` §"How we work" ¹ | |
 | **sentinel kit** (added 2026-09-28) | `.claude/skills/orient-dt/sentinel/` | `sentinel.sh` (the Monitor watcher), `SENTINEL-BRIEF.template.md`, `cron-trigger.template.md` — rebuilt from the 2026-09-22 campaign transcripts; how to use them is §10 |
+| **STANDING-ORDERS.md** (added 2026-09-28) | `STANDING-ORDERS.md` (repo root) | Terrence's standing answers for campaigns: device-state authority, the log NAME carries the verdict, the triage report shape, what stays his. Read at every orient and before every run |
+| **test-mode skill** (added 2026-09-28) | `.claude/skills/test-mode/SKILL.md` | `/test-mode <cases>` / `--resume`: the ONE-SESSION campaign bundle — this session is the sentinel, `bench-runner` subagents (one per queue group) are the tester; §10 shape A |
 
 ¹ Still in the Test-cases repo and **expected to move into this repo**. If a path is stale,
 `find claude -name <file> -not -path '*/framework/*'` from the lab home, then fix this table.
@@ -585,9 +587,10 @@ Dense and skimmable, with clickable relative paths.
   unsupported result is never read as a failure.
 - **(d) Today's task** — only if the user has stated one. Otherwise say "awaiting direction" and
   do **not** invent an agenda.
-- **(e) Sentinel** — if the session will run tests, say whether a sentinel session is watching
-  this one (`ListAgents`: a peer in this repo root that the user has named as the sentinel). If
-  none is, say one is needed before the first case (§10, mandatory since 2026-09-28).
+- **(e) Sentinel** — if the session will run tests, say which §10 shape applies: `/test-mode`
+  (this session is the sentinel and dispatches `bench-runner`; the default), or a peer sentinel
+  session (`ListAgents`: a peer in this repo root the user has named). If neither, say one is
+  needed before the first case (§10, mandatory since 2026-09-28).
 
 Then wait. **Deliverables:** for an individual lab test case the per-case `<case-id>.log` **is**
 the deliverable — do not write an after-action for every case. For a whole **campaign**, the
@@ -616,7 +619,23 @@ For why it pays, see memory `sentinel-session-keeps-long-runs-moving`. Everythin
 the 09-22 transcripts (worker `575cc8cd…`, sentinel `610b0e91…`). **Use the kit (§0, "sentinel
 kit"); don't rebuild it.**
 
-**The shape.** Two ordinary sessions, both started in `claude/device-testing/`:
+**Two shapes** (Terrence, 2026-09-28 evening: *"id prefer it to be coalesced into one
+device-testing agent that does both parts equally"*):
+
+- **A — one session (`/test-mode`, the DEFAULT).** The session Terrence types into is the
+  sentinel; the tester is a `bench-runner` **subagent** it dispatches, one per queue group. The
+  harness gives this shape what the two-session kit had to poll for: a subagent that ends its
+  turn early notifies its parent (a deterministic stall signal, where 09-22 had a 300 s idle
+  timer), a parent messages a running subagent and vice versa mid-task, and the parent is never
+  busy with the bench, so Terrence's typed message reaches it at once. The kit is the same
+  `sentinel.sh` (with `SELF=1`), brief and cron; the procedure is the `test-mode` skill (§0).
+  Its one extra failure: the session's process dying takes the subagent with it, which is why
+  the queue file and per-case commits are the resume point and `/test-mode --resume` exists.
+- **B — two sessions (the 09-22 shape, kept for a tester that must outlive its sentinel).**
+  Everything below describes B; A reuses its rules, brief and traps with "peer" read as
+  "subagent" and "SendMessage the sentinel" read as "SendMessage the parent".
+
+**The shape (B).** Two ordinary sessions, both started in `claude/device-testing/`:
 - The **worker** owns the bench and runs the campaign.
 - The **sentinel** watches the worker and never touches the bench. On 09-22 Terrence talked to
   the sentinel, and it relayed his *direction* (priorities, "write the handover now", timing)

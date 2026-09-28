@@ -47,10 +47,12 @@ SSH_AUTH_SOCK=$sock ssh tb470 'pgrep -a -f "tcpdump|AsyncSniffer|ckprobe|ckorien
 - **Identify the owner before killing anything you didn't start.** A `bench_probe.py` holding four
   consoles for 45 minutes was Terrence's (2026-09-09). Ask; do not assume a stale job.
 - Leaving a sniffer or a sender running is how the next session's traffic test measures yours.
-- **The sentinel stands down with you** (orient-dt §10, mandatory for test sessions). As the
-  tester, SendMessage it a final "wrapped at <commit>, stand down". As the sentinel, stop your
-  Monitor and delete your cron trigger (`CronDelete`), and sweep stray `sentinel.sh` processes
-  as in the kit's ARMING step. Record in the handover that it stood down.
+- **The sentinel stands down with you** (orient-dt §10, mandatory for test sessions). In
+  `/test-mode` both roles are yours: confirm no bench-runner subagent is still running, stop
+  your Monitor, delete your cron trigger (`CronDelete`), and sweep stray `sentinel.sh`
+  processes as in the kit's ARMING step. In the two-session shape: as the tester, SendMessage
+  the sentinel a final "wrapped at <commit>, stand down"; as the sentinel, do the Monitor, cron
+  and sweep steps above. Record in the handover that it stood down.
 
 ## 2. Restore what you changed on the DUTs
 

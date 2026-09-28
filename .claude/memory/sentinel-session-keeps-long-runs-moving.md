@@ -67,6 +67,8 @@ prompt blocking it."* The second reason is new since 09-22. The sentinel is also
 
 Where it is enforced:
 - orient-dt §10 holds the rule, §9(e) briefs it, and `bench-runner` gate 8 refuses without one.
+- Since 2026-09-28 evening the default way to satisfy it is `/test-mode`: ONE session that is
+  the sentinel and dispatches `bench-runner` subagents as the tester ([[sentinel-kit-in-orient-dt]]).
 - wrap-dt §1 stands it down.
 
 A skill step and an agent gate, not a hook, as the 09-22 handover recommended. The cheaper

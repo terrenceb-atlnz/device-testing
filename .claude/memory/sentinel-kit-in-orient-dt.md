@@ -1,6 +1,6 @@
 ---
 name: sentinel-kit-in-orient-dt
-description: "MANDATORY before any test session (2026-09-28). Asked to watch/unstick/babysit another Claude session or run a long campaign with a sentinel? DON'T REBUILD IT — the kit (sentinel.sh + brief + 15-min cron prompt) is in orient-dt/sentinel/, the procedure is orient-dt §10. ListAgents → SendMessage; watch the peer's .jsonl; Terrence talks to the sentinel, it relays."
+description: "MANDATORY before any test session (2026-09-28). Asked to run a list of cases / a campaign, or to watch/unstick another session? DON'T REBUILD IT — the DEFAULT is ONE session: /test-mode (this session = sentinel, bench-runner subagents = tester, one per queue group). The two-session kit (sentinel.sh + brief + 15-min cron) is in orient-dt/sentinel/ and serves both shapes (SELF=1); procedure orient-dt §10."
 metadata:
   node_type: memory
   type: reference
@@ -19,6 +19,19 @@ re-inventing the wheel"*.
     `UNTIL`, with normal/verbose modes. Tested 2026-09-28 on a fake tester plus real tb470 files.
   - `SENTINEL-BRIEF.template.md`
   - `cron-trigger.template.md`: the 15-min backstop.
+
+**Two shapes since 2026-09-28 evening** (Terrence: *"coalesced into one device-testing agent
+that does both parts equally"*):
+- **A, the default — `/test-mode`** (`.claude/skills/test-mode/SKILL.md`): the session Terrence
+  types into is the sentinel; it writes the queue, arms `sentinel.sh` with `SELF=1` on its own
+  transcript (which locates the `<session>/subagents/*.jsonl` transcripts and never polls
+  itself or its own task output), holds the cron, and dispatches `bench-runner` subagents —
+  TRIAGE first (all/some/none + the exact unblock), then RUN, one per queue group. A subagent
+  that ends early NOTIFIES the parent, so rescue is deterministic; the parent continues it by
+  name. `--resume` restarts from the queue. The tester dies with the session's process, hence
+  the tmux suggestion for multi-hour runs.
+- **B — two sessions**, the 09-22 shape, for a tester that must outlive its sentinel. The
+  facts below are B's.
 
 The facts to recall without opening §10:
 1. **Two sessions, same repo root.** `ListAgents` names the peer; `SendMessage(to: name)`

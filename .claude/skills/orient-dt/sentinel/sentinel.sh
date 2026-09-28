@@ -15,8 +15,13 @@
 #   verbose  + the tester's narration, commands and their output, bench-runner subagent
 #            transcripts, the tester's background-task output, framework run logs
 #
-#   PEER_PID  pid of the tester's claude process        (§10 setup step 2 says how to find it)
-#   PEER_LOG  the tester's transcript .jsonl            (same)
+#   PEER_LOG  the tester's transcript .jsonl            (§10 setup step 2 says how to find it)
+#   PEER_PID  pid of the tester's claude process        (same; OPTIONAL -- empty = no pid check)
+#   SELF      1 = ONE-SESSION shape (/test-mode, 2026-09-28): the sentinel is the parent session
+#             and the tester is its bench-runner SUBAGENT. PEER_LOG is then the parent's OWN
+#             transcript: it is used only to locate <session>/subagents/*.jsonl and the tasks
+#             dir, and is NEVER polled itself (each Monitor event lands in it, so polling it
+#             would re-emit every event -- a feedback loop). PEER_PID is ignored.
 #   SCRATCH   the sentinel session's scratchpad dir
 #   UNTIL     hard stand-down, anything `date -d` reads  ("2026-09-22 16:00")
 #   MODE      starting mode when $SCRATCH/sentinel.mode is absent   (default normal)
@@ -31,7 +36,9 @@
 #   IDLE_ALARM seconds of no activity before an IDLE report   (default 300)
 #   CAP       max stdout lines per source per tick      (default 40; the feed is never capped)
 set -u
-: "${PEER_PID:?}" "${PEER_LOG:?}" "${SCRATCH:?}" "${UNTIL:?}"
+: "${PEER_LOG:?}" "${SCRATCH:?}" "${UNTIL:?}"
+SELF=${SELF:-0}; PEER_PID=${PEER_PID:-}
+[ "$SELF" = 1 ] && PEER_PID=""          # one-session: no separate process to watch
 BOX=${BOX:-tb470}
 RUNS=/home/st-art/pytest-create/*/*          # bench-runner's WORK dirs (TESTBOX-ACCESS.md §3)
 CLI_GLOB=${CLI_GLOB:-/tmp/*/console-*.log $RUNS/swi_*.log $RUNS/stk_*.log}
@@ -53,7 +60,7 @@ DEADLINE=$(date -d "$UNTIL" +%s) || { echo "bad UNTIL: $UNTIL"; exit 2; }
 WATCHER="unt""il ! ssh"
 
 # Lifecycle to a FILE: a killed Monitor loses its stdout (09-22: two silent SIGTERMs).
-echo "$(date +%T) START pid=$$ ppid=$PPID peer=$PEER_PID" >> "$LIFE"
+echo "$(date +%T) START pid=$$ ppid=$PPID peer=${PEER_PID:-none} self=$SELF" >> "$LIFE"
 for sig in TERM INT HUP; do
   trap "echo \"\$(date +%T) SIG$sig pid=\$\$\" >> \"$LIFE\"; exit 0" "$sig"
 done
@@ -150,9 +157,12 @@ EOF
 }
 
 MODE_NOW=""; last_act=$(date +%s); next_alarm=$(( last_act + IDLE_ALARM ))
+declare -A SKIPF   # SELF: our own stdout lands in $TASKS/<id>.output -- reading it back is a loop
+MARK="SENTINEL pid=$$"
 while true; do
   T=$(date +%T); ACTIVE=0
   : > "$BEAT"
+  [ -z "$MODE_NOW" ] && echo "$T $MARK self=$SELF"      # first tick: the marker that names our own task output
   m=$(cat "$MODEFILE" 2>/dev/null || echo "${MODE:-normal}"); [ "$m" = verbose ] || m=normal
   if [ "$m" != "$MODE_NOW" ]; then
     echo "$T MODE $m  (switch: echo verbose|normal > $MODEFILE; full feed: tail -f $FEED)"; MODE_NOW=$m
@@ -160,12 +170,17 @@ while true; do
   V=0; [ "$m" = verbose ] && V=1
 
   if [ "$(date +%s)" -ge "$DEADLINE" ]; then echo "$T SENTINEL STAND-DOWN -- $UNTIL reached"; exit 0; fi
-  if ! kill -0 "$PEER_PID" 2>/dev/null; then echo "$T PEER SESSION EXITED (pid $PEER_PID gone)"; exit 0; fi
+  if [ -n "$PEER_PID" ] && ! kill -0 "$PEER_PID" 2>/dev/null; then echo "$T PEER SESSION EXITED (pid $PEER_PID gone)"; exit 0; fi
 
   poll_remote                                        # CLI: shown in both modes
-  poll_jsonl "$PEER_LOG" tester                      # the rest: shown in verbose only
+  [ "$SELF" = 1 ] || poll_jsonl "$PEER_LOG" tester   # the rest: shown in verbose only; never our own transcript
   for f in "$SUBAGENTS"/*.jsonl; do [ -f "$f" ] && poll_jsonl "$f" "agent:$(basename "$f" .jsonl | cut -c7-14)"; done
-  for f in "$TASKS"/*.output; do [ -f "$f" ] && poll_bytes "$f" "task:$(basename "$f" .output)"; done
+  for f in "$TASKS"/*.output; do
+    [ -f "$f" ] || continue
+    [ -n "${SKIPF[$f]+x}" ] && continue
+    if [ "$SELF" = 1 ] && command grep -q -- "$MARK" "$f" 2>/dev/null; then SKIPF[$f]=1; LOFF[$f]=$(stat -c %s "$f"); continue; fi
+    poll_bytes "$f" "task:$(basename "$f" .output)"
+  done
   flush_caps; save_offsets; FIRST=0
 
   now=$(date +%s)
@@ -180,7 +195,10 @@ while true; do
     idle=$(( now - last_act )); [ "$idle" -ge 120 ] && idle="$(( idle / 60 ))m" || idle="${idle}s"
     echo "$T IDLE $idle -- stale watcher loops here: $stale; live jobs on $BOX: $remote"
     if [ "$stale" -gt 0 ] && [ "$remote" -eq 0 ]; then echo "  >>> STALL SIGNATURE: tester waits on a watcher that cannot fire -- message it"; fi
-    if [ "$stale" -eq 0 ] && [ "$remote" -eq 0 ]; then echo "  >>> tester idle, nothing running anywhere -- stalled, or NEEDS TERRENCE (read its last text)"; fi
+    if [ "$stale" -eq 0 ] && [ "$remote" -eq 0 ]; then
+      if [ "$SELF" = 1 ]; then echo "  >>> nothing running anywhere -- if the queue has rows not DONE/BLOCKED, continue the bench-runner subagent or dispatch the next group (/test-mode)"
+      else echo "  >>> tester idle, nothing running anywhere -- stalled, or NEEDS TERRENCE (read its last text)"; fi
+    fi
     next_alarm=$(( now + IDLE_ALARM ))
   fi
   sleep "$TICK" & wait $!     # backgrounded so a signal trap fires at once, not after the sleep

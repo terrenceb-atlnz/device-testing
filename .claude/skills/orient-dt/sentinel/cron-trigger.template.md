@@ -8,16 +8,21 @@ sentinel session kills it**; the worker's commits and resume record survive rega
 ```text
 [AUTO-TRIGGER: sentinel check — every 15 min, self-healing across the usage window]
 
-You are the sentinel session for peer Claude session "<PEER_NAME>" (pid <PEER_PID>, transcript
-<PEER_LOG>). Duty brief: SENTINEL-BRIEF.md in the scratchpad below.
+You are the sentinel session for tester "<PEER_NAME>" (shape: <ONE-SESSION: my bench-runner
+subagent, no pid | TWO-SESSION: peer pid <PEER_PID>, transcript <PEER_LOG>>). Duty brief:
+SENTINEL-BRIEF.md in the scratchpad below.
 SCRATCH=<SCRATCH>
 
 No push notifications — Remote Control is disabled by company setting. Everything reaches
 Terrence as text in this session, so make the wording carry it.
 
 CHECKS — read-only, one Bash call where you can:
-1. Peer alive? `kill -0 <PEER_PID>`. If gone, say so plainly at the top of your reply and stop.
-2. Transcript growth: `wc -l` the jsonl; read any new assistant text blocks.
+1. Tester alive? Two-session: `kill -0 <PEER_PID>`; if gone, say so plainly at the top of your
+   reply and stop. One-session: is a bench-runner subagent of THIS session still running (its
+   transcript under <session>/subagents/ still growing)? If none is and the queue has rows not
+   DONE/BLOCKED, that is case C below.
+2. Transcript growth: `wc -l` the jsonl (one-session: the subagent's); read any new assistant
+   text blocks.
 3. tb470: `ssh -o BatchMode=yes tb470 'ps -eo pid,etime,cmd --no-headers'`, filtered LOCALLY.
    Never a remote pgrep — it matches its own bash -c wrapper.
 4. Watch armed? `find $SCRATCH/sentinel.heartbeat -mmin -3`. A fresh heartbeat proves something
@@ -40,9 +45,10 @@ B. A NEEDS TERRENCE item (a message from the peer, or its last text) → surface
    test and should already have moved on to other work. If it is idle ONLY because of this
    item, say so. Relay his reply as "Terrence's answer, relayed: …", only what he said.
 C. Idle, nothing running, no question pending → stalled, or the usage window cut it and has
-   reopened. SendMessage <PEER_NAME> to resume <CAMPAIGN> from <RESUME FILE / commit>. Remind
-   it the CAMPAIGN is the unit of work and an inbound peer message is not a turn boundary.
-   Report one line here.
+   reopened. Two-session: SendMessage <PEER_NAME> to resume <CAMPAIGN> from <RESUME FILE /
+   commit>; remind it the CAMPAIGN is the unit of work and an inbound peer message is not a turn
+   boundary. One-session: continue the ended subagent by name from the first queue row not
+   DONE/BLOCKED, or dispatch the next group (`/test-mode` §6). Report one line here.
 
 Never drive a console or change config yourself — the peer owns the bench.
 ```
