@@ -324,8 +324,8 @@ SSH_AUTH_SOCK=$sock ssh "$BOX" "
 - ⚠ **The framework POWER-CYCLES EVERY device after any FAILED / UNSUPPORTED / ERROR TestCase**
   (`ATTestCase.run()` → `_power_cycle()`; `powerCycleOnFail` is re-armed True by `__run()` before each
   case's methods, and no run flag disables it — `--nopower` only skips the initial cycle). Seen 2026-09-29:
-  two six-unit PDU cycles for two failed cases. A generated TestCase must set
-  `self.powerCycleOnFail = False` inside its own `configure()`/`main()`. STANDING-ORDERS.md §6.
+  two six-unit PDU cycles for two failed cases. **Accepted by Terrence** ("I dont mind that
+  restart") — do not override it; instead stop a run whose failures are systematic. STANDING-ORDERS.md §6.
 
 ### 3a. The two things a server-side run needs that are easy to miss ✅
 
