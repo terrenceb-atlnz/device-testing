@@ -317,14 +317,15 @@ SSH_AUTH_SOCK=$sock ssh "$BOX" "
 - **Framework read-only guard:** never redirect/`cp`/`rsync`/interpret into
   `/home/st-art/framework`; copy any file you must edit into the run workdir first
   (`_assert_write_allowed` / `_assert_command_allowed` enforce this in the tool).
-- ⚠ **Running ONE TestCase by its number is UNVERIFIED (2026-09-22).** Generated scripts now
-  carry the ART identity `<family>.<case>.<n>` (`9001.33234.5` = TestCase_5), and the legacy py2
-  `ATPylib/ATTestSet.py` in `ck.db` selects with `if (str(testCase.testCaseNum) in args)`, which
-  is where that convention comes from. **But the live py3 framework was not readable from the dev
-  host that day** (`/home/st-art/framework` is a box path, not a share path) and it parses the
-  `-s` / `-v` flags the legacy stub has no parser for — so its selection syntax may differ. The
-  identity in the log is certainly right; the *operand* is a guess until someone tries
-  `./test-9001.33234.py -s <topology>.setup -v 5` on a box and reports what runs.
+- **Running ONE (or a list of) TestCase(s): `--include-test-cases <n> [<n> …]`** (read from the live
+  py3 framework on tb470, `ATTestSet.py:1529`, `dest='includeTestCases'`, 2026-09-29; supersedes the
+  09-22 "unverified" note). `<n>` is the TestCase number (`TestCase_5` → `5`). Not yet exercised on a
+  run; the first run that uses it should confirm which cases execute.
+- ⚠ **The framework POWER-CYCLES EVERY device after any FAILED / UNSUPPORTED / ERROR TestCase**
+  (`ATTestCase.run()` → `_power_cycle()`; `powerCycleOnFail` is re-armed True by `__run()` before each
+  case's methods, and no run flag disables it — `--nopower` only skips the initial cycle). Seen 2026-09-29:
+  two six-unit PDU cycles for two failed cases. A generated TestCase must set
+  `self.powerCycleOnFail = False` inside its own `configure()`/`main()`. STANDING-ORDERS.md §6.
 
 ### 3a. The two things a server-side run needs that are easy to miss ✅
 
