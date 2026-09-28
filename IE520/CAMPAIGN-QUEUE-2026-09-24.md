@@ -12,7 +12,9 @@ changes.
 
 ## Rules carried with the queue
 
-- One `<case-id>.log` per case, holding only the latest run. Teardown is verified by diffing
+- One `<case-id>.log` per case, holding only the latest run — and since 2026-09-28 its NAME states
+  the outcome (`<id>.log` = PASS only; `-fail`, `-partial`, `-skip` otherwise): `STANDING-ORDERS.md`
+  §2, which every queue inherits. Teardown is verified by diffing
   against a pre-test `show running-config` copy.
 - Nothing is `write`n to startup-config unless a case requires it.
 - Root changes on tb470, and device trust changes (keys, knownhosts), go through Terrence. If

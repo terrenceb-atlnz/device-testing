@@ -54,3 +54,9 @@ is `after-action-<suite>.md` in that run's directory" — that still holds for a
 (a whole suite, or an investigation spanning many rounds), but not for each individual test
 case. Related: [[user-prefers-manual-ui-testing]] — the same preference for less
 scaffolding and fewer unrequested artefacts.
+
+**NAMING ADDITION, 2026-09-28 (Terrence).** Still one log per case, but **the file name states
+the outcome**: `<id>.log` is reserved for a run that explicitly PASSED; anything else is
+`<id>-fail.log`, `<id>-partial.log` or `<id>-skip.log`, with as much evidence as possible of what
+was tried and what went wrong. The agent that judges the run names the file. A re-run replaces
+the file under the new name (`git mv`). Full text: `STANDING-ORDERS.md` §2 at the repo root.
