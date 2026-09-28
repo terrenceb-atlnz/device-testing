@@ -26,7 +26,7 @@ changes.
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | T33234 Port — Auto MDI/MDI-X | port-2026-09-29 | RUN 1 stopped 08:57 (script defect, I-3) → RE-RUN pending on Test-cases b734b40 | triage 07:56: runnable; test port = a stack copper-SFP link chosen by the frame (nondeterministic, LAG member — log names it); cases 3–7 need Terrence at the bench with an RJ45 crossover (he is); 17–18 UNSUPPORTED (no fibre) |
+| 1 | T33234 Port — Auto MDI/MDI-X | port-2026-09-29 | DONE — FAIL ([33234-fail.log](port-2026-09-29/33234-fail.log)) | run 2 08:48–08:57: case 1 FAIL = script defect `no polarity` (I-3); case 2 FAIL = REAL: IE520 copper-SFP port shows `current polarity auto`, no mdi/mdix (I-5); framework power-cycled the whole bench after each failed case (I-4), run stopped by SIGINT; cases 3–18 not run, no cable swap asked. Test link was stack port1.0.9 <-> x230 port1.0.4 (both sa2 members freed + VLAN-isolated, I-6). Bench restored: configs IDENTICAL, boot pointers tb470-bench.cfg, probe 09:07 MATCH. Re-run needs: I-3 fix in Test-cases AND a decision on I-5/I-4 |
 | 2 | T33235 (3) Port — Fixed port speed | port-2026-09-29 | READY (after row 1) | script defect FIXED in Test-cases 4ef0dc4 (08:5x): `dut.reboot('', timeOut=900)`; frame now orders ports deterministically, LAG members last + flagged; re-run preflight then RUN. Was: TestCase_33 `dut.reboot(None, timeOut=-1)` = erase startup-config + reboot (I-1); fix sent to test-cases-43 08:26; re-triage when its commit lands. Also: take the test link out of its static-channel-group for the run, restore after (Terrence 08:2x: devices reconfigurable as required) |
 
 ## Issues (non-test-case decisions), in the order found
