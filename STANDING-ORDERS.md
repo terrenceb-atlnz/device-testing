@@ -1,5 +1,5 @@
 ---
-verified: 2026-09-28
+verified: 2026-09-29
 ---
 # Standing orders — tb470 bench campaigns
 
@@ -78,3 +78,21 @@ and never on a status sentence. A **Sentinel** session watching the queue and th
 **mandatory** alongside a campaign (bench-runner gate 8, 2026-09-28): it pokes a stalled
 session, relays §4 questions to Terrence and his answers back, and reports progress to the
 tester, so the tester is never blocked by a prompt.
+
+## 6. No power cycle and no setup change between TestCases of one TestSet (Terrence, 2026-09-29)
+
+*"we should not be cycling power or adjusting the setup between test Cases in the same test
+set. thats really really inefficient from all perspectives."* Seen live on T33234 run 2: the
+framework's `ATTestCase._power_cycle()` reboots EVERY control device through the PDU after any
+TestCase whose result is FAIL / UNSUPPORTED / ERROR (`powerCycleOnFail` defaults True per
+TestCase, `ATTestCase.py:116`; no run flag turns it off — `--nopower` only skips the INITIAL
+cycle). One failed case cost a ~4 min six-unit power cycle, and every later case would have paid
+it again.
+
+- **Generated scripts must disable it** in every TestCase (the frame's job — Test-cases). Until
+  a script does, the tester checks for `powerCycleOnFail` before launching and does not launch a
+  script that will cycle the bench on failure.
+- **Bench setup (cabling, aggregators, VLAN isolation, boot pointers) is set ONCE before the
+  TestSet and restored ONCE after it.** Nothing between cases except what a case's own steps do
+  and its `tear_down()` undoes.
+- A case that needs a different physical setup is a different TestSet, triaged separately (§3).
