@@ -133,6 +133,11 @@ SSH_AUTH_SOCK=$sock ssh tb470 'sudo -n fuser -v /dev/u*; ls /var/lock/LCK..* 2>/
   its per-device logs into cwd; the script does not have to live there),
   `sudo -n PYTHONPATH=/home/st-art python3 <script>.py -s <topology>.setup -v --noupdate --nodefaultcfg`,
   detached (`setsid nohup … > run.log 2>&1 &`) and watched by **PID**, never by `pgrep -f`.
+- **Copy `ck_media.py` into `WORK` beside the script** (Test-cases, 2026-09-29): every generated
+  script does `import ck_media` (T33234 at init inside `_ck_discover()`, T33235 in its media
+  asserts). It is `~/claude/Test-cases/ask-ck/tools/pt_media.py`, shipped under that name —
+  `cp …/pt_media.py $WORK/ck_media.py`. Ask-CK's server path does this itself; by hand it was
+  missing from the recipe, and without it the run dies with `ModuleNotFoundError: ck_media`.
 - **Timeouts:** the framework's defaults assume flash-booting units; say so in the log when
   you raise one. On a hang keep the partial output — completed TestCases are evidence.
 - Console captures for your own gates use `console.py` (orient-dt §0/§3), never minicom,
