@@ -279,3 +279,54 @@ The bench is whole and MATCH, but on a **NEW standing topology** and after a **t
   08-13 stack cases, defect-raise questions, housekeeping) — awaiting Terrence.
 - **T33235 then T33234** through bench-runner remain the next bench work — note the injection point
   changed: eth3 is now on the x230, eth1 is the stack's only host NIC.
+
+---
+
+## Afternoon session (~14:55–16:00 NZDT) — sentinel formalised, no bench changes
+
+### Bench left as — whole, unchanged by this session
+- `bench_probe.py run` at 14:59 (capture `2026-09-28T015859Z`) → **MATCH**; bench-state.md
+  regenerated from it (timestamp-only change, committed in `1c4b395`). Not re-run at wrap: see
+  Skipped.
+- Read at orient: stack 1/3/4 `Normal operation`, member 3 (u5) Active Master; all IE520s
+  `awplus_main-20260923-20` (Build date Sep 22 14:25:56, identical on all members); every device
+  boot image + `flash:/tb470-bench.cfg` `(file exists)`; IE520 uptimes ~3 d 03 h, last reboots are
+  the 09-24 user requests (newest unexpected: swi_b 2026-09-23 21:07); master and swi_b flash hold
+  one 40 MB `.rel` each.
+- DUT work this session was READ-ONLY: `dir` + `show reboot history` on u5 and u3 via console.py,
+  sessions closed with `exit`. No config, no ethtool/IP/route changes on tb470.
+- Consoles at wrap: **Terrence's minicom holds `/dev/u0`** (x230, pid 35573, `LCK..u0`) — his,
+  left alone. Everything else free.
+- tb470 scratch: my `/tmp/ckorient/orient_*` files removed; `console.py` copy left (convention).
+
+### Skipped
+- **Final `bench_probe.py run`** — skipped because u0 was held by Terrence's minicom (two readers
+  on one port). Justified by: no bench change since the 14:59 MATCH. Next session: run it first.
+
+### What was accomplished (records only)
+- **Sentinel is MANDATORY for test sessions** (Terrence, 2026-09-28) — orient-dt §10 (new), §9(e),
+  bench-runner gate 8, wrap-dt §1. Kit rebuilt from the 09-22 transcripts:
+  `.claude/skills/orient-dt/sentinel/` (`sentinel.sh`, brief + cron templates).
+- **Tester has full authority within a test** (Terrence, first-hand, 2026-09-28) — no consent
+  prompts for the case's own device changes; bench-level needs go `NEEDS TERRENCE:` → sentinel,
+  never a blocking prompt. bench-runner rewritten to match; memory
+  `tester-full-authority-within-tests`.
+- **Sentinel modes** normal (CLI transcripts: console.py `/tmp/*/console-*.log` + framework
+  `swi_*/stk_*` logs) / verbose (+ narration, commands and output, subagents, tasks, framework
+  logs); live switch via `$SCRATCH/sentinel.mode`; full feed always in `$SCRATCH/sentinel.feed`.
+  Tested on a fake tester + real tb470 files (test files removed).
+- Findings (measured): `ptrace_scope=1` on the dev host and tb470 — a sentinel cannot attach to
+  the tester's ssh; USB serial snooping (usbmon) needs root; no ssh ControlMaster configured.
+- Afterwards the **parallel session** built `/test-mode` (`33fcb18`) and edited the sentinel kit,
+  bench-runner and wrap-dt on top of `1c4b395` — its work, its record.
+
+### Commits (committed, NOT pushed)
+- `1c4b395` (this session), + this handover addendum. `33fcb18` / `9ff73e1` are the parallel
+  session's.
+
+### OPEN / next
+- Unchanged from the FINAL WRAP list above (x230 `exec-timeout 0 0`, the 18 rulings,
+  T33235/T33234 — now via `/test-mode` with a sentinel armed).
+- Noted at orient, not chased: `exec-timeout 0 0` is in the running-config of EVERY device (so
+  likely from `tb470-bench.cfg`, which may settle the x230 question); `switch 2 provision
+  ie520-28` is in swi_b's running-config as well as the stack's (extends housekeeping I-27).
