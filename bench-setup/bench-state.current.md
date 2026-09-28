@@ -1,6 +1,6 @@
 # tb470 — bench state
 
-> **Generated 2026-09-28T014527Z by `bench_probe.py`** from `captures/2026-09-28T014527Z/` on tb470. Measured state only;
+> **Generated 2026-09-28T181632Z by `bench_probe.py`** from `captures/2026-09-28T181632Z/` on tb470. Measured state only;
 > nothing here is hand-written. Regenerate with `./bench_probe.py run` on tb470. The
 > `setup` fence at the end IS `tb470.setup`; `./bench_probe.py apply` writes it to the box.
 > Names and PDU outlets come from `tb470.static`; platform mechanics live in the orient-dt
@@ -41,7 +41,7 @@
 ## tb470.setup
 
 ```setup
-### GENERATED 2026-09-28T014527Z by bench_probe.py from a console capture -- DO NOT HAND-EDIT.
+### GENERATED 2026-09-28T181632Z by bench_probe.py from a console capture -- DO NOT HAND-EDIT.
 ### Source: claude/device-testing/bench-setup/bench-state.md (regenerate with
 ### `bench_probe.py run` on tb470; `bench_probe.py apply` writes this file).
 ### Names and PDU outlets come from bench-setup/tb470.static.
@@ -51,6 +51,8 @@ pwr_a = (pdu, 10.36.150.14, 6)
 pwr_b = (pdu, 10.36.150.14, 8)
 pwr_c = (pdu, 10.36.150.14, 5)
 pwr_d = (pdu, 10.36.150.14, 4)
+pwr_e = (pdu, 10.36.150.14, 7)
+pwr_f = (pdu, 10.36.150.14, 1)
 
 [switch]
 swi_a = /dev/u2
@@ -78,6 +80,8 @@ swi_a = pwr_a
 swi_b = pwr_b
 swi_c = pwr_c
 swi_d = pwr_d
+swi_e = pwr_e
+swi_f = pwr_f
 
 [boot_from_flash]
 stk_a = True
@@ -107,6 +111,6 @@ eth3 up swi_f:port1.0.1
 ```
 
 ```probe-meta
-capture 2026-09-28T014527Z
+capture 2026-09-28T181632Z
 unread /dev/u6 absent
 ```
