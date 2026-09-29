@@ -7,7 +7,7 @@ generated `9001_Port/test-9001.33234.py` (+ `library_9001.py`, `ck_media.py`), r
 | case | title | log | verdict |
 | --- | --- | --- | --- |
 | T33234 | Port — Auto MDI/MDI-X | [33234-fail.log](33234-fail.log) | **FAIL** — case 1: script defect (`no polarity` is `% Invalid input` on IE520 and x230; use `polarity auto`); case 2: REAL FINDING — a linked IE520 copper-SFP port reports `current polarity auto`, no resolved mdi/mdix role; cases 3–18 not run (framework power-cycled the whole bench after each failed case, twice; run stopped) |
-| T33235 | Port — Fixed port speed | — | not run in this session (queue row 2) |
+| T33235 | (3) Port — Fixed port speed | [33235-partial.log](33235-partial.log) | **STOPPED — partial** (run 1 12:17–12:57, stopped on Terrence's instruction: "useless" without a fibre link). Cases 1–7 copper sweep on stack port1.0.9 ↔ x230 port1.0.4 PASS: `speed 10` rejected (`% Unsupported speed/duplex combination`), 100 and 1000 accepted and linked fixed, 2500/5000/10000 rejected at both ends; cases 8–12 fibre sweep `!!FAIL: … not applicable` = script grading (no fibre link on the bench), each followed by a full-bench power cycle (five); cases 13–30 not run. Bench restored, configs IDENTICAL, probe 13:08 MATCH. Re-run after fibre cabling (stack port1.0.25 ↔ IE520-sa port1.0.25) on Test-cases 3454bc0 |
 
 ## What is in this directory
 - `33234-fail.log` — the case log: gate, topology binding, the LAG isolation made for the run,
@@ -22,6 +22,15 @@ generated `9001_Port/test-9001.33234.py` (+ `library_9001.py`, `ck_media.py`), r
   3 s into configure(), nothing saved).
 - `console-u2.log`, `console-u0.log` — my own console.py transcripts on the stack (u2) and the
   x230 (u0): the pre-run reads, the LAG/VLAN isolation and the restore.
+- `33235-partial.log` — the T33235 case log: gate, the loop found at 12:09 and broken, the
+  two-leg isolation, cases 1–7 with raw output, the five fibre-case FAILs and their power cycles,
+  the stop, the login/restore/diff/probe.
+- `framework-run1-stopped/` — the framework's own output for T33235 run 1: `run.stdout`,
+  `run.start`/`run.end`, `swi_*_33235.log` / `stk_a_33235.log` (grep -a), per-case `*-tags.log`,
+  PDU logs, `tb470.setup.asrun`, plus `login-after-cycle5.log` (the six passive login watchers).
+- `console-u0-33235.log`, `console-u1-33235.log`, `console-u2-33235.log`, `console-u3-33235.log` —
+  console.py transcripts for T33235: the 12:13 loop-break and isolation (u0/u2), the post-stop
+  reads and the restore on all four.
 
 ## Bench facts learned (candidates for orient-dt / memory, not yet folded)
 1. The frame (Test-cases 4ef0dc4) sorts non-LAG links first and binds `cusfp` BEFORE `copper`,
@@ -35,3 +44,14 @@ generated `9001_Port/test-9001.33234.py` (+ `library_9001.py`, `ck_media.py`), r
    resolved mdi/mdix role on a pluggable copper PHY (measured on AT-SPTXa 1.0.2 and AT-SPTXc 1.0.9).
 5. The framework power-cycles every bound device via the PDU after ANY failed TestCase
    ("Setup is no longer reliable"), ~3.5 min each — budget for it, or fix the failing step first.
+6. (T33235) A frame role declared OPTIONAL at init ("the cases needing it report UNSUPPORTED")
+   still graded `!!FAIL: … not applicable` in every case that needed it — five full-bench cycles
+   for nothing. Check how a script grades an ABSENT optional role before launching on a bench
+   that lacks it (Test-cases 3454bc0 excludes those cases up front).
+7. (T33235) The x230-10GP's fixed copper ports reject `speed 2500/5000/10000` exactly as the
+   IE520 copper SFP does, so a "partner accepts, DUT rejects" split never occurs on this pair;
+   after a rejected DUT speed the frame's `duplex full` still lands (running-config keeps it)
+   and the link drops until the partner is put back to auto.
+8. Waking six consoles after a framework power cycle: open the port, send NOTHING until a
+   banner or 20 s of silence, then one bare CR; `login:` -> `manager` -> `friend` -> `enable`.
+   Six clean logins, zero `Login incorrect` (framework-run1-stopped/login-after-cycle5.log).
