@@ -9,9 +9,10 @@ session is the sentinel, `bench-runner` subagents are the tester.
 **Extended 2026-09-30 (Terrence):** decisions on the K-cases ("Decisions 2026-09-30" below), then
 *"yep, go ahead"* to run **the five decision cases first, then the 14 runnable cases** (scope
 answer: "Five, then the 14"; stand-down: "When the five are done" — i.e. when this run ends).
-Shape: two-session (orient-dt §10 B) — sentinel = session `device-testing-ba`, tester = a
-background `claude --bg` session running the `bench-runner` agent (so an editor drop does not
-kill it).
+Shape: ONE session (orient-dt §10 A, `/test-mode`) — sentinel = session `device-testing-ba`,
+tester = its `bench-runner` subagents, one per group (Terrence chose this after the auto-mode
+classifier refused a `claude --bg` tester; an editor drop kills the tester — resume with
+`/test-mode --resume`, the queue and per-case commits survive).
 
 **RUN ORDER from 2026-09-30: rows 13 → 14 → 15 → 9 → 7 → 10 → 11 → 12.** Row 15 (T28863) and
 row 9 share the MRP two-node ring: build it once in 15, keep it for 9, restore after 9.
