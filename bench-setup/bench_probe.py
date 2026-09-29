@@ -28,7 +28,14 @@ bench-state.md carries nothing beyond what the run measured (Terrence, 2026-09-2
 
 LLDP is what proves switch-to-switch cabling, so a device found with `lldp run` OFF
 gets it switched on for the capture and OFF again at the end (running-config only;
-nothing is written). Devices that already ran LLDP are left alone.
+nothing is written). Devices that already ran LLDP are left alone. The device's own
+neighbour table is read last and polled until complete, not after a fixed sleep.
+
+Speed (measured 2026-09-30, six consoles): ~110 s became 19-36 s, and bench-state.md is
+byte-identical. Every read ends on the device's prompt, not on a quiet window; devices
+run in parallel end to end; the previous capture's baud per console is tried first. What
+remains is login ~6 s, commands ~5 s, and -- only while a device has LLDP off (the x230) --
+up to 30 s for its neighbours' next periodic LLDP send. See capture() and Probe.
 
 Captures are raw text, one file per command per console, plus meta.json. They are not
 committed (captures/ is gitignored); the generated bench-state.md names its source.
@@ -60,7 +67,8 @@ SOCK = "/run/user/1971/keyring/ssh"                     # the agent that holds t
 BAUDS = [115200, 9600]
 USERNAME = "manager"
 PASSWORDS = ["friend", "P@ssw0rd", "awplus"]
-LLDP_SETTLE = 35            # seconds for neighbours to appear after `lldp run`
+LLDP_SETTLE = 35            # CAP on the wait for neighbours after `lldp run` (they send every
+                            # 30 s); the wait ends as soon as the expected ports are all seen
 
 # What we capture, the same way every time. `show system` carries every member's model,
 # serial and bootloader; `show stack` the membership and MACs; `show mac address-table`
@@ -108,20 +116,47 @@ def mac_dotted(mac):
 
 class Probe:
     """One console. Opens with -hupcl (a DTR drop reads as a BREAK to the IE520), detects
-    the baud, forces the login banner to learn which unit this is, logs in to `#`."""
+    the baud, forces the login banner to learn which unit this is, logs in to `#`.
+
+    Completion is decided by the PROMPT, never by a quiet gap (2026-09-30): once logged in,
+    a command is finished when the device's own `<hostname>#` ends the output after the
+    echo and nothing follows it for GAP seconds. The old 0.8 s quiet window (1.6 s at
+    9600) after every command was most of a two-minute run."""
+
+    GAP = 0.15               # silence after a matched prompt that ends a read
 
     def __init__(self, port):
         self.port = port
         self.s = None
         self.baud = None
         self.slow = 1.0          # quiet-time multiplier; 9600 needs longer waits
+        self.host = None
+        self.prompt_re = None    # this device's own prompt, set once logged in
 
     def _open(self, baud):
         import serial
         os.system("stty -F {} -hupcl 2>/dev/null".format(os.path.realpath(self.port)))
-        self.s = serial.Serial(self.port, baud, timeout=0.2)
+        self.s = serial.Serial(self.port, baud, timeout=0.05)
         self.baud = baud
         self.slow = 2.0 if baud <= 9600 else 1.0
+
+    def _read(self):
+        """Whatever has arrived, or one byte within the port timeout (never waits for a
+        full block, which is what a fixed-size read with a timeout does)."""
+        n = self.s.in_waiting
+        chunk = self.s.read(n or 1)
+        return chunk.decode(errors="replace").replace("\x00", "") if chunk else ""
+
+    def _settle(self, buf, gap=None):
+        """Keep reading until `gap` seconds pass with nothing new; return the buffer."""
+        gap = self.GAP if gap is None else gap
+        last = time.time()
+        while time.time() - last < gap:
+            chunk = self._read()
+            if chunk:
+                buf += chunk
+                last = time.time()
+        return buf
 
     def _drain(self, quiet=0.8, timeout=30.0, need_prompt=False):
         buf = ""
@@ -129,9 +164,9 @@ class Probe:
         deadline = time.time() + timeout
         last = time.time()
         while time.time() < deadline:
-            chunk = self.s.read(4096)
+            chunk = self._read()
             if chunk:
-                buf += chunk.decode(errors="replace").replace("\x00", "")
+                buf += chunk
                 last = time.time()
                 if "--More--" in buf[-24:]:
                     self.s.write(b" ")
@@ -139,7 +174,6 @@ class Probe:
             if time.time() - last >= quiet:
                 if not need_prompt or PROMPT_ANYWHERE_RE.search(buf):
                     return buf
-            time.sleep(0.03)
         return buf
 
     def _expect(self, timeout=15.0):
@@ -150,20 +184,47 @@ class Probe:
         buf = ""
         deadline = time.time() + timeout
         while time.time() < deadline:
-            chunk = self.s.read(4096)
+            chunk = self._read()
             if chunk:
-                buf += chunk.decode(errors="replace").replace("\x00", "")
+                buf += chunk
                 tail = buf.rstrip()
                 if (tail.lower().endswith(("login:", "password:"))
                         or PROMPT_RE.search(tail[-120:])):
-                    return buf + self._drain(quiet=0.3, timeout=3.0, need_prompt=False)
-                continue
-            time.sleep(0.03)
+                    return self._settle(buf)
         return buf
 
     def _send(self, line, quiet=0.8, timeout=30.0, need_prompt=True):
         self.s.write((line + "\r").encode())
         return self._drain(quiet=quiet, timeout=timeout, need_prompt=need_prompt)
+
+    def _line(self, line, timeout=10.0):
+        """Send one line in the login dialog (hostname not known yet): wait on any prompt."""
+        self.s.write((line + "\r").encode())
+        return self._expect(timeout)
+
+    def _cmd(self, line, timeout=45.0):
+        """Send one line once logged in; return when this device's prompt ends the output
+        after the echo (see the class docstring). Falls back to the quiet-gap read if the
+        prompt is not known."""
+        if not self.prompt_re:
+            return self._send(line, timeout=timeout)
+        self.s.write((line + "\r").encode())
+        buf, done = "", False
+        deadline = time.time() + timeout
+        last = time.time()
+        while time.time() < deadline:
+            chunk = self._read()
+            if chunk:
+                buf += chunk
+                last = time.time()
+                if "--More--" in buf[-24:]:
+                    self.s.write(b" ")
+                i = buf.find(line) + len(line) if line and line in buf else 0
+                done = bool(self.prompt_re.search(buf[i:]))
+                continue
+            if done and time.time() - last >= self.GAP:
+                return buf
+        return buf
 
     @staticmethod
     def _looks_valid(raw):
@@ -172,12 +233,39 @@ class Probe:
         good = sum(1 for c in raw.encode(errors="replace") if c in PRINTABLE)
         return good / max(1, len(raw)) > 0.85
 
-    def detect_baud(self):
+    @staticmethod
+    def _at_prompt(text):
+        tail = text.rstrip()
+        return (tail.lower().endswith(("login:", "password:")) or bool(PROMPT_RE.search(tail[-120:])))
+
+    def _wake(self):
+        """After a bare CR: return as soon as a prompt, `login:` or `Password:` ends the
+        output; otherwise after a quiet second (a wrong baud gives garbage, then silence)."""
+        buf = ""
+        quiet = 1.0 * self.slow
+        deadline = time.time() + 6.0
+        last = time.time()
+        while time.time() < deadline:
+            chunk = self._read()
+            if chunk:
+                buf += chunk
+                last = time.time()
+                if self._at_prompt(buf) and self._looks_valid(buf):
+                    return self._settle(buf)
+                continue
+            if time.time() - last >= quiet:
+                return buf
+        return buf
+
+    def detect_baud(self, first=None):
         """Try each baud twice: a bare CR must draw printable text with a prompt, a
         login: or a banner. NULs are stripped first (the x230 at the wrong rate sends
-        them, and at the right rate the first byte can be one -- 2026-09-23 defect)."""
+        them, and at the right rate the first byte can be one -- 2026-09-23 defect).
+        `first` (the rate this console answered at last run) is tried first: a CR at the
+        wrong rate costs a quiet second and can arrive as a garbage username."""
         notes = []
-        for baud in BAUDS:
+        order = [first] + [b for b in BAUDS if b != first] if first in BAUDS else BAUDS
+        for baud in order:
             for _ in range(2):
                 try:
                     if self.s:
@@ -187,7 +275,7 @@ class Probe:
                 except Exception as e:
                     return None, "open failed: {}: {}".format(type(e).__name__, e)
                 self.s.write(b"\r")
-                out = self._drain(quiet=1.0, timeout=6.0, need_prompt=False)
+                out = self._wake()
                 low = out.lower()
                 if self._looks_valid(out) and (PROMPT_ANYWHERE_RE.search(out)
                                                or "login:" in low or "password:" in low
@@ -199,17 +287,27 @@ class Probe:
                       else "no AW+ prompt at any baud: " + "; ".join(notes))
 
     def capture_banner(self, initial):
-        m = LOGIN_RE.search(initial.rstrip()[-120:]) or LOGIN_RE.search(initial)
-        if m:
-            return m.group(1)
-        self._send("end", quiet=0.5, timeout=8.0, need_prompt=False)
-        out = self._send("logout", quiet=1.0, timeout=12.0, need_prompt=False)
+        """The `<name> login:` banner names the unit. Returns (banner, the output that ends
+        at the console's current prompt) so login() can start from where the console is."""
+        out = initial
+        for _ in range(3):
+            m = LOGIN_RE.search(out.rstrip()[-160:])
+            if m:
+                return m.group(1), out
+            tail = out.rstrip().lower()
+            if tail.endswith("password:") and "new password" not in tail[-40:]:
+                out = self._line("", timeout=15.0)       # fail the stray dialog -> login:
+            elif PROMPT_RE.search(out.rstrip()[-120:]):
+                self._line("end", timeout=8.0)
+                out = self._line("logout", timeout=12.0)
+            else:
+                break
         m = LOGIN_RE.search(out.rstrip()[-160:]) or LOGIN_RE.search(out)
-        return m.group(1) if m else None
+        return (m.group(1) if m else None), out
 
-    def login(self):
-        self.s.write(b"\r")
-        out = self._expect(10.0)
+    def login(self, out=None):
+        if out is None or not self._at_prompt(out):
+            out = self._line("", timeout=10.0)
         # A `Password:` with no dialog of ours in flight: the port was left mid-dialog, a bare
         # CR at `login:` was taken as an empty username, or a CR sent at the wrong baud during
         # detection arrived as a garbage one. Fail it with a CR and wait for the fresh `login:`.
@@ -217,14 +315,11 @@ class Probe:
             tail = out.rstrip().lower()
             if not tail.endswith("password:") or "new password" in tail[-40:]:
                 break
-            self.s.write(b"\r")
-            out = self._expect(15.0)
+            out = self._line("", timeout=15.0)
         if out.rstrip().lower().endswith("login:"):
             for pw in PASSWORDS:
-                self.s.write((USERNAME + "\r").encode())
-                self._expect(10.0)
-                self.s.write((pw + "\r").encode())
-                out = self._expect(15.0)
+                self._line(USERNAME, timeout=10.0)
+                out = self._line(pw, timeout=15.0)
                 if "new password" in out.lower():
                     return False, "forced password-change dialog; refused"
                 if PROMPT_ANYWHERE_RE.search(out) or not out.rstrip().lower().endswith("login:"):
@@ -237,9 +332,14 @@ class Probe:
             if "password" in out.lower() and not PRIV_ANYWHERE_RE.search(out):
                 self.s.write((PASSWORDS[0] + "\r").encode())
                 out = self._drain(quiet=1.0, timeout=12.0, need_prompt=False)
-        self._send("end", quiet=0.4, timeout=8.0, need_prompt=False)
-        self._send("terminal length 0", quiet=0.5, timeout=8.0, need_prompt=False)
-        out = self._send("terminal no monitor", quiet=0.5, timeout=8.0, need_prompt=False)
+        self._line("end", timeout=8.0)
+        self._line("terminal length 0", timeout=8.0)
+        out = self._line("terminal no monitor", timeout=8.0)
+        m = PROMPT_RE.search(out.rstrip())
+        if m:
+            self.host = m.group(1)
+            self.prompt_re = re.compile(r"(?:^|[\r\n])" + re.escape(self.host)
+                                        + r"(?:\([\w -]+\))?[#>][ \t]*$")
         if PRIV_ANYWHERE_RE.search(out) or PRIV_RE.search(out.rstrip()[-120:]):
             return True, "privileged"
         if PROMPT_ANYWHERE_RE.search(out):
@@ -247,12 +347,14 @@ class Probe:
         return False, "no prompt after login. tail={!r}".format(out[-160:])
 
     def hostname(self):
+        if self.host:
+            return self.host
         out = self._send("", quiet=0.4, timeout=6.0, need_prompt=True)
         m = PROMPT_RE.search(out.rstrip())
         return m.group(1) if m else None
 
     def run_cmd(self, cmd, timeout=45.0):
-        raw = self._send(cmd, quiet=0.8, timeout=timeout, need_prompt=True)
+        raw = self._cmd(cmd, timeout=timeout)
         lines = raw.splitlines()
         if lines and cmd in lines[0]:
             lines = lines[1:]
@@ -262,15 +364,15 @@ class Probe:
 
     def config(self, *lines):
         """Send config lines and return to exec. Running-config only; never `write`."""
-        self._send("configure terminal", quiet=0.5, timeout=10.0)
+        self._cmd("configure terminal", timeout=10.0)
         for ln in lines:
-            self._send(ln, quiet=0.5, timeout=10.0)
-        self._send("end", quiet=0.4, timeout=8.0)
+            self._cmd(ln, timeout=10.0)
+        self._cmd("end", timeout=8.0)
 
     def close(self):
         try:
             if self.s:
-                self._send("end", quiet=0.3, timeout=4.0, need_prompt=False)
+                self._cmd("end", timeout=4.0)
                 self.s.close()
         except Exception:
             pass
@@ -311,16 +413,20 @@ def host_nics():
 
 def force_learn(nics):
     """Ping a likely-unanswered neighbour out of each up NIC so the switch on the far
-    end learns the NIC's MAC on its ingress port."""
+    end learns the NIC's MAC on its ingress port. Returns the running pings (the ARP is out
+    at once; the caller waits on them before it reads a MAC table)."""
+    pings = []
     for n, info in nics.items():
         if not info["carrier_up"] or not info["ipv4"]:
             continue
         ip = info["ipv4"].split("/")[0].split(".")
         ip[-1] = str((int(ip[-1]) + 2) % 256)
-        subprocess.run(["ping", "-c1", "-w1", "-I", n, ".".join(ip)], capture_output=True)
+        pings.append(subprocess.Popen(["ping", "-c1", "-w1", "-I", n, ".".join(ip)],
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+    return pings
 
 
-def _open_console(path, use_sudo):
+def _open_console(path, use_sudo, baud_hint=None):
     rec = {"path": path, "status": None, "baud": None, "banner": None, "hostname": None,
            "login": None, "lldp": None, "notes": [], "commands": {}}
     if not os.path.exists(path):
@@ -333,15 +439,15 @@ def _open_console(path, use_sudo):
         return rec, None
     p = Probe(path)
     try:
-        baud, initial = p.detect_baud()
+        baud, initial = p.detect_baud(first=baud_hint)
         if baud is None:
             rec["status"] = "unreachable"
             rec["notes"].append(initial)
             p.close()
             return rec, None
         rec["baud"] = baud
-        rec["banner"] = p.capture_banner(initial)
-        ok, note = p.login()
+        rec["banner"], at = p.capture_banner(initial)
+        ok, note = p.login(at)
         rec["login"] = note
         if not ok:
             rec["status"] = "login_failed"
@@ -361,24 +467,88 @@ def _slug(cmd):
     return cmd.replace(" ", "_")
 
 
+def _console_num(path):
+    return int(re.sub(r"\D", "", path) or 0)
+
+
+def _group_key(path, stack_text):
+    """Consoles of one stack all reach the same master CLI; build_model() keys a stack by
+    its members' MACs, so the same key groups them here. A standalone is its own group."""
+    real = parse_show_stack(stack_text)["members"]
+    return frozenset(r["mac"] for r in real.values()) if len(real) >= 2 else path
+
+
+def _previous_capture(exclude):
+    """meta.json of the newest earlier capture, as HINTS only (first baud to try, which
+    ports had LLDP neighbours). Nothing measured depends on it; {} when there is none."""
+    try:
+        dirs = sorted(d for d in os.listdir(CAPTURES)
+                      if d != exclude and os.path.exists(os.path.join(CAPTURES, d, "meta.json")))
+        return load_capture(os.path.join(CAPTURES, dirs[-1]))["consoles"] if dirs else {}
+    except Exception:
+        return {}
+
+
+def _own_macs(stack_text, mac_text):
+    """The MACs a neighbour's LLDP can name this device by (cf. mac_sets())."""
+    stk = parse_show_stack(stack_text)
+    macs = {r["mac"] for r in stk["members"].values()}
+    if stk["stack_mac"]:
+        macs.add(stk["stack_mac"])
+    macs |= {mac for _, port, mac, _, _ in parse_mac_table(mac_text) if port.upper() == "CPU"}
+    return macs
+
+
 def capture(nums, out_dir=None, quiet=False):
-    """Read every console and save the raw output. Returns the capture directory."""
+    """Read every console and save the raw output. Returns the capture directory.
+
+    Phase A logs in to every console at once and reads `show stack`, which groups the
+    consoles of one stack. Phase B (all at once, one console per device) checks `lldp run`,
+    meets at a barrier, then runs the fixed command list with the neighbour table LAST. If
+    any device had LLDP switched on, every device polls its table until it holds the ports
+    it held last run and every port a neighbour sees it on (_read_neighbours), capped at
+    LLDP_SETTLE -- neighbours send every 30 s, and the fixed 35 s sleep this replaces paid
+    the worst case on every run (2026-09-30). Only the first
+    console of a stack runs the list: build_model() reads a stack from that one; the others
+    are read for their banner and `show stack` only."""
+    t0 = time.time()
     stamp = utc_stamp()
     out_dir = out_dir or os.path.join(CAPTURES, stamp)
     os.makedirs(out_dir, exist_ok=True)
     say = (lambda *a: None) if quiet else (lambda *a: print(*a, file=sys.stderr, flush=True))
     use_sudo = _sudo_ok()
     paths = ["/dev/u{}".format(n) for n in nums]
+    prev = _previous_capture(stamp)
     recs, probes = {}, {}
     lock = threading.Lock()
+    timing = {}
 
-    # Phase A -- open, identify and log in to every console at once.
+    def _save(path, cmd, txt):
+        fn = "{}.{}.txt".format(os.path.basename(path), _slug(cmd))
+        io.open(os.path.join(out_dir, fn), "w", encoding="utf-8").write(txt + "\n")
+        recs[path]["commands"][cmd] = fn
+
+    def _run(path, cmd, timeout=None):
+        try:
+            return probes[path].run_cmd(cmd, timeout=timeout or CMD_TIMEOUT.get(cmd, 45.0))
+        except Exception as e:
+            recs[path]["notes"].append("{}: {}".format(cmd, e))
+            return "!! probe error: {}: {}".format(type(e).__name__, e)
+
+    # host NICs: the pings that make each far switch learn a NIC's MAC go out now, in
+    # parallel, and are reaped before the MAC tables are read
+    nics = host_nics()
+    pings = force_learn(nics)
+
+    # Phase A -- open, identify, log in, `show stack`: every console at once.
     def _a(path):
-        rec, p = _open_console(path, use_sudo)
+        rec, p = _open_console(path, use_sudo, baud_hint=(prev.get(path) or {}).get("baud"))
         with lock:
             recs[path] = rec
             if p:
                 probes[path] = p
+        if p:
+            _save(path, "show stack", _run(path, "show stack"))
         say("  {}: {} baud={} banner={} hostname={} {}".format(
             path, rec["status"], rec["baud"], rec["banner"], rec["hostname"],
             "; ".join(rec["notes"])))
@@ -388,75 +558,131 @@ def capture(nums, out_dir=None, quiet=False):
         t.start()
     for t in threads:
         t.join()
+    timing["login"] = round(time.time() - t0, 1)
 
-    enabled = []            # consoles where WE switched lldp on; reverted in `finally`
-    try:
-        # Phase B -- LLDP, one console at a time so the stack's second console sees it
-        # already on and only one console reverts it.
-        for path in paths:
-            p = probes.get(path)
-            if not p:
-                continue
-            o = p.run_cmd("show running-config | include lldp run", timeout=20)
-            on = any(ln.strip() == "lldp run" for ln in o.splitlines())
-            if on:
-                recs[path]["lldp"] = "on"
+    groups = {}
+    for path in sorted(probes, key=_console_num):
+        with io.open(os.path.join(out_dir, recs[path]["commands"]["show stack"]), encoding="utf-8") as f:
+            groups.setdefault(_group_key(path, f.read()), []).append(path)
+    leaders = {g[0]: g for g in groups.values()}          # first console of each device
+    for g in groups.values():
+        for path in g[1:]:
+            recs[path]["lldp"] = "read on " + g[0]
+    enabled_at = {}                   # leader -> when WE switched lldp on (reverted after)
+    lldp_rows = {}                    # leader -> its latest parsed `show lldp neighbors`
+    checked = threading.Barrier(len(leaders)) if leaders else None
+    for p in pings:
+        p.wait()
+
+    def _read_neighbours(path):
+        """`show lldp neighbors`, once -- or, when some device had LLDP switched on for this
+        run, polled until this device sees every port it saw last run AND every port on
+        which a neighbour reports seeing it. Either end can be the late one: the device
+        just enabled hears its neighbours only on their next 30 s send, and they may have
+        read their tables before it sent at all (the 2026-09-30 `lldp one end` regression)."""
+        txt = _run(path, "show lldp neighbors")
+        if not enabled_at:
+            lldp_rows[path] = parse_lldp(txt)["rows"]
+            return txt
+        cmds = recs[path]["commands"]
+        mine = _own_macs(*(io.open(os.path.join(out_dir, cmds[c]), encoding="utf-8").read()
+                           if c in cmds else "" for c in ("show stack", "show mac address-table")))
+        hint = set()
+        old = prev.get(path) or {}
+        if old.get("hostname") == recs[path]["hostname"]:
+            hint = {r[0] for r in parse_lldp(old.get("out", {}).get("show lldp neighbors", ""))["rows"]}
+        others = [q for q in leaders if q != path]
+        deadline = max(enabled_at.values()) + LLDP_SETTLE
+        while True:
+            lldp_rows[path] = parse_lldp(txt)["rows"]
+            have = {r[0] for r in lldp_rows[path]}
+            far = {rport for q in others for _, chassis, rport, _ in lldp_rows.get(q, [])
+                   if chassis in mine}
+            want = hint | far
+            if all(q in lldp_rows for q in others) and want <= have:
+                break
+            if time.time() >= deadline:
+                recs[path]["notes"].append("LLDP wait capped at {} s; not seen: {}".format(
+                    LLDP_SETTLE, ", ".join(sorted(want - have)) or "?"))
+                break
+            time.sleep(1.5)
+            txt = _run(path, "show lldp neighbors")
+        recs[path]["lldp_wait"] = round(time.time() - min(enabled_at.values()), 1)
+        return txt
+
+    # Phase B -- per device, all at once: LLDP check; then (once EVERY device is checked,
+    # so all know whether anyone switched LLDP on) the fixed list, neighbours last.
+    def _b(path):
+        rec = recs[path]
+        try:
+            o = _run(path, "show running-config | include lldp run", timeout=20)
+            if any(ln.strip() == "lldp run" for ln in o.splitlines()):
+                rec["lldp"] = "on"
             else:
-                p.config("lldp run")
-                o = p.run_cmd("show running-config | include lldp run", timeout=20)
+                probes[path].config("lldp run")
+                o = _run(path, "show running-config | include lldp run", timeout=20)
                 if any(ln.strip() == "lldp run" for ln in o.splitlines()):
-                    recs[path]["lldp"] = "enabled-for-capture"
-                    enabled.append(path)
+                    rec["lldp"] = "enabled-for-capture"
+                    enabled_at[path] = time.time()
                     say("  {}: lldp run was OFF -> on for this capture".format(path))
                 else:
-                    recs[path]["lldp"] = "off (could not enable)"
-                    recs[path]["notes"].append("lldp run refused; cabling from this device unproven")
-        if enabled:
-            say("waiting {}s for LLDP neighbours to appear ...".format(LLDP_SETTLE))
-            time.sleep(LLDP_SETTLE)
+                    rec["lldp"] = "off (could not enable)"
+                    rec["notes"].append("lldp run refused; cabling from this device unproven")
+        except Exception as e:
+            rec["notes"].append("{}: {}".format(type(e).__name__, e))
+        try:
+            checked.wait(timeout=90)
+        except threading.BrokenBarrierError:
+            rec["notes"].append("LLDP check barrier broken; neighbours read without waiting")
+        try:
+            todo = [c for c in COMMANDS if c not in ("show stack", "show lldp neighbors")]
+            for cmd in todo + ["show lldp neighbors"]:
+                txt = _read_neighbours(path) if cmd == "show lldp neighbors" else _run(path, cmd)
+                _save(path, cmd, txt)
+        except Exception as e:
+            rec["notes"].append("{}: {}".format(type(e).__name__, e))
+        finally:
+            lldp_rows.setdefault(path, [])     # never leave a peer waiting on this one
 
-        nics = host_nics()
-        force_learn(nics)
+    def _revert(path):
+        p = probes[path]
+        try:
+            p.config("no lldp run")
+            o = p.run_cmd("show running-config | include lldp run", timeout=20)
+            if any(ln.strip() == "lldp run" for ln in o.splitlines()):
+                recs[path]["notes"].append("!! `no lldp run` did not take -- remove it by hand")
+                say("  {}: !! lldp run is STILL on -- remove it by hand".format(path))
+            else:
+                say("  {}: lldp run -> off again".format(path))
+        except Exception as e:
+            recs[path]["notes"].append("!! lldp revert failed: {} -- remove it by hand".format(e))
 
-        # Phase C -- the fixed command list, all consoles at once, raw to disk.
-        def _c(path):
-            p = probes[path]
-            rec = recs[path]
-            for cmd in COMMANDS:
-                fn = "{}.{}.txt".format(os.path.basename(path), _slug(cmd))
-                try:
-                    txt = p.run_cmd(cmd, timeout=CMD_TIMEOUT.get(cmd, 45.0))
-                except Exception as e:
-                    txt = "!! probe error: {}: {}".format(type(e).__name__, e)
-                    rec["notes"].append("{}: {}".format(cmd, e))
-                io.open(os.path.join(out_dir, fn), "w", encoding="utf-8").write(txt + "\n")
-                rec["commands"][cmd] = fn
-        say("capturing {} commands per console ...".format(len(COMMANDS)))
-        threads = [threading.Thread(target=_c, args=(path,)) for path in probes]
+    try:
+        say("capturing {} commands on {} device(s) ...".format(len(COMMANDS), len(leaders)))
+        t1 = time.time()
+        threads = [threading.Thread(target=_b, args=(path,)) for path in leaders]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
+        timing["commands"] = round(time.time() - t1, 1)
+        if enabled_at:
+            say("  LLDP neighbours complete, seconds after lldp run: " + ", ".join(
+                "{} {}".format(path, recs[path].get("lldp_wait")) for path in sorted(leaders, key=_console_num)))
     finally:
-        for path in enabled:
-            p = probes.get(path)
-            if not p:
-                continue
-            try:
-                p.config("no lldp run")
-                o = p.run_cmd("show running-config | include lldp run", timeout=20)
-                if any(ln.strip() == "lldp run" for ln in o.splitlines()):
-                    recs[path]["notes"].append("!! `no lldp run` did not take -- remove it by hand")
-                    say("  {}: !! lldp run is STILL on -- remove it by hand".format(path))
-                else:
-                    say("  {}: lldp run -> off again".format(path))
-            except Exception as e:
-                recs[path]["notes"].append("!! lldp revert failed: {} -- remove it by hand".format(e))
-        for p in probes.values():
-            p.close()
+        t2 = time.time()
+        for work in ([threading.Thread(target=_revert, args=(path,)) for path in enabled_at],
+                     [threading.Thread(target=p.close) for p in probes.values()]):
+            for t in work:                # reverts first: a close must not share a port
+                t.start()
+            for t in work:
+                t.join()
+        timing["revert_close"] = round(time.time() - t2, 1)
 
-    meta = {"tool": "bench_probe.py", "version": 3, "utc": stamp, "host": os.uname().nodename,
-            "commands": COMMANDS, "consoles": recs, "host_nics": nics}
+    timing["total"] = round(time.time() - t0, 1)
+    say("timing: " + ", ".join("{} {} s".format(k, v) for k, v in timing.items()))
+    meta = {"tool": "bench_probe.py", "version": 4, "utc": stamp, "host": os.uname().nodename,
+            "commands": COMMANDS, "consoles": recs, "host_nics": nics, "timing": timing}
     io.open(os.path.join(out_dir, "meta.json"), "w", encoding="utf-8").write(
         json.dumps(meta, indent=2, sort_keys=True))
     say("capture -> {}".format(out_dir))
@@ -885,6 +1111,10 @@ def generate(cap_dir, static=None, ask=False):
             notes.append("`lldp run` was OFF on {} ({}); it was switched on for this capture and off "
                          "again afterwards, so the saved `show running-config` for that console "
                          "carries the temporary line".format(r.get("hostname") or "?", p))
+        for n in r.get("notes") or []:
+            if n.startswith("LLDP wait capped"):
+                notes.append("{} ({}): {} -- a link there may read `lldp one end` or be "
+                             "missing".format(r.get("hostname") or "?", p, n))
     for d in devs:
         if d.stack and not d.console:
             notes.append("{} (stack member {}, S/N {}) has no console read this run -- left out "

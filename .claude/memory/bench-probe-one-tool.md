@@ -13,7 +13,7 @@ bench-state.md file (formatted identically to the .setup) and then you can diff 
 Built the same day as `claude/device-testing/bench-setup/bench_probe.py` (the name is fixed:
 Test-cases' `ask-ck/functions/test-composer/bench_probe.md` points at that path).
 
-**The pipeline** (`./bench_probe.py run`, ON tb470, ~2 min for six consoles):
+**The pipeline** (`./bench_probe.py run`, ON tb470, ~20–40 s for six consoles since 2026-09-30, was ~2 min):
 1. **capture** — every `/dev/uN` at once over pyserial: baud detect (115200, then 9600), login
    banner (which member this console is), login, then 7 fixed commands: `show system`, `show
    stack`, `show boot`, `show interface status`, `show lldp neighbors`, `show mac address-table`,
@@ -56,6 +56,17 @@ never joined up. One measured pipeline replaces all three.
   2026-09-28 the x230 (9600) failed every run with correct creds because login waited on quiet,
   not on the prompt (fixed: `Probe._expect()`; mechanics in orient-dt §3). Byte-log the
   dialog before doubting the password.
+
+**Speed-up, 2026-09-30** (Terrence: "2 minutes is really silly"). Measured ~110 s: a fixed 35 s
+LLDP sleep, 0.8 s quiet-gap endings (1.6 s at 9600) on every read, and the LLDP check run one
+console at a time. Now 19–36 s with byte-identical bench-state.md. Reads end on the device's own
+prompt after the echo (`Probe._cmd`); the stack's first console alone runs the list; the last
+capture's baud is tried first. **Don't bring back a fixed LLDP sleep, and don't read neighbour
+tables before every device has finished its LLDP check.** The first rewrite did that: the stack
+read its table before the x230 (9600, LLDP off) had switched LLDP on, and two links degraded to
+`lldp one end`. The fix is a barrier plus `_read_neighbours()`: EVERY device polls until it sees
+its last-run ports and every port a neighbour sees it on. The 7–26 s that remains is the
+neighbours' 30 s LLDP send interval. It is paid only while a device keeps `lldp run` off.
 
 Related: [[tb470-topology-and-setup]], [[setup-file-declares-topology]],
 [[testbox-console-access]], [[tb470-reboot-nfshome-unmounted]].
