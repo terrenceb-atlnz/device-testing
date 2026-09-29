@@ -6,13 +6,19 @@ generated `9001_Port/test-9001.33234.py` (+ `library_9001.py`, `ck_media.py`), r
 
 | case | title | log | verdict |
 | --- | --- | --- | --- |
-| T33234 | Port — Auto MDI/MDI-X | [33234-fail.log](33234-fail.log) | **FAIL** — case 1: script defect (`no polarity` is `% Invalid input` on IE520 and x230; use `polarity auto`); case 2: REAL FINDING — a linked IE520 copper-SFP port reports `current polarity auto`, no resolved mdi/mdix role; cases 3–18 not run (framework power-cycled the whole bench after each failed case, twice; run stopped) |
+| T33234 | Port — Auto MDI/MDI-X | [33234-skip.log](33234-skip.log) | **UNSUPPORTED** (run 3, 13:38–13:40, Test-cases d9a08dd): the IE520-28GSX has no fixed copper switchport (every front port is an SFP cage) and Terrence ruled MDI/MDI-X does not apply to pluggables (I-5); the framework marked all 14 cases unsupported on `swi_a` (`has_fixed_copper_port` missing), ran none, power-cycled nothing; bench restored, probe MISMATCH = only the pending SX link. Nothing on tb470 unblocks it. Earlier: run 2 FAIL (script defect `no polarity`, fixed b734b40; the `current polarity auto` reading that led to the ruling) — evidence in framework-run2/ |
 | T33235 | (3) Port — Fixed port speed | [33235-partial.log](33235-partial.log) | **STOPPED — partial** (run 1 12:17–12:57, stopped on Terrence's instruction: "useless" without a fibre link). Cases 1–7 copper sweep on stack port1.0.9 ↔ x230 port1.0.4 PASS: `speed 10` rejected (`% Unsupported speed/duplex combination`), 100 and 1000 accepted and linked fixed, 2500/5000/10000 rejected at both ends; cases 8–12 fibre sweep `!!FAIL: … not applicable` = script grading (no fibre link on the bench), each followed by a full-bench power cycle (five); cases 13–30 not run. Bench restored, configs IDENTICAL, probe 13:08 MATCH. Re-run after fibre cabling (stack port1.0.25 ↔ IE520-sa port1.0.25) on Test-cases 3454bc0 |
 
 ## What is in this directory
-- `33234-fail.log` — the case log: gate, topology binding, the LAG isolation made for the run,
-  the two failures with raw output, the two full-bench power cycles, the restore and its diff,
-  the after-run probe.
+- `33234-skip.log` — the case log (run 3, UNSUPPORTED): what the case needs, what the bench
+  lacks, the ruling, the verbatim marking-pass lines, the framework's boot-config touch and its
+  restore, the after-run probe; plus a pointer to the run-2 evidence. (Its git history holds the
+  run-2 FAIL text: gate, LAG isolation, the two failures, the two power cycles.)
+- `framework-run3-unsupported/` — run 3's framework output: `run.stdout`, `run.start`/`run.end`,
+  `swi_*_33234.log` / `stk_a_33234.log`, `setup_33234.log`, `tb470.setup.asrun`,
+  `probe-pre-run3.log`, `restore3.sh`.
+- `console-u0/u1/u3/u5-33234-run3.log` — the run-3 restore transcripts (boot pointer + frame
+  cfg deletion on the x230, 4050, IE520-sa and the stack master).
 - `pre-test-configs/u0..u5.show_running-config.txt` — from the 08:36 `bench_probe.py run`
   capture (`bench-setup/captures/2026-09-28T193600Z`), the baseline every restore is diffed against.
 - `framework-run2/` — the framework's own output for the run that produced the verdict:
