@@ -108,7 +108,14 @@ the read).
    `write memory`, and the file was read back IDENTICAL to running. **The x230's baseline
    config now includes `lldp run`**: a pre-test capture or restore reference taken before
    ~10:55 NZDT 2026-09-30 lacks the line.
-2. Everything in [SESSION-HANDOVER-2026-09-29.md](SESSION-HANDOVER-2026-09-29.md) §5, unchanged:
+2. **DONE (Terrence, 2026-09-30): verdicts redefined** (STANDING-ORDERS §2): 22653/22654 re-graded
+   PASS, 33234 renamed `-unsupported`, `-skip` retired. **SA provisioning stripped**: `no switch
+   2|3|4 provision` on the IE520-sa removed those lines and the phantom `interface port2-4.0.x`
+   config (32 lines, removals only), written to `flash:/tb470-bench.cfg` and read back identical;
+   `show stack` = member 1 only; `switch 1 provision ie520-28` (the unit itself) stays. The
+   stack's own `switch 2 provision` (the 22650 cause) is untouched. Decisions on the seven
+   K-cases: [CAMPAIGN-QUEUE-2026-09-29.md](CAMPAIGN-QUEUE-2026-09-29.md) "Decisions 2026-09-30".
+3. Everything in [SESSION-HANDOVER-2026-09-29.md](SESSION-HANDOVER-2026-09-29.md) §5, otherwise unchanged:
    the SX-link `apply`, a second host port on the stack (port3.0.9), the seven decision-blocked
    cases, the 22650 / GVRP O-1 defect question, the Modbus case-text update, removing `switch 2
    provision ie520-28` (I-27), and the ignored evidence files (3.3 MB, keep or delete).

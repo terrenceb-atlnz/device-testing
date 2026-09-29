@@ -41,6 +41,22 @@ changes.
 | 11 | IPv6/BGP: T8770 IPv6 Neighbors in silicon; T3116 BGPv4 unicast traffic | ipv6-bgp-2026-09-29 | RUNNABLE 2 (8770 via the 6057 responder method + `show platform table ipv6`; 3116 SA as BGP peer, tcpreplay line rate to eth2) | 3116 was SKIPPED 09-23 (reopen, I-19); 8770 SKIPPED 09-23 (reopen) |
 | 12 | Routing: T11346 PIM-DM end-to-end; T18948 VRRP routes near wirespeed, multiple instances; T12589 Interoperability with RIPv1/v2; T10624 OSPF silicon tables synced | routing-2026-09-29 | RUNNABLE 3 (11346 `service pdm` exists on this build, SA as sw1; 18948 VRRP over sa3 VLANs; 10624 `service ospf`, 500 statics) · K: 12589 = a PBR case (`set ip next-hop`; no IE-cousin support row) — run-time probe needs a decision | 4 cases; 18948 needs line-rate traffic (tcpreplay) |
 
+## Decisions 2026-09-30 (Terrence) — they supersede the K ("decision-blocked") notes above
+
+| case | row | decision | now |
+| --- | --- | --- | --- |
+| T45788, T45789 | 6 | "those are specific tests ill have to run by hand" | **Terrence's, by hand** — not queued for us; NOT TESTED by this bench |
+| T28863 | 9 | "please do a basic stack failover check while MRP is enabled and passing traffic, that will suffice" | RUNNABLE: MRP up (the row-9 two-node ring), traffic through it, reload the stack master, measure continuity; verdict from traffic + MRP + stack state |
+| T38410 | 7 | "emulate with scapy, i spose" | RUNNABLE: an LLDP-MED "phone" from a tb470 NIC (scapy), voice VLAN assigned/advertised by the DUT |
+| T5082 | 10 | "ignore the CR context, try to do the two things and see if they let you or not. We expect both actions are prevented." | RUNNABLE: attempt (1) the EUI-64 DHCPv6 configuration and (2) the /64-/128 advertised prefix; expected result = both PREVENTED by the DUT |
+| T12589 | 12 | "yes, run the probe" | RUNNABLE: probe `set ip next-hop` (PBR) support; verdict per STANDING-ORDERS §2 (not supported → UNSUPPORTED) |
+| T27887 | 7 | "vlan double tagging (VLANDT or similar on the license) should be enabled. AKA VLAN stacking. try to see if its actually enabled in any way, and that the license bit is actually enabled. it may require the FULL license to be applied first before the commands are enabled." | RUNNABLE: check the licence/feature bits for VLAN double tagging on both IE520s; if the commands are absent and FULL is the gate, apply FULL (Terrence's note above), then re-check `vlan-stacking` and run the case |
+
+Also 2026-09-30: verdict definitions redefined (STANDING-ORDERS §2) — 22653/22654 re-graded
+PASS, 33234 renamed `-unsupported`; the IE520-sa's `switch 2-4 provision` (and the phantom
+port2-4.0.x config) removed and written to its `tb470-bench.cfg` (I-27, SA half; the STACK's
+`switch 2 provision`, the cause of the 22650 FAIL, is untouched).
+
 ## Issues (non-test-case decisions), in the order found
 
 Status: OPEN (waiting on Terrence), CHOSEN (a blocker; recommendation applied, for review),
