@@ -1,4 +1,4 @@
-# Session handover — 2026-09-30 (wrapped ~10:20 NZDT)
+# Session handover — 2026-09-30 (wrapped ~10:20 NZDT, amended ~10:25 for the LLDP leave-on rule)
 
 Session `device-testing-ba`: `/orient-dt`, then a speed-up of `bench_probe.py` (Terrence: "2
 minutes is really silly, and a 35 second sleep seems excessive"). **No test cases ran and no
@@ -11,12 +11,15 @@ sentinel was armed** — none was needed, since nothing but read-only probing to
   link `swi_b-swi_d port1.0.26-port4.0.26`. **Its `apply` is still Terrence's and still
   pending**, exactly as at the 09-29 wrap. The generated bench-state.md is byte-identical to this
   morning's orient run apart from its stamp.
-- **`bench_probe.py run` now takes 19–36 s instead of ~110 s** (four live runs, below), and
+- **`bench_probe.py run` now takes ~15 s instead of ~110 s** (six live runs, below), and
   produces the same bench-state.md. Every run prints a `timing:` line and saves it in `meta.json`.
+- **`lldp run` is now ON on the x230 and the probe leaves it on** (Terrence, after the wrap:
+  "the first run of a probe on the bench should apply lldp run, and we shouldnt remove it").
+  Running-config only: a reboot drops it and the next probe re-applies it (~17 s that run).
 - **Resume point unchanged:** `/test-mode --resume`, queue row 7 (VLAN): T38408, T38407,
   T18302, T18303 — see [SESSION-HANDOVER-2026-09-29.md](SESSION-HANDOVER-2026-09-29.md) §6 and
   [CAMPAIGN-QUEUE-2026-09-29.md](CAMPAIGN-QUEUE-2026-09-29.md).
-- **Commits:** this wrap's commit on device-testing main — **committed, NOT pushed** (Claude
+- **Commits:** `f95319c` (speed-up + wrap) and the LLDP leave-on commit on device-testing main — **committed, NOT pushed** (Claude
   cannot push).
 
 ## 1. Bench state and how to verify it
@@ -31,7 +34,8 @@ boot       every device <platform>-tb470.rel (file exists) + flash:/tb470-bench.
 flash      stack and SA: tb470-bench.cfg, default.cfg, IE520-tb470.rel only
 reboots    none since the 09-29 framework PDU cycles (last entry 2026-09-28 23:5x UTC on u5, u3, u0);
            every unit ~21 h uptime at 09:57 NZDT
-x230 LLDP  `lldp run` absent from BOTH running- and startup-config (the probe's temporary on/off reverted)
+x230 LLDP  `lldp run` ON in running-config (applied by probe 2026-09-29T212038Z, left on by design);
+           NOT in startup-config / tb470-bench.cfg -- a reboot drops it, the next probe re-applies it
 host       eth1/eth2/eth3 carrier up; /nfsHome mounted; no ethtool/IP/route changes this session
 consoles   all free at wrap (sudo fuser: none); no tmux, sniffer, sender, Monitor or cron
 ```
@@ -40,7 +44,7 @@ Verify, ON tb470, with consoles free:
 
 ```bash
 cd ~/claude/device-testing/bench-setup && ./bench_probe.py run
-# expect MISMATCH (1): [portlink] swi_b-swi_d bench {port1.0.26-port4.0.26, port1.0.9-port4.0.9}
+# expect MISMATCH (1), no LLDP advisory, ~15 s: [portlink] swi_b-swi_d bench {port1.0.26-port4.0.26, port1.0.9-port4.0.9}
 # vs template port1.0.9-port4.0.9 -- MATCH after Terrence's `./bench_probe.py apply`
 ```
 
@@ -74,6 +78,8 @@ cd ~/claude/device-testing/bench-setup && ./bench_probe.py run
 | 2026-09-29T211132Z | 18.5 s | 7.1 s | identical | clean |
 | 2026-09-29T211213Z | 36.0 s | 25.9 s | identical | clean |
 | 2026-09-29T211548Z (wrap) | 33.9 s | 24.2 s | identical | clean |
+| 2026-09-29T212038Z (leave-on, first run) | 17.1 s | 7.4 s | identical bar the new advisory | clean — applied `lldp run`, left on |
+| 2026-09-29T212056Z (leave-on, second run) | 14.6 s | none (found on) | identical, no advisory | clean |
 
 The offline `generate` of the baseline capture is also byte-identical before and after the
 change. The driver was also exercised against a simulated AW+ console in the session scratchpad
@@ -93,9 +99,11 @@ the read).
 
 ## 5. OPEN — Terrence's decisions
 
-1. **NEW: keep `lldp run` on the x230?** Adding it to the x230's `tb470-bench.cfg` (or leaving
-   it in running-config) would drop every probe run to ~12 s and remove the only config change
-   the probe makes. It changes the x230's baseline, so it is his call.
+1. **DECIDED (Terrence): the probe applies `lldp run` and leaves it on.** Still open: should it
+   also go into the x230's `flash:/tb470-bench.cfg`, so it survives a reboot and the framework's
+   post-failure PDU cycles? Until then the x230's running-config carries one line its boot
+   config lacks, so a running-vs-`tb470-bench.cfg` comparison on the x230 shows `lldp run`.
+   That line is the probe's and is expected.
 2. Everything in [SESSION-HANDOVER-2026-09-29.md](SESSION-HANDOVER-2026-09-29.md) §5, unchanged:
    the SX-link `apply`, a second host port on the stack (port3.0.9), the seven decision-blocked
    cases, the 22650 / GVRP O-1 defect question, the Modbus case-text update, removing `switch 2

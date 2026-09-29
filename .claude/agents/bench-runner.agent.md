@@ -89,7 +89,7 @@ SSH_AUTH_SOCK=$sock ssh tb470 'sudo -n fuser -v /dev/u*; ls /var/lock/LCK..* 2>/
    then the canonical `.setup` path dangles (memory `tb470-reboot-nfshome-unmounted`).
 4. **The bench is the template**: on tb470,
    `cd ~/claude/device-testing/bench-setup && ./bench_probe.py run` must print **MATCH**
-   against the `.setup` the run will bind (~20–40 s). MISMATCH or NEEDS-CHECK → do not start
+   against the `.setup` the run will bind (~15–40 s). MISMATCH or NEEDS-CHECK → do not start
    that run. Send the diff and the Advisories block to the sentinel as `NEEDS TERRENCE:`, then
    carry on with any case that doesn't depend on what moved. Do not "fix" the bench to make it
    match: the standing topology is bench-level.

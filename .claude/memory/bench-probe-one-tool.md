@@ -13,7 +13,7 @@ bench-state.md file (formatted identically to the .setup) and then you can diff 
 Built the same day as `claude/device-testing/bench-setup/bench_probe.py` (the name is fixed:
 Test-cases' `ask-ck/functions/test-composer/bench_probe.md` points at that path).
 
-**The pipeline** (`./bench_probe.py run`, ON tb470, ~20–40 s for six consoles since 2026-09-30, was ~2 min):
+**The pipeline** (`./bench_probe.py run`, ON tb470, ~15 s for six consoles since 2026-09-30, up to ~40 s when it must switch LLDP on; was ~2 min):
 1. **capture** — every `/dev/uN` at once over pyserial: baud detect (115200, then 9600), login
    banner (which member this console is), login, then 7 fixed commands: `show system`, `show
    stack`, `show boot`, `show interface status`, `show lldp neighbors`, `show mac address-table`,
@@ -31,8 +31,11 @@ Test-cases' `ask-ck/functions/test-composer/bench_probe.md` points at that path)
   user entry in `bench-setup/tb470.static`. "We re-hash this every time, and that's an acceptable
   loss." The probe asks on a terminal when it meets an unlisted unit; without one it names the
   unit for the run and says so.
-- LLDP proves switch-to-switch cabling: a device with `lldp run` OFF gets it switched on for the
-  capture and off again at the end (verified by re-reading the running-config; in `finally`).
+- LLDP proves switch-to-switch cabling: a device with `lldp run` OFF gets it switched on
+  (verified by re-reading the running-config). **Changed 2026-09-30 (Terrence): it is LEFT ON**
+  — "the first run of a probe on the bench should apply lldp run, and we shouldnt remove it";
+  later runs find it on and skip the LLDP wait. Running-config only (never `write`n), so a reboot
+  or the framework's post-failure PDU cycle drops it and the next probe re-applies it.
 - Keep `apply` for now ("we currently can make use of both"); in future only the diff-check.
   **Applied 2026-09-28** (Terrence: "execute those things"): the deployed `.setup` is now the
   generated 1166-byte fence — no `###` prose; the 22 KB commented file is in
@@ -66,7 +69,8 @@ tables before every device has finished its LLDP check.** The first rewrite did 
 read its table before the x230 (9600, LLDP off) had switched LLDP on, and two links degraded to
 `lldp one end`. The fix is a barrier plus `_read_neighbours()`: EVERY device polls until it sees
 its last-run ports and every port a neighbour sees it on. The 7–26 s that remains is the
-neighbours' 30 s LLDP send interval. It is paid only while a device keeps `lldp run` off.
+neighbours' 30 s LLDP send interval, paid only on a run that has to switch LLDP on. Runs that find
+it on take ~15 s.
 
 Related: [[tb470-topology-and-setup]], [[setup-file-declares-topology]],
 [[testbox-console-access]], [[tb470-reboot-nfshome-unmounted]].

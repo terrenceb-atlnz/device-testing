@@ -26,16 +26,18 @@ swi_ name, its PDU outlet, the PDU's IP -- live in tb470.static, entered once by
 user (the script asks when it meets a unit it has no name for, if it has a terminal).
 bench-state.md carries nothing beyond what the run measured (Terrence, 2026-09-25).
 
-LLDP is what proves switch-to-switch cabling, so a device found with `lldp run` OFF
-gets it switched on for the capture and OFF again at the end (running-config only;
-nothing is written). Devices that already ran LLDP are left alone. The device's own
-neighbour table is read last and polled until complete, not after a fixed sleep.
+LLDP is what proves switch-to-switch cabling, so a device found with `lldp run` OFF gets
+it switched on and it is LEFT ON (Terrence, 2026-09-30: the first probe run applies it,
+later runs find it on and carry on). Running-config only, never `write`n, so a reboot
+drops it and the next run applies it again. Only a run that switched LLDP on waits for
+neighbours; it polls until complete rather than sleeping a fixed time.
 
-Speed (measured 2026-09-30, six consoles): ~110 s became 19-36 s, and bench-state.md is
+Speed (measured 2026-09-30, six consoles): ~110 s became ~15 s (17 s on a run that must
+switch LLDP on, up to ~40 s by the neighbours' send phase), and bench-state.md is
 byte-identical. Every read ends on the device's prompt, not on a quiet window; devices
 run in parallel end to end; the previous capture's baud per console is tried first. What
-remains is login ~6 s, commands ~5 s, and -- only while a device has LLDP off (the x230) --
-up to 30 s for its neighbours' next periodic LLDP send. See capture() and Probe.
+remains is login ~6 s, commands ~5 s, and -- only on a run that has to switch LLDP on --
+up to 30 s for the neighbours' next periodic LLDP send. See capture() and Probe.
 
 Captures are raw text, one file per command per console, plus meta.json. They are not
 committed (captures/ is gitignored); the generated bench-state.md names its source.
@@ -568,7 +570,7 @@ def capture(nums, out_dir=None, quiet=False):
     for g in groups.values():
         for path in g[1:]:
             recs[path]["lldp"] = "read on " + g[0]
-    enabled_at = {}                   # leader -> when WE switched lldp on (reverted after)
+    enabled_at = {}                   # leader -> when WE switched lldp on (it stays on)
     lldp_rows = {}                    # leader -> its latest parsed `show lldp neighbors`
     checked = threading.Barrier(len(leaders)) if leaders else None
     for p in pings:
@@ -622,9 +624,9 @@ def capture(nums, out_dir=None, quiet=False):
                 probes[path].config("lldp run")
                 o = _run(path, "show running-config | include lldp run", timeout=20)
                 if any(ln.strip() == "lldp run" for ln in o.splitlines()):
-                    rec["lldp"] = "enabled-for-capture"
+                    rec["lldp"] = "enabled-by-probe"
                     enabled_at[path] = time.time()
-                    say("  {}: lldp run was OFF -> on for this capture".format(path))
+                    say("  {}: lldp run was OFF -> switched on, and left on".format(path))
                 else:
                     rec["lldp"] = "off (could not enable)"
                     rec["notes"].append("lldp run refused; cabling from this device unproven")
@@ -644,19 +646,6 @@ def capture(nums, out_dir=None, quiet=False):
         finally:
             lldp_rows.setdefault(path, [])     # never leave a peer waiting on this one
 
-    def _revert(path):
-        p = probes[path]
-        try:
-            p.config("no lldp run")
-            o = p.run_cmd("show running-config | include lldp run", timeout=20)
-            if any(ln.strip() == "lldp run" for ln in o.splitlines()):
-                recs[path]["notes"].append("!! `no lldp run` did not take -- remove it by hand")
-                say("  {}: !! lldp run is STILL on -- remove it by hand".format(path))
-            else:
-                say("  {}: lldp run -> off again".format(path))
-        except Exception as e:
-            recs[path]["notes"].append("!! lldp revert failed: {} -- remove it by hand".format(e))
-
     try:
         say("capturing {} commands on {} device(s) ...".format(len(COMMANDS), len(leaders)))
         t1 = time.time()
@@ -671,13 +660,12 @@ def capture(nums, out_dir=None, quiet=False):
                 "{} {}".format(path, recs[path].get("lldp_wait")) for path in sorted(leaders, key=_console_num)))
     finally:
         t2 = time.time()
-        for work in ([threading.Thread(target=_revert, args=(path,)) for path in enabled_at],
-                     [threading.Thread(target=p.close) for p in probes.values()]):
-            for t in work:                # reverts first: a close must not share a port
-                t.start()
-            for t in work:
-                t.join()
-        timing["revert_close"] = round(time.time() - t2, 1)
+        threads = [threading.Thread(target=p.close) for p in probes.values()]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        timing["close"] = round(time.time() - t2, 1)
 
     timing["total"] = round(time.time() - t0, 1)
     say("timing: " + ", ".join("{} {} s".format(k, v) for k, v in timing.items()))
@@ -1107,7 +1095,11 @@ def generate(cap_dir, static=None, ask=False):
     links, edges, lnotes = derive_links(stacks, devs, meta)
     notes += lnotes
     for p, r in sorted(meta["consoles"].items()):
-        if r.get("lldp") == "enabled-for-capture":
+        if r.get("lldp") == "enabled-by-probe":
+            notes.append("`lldp run` was OFF on {} ({}); the probe switched it on and left it on "
+                         "(running-config only -- a reboot drops it and the next run re-applies "
+                         "it)".format(r.get("hostname") or "?", p))
+        if r.get("lldp") == "enabled-for-capture":          # captures before 2026-09-30
             notes.append("`lldp run` was OFF on {} ({}); it was switched on for this capture and off "
                          "again afterwards, so the saved `show running-config` for that console "
                          "carries the temporary line".format(r.get("hostname") or "?", p))

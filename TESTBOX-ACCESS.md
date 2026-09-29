@@ -252,7 +252,7 @@ ownership), and the measured `terminal monitor` boundary between them.
 Canonical bench tool: `bench-setup/bench_probe.py` in this repo (consolidated 2026-09-25: capture →
 bench-state.md → diff → apply; Test-cases' `ask-ck/functions/test-composer/bench_probe.md` points at
 it). Cabling is proven by LLDP on both ends plus host-MAC learning on a physical port — link state
-alone proves nothing — and the tool switches `lldp run` on and off itself where a device lacks it.
+alone proves nothing — and the tool switches `lldp run` on where a device lacks it and leaves it on (2026-09-30).
 Its results ARE `bench-state.md` (the Links table names the proof for each line).
 
 The one thing worth repeating here, because it is an *access* fact: **a console held by another

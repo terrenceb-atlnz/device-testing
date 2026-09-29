@@ -112,7 +112,7 @@ needs to know what you *left*, and why. Read, don't recall:
   whether the TFTP path (`/tftproot/IE520-tb470.rel`, the serving NIC up) is currently usable.
 
 Then regenerate **bench-state.md** from the hardware — on tb470,
-`cd ~/claude/device-testing/bench-setup && ./bench_probe.py run` (`/orient-dt` §0, ~20–40 s). It reads
+`cd ~/claude/device-testing/bench-setup && ./bench_probe.py run` (`/orient-dt` §0, ~15–40 s). It reads
 every console, rewrites bench-state.md (measured facts only — there is nowhere in it to type a
 note, and that is deliberate) and diffs the bench against the deployed `.setup`:
 
