@@ -1,0 +1,145 @@
+# T22654 — modbus — write — tb470 IE520 stack — 2026-09-29 — PARTIAL
+
+Verdict: PARTIAL. Steps 1, 2, 4, 5 PASS (alarm-configuration write, port-configured-state write,
+and the port write repeated over a global IPv6 address and over link-local, each confirmed by
+read-back, CLI and the DUT log). Step 3 (PoE configuration write, register 0x5002) is
+UNSUPPORTED BY PLATFORM: no PoE on the AT-IE520-28GSX (`show power-inline` = `% Invalid
+input`); the server answers the write with a Modbus exception and logs "Request failed".
+Run labelled: clean. One finding worth Terrence's eye (not a failure): the alarm-config word
+is MSB-first — LED = 0x8000, not 0x0001 — and a write of an unmapped bit (0x0001) is
+acknowledged and logged as performed with no effect (see step 1).
+
+Operator: bench-runner subagent (device-testing-61 = sentinel; Terrence away). Queue row 8,
+case 2 of 6. Hand-driven: ckcon.py on /dev/u5 (stack master, member 3) + mb.py (pymodbus
+3.8.6) from tb470 eth1. Full stdout: 22654.out (first pass, steps 1–5 + teardown),
+22654-alarm-discovery.out (the step-1 investigation, second teardown); client logs mb-22654.log.
+DUT clock runs ~12 h 50 min behind tb470 (DUT "00:51" = tb470 13:51); `show log` lines below
+carry DUT time.
+
+## Case (ck.db AWPTCM-T22654)
+Objective: write to registers for Alarm Configuration, Port Configured State, Port PoE
+Configuration. Steps: 1 write 0x3001 #1 Alarm Configuration (bit 0 = LED, bit n = Relay n),
+confirm by read and CLI; 2 write 0x5001 #1 Port Configured State (4 nibbles: enabled, duplex,
+polarity, speed), confirm write, log, read, CLI; 3 write 0x5002 #1 Port PoE Configuration;
+4 repeat one write with a global IPv6 address; 5 repeat one write with a link-local IPv6 address.
+
+## Setup (13:50:09, console)
+`scada modbus tcp server` / `scada modbus tcp server access read-write` → `show scada modbus
+tcp server`: "MODBUS is enabled / Write access: enabled / Port 502"; running-config gained
+`scada modbus tcp server access read-write` + `scada modbus tcp server`; port1.0.1 running-config
+= `switchport` / `switchport mode access` (no shutdown line); no `alarm` lines. Pre-test config
+= pre-test-configs/u5.show_running-config.txt (13:42 probe capture).
+Discovery (13:50:21, unit id 1): 0x3000 = 1 (alarm #1 type = External PSU, member 1's first
+alarm, matching `show alarm facility settings` "Stack member 1: External PSU 1"); 0x3001 = 0x0000
+(no outputs configured); 0x5001 = 0xf000 (port1.0.1 admin up, all auto).
+
+## STEP 1 — write 0x3001 alarm #1 configuration (unit id 1 = member 1)
+First pass (13:50:22, 22654.out), the case's literal "bit 0 = LED" as 0x0001:
+  TX 00 01 00 00 00 06 01 06 30 01 00 01   WRITE 0x3001 = 0x0001 -> ok (echo addr=0x3001 value=0x0001)
+  TX 00 01 00 00 00 06 01 03 30 01 00 01   READ  0x3001 -> 0x0000   (unchanged)
+  CLI 13:50:28 `show alarm facility settings | include PSU`: External PSU 1 "-" on all members;
+  `show running-config | include alarm`: empty.
+  DUT log: "modbusd[531]: MODBUS: Performed write request from 10.38.215.1:43187: Write Single
+  Register(FC=0x06) to member 1 starting at Stack member alarm info 1 Config (Members 1 to 4)
+  (REG=0x3001) for 1 word with data 0x0001"  — accepted, logged, no effect, no error.
+Cross-check against the CLI (13:55:38, 22654-alarm-discovery.out): `alarm facility power-supply
+1 led` → running-config `alarm facility power-supply 1 input-member 1|3|4 led`, `show alarm
+facility settings` External PSU 1 = "L" on members 1, 3, 4; then
+  READ 0x3000 x6 unit 1 -> [0x0001, 0x8000, 0, 0, 0, 0x0000]      (config word = 0x8000)
+  READ 0x3000 x6 unit 3 -> [0x0001, 0x8000, 0, 0, 0, 0xffff]      (status TRUE: member 3 "Power Input 1: No")
+  READ 0x3000 x6 unit 0 -> same as unit 3 (unit 0 = the master's block)
+  READ 0x3006 x6 unit 1 -> [0x0001, 0x0000, 0, 0, 0, 0xffff]      (alarm #2 External PSU 2, member 1 "Power Input 2: No")
+  → the LED bit is the MSB (0x8000; relay n = 0x8000 >> n), exactly the ART decoder's
+    `bitmap << bit & 0x8000`; the case text's "bit 0" is bit 0 counted from the top.
+  → the mapping-5 alarm entry is SIX words [type, config, ?, ?, ?, status], not the three
+    (type, config, status) the ART map assumes: status of alarm #1 is at 0x3005, alarm #2 starts
+    at 0x3006. The full 93-word dump (unit 1, 31 alarms) is in 22654-alarm-discovery.out.
+Modbus write with the right bit (13:55:58 onward, read-write on):
+  TX 00 01 00 00 00 06 01 06 30 01 00 00   WRITE 0x3001 = 0x0000 -> ok; READ -> [1, 0x0000, …];
+      CLI: member 1 External PSU 1 back to "-", running-config lost ONLY
+      `alarm facility power-supply 1 input-member 1 led` (members 3, 4 kept theirs)  → a write CLEARS
+  TX 00 01 00 00 00 06 01 06 30 01 00 01   WRITE 0x3001 = 0x0001 -> ok; READ -> 0x0000 (no effect, again)
+  TX 00 01 00 00 00 06 01 06 30 0d 00 01   WRITE 0x300d = 0x0001 (alarm #3 = Link down port1.0.1) -> ok; READ -> 0x0000
+  13:57:05  TX 00 01 00 00 00 06 01 06 30 01 80 00   WRITE 0x3001 = 0x8000 -> ok (echo addr=0x3001 value=0x8000)
+            READ 0x3000 x6 unit 1 -> [0x0001, 0x8000, 0x0000, 0x0000, 0x0000, 0x0000]
+            CLI 13:57:12: External PSU 1 "L" on member 1; running-config gained
+            `alarm facility power-supply 1 input-member 1 led`
+            DUT log: "MODBUS: Performed write request from 10.38.215.1:15053: Write Single Register
+            (FC=0x06) to member 1 starting at Stack member alarm info 1 Config (Members 1 to 4)
+            (REG=0x3001) for 1 word with data 0x8000"
+  13:57:16  WRITE 0x300d = 0x8000 (alarm #3, Link down port1.0.1) -> ok; READ 0x300c x6 ->
+            [0x0004, 0x8000, 0, 0, 0, 0xffff]; CLI: "Link down port1.0.1 L"; running-config gained
+            `alarm facility link-down port1.0.1 led`; log "… alarm info 3 Config … (REG=0x300d) … data 0x8000"
+  13:57:27  WRITE 0x3001 = 0x0000 on units 1, 3, 4 and 0x300d = 0x0000 on unit 1 -> all ok;
+            read-backs config 0x0000 everywhere; `show running-config | include alarm` EMPTY;
+            settings "-" for External PSU 1 on all members and for Link down port1.0.1.
+Verdict step 1: PASS — the write is performed, read back (0x8000), and the CLI shows it
+(`show alarm facility settings` "L", running-config line); the Modbus write also removes a
+CLI-made setting. Observation for Terrence/Test-cases: bit numbering is MSB-first, and an
+unmapped bit value (0x0001) is silently accepted (FC06 echo, "Performed write request" in the
+log) with no effect and no exception — a client cannot tell from the response alone.
+
+## STEP 2 — write 0x5001 port #1 (port1.0.1) configured state (13:50:48)
+  TX 00 01 00 00 00 06 01 06 50 01 00 00   WRITE 0x5001 = 0x0000 -> ok (echo addr=0x5001 value=0x0000)
+  READ 0x5001 -> 0x0000 (configured: down/auto/auto/auto); READ 0x5000 -> 0x0000 (current)
+  CLI 13:50:56 `show interface port1.0.1`: "Link is DOWN, administrative state is DOWN";
+  `show running-config interface port1.0.1` gained ` shutdown`; `status`: disabled 1 auto auto
+  DUT log 00:51:31: "NSM[609]: Port down notification received for port1.0.1", "NSM[609]:
+  port1.0.1 user shutdown", "modbusd[531]: MODBUS: Performed write request from
+  10.38.215.1:44251: Write Single Register(FC=0x06) to member 1 starting at port1.0.1 Config
+  State(REG=0x5001) for 1 word with data 0x0000"
+  13:51:06 WRITE 0x5001 = 0xf000 -> ok; READ -> 0xf000; CLI "administrative state is UP",
+  `shutdown` line gone; log 00:51:48 "port1.0.1 user no shutdown" + "… data 0xf000".
+Verdict step 2: PASS (write successful, log generated, read-back and CLI agree).
+
+## STEP 3 — write 0x5002 PoE configuration (13:51:17)
+  TX 00 01 00 00 00 06 01 03 50 02 00 01   READ  0x5002 -> EXCEPTION
+  TX 00 01 00 00 00 06 01 06 50 02 ff 00   WRITE 0x5002 = 0xff00 -> EXCEPTION ExceptionResponse(dev_id=1, …)
+  `show power-inline` → `% Invalid input detected at '^' marker.`
+  DUT log 00:52:00: "MODBUS: Request failed" / "Performed write request … port1.0.1 PoE Config
+  (REG=0x5002) for 1 word with data 0xff00" / "MODBUS: Request failed".
+  Server counters after: illegal data address 11 (the PoE reads/writes of this and the previous case).
+Verdict step 3: UNSUPPORTED BY PLATFORM (no PoE on the IE520-28GSX).
+
+## STEP 4 — the port write over a GLOBAL IPv6 address (13:51:30)
+Test config added: `interface vlan1` / `ipv6 address fd32:b1f0:dff8:d701::10/64` (tb470 eth1 has
+fd32:b1f0:dff8:d701::1/64). `show ipv6 interface brief`: vlan1 fd32:b1f0:dff8:d701::10/64 preferred.
+ping -6 from tb470: 2/2 replies. Then
+  CONNECT [fd32:b1f0:dff8:d701::10]:502 slave=1 -> ok
+  TX 00 01 00 00 00 06 01 06 50 01 00 00   WRITE 0x5001 = 0x0000 -> ok; READ over IPv6 -> 0x0000
+  CLI 13:51:49: "Link is DOWN, administrative state is DOWN"
+  DUT log 00:52:24: "port1.0.1 user shutdown"; "MODBUS: Performed write request from
+  fd32:b1f0:dff8:d701::1:51404: Write Single Register(FC=0x06) … port1.0.1 Config State(REG=0x5001)
+  … data 0x0000"
+  13:51:57 WRITE 0x5001 = 0xf000 over IPv6 -> ok; READ -> 0xf000; CLI "administrative state is UP";
+  log 00:52:40 "port1.0.1 user no shutdown" + "… from fd32:b1f0:dff8:d701::1:3267 … data 0xf000".
+Verdict step 4: PASS.
+
+## STEP 5 — the port write over LINK-LOCAL IPv6 (13:52:08)
+DUT vlan1 link-local fe80::200:cdff:fe37:d6f; client fe80::f667:7041:7dff:3cfc%eth1. ping 2/2.
+  CONNECT [fe80::200:cdff:fe37:d6f%eth1]:502 slave=1 -> ok
+  TX 00 01 00 00 00 06 01 06 50 01 00 00   WRITE 0x5001 = 0x0000 -> ok; READ -> 0x0000
+  CLI 13:52:16: "Link is DOWN, administrative state is DOWN"
+  DUT log 00:52:51: "port1.0.1 user shutdown"; "MODBUS: Performed write request from
+  fe80::f667:7041:7dff:3cfc:11920: … port1.0.1 Config State(REG=0x5001) … data 0x0000"
+  13:52:23 WRITE 0x5001 = 0xf000 -> ok; READ -> 0xf000; CLI "administrative state is UP";
+  running-config interface port1.0.1 back to switchport / switchport mode access;
+  log 00:53:06 "… from fe80::f667:7041:7dff:3cfc:30860 … data 0xf000".
+Verdict step 5: PASS.
+
+## Teardown
+First pass 13:52 (22654.out): `no ipv6 address fd32:b1f0:dff8:d701::10/64` on vlan1, `no scada
+modbus tcp server access`, `no scada modbus tcp server` → "MODBUS is disabled", vlan1 back to
+link-local only, `show running-config | include scada|alarm|ipv6 address` = `ipv6 address dhcp`
+only (pre-existing); client probe → connection refused; running-config diff vs pre-test IDENTICAL.
+Investigation pass re-enabled the server (read-only 13:54:33, read-write 13:55:52) and set
+alarm LEDs from CLI and Modbus; all cleared via Modbus by 13:57:35 (`show running-config |
+include alarm` empty); final teardown 13:57:51: access + server removed, "MODBUS is disabled",
+probe refused, `show running-config` → post-test-configs/22654.u5.show_running-config.txt,
+diff vs pre-test-configs/u5.show_running-config.txt: IDENTICAL (13:58:07).
+Nothing `write`n; no boot change; consoles at exec prompt, `terminal no monitor`.
+
+## Verdict line
+PARTIAL — 22654-partial.log. Steps 1,2,4,5 PASS; step 3 unsupported by platform (no PoE).
+Findings: alarm-config bitmap is MSB-first (LED = 0x8000); an unmapped bit is accepted silently;
+mapping-5 alarm entries are 6 words (status at +5).
