@@ -1,4 +1,4 @@
-# Session handover — 2026-09-30 (wrapped ~10:20 NZDT, amended ~10:25 for the LLDP leave-on rule)
+# Session handover — 2026-09-30 (wrapped ~10:20 NZDT; re-wrapped ~11:40 after the LLDP leave-on rule and the x230 cfg save)
 
 Session `device-testing-ba`: `/orient-dt`, then a speed-up of `bench_probe.py` (Terrence: "2
 minutes is really silly, and a 35 second sleep seems excessive"). **No test cases ran and no
@@ -6,8 +6,8 @@ sentinel was armed** — none was needed, since nothing but read-only probing to
 
 ## TL;DR
 
-- **The bench is WHOLE and unchanged since the 09-29 wrap.** The final probe,
-  `2026-09-29T211548Z` (10:15 NZDT), reads **MISMATCH on ONE declared link only**: the SX fibre
+- **The bench is WHOLE; its one change since the 09-29 wrap is `lldp run` on the x230 (saved).**
+  The final probe, `2026-09-29T223625Z` (11:36 NZDT, 14.3 s, no advisory), reads **MISMATCH on ONE declared link only**: the SX fibre
   link `swi_b-swi_d port1.0.26-port4.0.26`. **Its `apply` is still Terrence's and still
   pending**, exactly as at the 09-29 wrap. The generated bench-state.md is byte-identical to this
   morning's orient run apart from its stamp.
@@ -26,7 +26,7 @@ sentinel was armed** — none was needed, since nothing but read-only probing to
 ## 1. Bench state and how to verify it
 
 Topology and measured state: [bench-setup/bench-state.md](../bench-setup/bench-state.md),
-generated 2026-09-29T211548Z. Read at wrap (10:1x NZDT):
+generated 2026-09-29T223625Z. Read at wrap (10:1x NZDT; uptimes re-read 11:36, ~22 h 40 m, no reboots):
 
 ```
 stack      members 1/3/4 Ready, Normal operation, member 3 (u5) Active Master, VMAC 0000.cd37.0d6f
