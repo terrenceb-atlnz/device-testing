@@ -15,7 +15,8 @@ sentinel was armed** — none was needed, since nothing but read-only probing to
   produces the same bench-state.md. Every run prints a `timing:` line and saves it in `meta.json`.
 - **`lldp run` is now ON on the x230 and the probe leaves it on** (Terrence, after the wrap:
   "the first run of a probe on the bench should apply lldp run, and we shouldnt remove it").
-  Running-config only: a reboot drops it and the next probe re-applies it (~17 s that run).
+  The probe itself never writes. **On Terrence's "ADD it" the x230's boot config was then
+  saved with it** (`write memory` → `flash:/tb470-bench.cfg`, ~10:55 NZDT), so it survives reboots.
 - **Resume point unchanged:** `/test-mode --resume`, queue row 7 (VLAN): T38408, T38407,
   T18302, T18303 — see [SESSION-HANDOVER-2026-09-29.md](SESSION-HANDOVER-2026-09-29.md) §6 and
   [CAMPAIGN-QUEUE-2026-09-29.md](CAMPAIGN-QUEUE-2026-09-29.md).
@@ -34,8 +35,9 @@ boot       every device <platform>-tb470.rel (file exists) + flash:/tb470-bench.
 flash      stack and SA: tb470-bench.cfg, default.cfg, IE520-tb470.rel only
 reboots    none since the 09-29 framework PDU cycles (last entry 2026-09-28 23:5x UTC on u5, u3, u0);
            every unit ~21 h uptime at 09:57 NZDT
-x230 LLDP  `lldp run` ON in running-config (applied by probe 2026-09-29T212038Z, left on by design);
-           NOT in startup-config / tb470-bench.cfg -- a reboot drops it, the next probe re-applies it
+x230 LLDP  `lldp run` ON in running-config AND in flash:/tb470-bench.cfg (its boot config), written
+           ~10:55 NZDT on Terrence's "ADD it"; the file's ONLY config change is `+lldp run`
+           (file vs running read back IDENTICAL). Probe 2026-09-29T215700Z: 14.7 s, no LLDP step
 host       eth1/eth2/eth3 carrier up; /nfsHome mounted; no ethtool/IP/route changes this session
 consoles   all free at wrap (sudo fuser: none); no tmux, sniffer, sender, Monitor or cron
 ```
@@ -99,11 +101,13 @@ the read).
 
 ## 5. OPEN — Terrence's decisions
 
-1. **DECIDED (Terrence): the probe applies `lldp run` and leaves it on.** Still open: should it
-   also go into the x230's `flash:/tb470-bench.cfg`, so it survives a reboot and the framework's
-   post-failure PDU cycles? Until then the x230's running-config carries one line its boot
-   config lacks, so a running-vs-`tb470-bench.cfg` comparison on the x230 shows `lldp run`.
-   That line is the probe's and is expected.
+1. **DONE (Terrence).** The probe applies `lldp run` where it is missing and leaves it on. The
+   x230's `flash:/tb470-bench.cfg` now carries it too ("ADD it"). Method: the running-config was
+   compared with the file first, and the write was gated on the only config difference being
+   `+lldp run` (the file's `! Startup-config saved…` comment header was ignored). Then
+   `write memory`, and the file was read back IDENTICAL to running. **The x230's baseline
+   config now includes `lldp run`**: a pre-test capture or restore reference taken before
+   ~10:55 NZDT 2026-09-30 lacks the line.
 2. Everything in [SESSION-HANDOVER-2026-09-29.md](SESSION-HANDOVER-2026-09-29.md) §5, unchanged:
    the SX-link `apply`, a second host port on the stack (port3.0.9), the seven decision-blocked
    cases, the 22650 / GVRP O-1 defect question, the Modbus case-text update, removing `switch 2
