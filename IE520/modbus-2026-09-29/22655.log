@@ -1,0 +1,88 @@
+# T22655 — modbus — dynamic changes — tb470 IE520 stack — 2026-09-29 — PASS
+
+Verdict: PASS. All four steps confirmed: a TCP-port change takes effect immediately (the old
+port refuses, the new one answers); the server can be disabled and re-enabled dynamically;
+a port can be disabled and enabled through the Modbus API; a CLI `shutdown` is reflected in
+the port registers. Run labelled: clean. One observation (not a failed step): on an
+AGGREGATOR-MEMBER port the API write returns exception 4 (slave device failure) although the
+enable/disable is applied — see step 3.
+
+Operator: bench-runner subagent (device-testing-61 = sentinel; Terrence away). Queue row 8,
+case 3 of 6. Hand-driven: ckcon.py on /dev/u5 + mb.py (pymodbus 3.8.6) from tb470 eth1
+10.38.215.1 → stack vlan1 10.38.215.10. Full stdout 22655.out, client log mb-22655.log,
+driver 22655.sh. DUT clock ≈ tb470 − 12 h 50 min.
+
+## Case (ck.db AWPTCM-T22655)
+Precondition: modbus configured and client able to retrieve information. Steps: 1 dynamic
+change tcp port (client has to change its port before it can connect again); 2 dynamic
+enable and disable modbus; 3 using API to disable and enable a port; 4 using CLI to disable a
+port (modbus retrieves the port state correctly).
+
+## Precondition (13:59:09)
+`scada modbus tcp server` + `scada modbus tcp server access read-write` → "MODBUS is enabled /
+Write access: enabled / Port 502"; client READ 0x0000 x1 unit 0 -> 5 (mapping version) on 502.
+Pre-test config = pre-test-configs/u5.show_running-config.txt.
+
+## STEP 1 — dynamic TCP port change (13:59:24)
+`scada modbus tcp server port 5020` → `show scada modbus tcp server | include Port`: "Port : 5020";
+running-config: `scada modbus tcp server port 5020` (plus access read-write + server).
+  CONNECT 10.38.215.10:502  -> FAILED (Connection refused)          ← the old port
+  CONNECT 10.38.215.10:5020 -> ok; TX 00 01 00 00 00 06 00 03 00 00 00 01; READ 0x0000 -> 5   ← the new port
+Restore: `no scada modbus tcp server port` → "Port : 502", the port line gone from running-config;
+CONNECT :5020 -> refused; CONNECT :502 -> ok, READ 0x0000 -> 5.
+Verdict: PASS.
+
+## STEP 2 — dynamic disable / enable (14:00:00)
+`no scada modbus tcp server` → `show scada modbus tcp server`: "MODBUS is disabled";
+CONNECT 10.38.215.10:502 -> FAILED (Connection refused).
+`scada modbus tcp server` → "MODBUS is enabled / Write access: enabled / Port 502" (the
+read-write access line survived the disable: running-config still `scada modbus tcp server
+access read-write` + `scada modbus tcp server`); CONNECT -> ok, READ 0x0000 -> 5.
+Verdict: PASS.
+
+## STEP 3 — API disables then enables a port: port1.0.2 (member 1, index 1: 0x500d current, 0x500e configured) (14:00:21)
+port1.0.2 was chosen because it is LINKED (x230 port1.0.3, in static-channel-group 2), so the
+CURRENT-state word changes too; port1.0.1 (no link) already proved the same write in T22654.
+  before: READ 0x500d -> 0xf103 (UP, full, auto, 1000); READ 0x500e -> 0xf000 (admin up, all auto)
+  TX 00 01 00 00 00 06 01 06 50 0e 00 00   WRITE 0x500e = 0x0000 -> EXCEPTION ExceptionResponse(dev_id=1, …)
+  5 s later: READ 0x500d -> 0x0000; READ 0x500e -> 0x0000
+  CLI 14:00:31: "Link is DOWN, administrative state is DOWN"; status "disabled 1 auto auto
+  1000BASE-T"; running-config interface port1.0.2 gained ` shutdown` (static-channel-group 2 kept)
+  DUT log 01:01:04: "NSM[609]: Port down notification received for port1.0.2"; "port1.0.2 user
+  shutdown"; "modbusd[531]: MODBUS: Failed to set Auto duplex for port1.0.2."; "MODBUS: Failed to
+  set Auto polarity for port1.0.2."; "MODBUS: Failed to set Auto speed for port1.0.2."; "MODBUS:
+  Performed write request from 10.38.215.1:23725: Write Single Register(FC=0x06) to member 1
+  starting at port1.0.2 Config State(REG=0x500e) for 1 word with data 0x0000"
+  TX 00 01 00 00 00 06 01 06 50 0e f0 00   WRITE 0x500e = 0xf000 -> EXCEPTION (same reason)
+  10 s later: READ 0x500d -> 0xf103; READ 0x500e -> 0xf000
+  CLI 14:00:55: "Link is UP, administrative state is UP"; status "connected 1 a-full a-1000";
+  `shutdown` line gone.
+Server counters at the end: single-register writes 20, "slave device failure 2" (these two).
+Verdict: PASS — the port was disabled and re-enabled via the API and the CLI/registers reflect
+it. Observation: because port1.0.2 is an aggregator member, the duplex/polarity/speed nibbles of
+the same word cannot be applied (`% Cannot configure aggregator member`, orient-dt §2), so the
+DUT applies the state nibble, logs three "Failed to set Auto …" lines and answers exception 4 —
+the client sees an error for a write that did what it asked. On the non-member port1.0.1 the
+identical write answers ok (T22654). Bench artefact (every linked stack port here is a LAG
+member), reported not judged.
+
+## STEP 4 — CLI shutdown, Modbus reflects it (14:01:06)
+`interface port1.0.2` / `shutdown` (console printed "switch: port 30(port1.0.2) entered disabled
+state"); CLI "Link is DOWN, administrative state is DOWN", status disabled.
+  4 s later: READ 0x500d -> 0x0000 (current: down/auto/auto/auto); READ 0x500e -> 0x0000 (configured: down)
+`no shutdown` (14:01:24); 10 s later: READ 0x500d -> 0xf103; READ 0x500e -> 0xf000;
+CLI "Link is UP, administrative state is UP", connected a-full a-1000; running-config back to
+switchport / switchport mode access / static-channel-group 2; `show static-channel-group`:
+sa2 = port1.0.2 + port1.0.9 (unchanged).
+Verdict: PASS.
+
+## Teardown (14:01:55)
+`no scada modbus tcp server access` / `no scada modbus tcp server` → "MODBUS is disabled",
+`show running-config | include scada` empty; client probe → connection refused;
+`show running-config` → post-test-configs/22655.u5.show_running-config.txt; diff vs
+pre-test-configs/u5.show_running-config.txt: IDENTICAL (14:02:12). Nothing `write`n; no boot
+change; console at exec prompt, `terminal no monitor`.
+
+## Verdict line
+PASS — 22655.log. Port change, disable/enable, API port control and CLI-to-register
+reflection all confirmed; exception-4-on-LAG-member observation recorded.

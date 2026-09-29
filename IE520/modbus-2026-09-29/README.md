@@ -13,6 +13,8 @@ addressed by Modbus **unit id = stack member** (1, 3, 4 here; unit 0 serves the 
 | case | title | log | verdict |
 | --- | --- | --- | --- |
 | T22653 | modbus — read port information | [22653-partial.log](22653-partial.log) | **PARTIAL** — steps 1,2,6,7 PASS (port1.0.1 0x5000=0x0000 down/auto, 0x5001=0xf000 admin-up/auto, bytes 0/0 = CLI; linked port1.0.2 0xf103 = up/full/1000 and byte counters = CLI too); steps 3,4,5 (PoE 0x5002–0x5004) unsupported by platform: illegal-data-address, no PoE on the IE520-28GSX |
+| T22654 | modbus — write | [22654-partial.log](22654-partial.log) | **PARTIAL** — steps 1,2,4,5 PASS: alarm config 0x3001 written (LED = **0x8000**, MSB-first; read-back, `show alarm facility settings` "L", running-config line, modbusd log), port1.0.1 0x5001 written down/up (shutdown line, NSM + modbusd log), the same over global IPv6 fd32:…::10 and link-local; step 3 PoE write unsupported by platform (exception, "Request failed"). Findings: a write of an unmapped bit (0x0001) is acknowledged with no effect; mapping-5 alarm entries are 6 words (status at +5) |
+| T22655 | modbus — dynamic changes | [22655.log](22655.log) | **PASS** — port 5020 answers while 502 refuses (and back); disable refuses / enable answers; API down/up of linked port1.0.2 reflected in CLI + 0x500d/0x500e; CLI shutdown reflected in the registers. Observation: on an aggregator-member port the state write is applied but answered exception 4 (duplex/polarity/speed nibbles refused on a LAG member) |
 
 ## What is in this directory
 - `<id>[-verdict].log` — one log per case, latest run, name = verdict (STANDING-ORDERS §2).
