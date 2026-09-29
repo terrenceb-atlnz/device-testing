@@ -1,5 +1,7 @@
 # Campaign queue and issue log — tb470, from 2026-09-29 07:50 NZDT
 
+**Extended 13:2x NZDT (Terrence): a multi-hour campaign of 31 more cases (rows 6–12, read from his AWPTCM screenshots: "some have been performed partially, some lacked requirements previously, some are new and untested"), after the Port re-runs (rows 4–5).**
+
 Terrence, 2026-09-29: *"I want to test two scripts, T33234 and T33235. Let me know if the current
 topology supports those tests. shouldnt be multi-hour work."* Run through `/test-mode`: this
 session is the sentinel, `bench-runner` subagents are the tester.
@@ -29,6 +31,15 @@ changes.
 | 1 | T33234 Port — Auto MDI/MDI-X | port-2026-09-29 | DONE — FAIL ([33234-fail.log](port-2026-09-29/33234-fail.log)) | run 2 08:48–08:57: case 1 FAIL = script defect `no polarity` (I-3); case 2 FAIL = REAL: IE520 copper-SFP port shows `current polarity auto`, no mdi/mdix (I-5); framework power-cycled the whole bench after each failed case (I-4), run stopped by SIGINT; cases 3–18 not run, no cable swap asked. Test link was stack port1.0.9 <-> x230 port1.0.4 (both sa2 members freed + VLAN-isolated, I-6). Bench restored: configs IDENTICAL, boot pointers tb470-bench.cfg, probe 09:07 MATCH. Re-run needs: I-3 fix in Test-cases AND a decision on I-5/I-4 |
 | 3 | T33234 Port — Auto MDI/MDI-X — RE-RUN | port-2026-09-29 | PAUSED (tester holding) → waits for the Test-cases regeneration after the I-5 ruling; expected outcome on tb470: UNSUPPORTED (`33234-skip.log`), no fixed copper port | free BOTH sa2 legs (recipe in 33234-fail.log), cases 3–7 with Terrence at the bench (crossover), DUT-side role verdicts expected FAIL per I-5, restart-on-fail accepted (I-4) |
 | 2 | T33235 (3) Port — Fixed port speed | port-2026-09-29 | RUN (resumed 12:3x, ahead of row 3) | script defect FIXED in Test-cases 4ef0dc4 (08:5x): `dut.reboot('', timeOut=900)`; frame now orders ports deterministically, LAG members last + flagged; re-run preflight then RUN. Was: TestCase_33 `dut.reboot(None, timeOut=-1)` = erase startup-config + reboot (I-1); fix sent to test-cases-43 08:26; re-triage when its commit lands. Also: take the test link out of its static-channel-group for the run, restore after (Terrence 08:2x: devices reconfigurable as required) |
+| 4 | T33235 RE-RUN on Test-cases 3454bc0 (fibre sweep gated), after fibre cabling stack port1.0.25 ↔ IE520-sa port1.0.25 + probe + apply | port-2026-09-29 | QUEUED (needs the fibre cable + apply first) | Terrence 13:1x: "start over"; fibre cases 8–12 then measurable |
+| 5 | T33234 RE-RUN on Test-cases d9a08dd (pluggables stripped, UNSUPPORTED gate) | port-2026-09-29 | QUEUED (after row 4) | expected UNSUPPORTED on tb470 (no fixed copper port), no restarts |
+| 6 | EPSR/L2: T45788 EPSR performance on SFP port; T45789 EPSR performance on SFP+ port; T24032 5706 L2 platform test; T12067 Flow control operation with MDI | epsr-l2-2026-09-29 | TRIAGE | 45788/45789 were BLOCKED 09-24 (SA↔x230 SFP+ link never came up, I-3) — re-triage after the new fibre link; 12067 was SKIPPED 09-23, reopen (tcpreplay gives line rate) |
+| 7 | VLAN: T27887 vlan-based QinQ interop with vlan translation; T18252 vlan classifier and tag vlan; T38410 Voice VLAN basic; T38409 GVRP basic; T38408 QinQ basic; T38407 VLAN translation basic; T18302 Private VLAN send from uplink port; T18303 Private VLAN send from private port | vlan-2026-09-29 | TRIAGE | 8 cases, new |
+| 8 | Modbus: T22653 read port information; T22654 write; T22655 dynamic changes; T22651 S2166.1.10–12 read Sensor…; T22650 read System…; T22652 read alarm… | modbus-2026-09-29 | TRIAGE | 6 cases, new; needs a Modbus client on tb470 (pymodbus?) and the IE520 modbus feature |
+| 9 | MRP: T28863 MRP stack failover master/slave; T38098 ring switch-over 200 ms; T38099 ring switch-over 500 ms; T38097 DUT as MRC; T38093 DUT as MRM | mrp-2026-09-29 | TRIAGE | BLOCKED 09-22/24: partners have no MRP CLI (I-7 of 09-24); re-triage — needs an MRP-capable partner |
+| 10 | DHCPv6: T5093 DHCPv6 Relay basic; T5082 DHCPv6 EUI-64 and /64-/128 advertised prefix | dhcpv6-2026-09-29 | TRIAGE | "In Progress" in AWPTCM — partially performed before |
+| 11 | IPv6/BGP: T8770 IPv6 Neighbors in silicon; T3116 BGPv4 unicast traffic | ipv6-bgp-2026-09-29 | TRIAGE | 3116 was SKIPPED 09-23 (reopen, I-19); 8770 SKIPPED 09-23 (reopen) |
+| 12 | Routing: T11346 PIM-DM end-to-end; T18948 VRRP routes near wirespeed, multiple instances; T12589 Interoperability with RIPv1/v2; T10624 OSPF silicon tables synced | routing-2026-09-29 | TRIAGE | 4 cases; 18948 needs line-rate traffic (tcpreplay) |
 
 ## Issues (non-test-case decisions), in the order found
 
