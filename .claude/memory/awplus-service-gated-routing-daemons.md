@@ -20,7 +20,7 @@ asked whether I had run the **`service *` enablers first** — I had not.
 service isis`. `service X` starts the daemon **immediately** (no restart needed; the protocol config is
 accepted straight after). Only **`no service X`** says "Save the config and restart for this change to
 take effect" — the daemon keeps running until reboot. Licence is irrelevant (u4 without FL01 behaves
-the same as u2 with it). **PIM-DM has no `service` command in the corpus and stays rejected** after
+the same as u2 with it). **PIM-DM has no `service` command in the corpus and stays rejected** [SUPERSEDED 2026-09-29: `service ?` on awplus_main-20260923-20 (stack, IE520-sa) and on the AR4050S build lists `pdm  Dense Mode (PIM-DM)`; `show ip pim dense-mode interface` answers "daemon is not running" = gated, present. The x230 has no PIM-DM.] after
 `service pim` — treat as unavailable on this build. `ip pim sparse-mode` additionally needs
 `ip multicast-routing` ("IP Multicast Routing not activated").
 
