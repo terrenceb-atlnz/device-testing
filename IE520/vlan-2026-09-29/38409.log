@@ -1,0 +1,144 @@
+# T38409 — GVRP - basic functionality — tb470 IE520 stack — 2026-09-29 — PASS
+
+Verdict: PASS. Both case steps demonstrated with the DUT = IE520 stack (u5) and sw1 = IE520-sa (u3),
+GVRP on the non-LAG 1G SX link stack port4.0.26 <-> SA port1.0.26:
+- DUT PROPAGATES: the SA created VLANs 3991 and 3992 DYNAMICALLY on port1.0.26(t), both declared by
+  the DUT (run 1, 14:43:24), and later VLAN 302 as well (run 2, 14:53:24).
+- DUT LEARNS: the DUT created VLAN 301 DYNAMICALLY on port4.0.26(t), registrar INN, declared by the SA
+  (run 2, 14:53:15). It also added port4.0.26 as a GVRP-registered tagged member of its existing static
+  VLANs 3993/3994/10 (run 1, 14:43:12, `Dynamic Vlans : 10 3993 3994`).
+Run labelled: clean. The log was written after the run by a successor bench-runner, from the evidence
+files the first tester left (it ran out of usage at ~14:57, after teardown and before logging). The
+sentinel had watched the console transcripts live and confirms the same facts.
+
+One OBSERVATION for Terrence (outside the case text, not graded): see "Observation O-1" below. A VLAN
+that is created, or that gets its first live member, AFTER GVRP is running on the port was not declared
+in 30 s, on either IE520, until GVRP on the port was restarted (`no gvrp` / `gvrp`).
+
+Operator: bench-runner subagent (first tester, 14:41-14:56; this log by its successor at 17:1x),
+sentinel = parent session, Terrence away. Queue: IE520/CAMPAIGN-QUEUE-2026-09-29.md row 7 (VLAN group).
+Case text: ck.db AWPTCM-T38409 (2 steps, no expected results written):
+  objective: "Check DUT can learn VLAN's from a GVRP server. Check DUT can propogate VLAN's to other switches"
+  precondition: "Setup -- sw1 -- DUT --"
+  step 1: "Configure both switches for GVRP"
+  step 2: "Check that the DUT can learn VLANs from other GVRP switches and it can also propagate VLANs
+           (Other switches can learn VLANs from the DUT)"
+
+## Bench mapping
+| case role | device | console | GVRP port |
+| DUT | IE520 stack (members 1,3,4; 3 = Active Master) | /dev/u5 | port4.0.26 (member 4, AT-SPSX 1000BASE-SX, link up a-full a-1000) |
+| sw1 | IE520-sa | /dev/u3 | port1.0.26 (1000BASE-SX) |
+The link port4.0.26 <-> port1.0.26 is cabled and seen by LLDP both ends. It is the SX link whose
+`.setup` apply is still pending with Terrence; that does not matter to a hand-run case.
+Group state on entry: the VLAN-group isolation (README.md) left stack 1.0.2/1.0.9/1.0.13/4.0.9 in VLANs
+3991-3994 and SA 1.0.13/1.0.9 in 3993/3994, all untagged access and out of sa2/sa3. T18252 had been torn
+down (its post-test configs = the group-setup state).
+
+Loop guard (run 1, 14:41:30, and run 2, 14:49:41): the DUT legs port1.0.13 (VLAN 3993) and port4.0.9
+(VLAN 3994) were SHUT for the case. The SA's static 3993/3994 are declared over the GVRP trunk, so each
+of those VLANs would otherwise have two paths between the boxes (the access leg + the trunk), with STP
+off everywhere. Both legs were `no shutdown` again in each teardown. After the case they read connected
+3993/3994 (14:56:01).
+
+## Step 1 — Configure both switches for GVRP: PASS
+Tooling: tb470 /tmp/ckvlan/ckcon.py (console.py, prompt-driven login, `--stop-on-error` on any `% `
+line). Evidence: evidence/38409a.sh + 38409a.out.
+DUT (14:41:48-14:42:04, no `% ` line):
+  configure terminal / vlan database / vlan 302 state enable / exit / gvrp enable /
+  gvrp dynamic-vlan-creation / interface port4.0.26 / switchport mode trunk / gvrp /
+  interface port1.0.1 / switchport access vlan 302 / end
+SA (14:42:11-14:42:27, no `% ` line): the same, with vlan 301 and interface port1.0.26.
+Read back on BOTH:
+  Global GVRP Configuration:
+  Dynamic Vlan Creation: Enabled
+  Port         GVRP Status    Registration   Join   Leave   LeaveAll
+  port4.0.26   Enabled        Normal           20     60      1000      (SA: port1.0.26, same values)
+  show running-config | include gvrp  ->  gvrp enable / gvrp dynamic-vlan-creation / " gvrp"
+
+## Step 2 — DUT learns from, and propagates to, the other GVRP switch: PASS
+### Run 1, part A (evidence/38409a.out, views after 30 s)
+SA 14:43:24 `show vlan dynamic` — the SA LEARNED the DUT's VLANs:
+  3991    VLAN3991        DYNAMIC ACTIVE  port1.0.26(t)
+  3992    VLAN3992        DYNAMIC ACTIVE  port1.0.26(t)
+SA `show gvrp machine` port1.0.26: vlan 3991 and 3992 registrar INN (registered from the peer),
+applicant VO (the SA does not re-declare them back); 1, 10, 3993, 3994 registrar INR (static on
+both ends). The DUT's `show gvrp statistics` port4.0.26: RX JoinEmpty 6 / JoinIn 27, TX JoinEmpty 40 /
+JoinIn 35: PDUs flow both ways.
+DUT 14:43:07 `show vlan dynamic` -> empty. Nothing new to learn at this point: the SA's only non-common
+VLAN, 301, had its member on SA port1.0.1, which is not cabled, so the SA did not declare it (SA
+applicant for 301 absent from `show gvrp machine`). The DUT did add port4.0.26 as a tagged member of
+the static VLANs the SA declares: `show vlan brief` 3993/3994 `port4.0.26(t)`, and
+`show interface switchport` port4.0.26 `Dynamic Vlans : 10 3993 3994`.
+(`show interface port4.0.26 switchport` -> `% Invalid input` at 14:43:13/14:43:28, a wrong show form in
+a read-only view, no state effect; the script was not in stop-on-error mode for views.)
+
+### Run 1, part B (evidence/38409b.out) — live members added AFTER GVRP was up
+14:44:30 SA port1.0.2 (live, to tb470 eth2) -> access vlan 301; 14:44:42 DUT port1.0.9 (live, to the
+x230) -> access vlan 302 (so 3992 lost its only member on the DUT).
+After 30 s (14:45:23-14:45:36): DUT `show vlan dynamic` empty; SA dynamic still exactly 3991, 3992.
+Neither side declared the new VLAN, and the DUT still declared 3992 (applicant QA) although 3992 no
+longer had a member (O-1).
+14:45:43 SA port1.0.2 withdrawn (`no switchport access vlan`); 30 s later no change on the DUT.
+Teardown run 1 (14:46:32-14:46:54, all DUT teardown lines accepted): the next view,
+`show gvrp configuration`, answered `% GVRP is not globally enabled`. That is the correct answer once
+GVRP is off, but `--stop-on-error` stopped the script on it, so the SA teardown was finished at 14:48:17
+(evidence/38409-sa-teardown.out: `% GVRP is not globally enabled`, no dynamic VLANs, port1.0.26 back to
+`switchport mode access`, no gvrp line in the running config). The DUT was read back at 14:48:49
+(evidence/38409-dut-after.out: no dynamic VLANs, 3991-3994 on their legs, 1.0.13/4.0.9 connected,
+port4.0.26 `switchport mode access`, no gvrp line).
+
+### Run 2 (evidence/38409c.sh + 38409c.out) — pins the learning direction and O-1
+14:49:58-14:50:19 GVRP up on both, with no test VLANs yet (DUT legs 1.0.13/4.0.9 shut again).
+Baseline 14:50:46-14:50:55: SA dynamic 3991, 3992 again (propagation reproduced); DUT dynamic empty.
+TEST A 14:51:02-14:51:26: SA `vlan 301` + live port1.0.2; DUT `vlan 302` + live port1.0.9. After 30 s
+(14:52:03-14:52:15) there was NO new dynamic VLAN on either side (O-1 reproduced).
+TEST B 14:52:22-14:52:38: `interface port4.0.26 / no gvrp / gvrp` on the DUT, then the same on SA
+port1.0.26. After 30 s:
+  DUT 14:53:15  show vlan dynamic
+    301     VLAN0301        DYNAMIC ACTIVE  port4.0.26(t)          <- the DUT LEARNED 301 from sw1
+  DUT gvrp machine: vlan 301 registrar INN (applicant VO); vlan 302 applicant QA (declared); vlan 3992
+    applicant VO (no longer declared: it has no member)
+  SA  14:53:24  show vlan dynamic
+    302     VLAN0302        DYNAMIC ACTIVE  port1.0.26(t)          <- sw1 learned the DUT's 302
+    3991    VLAN3991        DYNAMIC ACTIVE  port1.0.26(t)
+  SA gvrp machine: 302 registrar INN; 3992 registrar MT (withdrawn by the DUT, so the SA removed its
+    dynamic 3992); 301 applicant QA (declared).
+TEST C 14:53:34-14:53:54: a global restart on both (`no gvrp enable` / `gvrp enable` /
+`gvrp dynamic-vlan-creation` / port `gvrp`). After 30 s (14:54:31-14:54:49) the same state:
+DUT dynamic 301; SA dynamic 302 and 3991; `show gvrp configuration` Enabled/Normal 20/60/1000 on both.
+
+Step 2 verdict per direction:
+  propagate (other switch learns from the DUT): PASS — SA dynamic 3991/3992 (run 1 and run 2 baseline),
+    302 (run 2 TEST B/C), and the SA dropped 3992 when the DUT withdrew it.
+  learn (DUT learns from the other switch): PASS — DUT dynamic VLAN 301 on port4.0.26(t), registrar INN
+    (run 2 TEST B/C), plus GVRP-registered trunk membership of static 3993/3994/10 (run 1).
+Not tested (not asked by the case): traffic forwarding across a dynamically learned VLAN.
+
+## Observation O-1 (for Terrence — not graded; possible defect or by design)
+On awplus_main-20260923-20, on both IE520s (DUT stack and the SA), the set of VLANs a GVRP port declares
+seemed to be fixed when GVRP came up on the port. It was not refreshed when a VLAN was created or gained its
+first live member later (seen three times: run 1 part B, run 2 TEST A, and for 3992 losing its member in
+run 1 part B), although LeaveAll is 1000 cs (10 s) and each wait was 30 s. `no gvrp` / `gvrp` on the port
+made the new set take effect at once. Whether the leave/leaveall cycle should re-declare it, and whether
+the other end then registers it, is a GVRP-behaviour question for the feature owner. It does not
+change this case's verdict, which asks only whether learning and propagation work.
+
+## Teardown (run 2, 14:54:56-14:56:17) — verified
+DUT: port4.0.26 `no gvrp` + `switchport mode access`; port1.0.9 back to 3992; `no gvrp dynamic-vlan-creation`;
+`no gvrp enable`; `no vlan 302`; port1.0.13 / port4.0.9 `no shutdown`.
+SA: port1.0.26 `no gvrp` + `switchport mode access`; port1.0.2 `no switchport access vlan`;
+`no gvrp dynamic-vlan-creation`; `no gvrp enable`; `no vlan 301`.
+Read back: `show gvrp configuration` -> `% GVRP is not globally enabled` (both); `show vlan dynamic`
+empty (both); `show running-config | include gvrp` empty (both); port4.0.26 / port1.0.26
+`switchport` + `switchport mode access` only; DUT 3991-3994 on 1.0.2/1.0.9/1.0.13/4.0.9, all connected;
+SA 3993/3994 on 1.0.13/1.0.9.
+Post-case running configs, captured 14:56: post-test-configs/38409.u5 and 38409.u3. `diff` against the
+post-T18252 captures (post-test-configs/18252.u5, 18252.u3, = the group-setup state) was IDENTICAL on
+both (checked 17:1x from tb470 /tmp/ckvlan/post-18252-* vs post-38409-*). No T38409 residue. The x230
+(u0) and the AR4050S (u1) were not touched by this case.
+
+## Framework / probe
+Hand-run case (no framework script; no swi_a_*.log, no exit code). Probe before the group: 14:11
+MISMATCH = only the pending SX link (queue row 8 wrap). Probe after: the group-restore probe in README.md.
+Raw transcripts: tb470 /tmp/ckvlan/console-u5.log, console-u3.log (tmpfs; the .out files here are the
+per-command copies).
