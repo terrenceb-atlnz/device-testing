@@ -1,0 +1,113 @@
+# T22653 — modbus — read port information — tb470 IE520 stack — 2026-09-29 — PARTIAL
+
+Verdict: PARTIAL. Steps 1, 2, 6, 7 PASS (port #1 current state, configured state, input bytes,
+output bytes all read over Modbus/TCP and equal the CLI). Steps 3, 4, 5 (PoE configuration,
+PoE data-pair power, PoE spare-pair power: registers 0x5002–0x5004) are UNSUPPORTED BY PLATFORM:
+the AT-IE520-28GSX has no PoE — `show power-inline` and `show power-inline interface port1.0.1`
+are `% Invalid input detected`, and the server answers those three registers with a Modbus
+exception (illegal data address). Nothing measurable, no defect. Run labelled: clean.
+
+Operator: bench-runner subagent (device-testing-61 = sentinel, /test-mode shape A; Terrence
+away). Queue row 8, case 1 of 6. Hand-driven (no framework script): console.py-based
+ckcon.py on the stack master console /dev/u5 (transcript tb470 /tmp/ckmodbus/console-u5.log,
+copied here as console-u5.log at the end of the group) + pymodbus 3.8.6 client mb.py on tb470
+(tb470 /tmp/ckmodbus/mb.py, copy in this directory; per-request log mb-22653.log).
+Full stdout of the run: 22653.out (steps) and 22653-teardown.out.
+
+## Case (ck.db AWPTCM-T22653, folder /Modbus/Proj 2166 Modbus Support)
+Objective: able to retrieve port information. Steps (each "Confirm this is same as CLI"):
+1 read 0x5000 #1 Port Current State (R, 1 word HEX); 2 read 0x5001 #1 Port Configured State
+(RW, 1 word HEX); 3 read 0x5002 #1 Port PoE Configuration (RW, HEX); 4 read 0x5003 #1 Port PoE
+Data Pairs Current Power Usage (R, UINT); 5 read 0x5004 #1 Port PoE Spare Pairs Current Power
+Usage (R, UINT); 6 read 0x5005 #1 Port Input Bytes (R, 4 words UINT); 7 read 0x5009 #1 Port
+Output Bytes (R, 4 words UINT).
+Register semantics (ART suite raw-data/testsuites_art/1359_modbus/library_1359.py, the same
+map): port state word = 4 nibbles [state, duplex, polarity, speed]: state 0=down F=up; duplex
+0=auto 1=full 2=half; polarity 0=auto 1=mdi 2=mdix; speed 0=auto 1=10 2=100 3=1000 4=10000
+5=40000 6=100000. Ports are 13 words each from 0x5000, in port order per stack member, and the
+per-member blocks are addressed by Modbus UNIT ID = stack member number (ART: unit=member).
+"#1 port" = the first port of member 1 = port1.0.1 (an empty SFP cage on this bench, link down).
+
+## Topology / setup
+- DUT: IE520 stack (members 1, 3, 4; master = member 3 on /dev/u5), vlan1 10.38.215.10/27,
+  software awplus_main-20260923-20. Client: tb470 eth1 10.38.215.1/27 → stack port3.0.13 (the
+  declared tb link). TCP 502. Bench as bench-state.md (probe 13:42, MISMATCH = only the pending
+  SX link, which this case does not use).
+- Pre-test running-config: pre-test-configs/u5.show_running-config.txt (from the 13:42 probe
+  capture bench-setup/captures/2026-09-29T004156Z; u0–u5 all there).
+- Baseline before enabling (13:39:21, mb-baseline.log): `CONNECT 10.38.215.10:502 -> FAILED
+  ... [Errno 111] Connection refused`; CLI `show scada modbus tcp server` = `MODBUS is disabled`.
+- 13:46:09 enable (console): `configure terminal` / `scada modbus tcp server` / `end`.
+  `show scada modbus tcp server` → "MODBUS is enabled, Write access: disabled, Port 502, Max
+  Connections 1", all statistics 0. `show running-config | include scada` → `scada modbus tcp server`.
+
+## Discovery (13:46:18, mb-22653.log; TX = the Modbus/TCP ADU bytes sent)
+  TX 00 01 00 00 00 06 00 03 00 00 00 01   READ 0x0000 x1 UINT slave 0 -> words=['0x0005'] value=5   (Mapping Version 5)
+  TX 00 01 00 00 00 06 01 03 00 00 00 01   READ 0x0000 x1 UINT slave 1 -> 5 (same via unit id 1)
+  TX 00 01 00 00 00 06 00 03 00 00 00 7d   READ 0x0000 x125 RAW slave 0 -> EXCEPTION (server counted it as "illegal data value": a 125-word read of the system block is refused)
+  TX 00 01 00 00 00 06 01 03 01 20 00 05   READ 0x0120 x5 RAW slave 1 -> [1, 28, 0, 5, 31]  (member 1: 1 board, 28 ports, 0 faults, 5 sensors, 31 alarms — matches `show system`/`show system environment`/`show alarm facility settings` for member 1: 1 base board, 28 ports, 5 sensors, 2 PSU + 28 link-down + 1 temperature = 31 alarms)
+  TX 00 01 00 00 00 06 01 03 02 00 00 03   READ 0x0200 x3 RAW slave 1 -> [1, 0, 0x4154]  (board class 1 = Base, slot 0, board name starts "AT")
+
+## Steps 1–7 on port #1 = port1.0.1, unit id 1 (13:46:18–13:46:19)
+  step 1  TX 00 01 00 00 00 06 01 03 50 00 00 01   READ 0x5000 x1 HEX -> words=['0x0000'] value='0000'
+          = state DOWN, duplex auto, polarity auto, speed auto
+  step 2  TX 00 01 00 00 00 06 01 03 50 01 00 01   READ 0x5001 x1 HEX -> words=['0xf000'] value='f000'
+          = configured state UP (F), duplex auto (0), polarity auto (0), speed auto (0)
+  step 3  TX 00 01 00 00 00 06 01 03 50 02 00 01   READ 0x5002 x1 HEX -> EXCEPTION ExceptionResponse(dev_id=1, ...)
+  step 4  TX 00 01 00 00 00 06 01 03 50 03 00 01   READ 0x5003 x1 UINT -> EXCEPTION
+  step 5  TX 00 01 00 00 00 06 01 03 50 04 00 01   READ 0x5004 x1 UINT -> EXCEPTION
+  step 6  TX 00 01 00 00 00 06 01 03 50 05 00 04   READ 0x5005 x4 UINT -> words=['0x0000','0x0000','0x0000','0x0000'] value=0
+  step 7  TX 00 01 00 00 00 06 01 03 50 09 00 04   READ 0x5009 x4 UINT -> words=['0x0000','0x0000','0x0000','0x0000'] value=0
+  whole   TX 00 01 00 00 00 06 01 03 50 00 00 0d   READ 0x5000 x13 RAW -> EXCEPTION (the 13-word block spans the PoE registers; a block read fails where the single reads succeed)
+CLI at 13:46:24 (console-u5.log), `show interface port1.0.1`:
+  Link is DOWN, administrative state is UP
+  configured duplex auto, configured speed auto, configured polarity auto
+    input packets 0, bytes 0, dropped 0, multicast packets 0
+    output packets 0, bytes 0, multicast packets 0, broadcast packets 0
+`show interface port1.0.1 status`: port1.0.1  -  notconnect  1  auto  auto  not present
+`show power-inline interface port1.0.1` (13:46:30): `% Invalid input detected at '^' marker.`
+(and `show power-inline` at 13:44:55 the same).
+Server statistics after the run (`show scada modbus tcp server` 13:46:31): holding registers
+read requests 22; exceptions: illegal data address 9, illegal data value 1 (the 10 refused
+reads above and below, classified by the DUT itself); write requests 0.
+Per-step verdict:
+  step 1 PASS — 0x0000: link DOWN / all auto = CLI "Link is DOWN", configured auto/auto/auto
+  step 2 PASS — 0xf000: admin UP / all auto = CLI "administrative state is UP", configured auto/auto/auto
+  step 3 UNSUPPORTED BY PLATFORM — 0x5002 illegal data address; no PoE on the IE520-28GSX (`show power-inline` invalid)
+  step 4 UNSUPPORTED BY PLATFORM — 0x5003 idem
+  step 5 UNSUPPORTED BY PLATFORM — 0x5004 idem
+  step 6 PASS — input bytes 0 = CLI "input ... bytes 0"
+  step 7 PASS — output bytes 0 = CLI "output ... bytes 0"
+
+## Extra evidence (not graded): a LINKED port and another member, same registers
+port #2 of member 1 = port1.0.2 (block 0x500d, unit id 1), 13:46:19:
+  TX 00 01 00 00 00 06 01 03 50 0d 00 01   READ 0x500d x1 HEX -> '0xf103' = UP, duplex full (1), polarity auto (0), speed 1000 (3)
+  TX 00 01 00 00 00 06 01 03 50 0e 00 01   READ 0x500e x1 HEX -> '0xf000' = admin UP, configured auto/auto/auto
+  TX 00 01 00 00 00 06 01 03 50 12 00 04   READ 0x5012 x4 UINT -> 1416   (input bytes)
+  TX 00 01 00 00 00 06 01 03 50 16 00 04   READ 0x5016 x4 UINT -> 42663  (output bytes)
+  CLI 13:46:27 `show interface port1.0.2`: Link is UP, administrative state is UP; current duplex
+  full, current speed 1000, current polarity auto; configured duplex auto, configured speed
+  auto, configured polarity auto; input packets 21, bytes 1416; output packets 459, bytes 42791
+  (output 42791 vs 42663 read 8 s earlier on a port carrying LACP/LLDP at ~41 bps: consistent);
+  `status`: connected 1 a-full a-1000 1000BASE-T.  → both words and the byte counters agree.
+Unit-id semantics measured: 0x5000 with unit id 0 → EXCEPTION; unit id 2 (provisioned, absent
+member) → EXCEPTION; unit id 3 block read 0x5000 x13 → EXCEPTION (spans PoE), single-register
+reads on member 3 — see 22653-teardown.out (port3.0.13 = index 12 = block 0x509c, the tb link).
+The system block (0x0000…) answers on unit id 0 and 1 alike.
+
+## Teardown
+See 22653-teardown.out: `configure terminal` / `no scada modbus tcp server` / `end`;
+`show scada modbus tcp server` → `MODBUS is disabled`; `show running-config | include scada`
+empty; client `probe` → connection refused again. `show running-config` captured to
+post-test-configs/22653.u5.show_running-config.txt and diffed against
+pre-test-configs/u5.show_running-config.txt: IDENTICAL (13:48:33).
+Member-3 detail (13:48:04, unit id 3, single registers): port3.0.13 (index 12, block 0x509c)
+0x509c = 0xf103 (UP/full/auto/1000), 0x509d = 0xf000, input bytes 11906, output bytes 612704 vs
+CLI 4 s later "Link is UP … input … bytes 12996 … output … bytes 614165" (the tb link carries the
+Modbus traffic itself, ~3 kbps: consistent); port3.0.1 0x5000 = 0x0000 = CLI "Link is DOWN".
+No `write`, no boot change, no IPv6 added; consoles left at an exec prompt with `terminal no monitor`.
+
+## Verdict line
+PARTIAL — 22653-partial.log. Steps 1,2,6,7 PASS; steps 3,4,5 unsupported by platform (no PoE
+on the IE520-28GSX; registers 0x5002–0x5004 = illegal data address). Mapping version 5; port
+registers are addressed per stack member by Modbus unit id.
