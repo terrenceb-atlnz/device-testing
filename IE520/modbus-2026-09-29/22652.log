@@ -1,0 +1,86 @@
+# T22652 — S2166.1.10–12 — modbus — read alarm information — tb470 IE520 stack — 2026-09-29 — PASS
+
+Verdict: PASS. Alarm #1's type, configuration and status registers were read on every stack
+member and each equals the CLI: type 1 = "External PSU" (the first per-member alarm in `show
+alarm facility settings`), configuration 0x0000 = no LED/relay output ("-" in the settings
+table; T22654 showed the same word read 0x8000 when the CLI had the LED configured), status
+FALSE on members 1 and 4 and TRUE on member 3 = `show system environment` "Power Input 1: Yes /
+No / Yes". The addresses printed in the case text (0x3600–0x3602) belong to an older register
+map and answer illegal-data-address on this Mapping-Version-5 DUT; the alarm block is at 0x3000
+with SIX words per alarm (type, config, 3 reserved, status). Run labelled: clean.
+
+Operator: bench-runner subagent (device-testing-61 = sentinel; Terrence away). Queue row 8,
+case 6 of 6. Hand-driven: ckcon.py on /dev/u5 + mb.py (pymodbus 3.8.6) from tb470 eth1 →
+stack vlan1 10.38.215.10. Full stdout 22652.out, client log mb-22652.log, driver reads3.sh.
+
+## Case (ck.db AWPTCM-T22652)
+Objective: retrieve alarm information (alarm list = `show alarm facility settings`). Steps:
+1 read 0x3600 #1 Alarm Type (1 word ENUM); 2 read 0x3601 #1 Alarm Configuration (1 word HEX);
+3 read 0x3602 #1 Alarm Status (1 word BOOL).
+Register semantics on this DUT (measured in T22654, 22654-alarm-discovery.out: a 93-word dump
+of unit 1 from 0x3000 and the CLI cross-check): per member (unit id), 6 words per alarm from
+0x3000 — [type, config, 0, 0, 0, status]; type per the ART table (1 External PSU, 2 EPSR,
+3 External contact input, 4 Link down, 5 Loop detect, 6 Main PSE failure, 7 PoE failure,
+8 Temperature, 9 G8032, 10 UFO); config bitmap MSB-first (0x8000 = LED, 0x8000>>n = relay n);
+status 0xffff = alarm condition present, 0x0000 = not. Alarm order = the CLI's per-member
+order: #1 External PSU 1, #2 External PSU 2, #3..#30 Link down portN.0.1..28, #31 Temperature.
+
+## Setup (14:06:50)
+`scada modbus tcp server` → enabled, read-only, port 502. Pre-test config = pre-test-configs/u5.
+
+## CLI reference (14:07:02–14:07:04)
+`show alarm facility settings`: Member output control: Disabled; Global alarms EPSR, Loop
+detect, G8032, UFO all "-"; per member 1/3/4: External PSU 1 "-", External PSU 2 "-", Link down
+portN.0.1..portN.0.28 "-", Temperature "-" (no outputs configured anywhere).
+`show alarm facility status`: "Active alarms ID" header only — no alarm has an output to raise.
+`show system environment | include Power|Temp|Stack`:
+  member 1: Temp 43 Ok · Power Input 1 Yes · Power Input 2 No
+  member 3: Temp 42 Ok · Power Input 1 No  · Power Input 2 Yes
+  member 4: Temp 45 Ok · Power Input 1 Yes · Power Input 2 No
+
+## Reads (14:07:07–14:07:10; TX bytes in mb-22652.log)
+The case's literal addresses, unit 1:
+  READ 0x3600 x1 -> EXCEPTION · READ 0x3601 x1 -> EXCEPTION · READ 0x3602 x1 -> EXCEPTION
+  (illegal data address, +3 on the server counter: 13 → 16) — not registers of this map.
+Steps at the DUT's addresses (alarm #1 = External PSU 1):
+  member 1 (unit 1):
+    step 1  READ 0x3000 x1 ENUM -> words=['0x0001'] value=1        = External PSU  (CLI first row "External PSU 1")
+    step 2  READ 0x3001 x1 HEX  -> words=['0x0000'] value='0000'   = no LED, no relay  (CLI Outputs "-")
+    step 3  READ 0x3005 x1 BOOL -> words=['0x0000'] value=False    = PSU 1 present  (CLI Power Input 1 "Yes")
+            READ 0x3002 x3 RAW  -> [0, 0, 0]                        (reserved words 2–4)
+  member 3 (unit 3):
+    step 1  READ 0x3000 -> 1 (External PSU)
+    step 2  READ 0x3001 -> '0000'                                    (CLI "-")
+    step 3  READ 0x3005 -> words=['0xffff'] value=True              = PSU 1 ABSENT  (CLI Power Input 1 "No")
+  member 4 (unit 4):
+    step 1  READ 0x3000 -> 1 · step 2 READ 0x3001 -> '0000' · step 3 READ 0x3005 -> False  (CLI Power Input 1 "Yes")
+  unit 0: READ 0x3000 x6 -> [1, 0, 0, 0, 0, 0xffff] = member 3's entry (unit 0 serves the master's block).
+Consistency of the neighbouring entries (extra, same reads):
+  #2 External PSU 2 (0x3006 x6): member 1 [1,0,0,0,0,0xffff] (Power Input 2 No), member 3
+     [1,0,0,0,0,0] (Yes), member 4 [1,0,0,0,0,0xffff] (No) — all as the CLI.
+  #3 Link down portN.0.1 (0x300c x6): [4,0,0,0,0,0xffff] on all three — port N.0.1 is an empty
+     cage, link down, on every member (T22653: `show interface port1.0.1` Link is DOWN).
+  #4 Link down portN.0.2 (0x3012 x6): [4,0,0,0,0,0] on all three — 1.0.2, 3.0.2, 4.0.2 are all
+     linked (bench-state: to the x230 / the 4050).
+  0x305a x6 -> [4,0,0,0,0,0xffff]: labelled "#31 Temperature" in the driver by a stride slip
+     (3-word arithmetic); with 6-word entries 0x305a is entry #16 = Link down portN.0.14, which is
+     down on every member — the value fits. The Temperature entry (#31) sits at 0x30b4 and was
+     NOT read; nothing in the case needs it.
+Server counters after: holding-register reads 177, illegal data address 16.
+
+## Per-step verdict
+1 PASS (type = External PSU on members 1, 3, 4) · 2 PASS (config 0x0000 = "-"; the word is
+live — T22654 read 0x8000 with the CLI LED set) · 3 PASS (status = the inverse of "Power Input 1"
+on each member: False/True/False for Yes/No/Yes). Note for the case owner: the AWPTCM step text
+names 0x3600–0x3602; the DUT implements the alarm block at 0x3000 (map version 5), 6 words per
+alarm, addressed per stack member by unit id.
+
+## Teardown (14:07:22)
+`no scada modbus tcp server` → "MODBUS is disabled"; `show running-config | include scada` empty;
+probe → connection refused; post-test-configs/22652.u5.show_running-config.txt diff vs
+pre-test-configs/u5.show_running-config.txt: IDENTICAL. Nothing `write`n; console at exec
+prompt, `terminal no monitor`.
+
+## Verdict line
+PASS — 22652.log. Alarm #1 type/config/status registers equal the CLI on all three members;
+case-text addresses are from an older map (illegal data address on this DUT).
