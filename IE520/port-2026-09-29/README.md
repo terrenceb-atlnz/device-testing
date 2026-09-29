@@ -6,11 +6,11 @@ generated `9001_Port/test-9001.33234.py` (+ `library_9001.py`, `ck_media.py`), r
 
 | case | title | log | verdict |
 | --- | --- | --- | --- |
-| T33234 | Port — Auto MDI/MDI-X | [33234-skip.log](33234-skip.log) | **UNSUPPORTED** (run 3, 13:38–13:40, Test-cases d9a08dd): the IE520-28GSX has no fixed copper switchport (every front port is an SFP cage) and Terrence ruled MDI/MDI-X does not apply to pluggables (I-5); the framework marked all 14 cases unsupported on `swi_a` (`has_fixed_copper_port` missing), ran none, power-cycled nothing; bench restored, probe MISMATCH = only the pending SX link. Nothing on tb470 unblocks it. Earlier: run 2 FAIL (script defect `no polarity`, fixed b734b40; the `current polarity auto` reading that led to the ruling) — evidence in framework-run2/ |
+| T33234 | Port — Auto MDI/MDI-X | [33234-unsupported.log](33234-unsupported.log) | **UNSUPPORTED** (run 3, 13:38–13:40, Test-cases d9a08dd): the IE520-28GSX has no fixed copper switchport (every front port is an SFP cage) and Terrence ruled MDI/MDI-X does not apply to pluggables (I-5); the framework marked all 14 cases unsupported on `swi_a` (`has_fixed_copper_port` missing), ran none, power-cycled nothing; bench restored, probe MISMATCH = only the pending SX link. Nothing on tb470 unblocks it. Earlier: run 2 FAIL (script defect `no polarity`, fixed b734b40; the `current polarity auto` reading that led to the ruling) — evidence in framework-run2/ |
 | T33235 | (3) Port — Fixed port speed | [33235-partial.log](33235-partial.log) | **STOPPED — partial** (run 1 12:17–12:57, stopped on Terrence's instruction: "useless" without a fibre link). Cases 1–7 copper sweep on stack port1.0.9 ↔ x230 port1.0.4 PASS: `speed 10` rejected (`% Unsupported speed/duplex combination`), 100 and 1000 accepted and linked fixed, 2500/5000/10000 rejected at both ends; cases 8–12 fibre sweep `!!FAIL: … not applicable` = script grading (no fibre link on the bench), each followed by a full-bench power cycle (five); cases 13–30 not run. Bench restored, configs IDENTICAL, probe 13:08 MATCH. Re-run after fibre cabling (stack port1.0.25 ↔ IE520-sa port1.0.25) on Test-cases 3454bc0 |
 
 ## What is in this directory
-- `33234-skip.log` — the case log (run 3, UNSUPPORTED): what the case needs, what the bench
+- `33234-unsupported.log` — the case log (run 3, UNSUPPORTED): what the case needs, what the bench
   lacks, the ruling, the verbatim marking-pass lines, the framework's boot-config touch and its
   restore, the after-run probe; plus a pointer to the run-2 evidence. (Its git history holds the
   run-2 FAIL text: gate, LAG isolation, the two failures, the two power cycles.)

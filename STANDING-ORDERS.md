@@ -1,5 +1,5 @@
 ---
-verified: 2026-09-29
+verified: 2026-09-30
 ---
 # Standing orders — tb470 bench campaigns
 
@@ -26,7 +26,7 @@ units exist) is NOT here — bench facts live in `bench-setup/bench-state.md` (g
   Verify by diffing `show running-config` against the pre-case copy (the 2026-09-24 queue rule).
 - **Startup config:** nothing is written unless the case requires it (unchanged, 2026-09-24).
 - **Licences and keys:** settled; not a per-campaign question any more. If a case needs a
-  feature the unit does not have, that is a SKIP with the reason, not a request.
+  feature the unit does not have, that is UNSUPPORTED with the reason (§2), not a request.
 
 ## 2. Outcomes — the log's NAME carries the verdict (Terrence, 2026-09-28)
 
@@ -35,12 +35,24 @@ name states that run's outcome at a glance** — the agent writing the log deter
 outcome, so the agent names the file. **A plain `<case-id>.log` means the case explicitly
 PASSED. Nothing else may use that name.**
 
-| outcome | file | what it must hold |
-| --- | --- | --- |
-| PASS | `<id>.log` | the evidence chain as today: config applied, commands, raw output, per-step verdicts |
-| FAIL | `<id>-fail.log` | everything that was tried, what went wrong, the raw output that shows it, and the reason |
-| PARTIAL | `<id>-partial.log` | which steps passed, which did not run or could not be judged, and why |
-| SKIP (bench cannot run it) | `<id>-skip.log` | what the case needs, what the bench lacks, and the exact change that would unblock it (§3) |
+**What each verdict means (Terrence, 2026-09-30):**
+
+> 1. If a platform doesnt support something, that test case is UNSUPPORTED. the Overall test set
+>    is a PASS even if it has UNSUPPORTED test cases within. FAIL means the test was run
+>    unsuccessfully, the platform prevented it from running, etc. PARTIAL means that the test was
+>    *unable* to be run, likely due to a misconfiguration physically or otherwise, a script error,
+>    etc., but not resulting from a FAIL condition being set. otherwise it would be NOT TESTED.
+
+| outcome | when | file | what it must hold |
+| --- | --- | --- | --- |
+| PASS | it ran and every step the platform supports passed. **Steps or TestCases that are UNSUPPORTED inside it do not stop a PASS** | `<id>.log` | the evidence chain: config applied, commands, raw output, per-step verdicts, and each UNSUPPORTED step named with its proof |
+| FAIL | it ran unsuccessfully: a check failed, or the platform prevented it from running | `<id>-fail.log` | everything that was tried, what went wrong, the raw output that shows it, and the reason |
+| PARTIAL | it was *unable* to run (fully): a physical or other misconfiguration, a script error, etc. — **not** a FAIL condition being met | `<id>-partial.log` | which steps passed, which could not run and why, and the exact change that would unblock them (§3) |
+| UNSUPPORTED | the platform does not support what the case tests | `<id>-unsupported.log` | what the case needs, the proof the platform lacks it (the refused command, the missing hardware) |
+| NOT TESTED | never attempted | no log — the queue row carries the reason | |
+
+The pre-2026-09-30 `SKIP` outcome (`<id>-skip.log`) is retired: a platform gap is UNSUPPORTED, a
+bench or script gap is PARTIAL, and a case nobody attempted is NOT TESTED.
 
 Record **as much evidence as possible** for anything that is not a PASS. A re-run replaces
 the case's log under the new outcome's name (`git mv`, so the case still has exactly one

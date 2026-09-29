@@ -84,9 +84,9 @@ reboot. The x230's 2026-09-28 02:41 UTC entry predates the campaign (see the 09-
 | case | title | verdict | log | label |
 | --- | --- | --- | --- | --- |
 | T33235 | (3) Port — Fixed port speed | PARTIAL | [port-2026-09-29/33235-partial.log](port-2026-09-29/33235-partial.log) | clean for 1–7; 8–12 **confounded** (no fibre link then, graded FAIL by the script); stopped at 12:57 |
-| T33234 | Port — Auto MDI/MDI-X | UNSUPPORTED | [33234-skip.log](port-2026-09-29/33234-skip.log) | clean (marked before run, 0 cycles) |
-| T22653 | modbus - read port information | PARTIAL | [modbus-2026-09-29/22653-partial.log](modbus-2026-09-29/22653-partial.log) | clean; PoE steps N/A (no PoE) |
-| T22654 | modbus - write | PARTIAL | [22654-partial.log](modbus-2026-09-29/22654-partial.log) | clean; PoE write N/A |
+| T33234 | Port — Auto MDI/MDI-X | UNSUPPORTED | [33234-unsupported.log](port-2026-09-29/33234-unsupported.log) | clean (marked before run, 0 cycles) |
+| T22653 | modbus - read port information | PARTIAL | [modbus-2026-09-29/22653.log](modbus-2026-09-29/22653.log) | clean; PoE steps N/A (no PoE) |
+| T22654 | modbus - write | PARTIAL | [22654.log](modbus-2026-09-29/22654.log) | clean; PoE write N/A |
 | T22655 | modbus - dynamic changes | PASS | [22655.log](modbus-2026-09-29/22655.log) | clean |
 | T22651 | modbus - read Sensor information | PASS | [22651.log](modbus-2026-09-29/22651.log) | clean |
 | T22650 | modbus - read System information | FAIL | [22650-fail.log](modbus-2026-09-29/22650-fail.log) | clean; step 5 alarm count 124 vs 93 |

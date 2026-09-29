@@ -57,6 +57,14 @@ scaffolding and fewer unrequested artefacts.
 
 **NAMING ADDITION, 2026-09-28 (Terrence).** Still one log per case, but **the file name states
 the outcome**: `<id>.log` is reserved for a run that explicitly PASSED; anything else is
-`<id>-fail.log`, `<id>-partial.log` or `<id>-skip.log`, with as much evidence as possible of what
+`<id>-fail.log`, `<id>-partial.log` or `<id>-unsupported.log` (was `-skip`, retired 2026-09-30), with as much evidence as possible of what
 was tried and what went wrong. The agent that judges the run names the file. A re-run replaces
 the file under the new name (`git mv`). Full text: `STANDING-ORDERS.md` §2 at the repo root.
+
+**VERDICTS REDEFINED, 2026-09-30 (Terrence).** A platform gap is UNSUPPORTED
+(`<id>-unsupported.log`). A case with UNSUPPORTED steps or TestCases inside is still a PASS. FAIL
+means it ran unsuccessfully, or the platform prevented it from running. PARTIAL means it was
+unable to run (physical or other misconfiguration, a script error), with no FAIL condition met.
+A case never attempted is NOT TESTED and gets no log. `-skip.log` is retired. Applied the same
+day: 22653 and 22654 went PARTIAL → PASS (their only non-passing steps were PoE, which the
+IE520 lacks), and 33234-skip became 33234-unsupported.
