@@ -1,0 +1,91 @@
+# T22650 — S2166.1.10–12 — modbus — read System information — tb470 IE520 stack — 2026-09-29 — FAIL (one register disagrees with the CLI)
+
+Verdict: FAIL on step 5 (Number of Alarms), PASS on the other nine steps. The DUT implements
+Mapping Version 5, whose system-block layout differs from the addresses printed in the case
+text (which are the version-1 layout); every item the case asks for was located at its
+version-5 address and equals the CLI — except the per-member alarm count: register 0x0049
+reads 124 while `show alarm facility settings` lists 93 per-member alarms (31 × 3 members).
+124 = 31 × 4, i.e. one member's worth too many, matching the stack's PROVISIONED-but-absent
+member 2 (`show stack`: "2 - - - - Provisioned"). Whether the register should count a
+provisioned slot is a product question — reported as a mismatch, for Terrence.
+Run labelled: clean.
+
+Operator: bench-runner subagent (device-testing-61 = sentinel; Terrence away). Queue row 8,
+case 5 of 6. Hand-driven: ckcon.py on /dev/u5 + mb.py (pymodbus 3.8.6) from tb470 eth1 →
+stack vlan1 10.38.215.10. Full stdout 22650.out, client log mb-22650.log, driver reads3.sh.
+
+## Case (ck.db AWPTCM-T22650)
+Objective: able to read system information. Steps: 1 read 0x0000 Mapping Version (1 word, "1");
+2 read 0x0001 Board Name (32 words ASCII); 3 read 0x0021 Serial Number (32 ASCII); 4 read
+0x0041 Number of Sensors (UINT); 5 read 0x0042 Number of Alarms (UINT); 6 read 0x0043 Number of
+Ports (UINT); 7 read 0x0044 Number of Faults (UINT); 8 read 0x0045 Software Version (32 ASCII);
+9 read 0x0065 System Name (32 ASCII); 10 read 0x0085 HW Mac Address (3 words Hex).
+Version-5 layout as implemented by the DUT (ART library_1359 / test-1359.1001 map, confirmed
+below by the values): 0x0000 mapping version; 0x0001 System Name (32); 0x0021 Software Version
+(32); 0x0041 HW MAC (3); 0x0044 stack-member bitmap; 0x0045 ports; 0x0046 faults; 0x0047
+sensors; 0x0048 global alarms; 0x0049 per-member alarms; per member (unit id): 0x0120–0x0124
+boards/ports/faults/sensors/alarms, 0x0200 board class, 0x0201 slot, 0x0202 Board Name (32),
+0x0222 Serial Number (32), 0x0242 board MAC (3).
+
+## Setup (14:06:01)
+`scada modbus tcp server` → enabled, read-only, port 502. Pre-test config = pre-test-configs/u5.
+
+## CLI reference (14:06:17–14:06:21)
+`show system`: members 1/3/4 each "Base 717 Base AT-IE520-28GSX X1-0" serial 264A23061 /
+264A23066 / 264A23052; Environment Status Normal on all; "Software version: awplus_main-20260923-20";
+"System Name IE520-stk". `show system mac`: 1 84e3.2787.0ac0, 3 84e3.2787.0740, 4 84e3.2787.09c0,
+Virtual MAC 0000.cd37.0d6f. `show running-config | include hostname`: hostname IE520-stk.
+`show stack | include Ready`: members 1, 3, 4 Ready (member 2 Provisioned, from the 13:44 `show stack`).
+`show system environment` (14:05): 5 sensors per member, all Ok → 15 sensors, 0 faults.
+`show alarm facility settings` (14:07): 4 global alarms (EPSR, Loop detect, G8032, UFO) + per
+member 2 External PSU + 28 Link down + 1 Temperature = 31 × 3 = 93.
+
+## Reads (14:06:08–14:06:12, unit 0 unless stated; TX bytes in mb-22650.log)
+The case's literal addresses:
+  step 1  READ 0x0000 x1 UINT  -> words=['0x0005'] value=5
+  step 2  READ 0x0001 x32 ASCII -> 'IE520-stk'                 (v5: System Name, not Board Name)
+  step 3  READ 0x0021 x32 ASCII -> 'awplus_main-20260923-20'   (v5: Software Version, not Serial)
+  step 4  READ 0x0041 x1 UINT  -> 0                            (v5: first word of the HW MAC 0000.cd37.0d6f)
+  step 5  READ 0x0042 x1 UINT  -> 52535 = 0xcd37               (v5: second MAC word)
+  step 6  READ 0x0043 x1 UINT  -> 3439 = 0x0d6f                (v5: third MAC word)
+  step 7  READ 0x0044 x1 UINT  -> 13 = 0x000d                  (v5: stack-member bitmap = members 1, 3, 4)
+  step 8  READ 0x0045 x32 ASCII -> EXCEPTION                   (v5: 0x0045 is a 1-word count; a 32-word read runs off the block)
+  step 9  READ 0x0065 x32 ASCII -> EXCEPTION                   (no register there in v5)
+  step 10 READ 0x0085 x3 HEX   -> '000000050000'               (not a MAC in v5)
+  → the case text's addresses are the version-1 map; on a version-5 DUT they return other
+    fields. The steps are therefore graded on the version-5 address of each item:
+The version-5 addresses:
+  Mapping Version        0x0000 -> 5                                   step 1: PASS (1 word returned; value 5, the case's "1" is the old map)
+  System Name            0x0001 x32 ASCII -> 'IE520-stk'               step 9: PASS = hostname / show system "System Name IE520-stk"
+  Software Version       0x0021 x32 ASCII -> 'awplus_main-20260923-20' step 8: PASS = show system
+  HW MAC Address         0x0041 x3 HEX  -> '0000cd370d6f'              step 10: PASS = show system mac "Virtual MAC Address 0000.cd37.0d6f"
+  Stack members          0x0044 x1 HEX  -> '000d' (bits 1,3,4)         (extra) = show stack 1, 3, 4 Ready
+  Number of Ports        0x0045 x1 UINT -> 84                          step 6: PASS = 3 × 28 (0x0121 = 28 per member)
+  Number of Faults       0x0046 x1 UINT -> 0                           step 7: PASS = all sensors Ok, Environment Status Normal
+  Number of Sensors      0x0047 x1 UINT -> 15                          step 4: PASS = 3 × 5 (0x0123 = 5 per member)
+  Number of Alarms       0x0048 x1 UINT -> 4   (global)                step 5: global part = 4 = EPSR, Loop detect, G8032, UFO
+                         0x0049 x1 UINT -> 124 (per-member total)      step 5: FAIL — CLI lists 93 (3 members × 31; 0x0124 = 31 on
+                                                                        units 1, 3, 4); 124 = 4 × 31, one absent/provisioned member extra
+  0x004a x3 (heartbeat block per ART TestCase_20) -> EXCEPTION         (not present on this build; recorded)
+  Board Name    unit 1/3/4 0x0202 x32 ASCII -> 'AT-IE520-28GSX' ×3     step 2: PASS = show system Board Name
+  Serial Number unit 1/3/4 0x0222 x32 ASCII -> '264A23061' / '264A23066' / '264A23052'   step 3: PASS = show system serials
+  board MAC     unit 1/3/4 0x0242 x3 HEX -> 84e327870ac0 / 84e327870740 / 84e3278709c0   (extra) = show system mac per member
+  board class/slot unit 1/3/4 0x0200 -> 1 (Base), 0x0201 -> 0          (extra) = "Base … Base"
+  member info   unit 1/3/4 0x0120 x5 -> [1, 28, 0, 5, 31] ×3           (extra) = 1 board, 28 ports, 0 faults, 5 sensors, 31 alarms each
+(Two raw dumps in the driver, 0x0000 x0x50 and 0x0050 x0x30, did not run: argparse rejected the
+hex count — no evidence lost, every field above was read individually.)
+Server counters after: holding-register reads 149, illegal data address 14 (+3: the two 32-word
+reads and the heartbeat block).
+
+## Per-step verdict
+1 PASS · 2 PASS · 3 PASS · 4 PASS · 5 FAIL (0x0049 = 124 ≠ 93 CLI; global 4 = 4) · 6 PASS ·
+7 PASS · 8 PASS · 9 PASS · 10 PASS.
+
+## Teardown (14:06:30)
+`no scada modbus tcp server` → "MODBUS is disabled"; probe → connection refused;
+post-test-configs/22650.u5.show_running-config.txt diff vs pre-test: IDENTICAL. Nothing `write`n.
+
+## Verdict line
+FAIL — 22650-fail.log. 9/10 steps equal the CLI at their Mapping-Version-5 addresses; Number
+of Alarms (0x0049) over-reports by exactly one member's 31 alarms on a stack with a provisioned
+member 2. Also: the AWPTCM case text carries the version-1 register addresses.
