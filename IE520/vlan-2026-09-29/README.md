@@ -20,8 +20,11 @@ restored the bench at 17:14–17:16 (verified 17:17). **Resume next session with
 | T38407 | VLAN translation basic | — | **NOT YET RUN**: resume next session |
 | T18302 | Private VLAN send from uplink port | — | **NOT YET RUN**: resume next session |
 | T18303 | Private VLAN send from private port | — | **NOT YET RUN**: resume next session |
-| T27887 | vlan-based QinQ interop with vlan translation | — | **SKIP-PENDING**: the case has no steps, and VLAN-based QinQ looks unsupported. Needs Terrence's pass criteria or confirmation of the skip |
+| T27887 | vlan-based QinQ interop with vlan translation | [27887-unsupported.log](27887-unsupported.log) | **UNSUPPORTED** (2026-09-30). The licence bits are on (FULL: VlanDT, VLAN-TRANS-FULL/LITE on members 1/3/4 and the SA), but the global VLAN-based QinQ command `vlan-stacking vlan … outer-vlan …` is `% Unrecognized command` on both IE520s. Supplementary, not graded: port-based QinQ + translation on one provider port was accepted and translates the OUTER tag (100/100 each way). O-2: the translation `outer-vlan` double-tag drops the customer tag |
 | T38410 | Voice VLAN basic | — | **SKIP-PENDING**: needs an IP phone or LLDP-MED emulation (Terrence's decision) |
+
+## 2026-09-30 run (queue row 13: T27887, T38410)
+Baseline `pre-test-configs/2026-09-30/` (12:50, includes the x230's `lldp run` and the SX link's VLAN 4000). Scratch in tb470 `/tmp/ckvlan30/`. No group isolation was needed. Each case builds and removes its own config.
 
 ## Group setup (14:27–14:31) — redo before the next case
 The 2-leg aggregators sa2 (stack ↔ x230) and sa3 (stack ↔ SA) were freed into scratch VLANs, so that each

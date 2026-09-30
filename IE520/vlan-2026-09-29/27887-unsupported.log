@@ -1,0 +1,143 @@
+# T27887 — Verify vlan-based QinQ interoperability with vlan translation — tb470 IE520 stack — 2026-09-30 — UNSUPPORTED
+
+Verdict: UNSUPPORTED. The case tests VLAN-based QinQ: the global per-VLAN mapping
+`vlan-stacking vlan <inner> outer-vlan <outer>`, which T27895/T27989 in the same AWPTCM folder say
+"cannot be applied per interface". That command does not exist on either IE520
+(awplus_main-20260923-20). `vlan-stacking ?` in global config gives `% Unrecognized command` on the
+stack and on the IE520-sa, and `show vlan ?` offers no `stacking`. The licence bits ARE on: every
+stack member (1, 3, 4) and the SA carry FULL with VlanDT, VLAN-TRANS-FULL and VLAN-TRANS-LITE
+enabled. So the licence bit is on and the CLI is absent (flagged to the sentinel as an observation,
+13:03).
+
+Supplementary evidence (NOT graded): the nearest double-tagging features the platform does offer,
+each tested together with VLAN translation on the same port.
+- Port-based QinQ (`switchport vlan-stacking`) + translation on one provider port: config accepted,
+  and the translation acts on the OUTER tag, as the case's precondition expects. 100/100 frames
+  each way.
+- The per-VLAN double-tag inside translation (`switchport vlan translation vlan <wire> outer-vlan
+  <outer>`): it REPLACED the customer tag instead of pushing an outer one. Observation O-2, below.
+
+Run labelled: clean (supplementary stages only; the graded verdict rests on the CLI refusal).
+
+Operator: bench-runner subagent (sentinel = parent session device-testing-ba, /test-mode shape A).
+Queue: IE520/CAMPAIGN-QUEUE-2026-09-29.md row 13. Case text: ck.db zephyr AWPTCM-T27887 — no steps;
+precondition "vlan-based QinQ and vlan translation should not be used on the same port If both
+vlan-based QinQ and vlan translation are applied on the same port, the outer vlan tag will be used
+for translation". Terrence's decision (2026-09-30): check the VLAN double-tagging licence bit and
+whether the commands are enabled "in any way".
+
+## Pre-case state (12:38–12:50 NZDT)
+- Consoles free (`sudo fuser -v /dev/u*` empty 12:38). A bare CR gave `x230-10GP#`, `4050-5g#`,
+  `IE520-stk#` (u2, u4), and `login:` on u3 and u5. No shell or config prompt was parked.
+- /nfsHome mounted. Probe 2026-09-29T234443Z (12:44 NZDT) MATCH, no advisory, after the SX-link VLAN
+  4000 change and `bench_probe.py apply` (queue "Decisions 2026-09-30").
+- Fresh group baseline 12:50: `pre-test-configs/2026-09-30/uN.show_running-config.txt` (u0, u1, u3,
+  u5). It carries the x230's `lldp run` and VLAN 4000. `show boot` → Current boot config
+  `flash:/tb470-bench.cfg (file exists)` on all four.
+- Stack: members 1/3/4 Ready, member 3 (u5) Active Master, Normal operation.
+- Gate items 5/7/9 (script preflight, server path, defaulting CLI): not applicable, because this is
+  a hand-driven case with no framework script (skipped).
+
+## Step 1 — licence bits (12:46–12:47, evidence/27887/27887-lic-u5.out, 27887-lic-u3.out)
+`show license member all` / `show license brief member all` on u5, and `show license` on u3:
+```
+Feature licenses on stack member 1: ... FULL ... VLAN-TRANS-FULL, VLAN-TRANS-LITE, ... VlanDT
+Feature licenses on stack member 3: ... FULL ... VLAN-TRANS-FULL, VLAN-TRANS-LITE, ... VlanDT
+Feature licenses on stack member 4: ... FULL ... VLAN-TRANS-FULL, VLAN-TRANS-LITE, ... VlanDT
+IE520-sa (member 1):                ... FULL ... VLAN-TRANS-FULL, VLAN-TRANS-LITE, ... VlanDT
+Current enabled features for displayed licenses: ... VLAN-TRANS-FULL, VLAN-TRANS-LITE, ... VlanDT
+```
+(The Base License also lists VLAN-TRANS-FULL and VlanDT.) No licence was applied or changed, and no
+key was sent.
+
+## Step 2 — CLI presence (qmark.py: `<prefix> ?` with NO CR, Ctrl-U line-kill, self-test
+"show clock ?"→Ctrl-U→CR executed nothing — passed on every run). Evidence: evidence/27887/27887-q-*.out
+Stack u5, global config:
+```
+IE520-stk(config)#vlan-stacking ?
+% Unrecognized command
+IE520-stk(config)#platform ?     -> ... vlan-stacking-tpid ... (no `vlan translation enable`, no `tti-to-routes`)
+IE520-stk(config)#vlan ?         -> access-map | classifier | database | filter
+```
+Stack u5, exec: `show vlan ?` → <1-4094> access-map all auto brief classifier dynamic filter internal
+private-vlan static (no `stacking`).
+Stack u5, interface port1.0.20 (unused):
+```
+switchport ?                 -> ... vlan  Set the Layer2 interface as trunk / vlan-stacking  Enable Vlan stacking / voice ...
+switchport vlan-stacking ?   -> customer-edge-port | provider-port
+switchport vlan ?            -> translation
+switchport vlan translation ?            -> default | vlan
+switchport vlan translation vlan 3997 ?  -> outer-vlan  Set an outer QinQ vlan id | vlan  Set the internal (configured) vlan id
+switchport vlan translation vlan 3997 vlan 3995 ? -> outer-vlan | <cr>
+switchport vlan translation default ?    -> drop | outer-vlan
+switchport vlan-translation ?            -> % Unrecognized command   (hyphen form; not AW+ syntax anyway)
+```
+IE520-sa u3: `vlan-stacking ?` (global) → `% Unrecognized command`; `switchport vlan-stacking ?` →
+customer-edge-port | provider-port; `switchport vlan ?` → translation.
+AW+ wiki: `vlan-stacking vlan outer-vlan` (Global Configuration, "Version 5.5.0-1.1: command
+added") is documented for AR4050/x230/x908Gen2/x930/x950. It is not on this IE520 build.
+⇒ **The feature the case tests (VLAN-based QinQ) is absent. UNSUPPORTED.**
+
+## Supplementary — double tagging that IS offered, with translation on the same port (not graded)
+Topology: tb470 eth1 ↔ stack port3.0.13 (customer side) · stack port4.0.26 ↔ SA port1.0.26 (SX
+link, provider side) · SA port1.0.2 ↔ tb470 eth2 (observer). eth3 (x230) is the control capture.
+Scratch VLANs 3995 (S-VLAN) and 3996 (wire VID), both deleted afterwards. Customer tag 2100. Sender:
+vsend.py 100 × IPv4/UDP, unknown-unicast dst 00:00:5e:00:53:ff, marker CKVLAN-<stage>. Captures:
+tcpdump -w filtered on the sender MAC, counted by vcount.py.
+
+Config (12:51–12:53, ckcon --stop-on-error; the stack end shut during config; no `% ` line except
+two invalid SHOW forms of mine, `show interface <p> switchport`, after the config had applied):
+```
+stack: vlan 3995 name ck-svlan / vlan 3996 name ck-wire
+  port3.0.13: switchport access vlan 3995 / switchport vlan-stacking customer-edge-port
+  port4.0.26: switchport mode trunk / switchport trunk allowed vlan add 3995 / switchport vlan-stacking provider-port
+              / switchport trunk native vlan 4000   (added before no-shut: without it the trunk's native VLAN 1
+                would have re-created the VLAN-1 loop with sa3)
+SA:    vlan 3995, 3996; port1.0.26 + port1.0.2: switchport mode trunk / trunk allowed vlan add 3995,3996;
+       port1.0.26 trunk native vlan 4000
+```
+Read back: `show vlan 3995` → port3.0.13(u) port4.0.26(t); running-config per above. Links
+connected a-full a-1000; loop-protection on 4.0.26 per-VLAN (vlan3995, vlan4000) Normal; SA
+1.0.2/1.0.26 Normal.
+
+| stage | stack config under test | direction | sent | captured | result |
+| --- | --- | --- | --- | --- | --- |
+| s1f | port-based QinQ only | eth1 C-tag 2100 → eth2 | 100 | eth2 100 × `tags=3995,2100`; eth3 0 | outer pushed, customer tag kept |
+| s1r | port-based QinQ only | eth2 3995,2100 → eth1 | 100 | eth1 100 × `tags=2100`; eth3 0 | outer popped at the customer edge |
+| s2f | + `switchport vlan translation vlan 3996 vlan 3995` on provider port4.0.26 (ACCEPTED alongside `vlan-stacking provider-port`) | eth1 2100 → eth2 | 100 | eth2 100 × `tags=3996,2100`; eth3 0 | **translation applied to the OUTER tag**, inner untouched |
+| s2r | same | eth2 3996,2100 → eth1 | 100 | eth1 100 × `tags=2100` | wire 3996 → internal 3995, popped |
+| s2r5 | same | eth2 3995,2100 → eth1 | 100 | eth1 100 × `tags=2100` | untranslated VID passes (`default accept`) |
+| s3f | port3.0.13 → trunk + `switchport vlan translation vlan 2100 outer-vlan 3995`; port4.0.26 plain trunk + translation 3996↔3995 | eth1 2100 → eth2 | 100 | eth2 100 × `tags=3996` (single tag) | **customer tag 2100 LOST** (O-2) |
+| s3r | same | eth2 3996,2100 → eth1 | 100 | eth1 100 × `tags=2100` | pops correctly |
+| s4f | s3 + `switchport vlan-stacking provider-port` back on port4.0.26 | eth1 2100 → eth2 | 100 | eth2 100 × `tags=3996` | inner still lost |
+| s4r | same | eth2 3996,2100 → eth1 | 100 | eth1 100 × `tags=2100` | pops correctly |
+
+`show interface switchport vlan translation` (s3/s4): port3.0.13 wire 2100 / VLAN 0 / Outer 3995,
+default accept; port4.0.26 wire 3996 / VLAN 3995 / Outer 0, default accept. DUT counters (s1f):
+port3.0.13 input +100 (2142 → 2242). Raw: evidence/27887/27887-s*.out and .pcap.
+
+**O-2 (observation, not graded):** on the IE520, the per-VLAN double-tag translation entry
+`switchport vlan translation vlan <wire> outer-vlan <outer>` forwards customer frames with ONE tag
+(the outer VID, translated on egress). The customer tag is dropped, both through a plain trunk and
+through a provider-port egress. The AW+ x930 page describes this entry as adding "the outer-tag VID
+to be added to packets received on the port" (a push). The reverse direction pops correctly. The
+same double tagging done with port-based `switchport vlan-stacking` keeps the inner tag (s1f/s2f).
+Possible defect or platform difference. Terrence's call.
+
+## Teardown (13:01–13:03, ckcon --stop-on-error, no `% ` line) — evidence/27887/27887-td-u*.out
+stack: shut 3.0.13 + 4.0.26; 4.0.26 `no switchport vlan-stacking` / `no switchport vlan translation
+all` / `switchport trunk allowed vlan remove 3995` / `no switchport trunk native vlan` / `switchport
+mode access` / `switchport access vlan 4000`; 3.0.13 `no switchport vlan translation all` / `trunk
+allowed vlan remove 3995` / `no switchport trunk native vlan` / `switchport mode access`; `no vlan
+3995-3996`; no shutdown. SA: 1.0.26 + 1.0.2 `trunk allowed vlan remove 3995,3996`; 1.0.26 `no switchport
+trunk native vlan` / `mode access` / `access vlan 4000`; 1.0.2 `mode access`; `no vlan 3995-3996`.
+Verified 13:03: `show running-config` on u5 and u3 is **IDENTICAL** to the 12:50 baseline
+(evidence/27887/rcdiff.py, empty diff). port3.0.13 connected in VLAN 1, port4.0.26 in 4000, SA
+port1.0.2 in VLAN 1, port1.0.26 in 4000; SA loop-protection nothing Blocking. u0 and u1 were not
+touched. The group check after T38410 covers them.
+
+## Files
+- Raw console transcripts: tb470 /tmp/ckvlan30/console-u3.log, console-u5.log (tmpfs).
+- evidence/27887/: every step's stdout, pcaps, the config/teardown transcripts, rcdiff.py.
+- No framework run and no framework log (hand-driven). Exit codes: every ckcon/qmark call rc 0,
+  except the two show-form refusals (rc 2, after the config lines had applied, recorded above).
