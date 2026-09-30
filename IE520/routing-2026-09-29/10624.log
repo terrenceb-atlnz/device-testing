@@ -1,0 +1,141 @@
+TEST 10624 -- OSPF  Silicon tables synced.
+===========================================================================
+Run:    2026-10-01 08:27-08:49 NZDT, tb470, bench-runner (queue CAMPAIGN-QUEUE-2026-09-29.md
+        row 12, sentinel device-testing-67). Hand-driven: no framework script.
+Build:  awplus_main-20260923-20 (stack and IE520-sa)
+DUT:    IE520 3-member VCStack "IE520-stk" (members 1/3/4, master member 3), router MAC
+        0000.cd37.0d6f. OSPF neighbour and route source: the standalone IE520-sa
+        (84e3.2787.0780), standing in for the case's Ixia OSPF interface.
+Case:   AWPTCM-T10624 (ck.db), objective "OSPF Routes correctly added to silicon.". One step:
+        "Test routes in silicone and IP Route table correctly updated with fluctuating OSPF
+        routes. start ixia ospf protocol interface with 500 routes / Wait until OSPF neighbour
+        get into FULL state / Show IP route / Show platform table IP / Setup IP Stream via
+        advertised route at 95% of wirespeed" -> expected "Check both output displays the 500
+        routes correctly / Expect wirespeed routing of packets via OSPF route."
+        Emulation: the SA advertises 500 routes into OSPF (500 static /24s, `redistribute
+        static`), so they arrive at the DUT as O E2 routes. An Ixia would more often inject them
+        as its own LSAs. "Fluctuating" is done by withdrawing and re-adding routes at the SA.
+
+VERDICT: PASS.
+  OSPF neighbour Full. The DUT's IP route table AND the silicon table (`show platform table
+  ip`, every stack member) each held exactly the 500 advertised routes, and tracked every
+  fluctuation:
+    500 -> 0 (redistribution off) -> 500 (on) -> 400 (100 withdrawn) -> 500 (re-added),
+  RIB, FIB and silicon agreeing on every member at every read.
+  Traffic via the advertised routes at 95 % of wirespeed (1514 B, 77,210 pps, 935 Mbps):
+    30 s: 2,316,301 / 2,316,301 delivered (100.0000 %), all 500 destination prefixes reached.
+  The data plane followed each table state: 0 % with the routes withdrawn, 100 % with 500,
+  80.0026 % with 400 (the 100 withdrawn prefixes, and only those, not received), 100 % after
+  the re-add.
+  Controls: with no OSPF, 0 of 772,101. Received frames TTL 62 (routed by the DUT and the SA).
+
+TOPOLOGY (standing bench, no recable; all addressing scratch)
+  eth1 (tb470) -- stack port3.0.10   vlan3101 10.106.1.1/24  [source host 10.106.1.2, fake MAC
+                                      02:31:10:62:40:01, frames to the DUT router MAC]
+  stack port4.0.26 (member 4, 1000BASE-SX) -- SA port1.0.26   vlan3102 10.106.2.1/30 <-> .2/30  (OSPF area 0)
+  SA port1.0.2 -- eth2 (tb470)        vlan3103 10.106.3.1/24  [host 10.106.3.2 = static ARP to fake
+                                      MAC 0231.1062.4003; eth2 counts in promiscuous mode]
+  500 routes: SA `ip route 10.(124+n/256).(n%256).0/24 10.106.3.2`, n = 0..499
+    (10.124.0.0/24 .. 10.125.243.0/24), `router ospf 1` / `redistribute static`.
+  Stream: tools/mkospf.py, one 1514 B UDP frame to .10 in each of the 500 prefixes, looped,
+    so traffic is spread evenly over every route (tools/10624-traffic.sh; the "distinct" runs
+    also list every received destination). State reads: tools/10624-state.sh (neighbour,
+    `show ip route summary`, O-route count from `show ip route ospf`, and the per-member count
+    of 10.124-125 /24 rows in `show platform table ip`).
+  port3.0.10's vlan 1, the SX link's VLAN 4000 and SA port1.0.2's vlan 1 were changed for the
+  case and restored after it.
+
+STEP 0 -- interfaces and the 500 routes at the SA (08:28-08:34; 10624-q0-*, 10624-s0*). No "% " line.
+  Both units: `show ip ospf` -> "% OSPF protocol daemon is not running or feature license is not
+  available" (service-gated; the stack's baseline carries `no service ospf`).
+  stack 08:33:54  port3.0.10 connected 3101 a-1000; port4.0.26 connected 3102 a-1000 1000BASE-SX;
+                  ping 10.106.2.2 2/2; route summary connected 6, Total 6.
+  SA 08:34:04     port1.0.2 connected 3103; port1.0.26 connected 3102; route summary connected 3,
+                  static 500, Total 503; `show ip route 10.125.243.0/24`: static via 10.106.3.2
+                  vlan3103; arp 10.106.3.2 0231.1062.4003 port1.0.2 static.
+
+BASELINE -- no OSPF (08:34:20, 10 s at 77,210 pps; 10624-base-*)
+  sent 772,101, received 0 (0.0000 %). The DUT has no route to 10.124/10.125.
+
+STEP 1 -- OSPF, 500 routes, neighbour FULL (08:34:48-08:36:30; 10624-s1*, 10624-s2*)
+  both: service ospf
+  stack: router ospf 1 / ospf router-id 10.106.2.1 / network 10.106.2.0/30 area 0
+  SA:    router ospf 1 / ospf router-id 10.106.2.2 / network 10.106.2.0/30 area 0 / redistribute static
+  08:35:47  10.106.2.2  1  2-Way/DROther  (DR wait)
+  08:36:00  10.106.2.2  1  Full/DR  vlan3102      (SA: 10.106.2.1 Full/Backup, 08:44:41)
+  08:36:21  show ip route summary:  connected 6 | ospf 500 | Total 506 | FIB 500
+            show ip route ospf:     500 distinct O routes, e.g.
+              O E2    10.124.0.0/24 [110/20] via 10.106.2.2, vlan3102, 00:00:18
+            show platform table ip: 500 /24 rows in 10.124-125 on EACH of members 1, 3 and 4, e.g.
+              10.124.0.0      24 4615  5     84e3.2787.0780  0    3   26   -  3102 1500  Ena 2
+              10.125.243.0    24 4864  5     84e3.2787.0780  0    3   26   -  3102 1500  Ena 2
+              (next hop = the SA's MAC, Dev 3 Port 26 = port4.0.26, VID 3102)
+  SA: 500 self-originated external LSAs (`show ip ospf database external self-originate`).
+  -> both outputs display the 500 routes correctly.
+
+STEP 2 -- IP stream via the advertised routes (08:37:03-08:39:08; 10624-dist-*, -w95-*, -top*-*)
+  dist, 1000 pps 3 s:  sent 3,001  received 3,001 (100 %), distinct destination prefixes 500
+  w95, 77,210 pps 30 s (95 % of the 81,274 pps 1G maximum at 1514 B):
+    Rated: 116895990.4 Bps, 935.16 Mbps, 77210.03 pps
+    sent 2,316,301  received 2,316,301  kernel drops 0  delivered 100.0000 %
+    first frames: 84:e3:27:87:07:80 > 02:31:10:62:40:03 ... ttl 62 ... 10.106.1.2.6000 >
+                  10.124.0.10.6001 (and 10.124.1.10, ...)
+  top, --topspeed 30 s (not asked by the case): 984.23 Mbps, 81,261 pps: 2,437,814 / 2,438,001
+    (99.9923 %); repeated (top2): 984.40 Mbps, 81,275 pps: 2,438,152 / 2,438,501 (99.9857 %).
+    Observation O-1 below.
+  -> wirespeed routing via the OSPF routes at 95 %: no loss.
+
+STEP 3 -- fluctuating OSPF routes (08:39:30-08:44:0x; 10624-f*-*)
+  Each read below began 2-3 s after the SA's last command and took ~15 s. So "updated" means
+  updated by that read; the propagation time itself was not measured.
+    F1 08:39:30 SA `no redistribute static`
+         stack: ospf 0 | Total 6 | FIB 0; O routes 0; silicon 0/0/0 (members 1/3/4); neighbour Full
+         10 s at 95 %: 0 / 772,100 (0.0000 %)
+    F2 08:40:13 SA `redistribute static`
+         stack: ospf 500 | FIB 500; O routes 500; silicon 500/500/500
+         10 s at 95 %: 772,101 / 772,101 (100.0000 %), 500 distinct prefixes received
+    F3 08:41:11 SA `no ip route` x100 (n = 400..499, 10.125.144.0-10.125.243.0/24), end 08:41:57
+         stack: ospf 400 | FIB 400; O routes 400; silicon 400/400/400
+         10 s at 95 %: 617,701 / 772,101 (80.0026 % = 400/500), 400 distinct prefixes received;
+         10624-f3-prefixcheck.txt: "received==first400: True | any withdrawn received: 0"
+    F4 08:42:54 SA `ip route` x100 re-added, end 08:43:39
+         stack: ospf 500 | FIB 500; O routes 500; silicon 500/500/500
+         10 s at 95 %: 772,101 / 772,101 (100.0000 %), 500 distinct prefixes received
+  The adjacency stayed Full/DR throughout (dead time 34-36 s at every read).
+  -> the route table and silicon updated correctly with fluctuating OSPF routes, and the
+     forwarding followed them exactly.
+
+OBSERVATIONS (not graded)
+  O-1 At a 100 % offer (tcpreplay --topspeed = 81,261-81,275 pps, the 1G maximum being 81,274)
+      0.008-0.014 % of frames were lost (187 and 349 frames in 30 s); at 95 % none were. A
+      sender clocked a few ppm above the egress port would do this (inference). The loss
+      point (stack, SX link or SA) was not located. For comparison, T11346 (same SX path, SA
+      routing multicast) delivered 100 % at 81,267 pps.
+
+NOT MEASURED
+  - Route propagation time per fluctuation (bounded only by the read timing above).
+  - 64 B wirespeed (tcpreplay small-frame ceiling; T3116).
+  - Routes injected as intra-area LSAs (Ixia-style); here they are external type 2.
+
+TEARDOWN (08:45:09-08:49:28; 10624-td-*.out, 10624-td2-*.out)
+  stack: no router ospf 1 / no ip address on vlan3101, vlan3102 / port3.0.10 no switchport access
+         vlan / port4.0.26 switchport access vlan 4000 / no vlan 3101, 3102 / no service ospf
+  SA:    no router ospf 1 / no ip route x500 / no arp 10.106.3.2 / no ip address on vlan3102,
+         vlan3103 / port1.0.26 switchport access vlan 4000 / port1.0.2 no switchport access vlan
+         / no vlan 3102, 3103 / no service ospf
+  The only "% " line was the last, on each: `no service ospf` -> "% Save the config and restart
+  for this change to take effect." (service-gated daemon).
+  08:49:27: running-config on u5 and u3 IDENTICAL to the pre-group capture
+  (pre-test-configs/2026-10-01/). port3.0.10 vlan 1 connected; port4.0.26 and SA port1.0.26
+  4000 a-1000; SA port1.0.2 vlan 1; route summaries back to connected only (stack 4, SA 1).
+  Nothing written. Lingering ospfd (and T18948's vrrpd) cleared by the group-end reload
+  (README "Group close").
+
+RUN LABEL: clean. Pre-group capture 08:14 (IDENTICAL to the 09-30 baseline); T18948 torn down to
+  IDENTICAL before this case. Its vrrpd was still running with no instances (see T18948), which
+  has no bearing on OSPF or unicast forwarding.
+
+EVIDENCE: evidence/10624/ (console outputs 10624-*-u{5,3}.out, per-run tcpreplay/receiver
+  summaries, f3 prefix check). Tools: evidence/tools/mkospf.py, 10624-traffic.sh,
+  10624-state.sh, ckyn2.py. Raw console transcripts and per-frame receive lists: tb470
+  /tmp/ck12/ (tmpfs).
