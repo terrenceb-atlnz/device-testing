@@ -1,0 +1,130 @@
+TEST 38097 -- MRP ring with DUT as MRC
+===========================================================================
+Run: 2026-09-30 15:36-15:56 NZDT, tb470, hand-driven (no framework script), queue row 9.
+Tester: bench-runner. Case text: AWPTCM-T38097 (ck.db zephyr_cases), 9 steps.
+
+VERDICT: PASS -- labelled CONFOUNDED, on the ring-closure loops only. Those come
+from sw1's MRM, not from the DUT. The proof is below.
+
+  The DUT, as MRC, did everything the case asks. Its config was accepted. The ring
+  is operational after the save. When its forwarding port was shut, traffic
+  recovered on the other link in 92-98 ms. After the restore one port was blocked
+  again and traffic continued. After save and reboot the DUT loaded its config
+  without errors, rejoined the ring as MRC, and traffic flowed again (180 s
+  steady state clean).
+  CONFOUND: every ring CLOSURE looped VLAN 1 for 26-40 ms (4 of 4: the role-swap
+  close, both restores, the post-boot ring-up). The loops come from the partner
+  MRM, the IE520-sa on the same build. Its log shows the same false
+  `CHK_RC -> CHK_RO evt=MRP_ProtEvTestTimerExpired` -> "Ring opened" that T38093
+  graded FAIL on the stack MRM. The DUT's MRC state machine is correct: it holds a
+  returning port (DE_IDLE -> PT) and forwards it only on the MRM's
+  TopologyChangeInd. So the DUT's MRC role is not the cause. The MRM defect is
+  graded in 38093-fail.log.
+
+DUT / TOPOLOGY
+---------------------------------------------------------------------------
+  DUT      IE520-stk (stk_a) = MRC, members 1/3/4, master member 3 before and after its
+           reboot (prio 128 all, lowest MAC wins). Ring ports on TWO members:
+             port1.0.13 [m1] (copper AT-SP10TM, a-1000) and port4.0.26 [m4] (fibre SX).
+  sw1      IE520-sa = MRM (role manager).  sw2: NONE -- one MRP-capable partner; step 4
+           not run.  Ring 1, VLAN 1, profile 200ms (default) on both.
+  traffic  as 38093-fail.log: 4 x 500 pps flows eth3 -> x230 -> stack sa2 -> ring -> SA ->
+           eth2 and back. Transit proof (evidence/38097/s6-mac-u5.out, -u3.out): stack
+           learns eth2 (..7717) on port1.0.13, SA learns eth3 (..7718) on port1.0.13.
+  Gate     row 9 gate 14:32-14:34 (38093-fail.log); re-verified 14:58 (evidence/row9/resume-*).
+
+STEPS
+---------------------------------------------------------------------------
+  1 Topology           two-node ring; roles swapped from the T38093/98/99 ring.
+  2 DUT MRC config     15:36:41 stack: `interface port4.0.26` / `shutdown` (open the ring
+                       physically first -- STP is off), `mrp ring 1` / `no profile` /
+                       `no role` (-> client), all accepted, no "% ". show mrp ring: Role
+                       Client, Profile 200ms (evidence/38097/s2-dut-u5.out).       PASS
+  3 sw1 MRM config     15:36:53 SA: `mrp ring 1` / `no profile` / `role manager` (prompt
+                       IE520-sa(config-mrp-ring-manager)#), accepted; Manager, Open (one
+                       link down), Port1 port1.0.13 Fwd, Port2 port1.0.26 Blk (s3-sw1-u3.out).
+                       15:37:07 stack `no shutdown` port4.0.26 (s2-close-u5.out).
+                       After: SA Manager Closed, 1.0.13 Fwd / 1.0.26 Blk; DUT Client, both
+                       ports Forwarding (s2-ring-u5.out, s3-ring-u3.out).
+                       Traffic across the whole swap (t97swap, 150 s): holes <= 22 ms
+                       broadcast / 142 ms unicast, and one 40 ms loop window at the ring
+                       closure (1233 dups, 371x, echoes 398/1045) -- the MRM's false
+                       expiry, now on the SA as MRM.
+  4 sw2 MRC config     NOT RUN (no second MRP-capable node).
+  5 Save + show        `write memory` [OK] on the stack (synchronised across the stack) and
+                       the SA. DUT: Client, both Forwarding; SA: Manager, Closed
+                       (s5-save-u5.out, s5-save-u3.out). The case text expects "open"; an
+                       intact ring reads Closed (see 38093-fail.log).   PASS (operational)
+  6 Traffic            t97base 60 s: 30000/flow, 0 lost, 0 dups, 0 echoes.          PASS
+  7 Shut a fwd port    (DUT ports, each the forwarding path at the time; seq2.sh / fo.sh)
+      t97a  stack port1.0.13 (copper): outage 92/92/92/98 ms (B32/B23/U32/U23). DUT: Client,
+            1.0.13 Blocking(down), 4.0.26 Forwarding. SA MRM: Ring opened -- by
+            TestTimerExpired, before its own 1.0.13 link DOWN (02:42:26).
+      t97b  stack port4.0.26 (fibre): outage 94/94/94/94 ms. DUT: 1.0.13 Fwd, 4.0.26
+            Blocking(down); DUT log "port4.0.26 link DOWN / Update ring port port4.0.26
+            with state to Blocked"; SA MRM "port1.0.26 link DOWN / Ring opened".
+                       Both < 200 ms, no duplicates during either switch-over.   PASS
+  8 Restore the port   t97a restore: SA MRM Closed, blocks the returned 1.0.13, traffic
+                       received (unicast hole 106 ms); t97b restore: blocks 1.0.26, hole
+                       78 ms.   PASS -- with the confound: loop windows 26 ms (851 dups,
+                       echoes 389/521) and 32 ms (1091 dups, echoes 571/584), each matched
+                       by the SA MRM's "Ring closed / Ring opened / CHK_RC -> CHK_RO
+                       evt=MRP_ProtEvTestTimerExpired / Ring closed" (t97a/mrmlog.out,
+                       t97b/mrmlog.out). The DUT (MRC) log for the same restores,
+                       verbatim (evidence/38097/s8-log-u5.out):
+                         02:42:59 mrpd: PORT: port1.0.13 link UP (0x11043)
+                         02:42:59 mrpd: FSM: ring_id=1 DE_IDLE -> PT evt=MRP_ProtEvMAUTypeChangeInd
+                         02:42:59 mrpd: PORT: Update ring port port1.0.13 with state to Forwarding
+                         02:42:59 mrpd: FSM: ring_id=1 PT -> PT_IDLE evt=MRP_ProtEvTopologyChangeInd
+                         02:44:29 mrpd: PORT: port4.0.26 link UP ... DE_IDLE -> PT ...
+                                        Forwarding ... PT -> PT_IDLE evt=MRP_ProtEvTopologyChangeInd
+                       = the MRC forwards a returning port only on the MRM's TopologyChange.
+  9 Save DUT + reboot  15:45 `write memory` [OK] + synchronised; show boot flash:/tb470-bench.cfg.
+                       Run t97boot: `reload` on u5 at 15:46:00; recorders on u2/u4, SA poller.
+                       - Outage 193 s = the reboot (the stack is the traffic path).
+                       - All three members: "Loading configuration file
+                         flash:/tb470-bench.cfg, please wait. ... done!", no "% " or error
+                         line in between; login banners +192..199 s. Pre-AW+ boot noise as
+                         in 38093 (UBI / restart-gpio -524, seen on every IE520 boot here).
+                       - Stack 1/3/4 Ready, Normal operation, member 3 Active Master.
+                       - DUT MRC up: Client, 1.0.13 + 4.0.26 Forwarding; SA MRM Closed
+                         (1.0.13 Blk / 1.0.26 Fwd). Traffic received.
+                       - Confound again at ring-up: one 31 ms loop window (1217 dups, 396x)
+                         = SA MRM 02:50:08 "Ring closed / Ring opened / TestTimerExpired /
+                         Ring closed" (s9-postboot-u3.out).
+                       - t97post 180 s steady state: 0 lost, 0 dups, 0 echoes.
+                       PASS (no errors, ring up, traffic received)
+
+RESULTS TABLE
+---------------------------------------------------------------------------
+  run      event                          switch-over outage (ms)   loop window at closure
+  t97swap  role swap + ring close         -                          40 ms (MRM = SA)
+  t97base  none, 60 s                     -                          none
+  t97a     shut DUT 1.0.13 (copper)       92/92/92/98               26 ms at restore
+  t97b     shut DUT 4.0.26 (fibre)        94/94/94/94               32 ms at restore
+  t97boot  save + reload DUT (193 s)      -                          31 ms at post-boot ring-up
+  t97post  none, 180 s                    -                          none
+
+READING
+---------------------------------------------------------------------------
+  - The false test-timer expiry at ring closure is the MRM's, whichever IE520 holds the
+    role: it appeared on the stack MRM (T38093, 38098) and on the standalone SA MRM here.
+    It is a property of this build's MRM, not of stacking.
+  - The DUT as MRC behaves to the MRP design: immediate block on link down, hold on link
+    up, forward on the MRM's TopologyChange.
+
+AFTER THE CASE (15:56)
+---------------------------------------------------------------------------
+  Roles: SA = MRM, stack = MRC, profile 200 (default) on both; saved on both (steps 5, 9).
+  Stack master member 3. The row-9 restore follows (removes MRP, returns sa3 and VLAN
+  4000, puts both boot configs back to the originals).
+
+EVIDENCE (IE520/mrp-2026-09-29/evidence/38097/)
+---------------------------------------------------------------------------
+  s2-dut-u5.out s3-sw1-u3.out s2-close-u5.out s2-ring-u5.out s3-ring-u3.out
+  s5-save-u5.out s5-save-u3.out s6-mac-u5.out s6-mac-u3.out s8-log-u5.out
+  s9-save-u5.out s9-postboot-u5.out s9-postboot-u3.out r4.summary
+  t97swap/ t97base/ t97a/ t97b/ t97boot/ t97post/: flowstat.txt loopwin.txt tx.txt START
+    events.txt shut.out noshut.out after.out mrmlog.out summary.txt poll-*.out
+    reload.out listen-u2.out listen-u4.out
+  Tools: evidence/row9/tools/ (seq2.sh = seq.sh reading the SA's log), evidence/28863/tools/.
