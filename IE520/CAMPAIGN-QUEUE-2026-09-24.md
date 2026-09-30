@@ -126,6 +126,8 @@ NOTED (no decision needed now; carried into the plan).
 - **I-19 Terrence ruled 3116 skip (09-23).** Its 09-22 blocker ("harness peaks at ~26 Mbps")
   no longer holds: tcpreplay on tb470 sends ~983 Mbps per NIC. Re-open 3116? OPEN (not run;
   the ruling stands).
+  **2026-09-30: RUN** (in Terrence's 2026-09-30 case list and run order): T3116 PASS at
+  970-975 Mbps both ways (`ipv6-bgp-2026-09-29/3116.log`). The harness blocker is gone.
 
 - **I-20 38435 test design (the case has no steps; the redraft is "stack-master failover with
   the master as auth server"), so CHOSEN.**

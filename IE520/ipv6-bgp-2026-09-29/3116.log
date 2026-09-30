@@ -1,0 +1,129 @@
+TEST 3116 -- BGPv4 - Unicast Traffic
+===========================================================================
+Run:    2026-09-30 18:08-18:18 NZDT, tb470, bench-runner (queue CAMPAIGN-QUEUE-2026-09-29.md
+        row 11). Hand-driven: no framework script.
+Build:  awplus_main-20260923-20 (stack and IE520-sa)
+DUT:    IE520 3-member VCStack "IE520-stk" (members 1/3/4, master member 3), router MAC
+        0000.cd37.0d6f. BGP peer: the standalone IE520-sa (84e3.2787.0780).
+Case:   AWPTCM-T3116 (ck.db), objective "Check and verify BGPv4 for correct status and
+        functionality". One step: "Run background unicast traffic in the relevant scenario.
+        See that traffic passes through the scenario. Line rate traffic is achieved as expected."
+        The case gives no network diagram. The scenario here: an eBGP IPv4 peering, each router
+        advertising its host subnet, and traffic routed through both routers over the
+        BGP-learned routes.
+
+I-19 (CAMPAIGN-QUEUE-2026-09-24.md): the 09-22 blocker ("harness peaks at ~26 Mbps",
+  ipv6-2026-09-22/3116.log, SKIPPED 09-23) NO LONGER HOLDS. tcpreplay on tb470 drove
+  970-975 Mbps per NIC, in both directions at once, in this run. The case was run on
+  Terrence's 2026-09-30 case list and run order.
+
+VERDICT: PASS.
+  The eBGP session came up and stayed Established throughout, with no reset. Each router
+  installed the other's prefix as a BGP route (`B ... [20/0]`), and the stack programmed it
+  into hardware on all three members. Routed unicast then ran at line rate in both
+  directions at once:
+    1514 B, 30 s: stack->SA 2,404,501/2,404,501 at 970.8 Mbps; SA->stack 2,415,001/2,415,001
+    at 974.9 Mbps, 100.0000 % each (98.6-99.0 % of the 81,274 pps wire maximum, which is
+    the generator's own ceiling), 0 kernel drops at either receiver.
+  Controls:
+    - With no BGP, 0 of ~810 K frames each way were delivered.
+    - Withdrawing the SA's prefix stopped the stack->SA flow (0/803,001), while the
+      still-advertised SA->stack flow stayed at 100 %.
+  NOT MEASURED (bench limit, not required by the case): line rate for SMALL frames.
+    tcpreplay tops out at 170-229 K pps with 64 B pcap frames (68 B on the wire),
+    ~11-15 % of the 1.488 Mpps small-frame rate. All of it was delivered (100 % both ways).
+
+TOPOLOGY (standing bench, no recable; all addressing scratch)
+  eth1 (tb470) -- stack port3.0.13  vlan3161 10.116.1.1/24  [host 10.116.1.2 = fake MAC 0231.1600.0001]
+  stack port4.0.26 (member 4, 1000BASE-SX) -- SA port1.0.26  vlan3162 10.116.2.1/30 <-> .2/30  (eBGP)
+  SA port1.0.2 -- eth2 (tb470)              vlan3163 10.116.3.1/24  [host 10.116.3.2 = fake MAC 0231.1600.0003]
+  Stack AS 65116 advertises 10.116.1.0/24; SA AS 65117 advertises 10.116.3.0/24.
+  The hosts are static ARP entries with FAKE MACs: tb470 has ip_forward=1, so a frame to a real
+  tb470 NIC MAC with a foreign destination would be routed onward by the host. The receivers
+  count in promiscuous mode. The SX link's baseline VLAN 4000 and the vlan1 membership of
+  port3.0.13 and SA port1.0.2 were changed for the case and restored after it.
+
+STEP 0 -- interfaces (18:09:56-18:10:56; 3116-s0-u5.out, 3116-s0-u3.out). No "% " line.
+  stack: vlan 3161/3162, port3.0.13 access 3161, port4.0.26 access 3162,
+         vlan3161 10.116.1.1/24, vlan3162 10.116.2.1/30, arp 10.116.1.2 0231.1600.0001 port3.0.13
+  SA:    vlan 3162/3163, port1.0.26 access 3162, port1.0.2 access 3163,
+         vlan3162 10.116.2.2/30, vlan3163 10.116.3.1/24, arp 10.116.3.2 0231.1600.0003 port1.0.2
+  -> port3.0.13 connected 3161 a-1000; port4.0.26 connected 3162 a-1000 1000BASE-SX;
+     SA port1.0.2 connected 3163; port1.0.26 connected 3162. SA `ping 10.116.2.1` 3/3.
+
+BASELINE -- no BGP (18:11:40-18:12:34; 3116-s1-base-*.out, 3116-base*-summary.txt)
+  show ip route: stack has only connected routes (no 10.116.3.0/24); SA has none for 10.116.1.0/24.
+  10 s, both directions, 1514 B, --topspeed:
+    first run  (filter = any frame to the fake MACs): fw 2 / 809,001, rv 2 / 809,001
+    second run (filter = the test UDP flow):          fw 0 / 810,001, rv 0 / 809,001
+    the 2 frames = each router's rate-limited ICMP, e.g. captured on eth2:
+      18:12:24.008776 IP 10.116.3.1 > 10.116.3.2: ICMP net 10.116.1.2 unreachable
+  -> without routes nothing passes.
+
+STEP 1 -- eBGP (18:12:54-18:14:05; 3116-s2-cfg-*.out, 3116-s3*-bgp-*.out). No "% " line.
+  stack: router bgp 65116 / bgp router-id 10.116.2.1 / neighbor 10.116.2.2 remote-as 65117 /
+         network 10.116.1.0/24
+  SA:    router bgp 65117 / bgp router-id 10.116.2.2 / neighbor 10.116.2.1 remote-as 65116 /
+         network 10.116.3.0/24
+  (`service bgp` is not needed on this build: bare `service bgp` is an incomplete command, and
+   `router bgp` works without it.)
+  stack 18:14:02:  10.116.2.2  4  65117  4  5  2  0/0  00:00:50  1
+                   *> 10.116.3.0/24  10.116.2.2  0  0 65117 i
+                   B  10.116.3.0/24 [20/0] via 10.116.2.2, vlan3162
+                   show platform table ip (members 1, 3, 4, identical):
+                   10.116.3.0 24 4615 6 84e3.2787.0780 0 3 26 - 3162 1500 Ena 2   (Dev 3 Port 26 = port4.0.26)
+  SA 18:13:43:     10.116.2.1  4  65116  4  4  2  0/0  00:00:33  1
+                   *> 10.116.1.0/24  10.116.2.1  0  0 65116 i
+                   B  10.116.1.0/24 [20/0] via 10.116.2.1, vlan3162
+                   10.116.1.0 24 4613 6 0000.cd37.0d6f 0 0 26 - 3162 1500 Ena 2
+  (At 18:13:33 the stack had PfxRcd 0: the SA's prefix arrived within the next 30 s,
+   consistent with the eBGP advertisement interval.)
+  -> BGPv4 status correct: Established, one prefix each way, best path, in RIB and hardware.
+
+STEP 2 -- background unicast traffic at line rate (3116-l1514-*, 3116-l64-*)
+  A) 1514 B, both directions at once, 30 s (18:14:17-18:14:47)
+       fw (eth1 -> stack -> BGP route -> SA -> eth2): 970.77 Mbps, 80,150 pps
+            sent 2,404,501  received 2,404,501  kernel drops 0  delivered 100.0000 %
+       rv (eth2 -> SA -> BGP route -> stack -> eth1): 974.91 Mbps, 80,492 pps
+            sent 2,415,001  received 2,415,001  kernel drops 0  delivered 100.0000 %
+       per second (sysfs rx/tx) the two tracked each other throughout, e.g. 18:14:20 fw
+       81,045/81,176, rv 82,771/82,714 (1 s sampling jitter).
+       1G wire maximum at 1514 B = 81,274 pps; offered = 98.6 % (fw) / 99.0 % (rv) of it.
+  B) 64 B pcap frames, both directions, 30 s (18:14:51-18:15:22)
+       fw 169,694 pps, 5,091,001/5,091,001; rv 229,046 pps, 6,871,501/6,871,501; 100 % each.
+       The rate is tcpreplay's own ceiling at this size, not the DUT's.
+  After the load (18:15:45 / 18:15:55): stack 10.116.2.2 Up 00:02:34, PfxRcd 1; SA 10.116.2.1
+  Up 00:02:44, PfxRcd 1. MsgRc/MsgSnt grew 4/5 -> 9/8 (keepalives), no reset.
+  -> the traffic passes through the scenario at line rate, and the control plane is
+     undisturbed by it.
+
+STEP 3 -- control: the traffic follows BGP (3116-s5-withdraw-*, 3116-wd-*)
+  SA 18:15:59 `router bgp 65117` / `no network 10.116.3.0/24`.
+    stack 18:16:15 (15 s later): route still present, PfxRcd 1. A 10 s run at 18:16:21 gave
+      fw 801,001/801,001 and rv 805,001/805,001 (quoted from the console; that run's evidence
+      files were overwritten by the rerun under the same tag).
+    stack 18:16:48: PfxRcd 0, `show ip route bgp` "No entries", no 10.116.3 row in
+      `show platform table ip` -> withdrawn 15-48 s after the `no network` (the advertisement interval
+      delays withdrawals too).
+    10 s run at 18:17:08: fw 0 / 803,001 (0.0000 %), rv 805,501 / 805,501 (100.0000 %).
+  -> removing the BGP route stops exactly the flow that depends on it.
+
+TEARDOWN (18:17:40-18:18:35; 3116-td-u5.out, 3116-td-u3.out). No "% " line.
+  stack: no router bgp 65116 / no arp 10.116.1.2 / no ip address on vlan3161 and vlan3162 /
+         port3.0.13 no switchport access vlan / port4.0.26 switchport access vlan 4000 /
+         no vlan 3161, no vlan 3162
+  SA:    no router bgp 65117 / no arp 10.116.3.2 / no ip address on vlan3162 and vlan3163 /
+         port1.0.2 no switchport access vlan / port1.0.26 switchport access vlan 4000 /
+         no vlan 3162, no vlan 3163
+  -> port3.0.13 and SA port1.0.2 back in vlan 1; the SX link back in 4000 on both ends,
+     connected a-1000.
+  Group close (18:19): `show running-config` on u5, u3, u1 and u0 is IDENTICAL to the
+  pre-group capture (post-test-configs/2026-09-30/). Nothing was written; boot config
+  `flash:/tb470-bench.cfg (file exists)` on all four; probe 2026-09-30T051943Z MATCH.
+
+RUN LABEL: clean. The same group's T8770 had run before this and was removed. The stack
+  running-config was IDENTICAL to the pre-group capture before this case started.
+
+EVIDENCE: evidence/3116/ (console outputs, per-run tcpreplay summaries, receiver counts,
+  per-second counters). Tools: evidence/tools/3116-traffic.sh, mkpcap.py (`fixed` mode),
+  ckcon.py. Raw console transcripts: tb470 /tmp/ck11/console-u{5,3}.log (tmpfs).

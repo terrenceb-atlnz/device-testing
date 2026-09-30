@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""mkpcap.py <v4|v6> <src_mac> <dst_mac> <src_ip> <dst_base_ip> <first> <count> <frame_len> <out.pcap>
+"""mkpcap.py <v4|v6> <src_mac> <dst_mac> <src_ip> <dst_base_ip> <first> <count> <frame_len> <out.pcap> [fixed]
 
 Write a pcap of <count> routed UDP frames, one per destination address
 <dst_base_ip> + first .. + first+count-1, each <frame_len> bytes on the wire
@@ -11,11 +11,12 @@ import ipaddress, sys
 from scapy.all import Ether, IP, IPv6, UDP, Raw, wrpcap
 
 fam, smac, dmac, sip, base, first, count, flen, out = sys.argv[1:10]
+fixed = len(sys.argv) > 10 and sys.argv[10] == "fixed"   # every frame to <dst_base_ip> itself
 first, count, flen = int(first), int(count), int(flen)
 b = ipaddress.ip_address(base)
 pk = []
 for i in range(first, first + count):
-    d = str(b + i)
+    d = str(b) if fixed else str(b + i)
     l3 = IPv6(src=sip, dst=d, hlim=64) if fam == "v6" else IP(src=sip, dst=d, ttl=64)
     p = Ether(src=smac, dst=dmac) / l3 / UDP(sport=40000 + (i % 20000), dport=9)
     pad = flen - len(p)
