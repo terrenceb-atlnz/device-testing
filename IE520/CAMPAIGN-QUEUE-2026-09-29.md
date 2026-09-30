@@ -53,6 +53,12 @@ changes.
   `test-9001.33235.py`, `library_9001.py`) and need `ck_media.py` (= `ask-ck/tools/pt_media.py`)
   beside them; run with `-s tb470.setup -v --noupdate --nodefaultcfg` (TESTBOX-ACCESS.md §3).
 
+**COMPLETE 2026-10-01 11:25 NZDT (sentinel device-testing-67 wrap).** Every row is DONE, SUPERSEDED
+or BLOCKED. Rows 2 and 4 (the T33235 partial and the unblocked re-run) are **superseded by row 17**
+(PASS, `33235.log`); their state cells are kept as history. Final count, from the log names: 22 PASS /
+5 FAIL / 2 UNSUPPORTED / 4 NOT TESTED (row 6). Summary table and defects:
+[SESSION-HANDOVER-2026-10-01.md](SESSION-HANDOVER-2026-10-01.md) §3–§4.
+
 ## Queue
 
 | # | case(s) | group dir | state | note |

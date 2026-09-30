@@ -1,8 +1,8 @@
 ---
 name: awplus-service-gated-routing-daemons
-description: "On IE520 awplus_main, OSPF/RIP/VRRP/PIM-SM/PIM6/BFD reject with \"daemon is not running (or feature license…)\" until `service ospf|rip|vrrp|pim|pim6|bfd` is issued — NOT a licence problem; never declare a feature unavailable from one rejected command (a 09-22 BFD verdict was)"
+description: "On IE520 awplus_main, OSPF/RIP/VRRP/PIM-SM/PIM-DM/PIM6/BFD reject with \"daemon is not running (or feature license…)\" until `service ospf|rip|vrrp|pim|pdm|pim6|bfd` is issued — NOT a licence problem; never declare a feature unavailable from one rejected command (a 09-22 BFD verdict was)"
 metadata: 
-  verified: 2026-09-23
+  verified: 2026-10-01
   node_type: memory
   type: feedback
   originSessionId: 49dcf692-ded5-46ac-ab73-fffb9e6ddec8
@@ -20,13 +20,22 @@ asked whether I had run the **`service *` enablers first** — I had not.
 service isis`. `service X` starts the daemon **immediately** (no restart needed; the protocol config is
 accepted straight after). Only **`no service X`** says "Save the config and restart for this change to
 take effect" — the daemon keeps running until reboot. Licence is irrelevant (u4 without FL01 behaves
-the same as u2 with it). **PIM-DM has no `service` command in the corpus and stays rejected** [SUPERSEDED 2026-09-29: `service ?` on awplus_main-20260923-20 (stack, IE520-sa) and on the AR4050S build lists `pdm  Dense Mode (PIM-DM)`; `show ip pim dense-mode interface` answers "daemon is not running" = gated, present. The x230 has no PIM-DM.] after
-`service pim` — treat as unavailable on this build. `ip pim sparse-mode` additionally needs
-`ip multicast-routing` ("IP Multicast Routing not activated").
+the same as u2 with it). **PIM-DM is `service pdm`** (CORRECTED 2026-09-29, re-confirmed
+2026-10-01 T11346 PASS: `service ?` on awplus_main-20260923-20 — stack, IE520-sa — and on the
+AR4050S lists `pdm  Dense Mode (PIM-DM)`; before it, `show ip pim dense-mode interface` answers
+"daemon is not running" = gated, present. The x230 has no PIM-DM. The 2026-09-09 text here said
+PIM-DM had no service command and was unavailable — that was wrong.) `ip pim sparse-mode`
+additionally needs `ip multicast-routing` ("IP Multicast Routing not activated").
 
 **Why:** the "or feature license" clause is a generic catch-all; the first clause was literally true.
-Rebooting is NOT an option on tb470 (IE520s TFTP-boot and have no dongle → hang), so an answer that
-ends in "reboot to activate" is no answer.
+(2026-09-09 this said rebooting was not an option because the IE520s netbooted; since
+2026-09-11 they flash-boot and a reload is safe — [[tb470-ie520-flash-boot-reboots-ok]].)
+
+**2026-10-01 (routing group close, T11346/T18948/T10624/T12589):** `no service pdm|vrrp|ospf|rip`
+all answer "Save the config and restart" and the daemon **lingers until a reload** — the testers
+reloaded the stack and the IE520-sa at group close to clear it, which is the clean way to leave a
+device "as found". And `router rip` issued straight after `service rip` is briefly refused while
+the daemon is still starting — retry after a second or two, do not read it as unsupported.
 
 **CONFIRMED AGAIN 2026-09-22, plus what comes AFTER the service command.** `service ospf6`
 started OSPFv3 immediately as described. But starting the daemon is only step one — the part

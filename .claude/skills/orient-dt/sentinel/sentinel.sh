@@ -159,6 +159,7 @@ EOF
 MODE_NOW=""; last_act=$(date +%s); next_alarm=$(( last_act + IDLE_ALARM ))
 declare -A SKIPF   # SELF: our own stdout lands in $TASKS/<id>.output -- reading it back is a loop
 MARK="SENTINEL pid=$$"
+ANYMARK="[0-9:]+ SENTINEL pid=[0-9]+ self="
 while true; do
   T=$(date +%T); ACTIVE=0
   : > "$BEAT"
@@ -178,7 +179,9 @@ while true; do
   for f in "$TASKS"/*.output; do
     [ -f "$f" ] || continue
     [ -n "${SKIPF[$f]+x}" ] && continue
-    if [ "$SELF" = 1 ] && command grep -q -- "$MARK" "$f" 2>/dev/null; then SKIPF[$f]=1; LOFF[$f]=$(stat -c %s "$f"); continue; fi
+    # ANY sentinel's output, not just ours: a re-arm otherwise replays the expired watcher's
+    # whole output file (2026-10-01: 2158 lines in one tick after the first re-arm).
+    if [ "$SELF" = 1 ] && command grep -qE -- "$ANYMARK" "$f" 2>/dev/null; then SKIPF[$f]=1; LOFF[$f]=$(stat -c %s "$f"); continue; fi
     poll_bytes "$f" "task:$(basename "$f" .output)"
   done
   flush_caps; save_offsets; FIRST=0
