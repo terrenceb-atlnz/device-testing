@@ -7,7 +7,7 @@ generated `9001_Port/test-9001.33234.py` (+ `library_9001.py`, `ck_media.py`), r
 | case | title | log | verdict |
 | --- | --- | --- | --- |
 | T33234 | Port — Auto MDI/MDI-X | [33234-unsupported.log](33234-unsupported.log) | **UNSUPPORTED** (run 3, 13:38–13:40, Test-cases d9a08dd): the IE520-28GSX has no fixed copper switchport (every front port is an SFP cage) and Terrence ruled MDI/MDI-X does not apply to pluggables (I-5); the framework marked all 14 cases unsupported on `swi_a` (`has_fixed_copper_port` missing), ran none, power-cycled nothing; bench restored, probe MISMATCH = only the pending SX link. Nothing on tb470 unblocks it. Earlier: run 2 FAIL (script defect `no polarity`, fixed b734b40; the `current polarity auto` reading that led to the ruling) — evidence in framework-run2/ |
-| T33235 | (3) Port — Fixed port speed | [33235-partial.log](33235-partial.log) | **STOPPED — partial** (run 1 12:17–12:57, stopped on Terrence's instruction: "useless" without a fibre link). Cases 1–7 copper sweep on stack port1.0.9 ↔ x230 port1.0.4 PASS: `speed 10` rejected (`% Unsupported speed/duplex combination`), 100 and 1000 accepted and linked fixed, 2500/5000/10000 rejected at both ends; cases 8–12 fibre sweep `!!FAIL: … not applicable` = script grading (no fibre link on the bench), each followed by a full-bench power cycle (five); cases 13–30 not run. Bench restored, configs IDENTICAL, probe 13:08 MATCH. Re-run after fibre cabling (stack port1.0.25 ↔ IE520-sa port1.0.25) on Test-cases 3454bc0 |
+| T33235 | (3) Port — Fixed port speed | [33235.log](33235.log) | **PASS** (run 4, 2026-10-01 10:00–11:13, Test-cases 3454bc0, rc 0): 32 PASS / 1 UNSUPPORTED / 0 FAIL. Copper sweep on stack port1.0.9 (AT-SPTXc) ↔ x230 port1.0.4: 10 rejected, 100/1000 fixed OK, 2500/5000/10000 rejected; FIBRE sweep on stack port4.0.26 (AT-SPSX) ↔ IE520-sa port1.0.26: 100 rejected, 1000 fixed OK, 10000/40000/100000 rejected (1G SX is the only fibre — expected); shutdown/no shutdown, auto restore, per-port isolation, S2, copy run start and whole-stack reload all PASS. TestCase_20 UNSUPPORTED (needs speed 10, the DUT rejects it) — graded via failed() so one PDU cycle (D-1). Bench restored: configs IDENTICAL, boot tb470-bench.cfg, probe 2026-09-30T222119Z MATCH. Earlier: run 1 stopped (no fibre link) — git history |
 
 ## What is in this directory
 - `33234-unsupported.log` — the case log (run 3, UNSUPPORTED): what the case needs, what the bench
@@ -28,12 +28,13 @@ generated `9001_Port/test-9001.33234.py` (+ `library_9001.py`, `ck_media.py`), r
   3 s into configure(), nothing saved).
 - `console-u2.log`, `console-u0.log` — my own console.py transcripts on the stack (u2) and the
   x230 (u0): the pre-run reads, the LAG/VLAN isolation and the restore.
-- `33235-partial.log` — the T33235 case log: gate, the loop found at 12:09 and broken, the
+- `33235.log` — the T33235 case log (run 4, PASS): gate, gate-9 parser check, the two-leg isolation, the binding, all 33 TestCase verdicts, the one PDU cycle, restore, diff, probe, defects D-1/D-2. Run 1 text (was `33235-partial.log`) is in its git history: gate, the loop found at 12:09 and broken, the
   two-leg isolation, cases 1–7 with raw output, the five fibre-case FAILs and their power cycles,
   the stop, the login/restore/diff/probe.
 - `framework-run1-stopped/` — the framework's own output for T33235 run 1: `run.stdout`,
   `run.start`/`run.end`, `swi_*_33235.log` / `stk_a_33235.log` (grep -a), per-case `*-tags.log`,
   PDU logs, `tb470.setup.asrun`, plus `login-after-cycle5.log` (the six passive login watchers).
+- `framework-run4-pass/` — run 4's framework output (run.stdout, test-9001.33235.log with per-case `<< test-9001.33235.N:` results, swi_*/stk_a logs, tags, PDU logs, setup.asrun) + `restore/` transcripts; `console-u0/u1/u2/u3-33235-run4.log` — run 4 gate probes, isolation and restore; `pre-test-configs/2026-10-01/` + `post-test-configs/2026-10-01/` — the run-4 before/after captures (IDENTICAL).
 - `console-u0-33235.log`, `console-u1-33235.log`, `console-u2-33235.log`, `console-u3-33235.log` —
   console.py transcripts for T33235: the 12:13 loop-break and isolation (u0/u2), the post-stop
   reads and the restore on all four.

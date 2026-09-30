@@ -1,0 +1,277 @@
+# T33235 — (3) Port — Fixed port speed — tb470 IE520 stack — 2026-10-01 — PASS
+
+Verdict: PASS. Run 4 (queue row 17): 10:00:43–11:13:09 NZDT, framework rc = 0, TESTSET FINISHED.
+33 TestCases: 32 PASS, 1 UNSUPPORTED (TestCase_20), 0 FAIL. Per STANDING-ORDERS §2 an UNSUPPORTED
+TestCase inside the set does not stop a PASS. It is named below with its proof.
+Run labelled CLEAN: the bench was probe-MATCH before and after, the test links were isolated once
+before the TestSet and restored once after it, and nothing was changed between TestCases.
+
+- Copper sweep (TestCase_1–7) on stack member 1 port1.0.9 (AT-SPTXc copper SFP) <-> x230-10GP
+  port1.0.4 (fixed RJ45). Baseline was a-full/a-1000. `speed 10` REJECTED
+  (`% port1.0.9: Unsupported speed/duplex combination port1.0.9`). 100 and 1000 were ACCEPTED and
+  linked fixed (`full 100`, `full 1000`, no a- prefix). 2500/5000/10000 were REJECTED at both ends,
+  and the link stayed at a-1000.
+- Fibre sweep (TestCase_8–12), measurable for the first time, on stack member 4 port4.0.26
+  (AT-SPSX 1000BASE-SX, S/N A03240R192702000) <-> IE520-sa port1.0.26 (1000BASE-SX), access
+  VLAN 4000. `speed 100` REJECTED by the DUT (the partner rejected it too). `speed 1000` ACCEPTED
+  and linked `connected 4000 full 1000 1000BASE-SX`. 10000/40000/100000 REJECTED at both ends
+  (`% port4.0.26: Unsupported speed/duplex combination port4.0.26`); the configured speed stayed
+  auto, current speed 1000, link UP. The TOPOLOGY GAP was restated at dispatch: the only fibre link
+  is 1G SX, so every 10G+ step can only give a rejected-speed result. That is the expected result,
+  not a fibre defect.
+- Fixed speed S = 1000 and the remaining behaviour (TestCase_13–33) all PASS on the copper test
+  port:
+  - fixed-vs-auto reporting;
+  - invalid arguments (`speed fast` → `% Invalid input detected at '^' marker.`; `speed 5` and
+    `speed 200000` rejected);
+  - a documented-but-rejected value (10000) leaves the config and link unchanged;
+  - partner mismatch at 100/100 built self-contained;
+  - `shutdown`/`no shutdown` keeps `speed 1000`;
+  - `no speed` and `speed auto` both return to a-full/a-1000 = the step-2 baseline;
+  - per-port isolation: the monitored ports port1.0.2 and port4.0.26 are unchanged, with no
+    link event in `show log`;
+  - S2 = 100 relinks fixed;
+  - `copy running-config startup-config`;
+  - a whole-stack `reload`: port1.0.9 comes back `connected 3999 full 1000` with speed
+    1000/duplex full retained, and nothing typed after boot.
+- UNSUPPORTED, TestCase_20 (step 21, "incompatible fixed pair"). The case needs the DUT test port to
+  accept both `speed 10` and `speed 100`. The DUT's own step-3 answer is
+  `% port1.0.9: Unsupported speed/duplex combination port1.0.9` for `speed 10`, so the 10-vs-100
+  pair cannot be built on this port. Framework result:
+  `<< test-9001.33235.20: UNSUPPORTED (numPassed: 13 numFailed: 1)`. The script graded the
+  not-applicable path with `self.supported = False` + `self.failed(...)`, so the framework also
+  ran its post-failure restart: ONE six-unit PDU cycle, 10:42:25–10:42:52, all Success. That is
+  accepted framework behaviour (STANDING-ORDERS §6), and it happened once only, so the run was not
+  stopped. Defect D-1 below.
+
+Operator: bench-runner subagent (sentinel = parent session device-testing-67, /test-mode shape A).
+Terrence's go: relayed 2026-09-30 15:50, "yes" (queue rows 4 → 17).
+
+## Script as run
+- /media/terrenceb/mnt/testbox_home/claude/Test-cases/ask-ck/functions/pytest-creator/generated/9001_Port/test-9001.33235.py
+  md5 e6f087c94fff6f51d2d56126ac97818f = `git show 3454bc0:` of that file (Test-cases HEAD for the
+  file is 3454bc0: "the fibre sweep cases are excluded before they run on a bench with no fibre
+  link"; no uncommitted change).
+- library_9001.py md5 db025cd6f0845a0d45168a09dcb6fb8f; ck_media.py = ask-ck/tools/pt_media.py md5
+  dfa93eafc02a44634cccc029bd7a89fe (copied beside the script).
+- .setup: /home/st-art/st-art/configs/tb470.setup (copy framework-run4-pass/tb470.setup.asrun, md5
+  54410a8d0d921501acb477244d8f8e66; its [portlink] equals the probe fence).
+- WORK = tb470 /tmp/ck17/run-20261001T1000 (cwd; framework logs written there), launched detached,
+  python PID 306020, watched by PID:
+  `setsid nohup sudo -n env PYTHONPATH=/home/st-art python3 -u $WORK/test-9001.33235.py -s /home/st-art/st-art/configs/tb470.setup -v --noupdate --nodefaultcfg > run.stdout 2>&1 < /dev/null &`
+- Evidence in framework-run4-pass/:
+  - `run.stdout`, `run.start`, `run.end`;
+  - `test-9001.33235.log` (per-case `<< test-9001.33235.N:` result lines);
+  - `swi_a_33235.log` … `swi_f_33235.log`, `stk_a_33235.log` (read with `grep -a`);
+  - per-case `*-tags.log`;
+  - PDU logs `power-group-20261001.log`, `power-*_33235.log`;
+  - `setup_33235.log`;
+  - `restore/r3–r6.out` (restore transcripts).
+- Exit code 0.
+
+## Pre-run gate (tb470 clock, NZDT)
+- 09:53 `sudo fuser -v /dev/u*` empty; no /var/lock/LCK..*; no tmux server; /nfsHome mounted
+  (10.36.250.11:/home nfs4).
+- Bare CR on u0–u5: `x230-10GP#`, `4050-5g#`, `IE520-stk#` ×3, `IE520-sa#`. All at exec, none
+  parked.
+- 09:54 `bench_probe.py run` → **MATCH -- the bench equals the template** (capture
+  2026-09-30T205453Z, Advisories: none). Stack: 1 Backup / 3 Active Master / 4 Backup, Normal
+  operation.
+- Running-config diff of that capture vs routing-2026-09-29/pre-test-configs/2026-10-01/: u0, u1,
+  u2 (stack, vs pre-u5), u3 all IDENTICAL.
+  - Pre-TestSet capture saved as pre-test-configs/2026-10-01/uN.show_running-config.txt +
+    uN.show_boot.txt.
+  - `Current boot config: flash:/tb470-bench.cfg (file exists)` on all four.
+- Gate 5: `pt_preflight.py --setup tb470.setup.current --script test-9001.33235.py` → VERDICT:
+  RUNNABLE (3/3 links satisfiable). tb470.setup.current equals the probe fence.
+- Gate 9 (defaulting CLI vs platform). The script's defaulting/configure/tear_down paths send:
+  - `no speed`, `duplex auto`, `polarity auto`, `no shutdown` (configureDefaultPort);
+  - `speed auto` (TestCase_27);
+  - `speed <N>`, `duplex full|auto`, `shutdown`, `copy startup-config|running-config …` + `y`,
+    `delete force`.
+
+  All are in the AW+ `speed` page syntax (`speed auto [...]`). The read-only `?` probes
+  (qmark.py: self-test first, Ctrl-U line kill, no CR) offered `speed {10…400000|auto}`,
+  `speed auto … <cr>`, `duplex {auto|full|half}` and `polarity {auto|mdi|mdix}` on stack
+  port4.0.26 and port1.0.9, on SA port1.0.26 and on x230 port1.0.4 (transcripts
+  console-u2/u3/u0-33235-run4.log). Run 1 had already executed the four defaulting commands on
+  1.0.9 / x230 1.0.4 with no `% `. In this run, configureDefaultPort logged 0 refusals.
+- PDU 10.36.150.14: ping 2/2.
+- Sentinel: parent (gate 8).
+
+## Bench isolation made for the TestSet (once before, restored once after — STANDING-ORDERS §6)
+Same two-leg sa2 recipe as T33234 and the earlier T33235 runs. The frame binds `cusfp` before
+`copper` and sorts non-LAG links first, so BOTH sa2 legs must be free. STP is off, so each leg gets
+its own VLAN (console-u2-33235-run4.log / console-u0-33235-run4.log, ckcon.py --stop-on-error,
+rc 0, no `% ` line):
+- 09:58:18 stack (u2):
+  - `interface port1.0.2` / `shutdown`; `interface port1.0.9` / `shutdown`;
+  - `vlan 3998 name ck33235-cusfp`, `vlan 3999 name ck33235-copper`;
+  - port1.0.2 `no static-channel-group` + `switchport access vlan 3998`;
+  - port1.0.9 `no static-channel-group` + `switchport access vlan 3999`.
+- 09:58:54 x230 (u0): the same two VLANs; port1.0.3 `no static-channel-group` + vlan 3998; port1.0.4
+  `no static-channel-group` + vlan 3999 (`show etherchannel` → LAG Total Count 0).
+- 09:59:25 stack: both legs `no shutdown`. At 09:59:58:
+  - `port1.0.2 connected 3998 a-full a-1000 1000BASE-T`;
+  - `port1.0.9 connected 3999 a-full a-1000 1000BASE-T`;
+  - `port4.0.26 connected 4000 a-full a-1000 1000BASE-SX`;
+  - x230 1.0.3/1.0.4 connected 3998/3999; SA 1.0.26 connected 4000.
+- `interface sa2` auto-deleted on both ends (stack keeps sa1 {3.0.2,4.0.2}, sa3 {1.0.13,4.0.9}).
+- The fibre link needed no change: it is its own access VLAN 4000 in the baseline, not in a LAG.
+
+Run binding (run.stdout 10:00:53):
+```
+topology discovered on swi_a: tb=port3.0.10<->tb.eth1; cusfp=port1.0.2<->swi_f.port1.0.3,port1.0.9<->swi_f.port1.0.4,port1.0.13 [LAG member]<->swi_b.port1.0.13,port3.0.2 [LAG member]<->swi_e.port1.0.3,port4.0.2 [LAG member]<->swi_e.port1.0.4,port4.0.9 [LAG member]<->swi_b.port1.0.9; fibre=port4.0.26<->swi_b.port1.0.26
+topology: role 'cusfp' -> swi_a port1.0.2 <-> swi_f port1.0.3 (cusfp)
+topology: role 'fibre' -> swi_a port4.0.26 <-> swi_b port1.0.26 (fibre)
+topology: role 'copper' -> swi_a port1.0.9 <-> swi_f port1.0.4 (cusfp)
+```
+The DUT's tb link (eth1 = port3.0.10, AT-SPTXc) went to the `tb` bucket. It was not a candidate for
+the copper role, as the dispatch asked to confirm. There is no fixed copper port on the
+IE520-28GSX, so the copper role took the second copper SFP (Terrence 2026-09-24: a copper pluggable
+keeps its copper identity for speed).
+
+## What the framework did (run.stdout)
+- 10:00:55 "Skipping default.cfg configuration and reboot" (--nodefaultcfg).
+- 10:01:57 TestSet configure(): copper test port port1.0.9 <-> swi_f port1.0.4; monitored
+  copper-SFP port1.0.2 <-> swi_f port1.0.3; fibre test port port4.0.26 <-> swi_b port1.0.26.
+- 10:02:55 `copy startup-config flash:/ck_t33235_startup_backup.cfg` → Successful operation.
+- 10:03:04 each device's running config saved as `<dev>_9001_33235.cfg` and set as the boot config
+  (stk_a, swi_b, swi_e, swi_f).
+- 10:03:31 "Mark unsupported test cases": TestCase_8–12 `swi_a : .* with property
+  "has_fibre_test_link" is supported`. The 3454bc0 gate saw the fibre link and let the sweep run.
+- Per case: the TestCase config is saved before the case, `TestCase_tear_down.cfg` after, and the
+  compare is PASS on all four devices every time.
+
+Per-TestCase results (`test-9001.33235.log`, `<< test-9001.33235.N:` lines; STEP = case + 1):
+| TC | step | what | result |
+| --- | --- | --- | --- |
+| 1 | 2 | copper baseline: port1.0.9 `connected 3999 a-full a-1000`, current full/1000; partner a-full a-1000 | PASS (18/0) |
+| 2 | 3 | speed 10: `% port1.0.9: Unsupported speed/duplex combination port1.0.9`, no speed line, link back at 1000 after the partner restored | PASS (17/0) |
+| 3 | 4 | speed 100: `connected 3999 full 100`, current full/100 | PASS (20/0) |
+| 4 | 5 | speed 1000: `connected 3999 full 1000` | PASS (19/0) |
+| 5 | 6 | speed 2500: partner and DUT rejected, configured auto, link unchanged | PASS (18/0) |
+| 6 | 7 | speed 5000: both rejected, unchanged | PASS (18/0) |
+| 7 | 8 | speed 10000: both rejected, current 1000 | PASS (19/0) |
+| 8 | 9 | FIBRE speed 100 on 4.0.26 (AT-SPSX): DUT rejected, partner rejected, config auto, link UP | PASS (18/0) |
+| 9 | 10 | FIBRE speed 1000: accepted, `connected 4000 full 1000 1000BASE-SX`, current 1000 | PASS (18/0) |
+| 10 | 11 | FIBRE speed 10000: `% port4.0.26: Unsupported speed/duplex combination port4.0.26` (SA the same), unchanged | PASS (19/0) |
+| 11 | 12 | FIBRE speed 40000: both rejected, unchanged | PASS (19/0) |
+| 12 | 13 | FIBRE speed 100000: both rejected, link UP | PASS (18/0) |
+| 13 | 14 | S = 1000 (highest linked), both ends fixed, `full 1000` | PASS (18/0) |
+| 14 | 15 | status bare full/1000 vs baseline a-full/a-1000 (autoneg off shown) | PASS (19/0) |
+| 15 | 16 | configured = current = status speed 1000 | PASS (17/0) |
+| 16 | 17 | running-config `speed 1000` / `duplex full` | PASS (18/0) |
+| 17 | 18 | `speed fast` → `% Invalid input detected at '^' marker.`, config unchanged | PASS (18/0) |
+| 18 | 19 | `speed 5`, `speed 200000` rejected, unchanged | PASS (19/0) |
+| 19 | 20 | sweep map `{'10': False, '100': True, '1000': True, '2500': False, '5000': False, '10000': False}`; retry 10000 rejected, unchanged | PASS (17/0) |
+| 20 | 21 | incompatible fixed pair needs speed 10 + 100 on the DUT: speed 10 rejected by the DUT → `!!FAIL: … incompatible fixed pair cannot be built, case not applicable` | **UNSUPPORTED** (13/1) + one PDU cycle |
+| 21 | 22 | DUT 100/full, partner 100/full: both `connected 3999 full 100` | PASS (17/0) |
+| 22 | 23 | S on both ends: `full 1000`, current 1000 | PASS (17/0) |
+| 23 | 24 | `shutdown`: `disabled 3999 full 1000`, no current speed, config keeps speed/duplex + shutdown | PASS (17/0) |
+| 24 | 25 | `no shutdown`: connected full 1000 within 30 s, config keeps speed 1000 | PASS (18/0) |
+| 25 | 26 | `no speed` + `duplex auto`: `connected 3999 a-full a-1000`, = baseline, no numeric speed line | PASS (16/0) |
+| 26 | 27 | re-force S: `connected 3999 full 1000` | PASS (14/0) |
+| 27 | 28 | `speed auto` + `duplex auto`: a-full/a-1000 = baseline, no numeric speed line | PASS (19/0) |
+| 28 | 29 | monitored port1.0.2 and port4.0.26 baseline (a-full/a-1000) | PASS (17/0) |
+| 29 | 30 | S on the test port only: monitored ports unchanged, no link event in `show log` | PASS (20/0) |
+| 30 | 31 | S2 = 100 (candidates ['100','10']): relinked `full 100`, monitored ports unchanged, no log event | PASS (18/0) |
+| 31 | 32 | S again: `connected 3999 full 1000`, running-config speed 1000 | PASS (16/0) |
+| 32 | 33 | `copy running-config startup-config`: no error, startup block for port1.0.9 has speed 1000 / duplex full | PASS (15/0) |
+| 33 | 34 | `reload` ("Are you sure you want to reboot the whole stack? (y/n): y"), stack re-formed (Member 3 Active Master, VMAC 0000.cd37.0d6f); port1.0.9 `connected 3999 full 1000`, configured full/1000 retained | PASS (19/0) |
+
+The one power cycle (after TestCase_20):
+- 10:42:25 "Setup is no longer reliable - all devices will be rebooted": Power cycle stk_a
+  (outlets 4/5/6), swi_b (8), swi_e (7), swi_f (1).
+- Completed: Success at 10:42:46–10:42:52.
+- PDU detail (power-group-20261001.log): after `on`, outlet 5 (swi_c = stack member 3) read `'2'`
+  three times → `!! ERROR: power outlets have not been successfully turned on in 3 attempts`, then
+  `Turning PowerGroup on: Success`. This is the same signature as run 1 (2026-09-29 12:55). The
+  unit booted normally: member 3 is Active Master again and TestCase_21 ran at 10:46:50. Recorded,
+  not judged.
+- In `show reboot history`, this cycle and the TestCase_33 reload will read as reboots on
+  2026-09-30 21:42 UTC and 22:08 UTC, framework-caused, not the fleet's silent reboots.
+
+TestSet tear_down (11:12:28–11:12:54):
+- `no speed` / `duplex auto` on port1.0.9, port1.0.4, port1.0.2, port1.0.3, port4.0.26 and SA
+  port1.0.26.
+- Then `copy flash:/ck_t33235_startup_backup.cfg startup-config` →
+  `% Cannot overwrite flash:/stk_a_9001_33235.cfg as it is configured as the boot config file`
+  (defect D-2). The script then `delete force`d the backup.
+- Neither changed tb470-bench.cfg (its flash timestamp is unchanged, below).
+
+## After the run: restore and verify (tb470 clock)
+- 11:13:34 read:
+  - stack 1 Backup / 3 Active Master / 4 Backup, Normal operation;
+  - `show boot` → flash:/stk_a_9001_33235.cfg;
+  - `dir` holds the 34 frame files + TestCase_tear_down.cfg;
+  - port1.0.2/1.0.9 still in 3998/3999, port4.0.26 back to its baseline block;
+  - x230 / SA / 4050 on `<dev>_9001_33235.cfg` with their 34 frame files each.
+- Restore via ckcon.py --stop-on-error, every step rc 0, no `% ` line (framework-run4-pass/restore/,
+  console-u*-33235-run4.log):
+  - 11:14:34 stack:
+    - port1.0.2 and port1.0.9: `shutdown` / `no switchport access vlan` / `static-channel-group 2`;
+    - `interface sa2` / `switchport mode access`;
+    - `no vlan 3998`, `no vlan 3999`;
+    - `boot config-file flash:/tb470-bench.cfg` ("File synchronization with stack member 1 …
+      member 4 successfully completed").
+  - 11:16:10 x230:
+    - port1.0.3 and port1.0.4: `switchport access vlan 100` / `static-channel-group 2`;
+    - `interface sa2` / `switchport mode access` / `switchport access vlan 100`;
+    - `no vlan 3998/3999`;
+    - `boot config-file flash:/tb470-bench.cfg`.
+  - 11:16:49 stack port1.0.2 / port1.0.9 `no shutdown`; `delete force` of stk_a_9001_33235.cfg,
+    _1…_33.cfg and TestCase_tear_down.cfg.
+  - 11:17:42 x230 frame files deleted.
+  - 11:18:29 IE520-sa and 11:19:19 AR4050S: `boot config-file flash:/tb470-bench.cfg` + frame files
+    deleted.
+- 11:20:38 read-back:
+  - stack sa1 {3.0.2,4.0.2}, sa2 {1.0.2,1.0.9}, sa3 {1.0.13,4.0.9};
+  - 1.0.2/1.0.9 `connected 1 a-full a-1000`, 4.0.26 `connected 4000 a-full a-1000 1000BASE-SX`;
+  - x230 sa2 {1.0.3,1.0.4};
+  - dir on all four is back to the baseline set.
+  - `flash:/tb470-bench.cfg` timestamps are unchanged from before the run (stack Sep 30 03:07:49,
+    x230 Sep 29 21:56:20, SA Sep 30 03:09:21, 4050 Sep 25 10:38:34, device UTC), so it was never
+    written.
+- 11:21 `bench_probe.py run` → **MATCH -- the bench equals the template** (capture
+  2026-09-30T222119Z, Advisories: none).
+  - Running-config vs the pre-TestSet capture: u0 IDENTICAL, u1 IDENTICAL, u2 (stack) IDENTICAL,
+    u3 IDENTICAL. Copy in post-test-configs/2026-10-01/.
+  - `Current boot config: flash:/tb470-bench.cfg (file exists)` on all four.
+  - Stack master member 3; 1/3/4 Ready.
+- Nothing `write`n by the tester. The script's own `copy running-config startup-config` (TC32/33)
+  wrote only the frame's stk_a_9001_33235.cfg, which is now deleted. Consoles free, all left at
+  exec with `terminal no monitor`.
+- No tcpdump/sender was started. tb470 /tmp/ck17/ holds the scratch tools and the WORK dir (tmpfs).
+
+## Defects / observations (for the sentinel's end-of-campaign summary)
+- **D-1 (script, Test-cases): a "not applicable" step is graded `self.failed` → a full-bench power
+  cycle.** TestCase_20 (and similar guards in TestCase_21/30/… that did not fire here) combine
+  `self.supported = False` with `self.failed('… case not applicable')`. The framework reports
+  UNSUPPORTED but still runs `_power_cycle()`: one six-unit cycle (~4 min) for a case the sweep
+  already knew was inapplicable, which is the I-8 pattern again. The fix is the 3454bc0 pattern: a
+  DUT property set from the sweep record (e.g. `has_speed_10_and_100`) plus
+  `testCasePlatformWithPropertyIncl`/`skipIfExcl`. The sweep only runs inside the TestSet, so an
+  equivalent pre-marking has to happen after the sweep, or the case has to log and return without
+  `failed()`.
+- **D-2 (script, Test-cases): the TestSet tear_down startup-config restore cannot work with
+  `--nodefaultcfg`.** At tear_down the framework has set the boot config back to
+  `stk_a_9001_33235.cfg`, so `copy <backup> startup-config` is refused (`% Cannot overwrite … as it
+  is configured as the boot config file`). The script greps for 'Error'/'Invalid'/… only when taking
+  the backup, not here, then deletes the backup anyway. Harmless on tb470 (the tester restores the
+  boot pointer), but the restore it claims never happened.
+- O-1: IE520 AT-SPTXc copper SFP rejects `speed 10`, and the x230-10GP fixed RJ45 port rejects
+  2500/5000/10000. So on this pair, 100 and 1000 are the only fixed speeds (as run 1 found).
+- O-2: IE520 AT-SPSX (1000BASE-SX) accepts only `speed 1000` as a fixed speed. 100 and
+  10000/40000/100000 are refused with `% … Unsupported speed/duplex combination`, and the
+  IE520-sa's SX port refuses the same set. The CLI `speed ?` still offers 10…400000 on the SX port
+  (orient §2 "media-blind CLI"), but the refusal happens at execution, so no false "failed to set"
+  arises.
+- O-3: PDU outlet 5 reads status `'2'` after `on` (the framework's 3-attempt check fails, the 4th
+  call succeeds). Second occurrence (2026-09-29 12:55, 2026-10-01 10:42). The unit boots fine.
+
+## Earlier runs of this case
+- Run 1 (2026-09-29 12:17–12:57, Test-cases b734b40) was STOPPED on Terrence's instruction with no
+  fibre link: cases 1–7 PASS, cases 8–12 `!!FAIL … not applicable` with five PDU cycles, cases
+  13–30 not run. Its evidence stays in framework-run1-stopped/ and console-u*-33235.log, and its log
+  text is in this file's git history (was 33235-partial.log).
