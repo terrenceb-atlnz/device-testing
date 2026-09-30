@@ -1,0 +1,104 @@
+# T18302 — Communication Test in Private VLAN - Send from Uplink port — tb470 IE520 stack — 2026-09-30 — PASS
+
+Verdict: PASS. All seven streams sent from the uplink (promiscuous) port did exactly what the case
+expects. Broadcast, non-reserved multicast and unknown unicast reached all three private ports
+(100/100 each). Each well-known unicast reached only its own port (100/100 there, 0 on the other
+two). Reserved multicast 01:80:c2:00:00:00 was not forwarded (0 on every port). A control port
+outside the private VLAN received none of it. Run labelled: clean.
+
+Note on the reserved-multicast line: the DUT also drops 01:80:c2:00:00:00 in a plain VLAN (baseline
+b0c below), so that line is a property of the platform, not of the private VLAN.
+
+Operator: bench-runner subagent (sentinel = parent session, /test-mode shape A), Terrence away.
+Queue: IE520/CAMPAIGN-QUEUE-2026-09-29.md row 7. Case text: ck.db AWPTCM-T18302 (1 step: setup +
+7 streams). T18303 uses the "same configuration" and ran on the same build right after this case
+(18303.log). One setup and one teardown served both.
+
+## Bench mapping (case VLAN 10 → 3980/3981; Ixia 111–114 → DUT ports and tb470 NICs)
+VLAN 10 is the live sa1 transit to the AR4050S on tb470 and was not touched, so the private VLAN is
+primary **3980** + isolated secondary **3981**. Each private port's partner switch port sits alone
+in its group scratch VLAN, and the group's observer trunk hands it to a host NIC tagged with that
+VLAN. The partner switches are an observation path only (group setup, README).
+| case | role | DUT port | MAC (case's static ARP) | observed at |
+| --- | --- | --- | --- | --- |
+| IXIA-111 | uplink = `switchport mode private-vlan promiscuous`, mapping 3980 add 3981 | port3.0.13 | 0000.0000.0110 | tb470 eth1 (direct, the sender here) |
+| IXIA-112 | private = `switchport mode private-vlan host`, host-association 3980 add 3981 | port1.0.2 | 0000.0000.0120 | eth3, tag 3991 (x230 port1.0.3 → observer trunk 1.0.1) |
+| IXIA-113 | private | port1.0.13 | 0000.0000.0130 | eth2, tag 3993 (SA port1.0.13 → observer trunk 1.0.2) |
+| IXIA-114 | private | port4.0.9 | 0000.0000.0140 | eth2, tag 3994 (SA port1.0.9 → observer trunk 1.0.2) |
+| control (not in the private VLAN) | access 3992 | port1.0.9 | — | eth3, tag 3992 (x230 port1.0.4) |
+
+## Pre-case state
+Same session as T38408/T38407: gate at 16:15–16:21 (consoles free and at exec, /nfsHome mounted,
+probe 2026-09-30T031557Z MATCH, boot config `flash:/tb470-bench.cfg (file exists)` on u5/u3/u0/u1,
+stack member 3 = Active Master). Group setup in place. T38407 teardown verified at 16:40 (running-config =
+the group-setup reference on u5/u3/u0). No 192.168.100.x, 3979, 3980 or 3981 in the DUT config beforehand.
+Gate items 5/7/9: not applicable, because this case is hand-driven (skipped). Support probe (qmark.py,
+`?` without CR; evidence/group-2026-09-30/q-vlandb-u5.out, q-if-u5.out, q-global-u5.out):
+`private-vlan 3980 ?` → association | community | isolated | primary | ufo; `switchport mode
+private-vlan ?` → host | promiscuous | trunk | ufo; `switchport private-vlan ?` → host-association |
+mapping; `arp 192.168.100.2 0000.0000.0120 ?` → IFRANGE | alias | <cr>.
+
+## Baseline — the same four ports in a PLAIN VLAN 3979 (feature OFF, 16:43–16:44; evidence/18302/pv-cfg-base.sh, pv-b0*.out)
+| stage | sent | captured | result |
+| --- | --- | --- | --- |
+| b0a | 113 (eth2, tag 3993) broadcast | eth1 100 untagged; eth3 100 × tag 3991 (112); eth2 100 × tag 3994 (114) | plain VLAN: private-to-be ports reach each other |
+| b0b | 112 (eth3, tag 3991) unicast → 0000.0000.0130 (learned in b0a) | eth2 100 × tag 3993 (113) only | known unicast 112 → 113 delivered |
+| b0c | 111 (eth1) 01:80:c2:00:00:00 | eth2 0, eth3 0; DUT output deltas at background (+22 to +36) | reserved multicast dropped even in a plain VLAN (STP is disabled on the bench) |
+
+## Configuration (case step 1, 16:45:0x–16:45:43; evidence/18302/pv-cfg.sh + pv-cfg.out, no `% ` line)
+```
+interface port3.0.13/1.0.2/1.0.13/4.0.9: no switchport access vlan   (out of 3979)
+vlan database: no vlan 3979 / vlan 3980 name ck-pv-primary / vlan 3981 name ck-pv-isolated
+               private-vlan 3980 primary / private-vlan 3981 isolated / private-vlan 3980 association add 3981
+interface port3.0.13: switchport mode private-vlan promiscuous / switchport private-vlan mapping 3980 add 3981
+interface port1.0.2, port1.0.13, port4.0.9: switchport mode private-vlan host / switchport private-vlan host-association 3980 add 3981
+interface vlan3980: ip address 192.168.100.254/24
+arp 192.168.100.1 0000.0000.0110 port3.0.13 / arp 192.168.100.2 0000.0000.0120 port1.0.2
+arp 192.168.100.3 0000.0000.0130 port1.0.13 / arp 192.168.100.4 0000.0000.0140 port4.0.9
+```
+Read back:
+```
+show vlan private-vlan:  3980  3981  isolated  port3.0.13 port1.0.2 port1.0.13 port4.0.9
+show vlan brief:         3980 ck-pv-primary port3.0.13(u) / 3981 ck-pv-isolated port1.0.2(u) port1.0.13(u) (+ port4.0.9, wrapped)
+show arp:                192.168.100.1-4 -> 0000.0000.0110/0120/0130/0140 vlan3980 port3.0.13/1.0.2/1.0.13/4.0.9 static
+show mac address-table | include 0000.0000.01:
+                         3980 and 3981: port3.0.13 ...0110, port1.0.2 ...0120, port1.0.13 ...0130, port4.0.9 ...0140  forward static
+```
+So the case's static ARP entries also install static FDB entries on the right ports in both the
+primary and the secondary VLAN. The "well-known unicast" destinations are known without any learning.
+
+## Step 2 — send from uplink 111 (eth1, src 0000.0000.0110, untagged), 16:46:20–16:48:43
+Sender vsend.py, 100 frames per stream; driver evidence/group-2026-09-30/vstep.sh; captures
+`tcpdump -Q in -e` on eth2 and eth3 filtered on src 0000.0000.0110, one pcap per stream. vcount
+lists them as "unmarked" because my stream labels contain `-`, which its marker pattern does not
+match. The counts are unaffected (one pcap per stream, src-filtered). DUT output-packet deltas: background is about +11 to +36 per port.
+
+| stream (case) | dst | eth3 3991 (112) | eth2 3993 (113) | eth2 3994 (114) | eth3 3992 (control) | DUT out 1.0.2 / 1.0.13 / 4.0.9 / 1.0.9 | expected | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| a Broadcast | ff:ff:ff:ff:ff:ff | 100 | 100 | 100 | 0 | +134 / +123 / +123 / +11 | all VLAN ports | **PASS** |
+| b Reserved multicast | 01:80:c2:00:00:00 | 0 | 0 | 0 | 0 | +34 / +22 / +22 / +12 (background) | not forwarded | **PASS** |
+| c Non-reserved multicast | 01:80:c2:01:01:01 | 100 | 100 | 100 | 0 | +136 / +124 / +124 / +13 | all VLAN ports | **PASS** |
+| d Well-known unicast 112 | 0000.0000.0120 | 100 | 0 | 0 | 0 | +133 / +22 / +22 / +11 | IXIA-112 | **PASS** |
+| e Well-known unicast 113 | 0000.0000.0130 | 0 | 100 | 0 | 0 | +33 / +123 / +23 / +11 | IXIA-113 | **PASS** |
+| f Well-known unicast 114 | 0000.0000.0140 | 0 | 0 | 100 | 0 | +32 / +21 / +120 / +11 | IXIA-114 | **PASS** |
+| g Unknown unicast | 00:00:5e:00:53:ff | 100 | 100 | 100 | 0 | +134 / +122 / +122 / +12 | all VLAN ports | **PASS** |
+Every delivered frame arrived untagged at the DUT egress (the host-side tag is the partner's
+scratch VLAN, one per port). Raw: evidence/18302/18302-{a-bc,b-rmc,c-mc,d-u112,e-u113,f-u114,g-uu}.out + .pcap.
+
+## Teardown (after T18303, 16:53–16:55; evidence/18302/pv-teardown.sh, pv-teardown-try1.out, pv-teardown-2.sh + .out)
+Try 1 applied `no arp 192.168.100.1-4`, `interface vlan3980` / `no ip address` and port1.0.2 `no
+switchport private-vlan host-association`. It then stopped on my form `no switchport mode
+private-vlan` (`% Incomplete command.`, which needs host|promiscuous, checked with `?`, evidence/18302/q-no-mode.out). The
+state at the stop was read back (evidence/18302/td-state.out). Try 2 resumed from that line: the three host ports
+`no switchport mode private-vlan host` + access 3991/3993/3994 (1.0.13 and 4.0.9 also `no switchport
+private-vlan host-association`); port3.0.13 `no switchport private-vlan mapping` / `no switchport mode
+private-vlan promiscuous` / `no switchport access vlan`; `private-vlan 3980 association remove 3981`,
+`no private-vlan 3981 isolated`, `no private-vlan 3980 primary`, `no vlan 3981`, `no vlan 3980`. No `% `
+line in try 2. After it, `show vlan private-vlan`, `show arp` and the 0000.0000.01xx MAC entries were all
+empty. Post-case `show running-config` (post-test-configs/2026-09-30b/18302-18303.u{5,3,0}.out) diffed
+against the group-setup reference: **empty on u5, u3 and u0**. Nothing was written to startup-config.
+
+## Files
+- Raw console transcripts: tb470 /tmp/ckvlan3/console-u5.log (tmpfs).
+- evidence/18302/: the shared setup, baseline and teardown (pv-*), this case's stream outputs and pcaps, `?` probes (q-no-*.out).
+- No framework run (hand-driven). Exit codes: all rc 0 except teardown try 1 (rc 2, above).
