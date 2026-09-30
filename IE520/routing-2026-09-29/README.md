@@ -23,3 +23,15 @@ T11346 written up from the 09-30 evidence and restored (stack + SA `reload` to c
 Pre-group capture for T18948/T10624: [pre-test-configs/2026-10-01/](pre-test-configs/2026-10-01/)
 (IDENTICAL to 2026-09-30/ on u5/u3/u1/u0). The `no service vrrp|pdm|ospf` removals answer
 "% Save the config and restart", so the group closes with one more reload of the stack and SA.
+
+### Group close (2026-10-01 08:50-08:55)
+After T10624's teardown, vrrpd (T18948) and ospfd (T10624) were still running ("% Save the config
+and restart" on `no service vrrp|ospf`). The stack and SA were reloaded with `reload` (nothing
+written; tools/ckreload.py), and were back at `login:` after 199 s / 188 s. Post-group capture
+[post-test-configs/2026-10-01/](post-test-configs/2026-10-01/):
+- running-config IDENTICAL to pre-test-configs/2026-10-01/ on u5/u3/u1/u0;
+- no ospfd/vrrpd/pdmd;
+- stack members 1/3/4 Ready, member 3 Active Master;
+- boot `<platform>-tb470.rel` + `flash:/tb470-bench.cfg` (file exists) on all four;
+- probe 2026-09-30T195444Z MATCH, Advisories none.
+T12589 (its full PBR build) is queue row 16, not part of this run.
