@@ -1,0 +1,158 @@
+# T5082 — DHCPv6 - EUI-64 and /64-/128 Advertised Prefix — tb470 IE520 stack — 2026-09-30 — FAIL
+
+Verdict: FAIL. The case expects both illegal configurations to be refused with an error ("Setting
+illegal prefix should have error message and should not be accepted"). Terrence expected both
+actions to be PREVENTED. The DUT prevented NEITHER of them (awplus_main-20260923-20, stack master
+member 3):
+- (1) PD prefix + `eui64` at a prefix length above /64: `ipv6 address <pd-name> ::/65|/96|/128 eui64`
+  was ACCEPTED with no `% ` line, and all three appear in the running-config. The same check on
+  a literal prefix IS enforced: `ipv6 address 2001:db8:5083::/65 eui64` →
+  `% Prefix length must not be more than 64`, and `/128` → `% Bad mask /128 for address 2001:db8:5083::`.
+  The PD path skips the check that the literal path applies.
+- (2) Advertised prefix longer than /64: `ipv6 nd prefix 2001:db8:5082::/65`, `/96`, `/127` and `/128`
+  were ACCEPTED with no `% ` line, as was `ipv6 nd prefix <pd-name> ::/65` and `::/128`. The DUT then
+  ADVERTISED /65, /96, /127 and /128 in its Router Advertisements, each with L=1 and A=1 (autonomous
+  address configuration on). That is six RAs captured on tb470 eth1.
+
+Run labelled: clean. The one open item: no delegated prefix reached the DUT on this bench, so the
+addresses from the accepted PD + eui64 lines could not be exercised (Observation O-1). The grade
+does not depend on it.
+
+Operator: bench-runner subagent (sentinel = parent session device-testing-ba, /test-mode shape A).
+Queue: IE520/CAMPAIGN-QUEUE-2026-09-29.md row 14. Case text: ck.db zephyr AWPTCM-T5082, one step:
+"Set client to get ipv6 address prefix from PD delegation server and eui-64. Advertised prefix should
+be /64-/128. from CR00036691 … Try to advertise illegal prefix from CR00036689" → expected "(prefix
+/64-/128 should not be allowed) ??? Setting illegal prefix should have error message and should not be
+accepted." Terrence's decision (2026-09-30): "ignore the CR context, try to do the two things and see
+if they let you or not. We expect both actions are prevented."
+
+## Pre-case state (13:18–13:20 NZDT)
+- Consoles free (`sudo -n fuser -v /dev/u*` empty, no /var/lock/LCK..*). A bare CR returned exec prompts
+  `x230-10GP#`, `4050-5g#`, `IE520-stk#` (u2, u4, u5), `IE520-sa#`. No shell or config prompt was parked.
+- /nfsHome mounted. `bench_probe.py run` 2026-09-30T001909Z → MATCH, no advisory (14.5 s).
+- Pre-group capture 13:19–13:20: `pre-test-configs/2026-09-30/pre-u{0,1,3,5}.out` (show running-config,
+  show boot, show stack). It is IDENTICAL to the 12:50 baseline (vlan-2026-09-29/pre-test-configs/2026-09-30).
+  Current boot config `flash:/tb470-bench.cfg (file exists)` on u0/u1/u3/u5. Stack members 1/3/4 Ready,
+  member 3 Active Master, Normal operation.
+- Gate items 5/7/9 (script preflight, server path, defaulting CLI): not applicable, because this is a
+  hand-driven case with no framework script (skipped).
+- Tooling: ckcon.py / qmark.py (copies in ../vlan-2026-09-29/evidence/), console.py; rs.py (scapy RS
+  sender) and ra.py (RA decoder), in evidence/5082/.
+
+## Step 0 — scratch SVI (13:20:56–13:21:06, evidence/5082/5082-s0-u5.out)
+```
+vlan database / vlan 3995 name ck5082 / interface vlan3995 / ipv6 enable      (no % line)
+show ipv6 interface brief -> vlan3995  unassigned  N/A  admin up  down    (no member port)
+```
+
+## Step 1 — CLI help, `?` with NO CR (qmark.py; Ctrl-U self-test passed) (evidence/5082/5082-q-if-u5.out, -q-if2-u5.out)
+```
+(config-if)#ipv6 address ?          WORD (Prefix name delegated from parent PD server) | X:X::X:X/M | autoconfig | dhcp | suffix
+(config-if)#ipv6 dhcp client pd ?   WORD  Prefix name delegated from parent PD server
+(config-if)#ipv6 address ck5082pd ::/96 ?        eui64 | <cr>
+(config-if)#ipv6 address 2001:db8:5082::/96 ?    anycast | eui64 | <cr>
+(config-if)#ipv6 nd prefix ?        WORD (Prefix name delegated from parent PD server) | X:X::X:X/M | auto-advertise
+(config-if)#ipv6 nd prefix 2001:db8:5082::/128 ? <0-4294967295> Valid lifetime (secs) | <cr>
+(config-if)#ipv6 nd prefix ck5082pd 2001:db8:5082::/65 ?  <5-315360000> | infinite | <cr>
+```
+The parser offers `<cr>` at every prefix length, so any refusal must come when the command executes.
+
+## Step 2 — attempt (1): DHCPv6-PD client + eui64 address, /65–/128 (13:22:50–13:23:08, evidence/5082/5082-s1-u5.out)
+```
+IE520-stk(config-if)#ipv6 dhcp client pd ck5082pd          (no % line)
+IE520-stk(config-if)#ipv6 address ck5082pd ::/65 eui64     (no % line)
+IE520-stk(config-if)#ipv6 address ck5082pd ::/96 eui64     (no % line)
+IE520-stk(config-if)#ipv6 address ck5082pd ::/128 eui64    (no % line)
+IE520-stk(config-if)#ipv6 address ck5082pd ::/64 eui64     (no % line — the legal control)
+do show running-config interface vlan3995:
+ ipv6 address ck5082pd ::/64 eui64
+ ipv6 address ck5082pd ::/65 eui64
+ ipv6 address ck5082pd ::/96 eui64
+ ipv6 address ck5082pd ::/128 eui64
+ ipv6 dhcp client pd ck5082pd
+show ipv6 dhcp interface -> vlan3995 is in client (Prefix-Delegation) mode / Prefix name ck5082pd / prefix is not received
+```
+⇒ (1) ACCEPTED at /65, /96 and /128. Not prevented.
+
+## Step 3 — attempt (2): advertised prefix /65–/128 (13:23:31–13:23:52, evidence/5082/5082-s2-u5.out)
+```
+IE520-stk(config-if)#ipv6 nd prefix 2001:db8:5082::/65     (no % line)
+IE520-stk(config-if)#ipv6 nd prefix 2001:db8:5082::/96     (no % line)
+IE520-stk(config-if)#ipv6 nd prefix 2001:db8:5082::/127    (no % line)
+IE520-stk(config-if)#ipv6 nd prefix 2001:db8:5082::/128    (no % line)
+IE520-stk(config-if)#ipv6 nd prefix ck5082pd ::/65         (no % line)
+IE520-stk(config-if)#ipv6 nd prefix ck5082pd ::/128        (no % line; replaced the ::/65 line — one per PD name)
+IE520-stk(config-if)#ipv6 nd prefix 2001:db8:5082::/64     (no % line — the legal control)
+do show running-config interface vlan3995:
+ ipv6 nd prefix 2001:db8:5082::/127 2592000 604800
+ ipv6 nd prefix 2001:db8:5082::/128 2592000 604800
+ ipv6 nd prefix 2001:db8:5082::/64 2592000 604800
+ ipv6 nd prefix 2001:db8:5082::/65 2592000 604800
+ ipv6 nd prefix 2001:db8:5082::/96 2592000 604800
+ ...
+ ipv6 nd prefix ck5082pd ::/128
+```
+⇒ (2) ACCEPTED at /65, /96, /127 and /128. Not prevented.
+
+## Step 4 — the same length check on a LITERAL eui64 address: enforced (13:25:24–13:25:52, evidence/5082/5082-s3cfg-u5.out, -s3cfg2-u5.out)
+```
+IE520-stk(config-if)#ipv6 address 2001:db8:5083::/96 eui64
+% Prefix length must not be more than 64
+IE520-stk(config-if)#ipv6 address 2001:db8:5083::/65 eui64
+% Prefix length must not be more than 64
+IE520-stk(config-if)#ipv6 address 2001:db8:5083::/128 eui64
+% Bad mask /128 for address 2001:db8:5083::
+IE520-stk(config-if)#ipv6 address 2001:db8:5084::/64 eui64          (accepted — control)
+IE520-stk(config-if)#no ipv6 nd suppress-ra                          (accepted)
+```
+⇒ The platform has the eui64 length check, but only on the literal-prefix path. The PD path (step 2)
+bypasses it.
+
+## Step 5 — what the DUT actually advertises (13:26:16–13:27:06; evidence/5082/5082-s4up-u5.out, -s4down-u5.out, 5082-ra-eth1.pcap, 5082-ra-decode.txt)
+Stack port3.0.13 (tb470 eth1) moved into VLAN 3995 for the capture: `switchport access vlan 3995` →
+`connected 3995 a-full a-1000`. tcpdump on eth1 (icmp6). Three RS sent from eth1 with scapy (13:26:27,
+:29, :31). tb470 eth1 has accept_ra=0 and forwarding=1, so the host installed nothing from these RAs.
+```
+13:26:27.611 RA fe80::200:cdff:fe37:d6f (00:00:cd:37:0d:6f) -> fe80::f667:7041:7dff:3cfc  M=0 O=0 routerlifetime=1800
+    prefix 2001:db8:5082::/64  L=1 A=1 valid=2592000 preferred=604800
+    prefix 2001:db8:5082::/128  L=1 A=1 valid=2592000 preferred=604800
+    prefix 2001:db8:5082::/127  L=1 A=1 valid=2592000 preferred=604800
+    prefix 2001:db8:5082::/96  L=1 A=1 valid=2592000 preferred=604800
+    prefix 2001:db8:5082::/65  L=1 A=1 valid=2592000 preferred=604800
+    prefix 2001:db8:5084::/64  L=1 A=1 valid=2592000 preferred=604800
+(… identical prefix sets in the solicited RAs at 13:26:29.641 and 13:26:31.673, and in the multicast
+RAs to ff02::1 at 13:26:35.290, 13:26:36.308 and 13:26:52.319. RA count: 6)
+```
+`show ipv6 interface vlan3995` (13:26:58): 2001:db8:5082:0:200:cdff:fe37:d6f/64 preferred *,
+2001:db8:5084:0:200:cdff:fe37:d6f/64 preferred, fe80::200:cdff:fe37:d6f/64. No address from the PD
+lines, because no prefix had been delegated.
+port3.0.13 restored at 13:27:02: `no switchport access vlan` → running-config `switchport / switchport
+mode access` (as baseline), `connected 1 a-full a-1000`. tcpdump stopped by its own PID (167430); `ps`
+afterwards showed neither it nor its sudo parent.
+⇒ The illegal /65, /96, /127 and /128 prefixes are on the wire with the autonomous flag set.
+
+## Observation O-1 — prefix delegation not established on this bench (not graded)
+The aim was to exercise the accepted PD + eui64 lines with a real delegated prefix. The AR4050S (u1)
+was made a PD server on vlan10: `ipv6 local pool ck5082 2001:db8:5000::/48 56`, `ipv6 dhcp pool ck5082` /
+`prefix-delegation pool ck5082`, `interface vlan10` `ipv6 enable` + `ipv6 dhcp server ck5082`. The stack's
+PD client was moved to its vlan10 (`ipv6 enable`, `ipv6 dhcp client pd ck5082pd`). After ~60 s
+(evidence/5082/5082-pd-*.out):
+```
+4050  show counter ipv6 dhcp-server : SOLICIT in 6, ADVERTISE out 6, REQUEST in 0, REPLY out 0
+stack show counter ipv6 dhcp-client : SOLICIT out 754 (lifetime, all interfaces), ADVERTISE in 0, REQUEST out 0
+stack show ipv6 dhcp interface vlan10 : Prefix name ck5082pd / prefix is not received
+4050  ping ipv6 fe80::200:cdff:fe37:d6f%vlan10 repeat 3 : 3/3; ND entry for the stack on sa1, and the stack's for the 4050
+```
+The server answers, link-local unicast works both ways, and the DUT's DHCPv6 client never counts an
+ADVERTISE. The cause was not investigated (sentinel scope ruling). So the delegation was not
+established on this bench, and the accepted PD + eui64 config could not be exercised. It may bear on
+T5093 (DHCPv6 relay, queue row 10). The 4050 PD config was removed in teardown.
+
+## Teardown (13:30:34–13:31:43; evidence/5082/5082-td-u5.out, -td-u1.out, -td2-u1.out)
+- Stack: vlan10 `no ipv6 dhcp client pd`, `no ipv6 enable`; vlan3995 `no ipv6 nd prefix all`, the five
+  `no ipv6 address …` lines, `ipv6 nd suppress-ra`, `no ipv6 enable`; `vlan database` `no vlan 3995`. There
+  was no `% ` line. The SVI and VLAN 3995 are gone.
+- 4050: vlan10 `no ipv6 dhcp server`, `no ipv6 enable`; `no ipv6 dhcp pool ck5082`. Bare `no ipv6 local
+  pool` (the wiki's syntax) answered `% Incomplete command.`, and `no ipv6 local pool ck5082` removed it.
+- `show running-config` after teardown vs the pre-group capture: stack (u5) IDENTICAL; 4050 (u1)
+  IDENTICAL. The IE520-sa and x230 were not touched by this case.
