@@ -1,0 +1,169 @@
+TEST 8770 -- IPv6 Neighbors - in silicon
+===========================================================================
+Run:    2026-09-30 17:39-18:05 NZDT (device log UTC 04:39-05:05), tb470, bench-runner
+        (queue CAMPAIGN-QUEUE-2026-09-29.md row 11). Hand-driven: no framework script.
+Build:  awplus_main-20260923-20
+DUT:    IE520 3-member VCStack "IE520-stk" (members 1/3/4, master member 3), router
+        (virtual) MAC 0000.cd37.0d6f
+Case:   AWPTCM-T8770 (ck.db). 1) Use IxExplorer to emulate the MAXIMUM number of IPv6
+        neighbours ("consult the limits database ... this is approximately 5000"), traffic
+        to all of them sequentially at nearly 100 %: a) VLAN with an IPv6 address,
+        b) connect the emulated hosts to it, c) verify the maximum number are learned
+        (`show ipv6 neighbors`) and that traffic flows. 2) Check the learned neighbours
+        are in hardware (`show platform` commands): "Able to learn maximum number of
+        neighbors in hardware table".
+        Replaces the 2026-09-22 UNMEASURED / 09-23 SKIPPED log
+        (ipv6-2026-09-22/8770.log: "no ixia"). There is still no Ixia; the emulation is the
+        T6057 responder method (switching-2026-09-22/6057.log), done for IPv6.
+
+VERDICT: FAIL.
+  The check in step 2, as written, fails: the DUT learns more IPv6 neighbours in software
+  than its hardware table can hold, so learned neighbours are NOT in silicon. With traffic
+  to 5000 neighbours:
+    `show ipv6 neighbors`            3030 learned neighbours
+    `show platform table ipv6`       1567 of them as /128 host entries (each stack member)
+    `show log`                       "EXFX: Unable to add NH Route entry nh=<addr>/128 ...
+                                     Table full", 3718 messages on all three members,
+                                     1893 distinct neighbour addresses
+    line-rate stream                 42-45 % of 970 Mbps delivered (40.2 % overall)
+  The hardware limit measured here is ~1.9 K IPv6 neighbours (max 1904 /128 rows seen),
+  against the case's "approximately 5000".
+  PROVEN, and working: neighbours ARE learned by real ND and ARE programmed into silicon
+  (identical on all three members) up to that limit, and traffic to them forwards at
+  line rate (97-99 % of 984 Mbps at steady state for 2000 neighbours).
+  FOR REVIEW:
+  - The limits database was not available to this bench (no IE520 page in the AW+ wiki,
+    nothing in ck.db). If the IE520's specified IPv6-neighbour limit is ~1.9-2 K,
+    the capacity half of this FAIL goes. The mismatch half does not: neighbours beyond the
+    hardware table are still admitted to software, and only a log warning shows it.
+    Compare IPv4 (T6057): there the ARP table REFUSES new entries at 2045
+    (ENOBUFS) instead of admitting entries it cannot program.
+
+BENCH NOTES (how this was run)
+  - Topology, all in the standing bench (no recable):
+      source    tb470 eth2 -> IE520-sa port1.0.2 (vlan1) -> sa3 -> stack (vlan1, routed)
+      neighbours stack port3.0.13 -> tb470 eth1, moved into scratch VLAN 3971
+  - The emulated neighbours: nsresp.py on eth1 (evidence/tools; raw AF_PACKET socket,
+    kernel BPF `icmp6 and ip6[40]==135`, promiscuous). It answers every NS whose
+    target is in 2001:db8:8770:1::/64 with a solicited NA (S=1 O=1), from a unique MAC
+    02:87:70:<low 24 bits of the target>, so the DUT also learns that MAC on port3.0.13.
+  - Traffic: mkpcap.py pcaps (routed UDP to 2001:db8:8770:1::1:<n>, from
+    2001:db8:8770:ff::2 to the stack MAC), replayed from eth2 with tcpreplay.
+    Counted at eth1: tcpdump -w /dev/null on dst 02:87:70:* (exact, "0 packets dropped by
+    kernel"), plus per-second sysfs counters (eth2 tx, eth1 rx).
+  - tb470 has ip_forward=1 and IPv6 forwarding=1 (/proc/sys, read 17:34). So every receive-
+    side host uses a FAKE locally-administered MAC: a frame to a real tb470 NIC MAC would
+    be routed onward by the host.
+  - Case-scope reading: step 1b's "Ixia ports" = one host NIC with thousands of emulated,
+    RESPONDING neighbours. Needed because the DUT learns only from its own resolution
+    (T6057: gratuitous ARP is ignored).
+
+STEP 1a -- VLAN with an IPv6 address (17:39, evidence/8770/8770-s1a-u5.out)
+  vlan database / vlan 3971 name ck8770
+  interface port3.0.13 / switchport access vlan 3971
+  interface vlan3971 / ipv6 address 2001:db8:8770:1::1/64
+    -> show ipv6 interface brief: vlan3971 2001:db8:8770:1::1/64 preferred
+    -> show vlan 3971: port3.0.13(u); port3.0.13 connected a-full a-1000 in 3971
+  No "% " line.
+
+BASELINE -- feature OFF (17:39:48, `show ipv6 forwarding` -> "IPv6 forwarding is off")
+  10 routed frames eth2 -> 2001:db8:8770:1::1:1..a
+    responder: ns_mcast=0, na_sent=0   show ipv6 neighbors: (empty)
+  -> the DUT does not route or resolve with forwarding off; the path is dead as expected.
+
+STEP 1a (cont.) + 1b -- `ipv6 forwarding` (17:40:09), the same 10 frames (17:40:14)
+  "IPv6 forwarding is on"
+    responder: ns_mcast=10, na_sent=10, targets=10
+    show ipv6 neighbors: 10 rows, e.g.
+      2001:db8:8770:1::1:4   0287.7001.0004 vlan3971 port3.0.13 dynamic
+    show platform table ipv6, on EACH of members 1, 3 and 4:
+      2 2001:db8:8770:1::/ 64 *  trap to cpu
+      5 2001:db8:8770:1::1:1/128 0287.7001.0001 LL 2 13 - 3971   (... through ::1:a, RE-Idx 5-14)
+  -> 10/10 learned by ND and 10/10 in silicon on every member (Dev 2 Port 13 = port3.0.13).
+
+STEP 1c -- fill: 1000 new destinations per batch (evidence/8770/8770-fill-k*.out*,
+  tools/8770-fill.sh); count = 2001:db8:8770:1:: rows in `show ipv6 neighbors`, read 5 s after
+  each batch
+    batch  rate     destinations sent   neighbours   hw /128 rows (per member, all equal)
+      1   300 pps        1000               505          505
+      2   300 pps        2000              1010         1010
+      3    50 pps        3000              1934            -
+      4    50 pps        4000              2140            -
+      5    50 pps        5000              2150            -
+      6    50 pps        6000              1984            -
+      7    50 pps        7000              2352            -
+      8    50 pps        8000              2632         1904  (hw read ~1 min after nbr)
+  The responder answered every NS it saw (204,535 NS, 204,535 NA over the case; all
+  multicast; NA latency in the batch-3 capture p50 0.06 ms, max 0.30 ms).
+  Two things the fill shows:
+  (i) RESOLUTION LOSS ON THE CPU PATH. At 300 pps only ~50 % of answered destinations
+      became neighbours, and the misses came in contiguous runs of 110-200 addresses
+      (0.4-0.6 s). Each missed address was solicited 3 times and answered 3 times.
+      At 50 pps (batch 3, NS/NA captured: p/nd-k3.pcap on tb470):
+      852 of 1000 new targets resolved on the first NS, 50 on the second,
+      39 on the third, 58 never (3 NS, 3 NA, not learned). One was never solicited.
+      So the DUT drops a rate-dependent share of valid NAs.
+  (ii) EVICTION, NOT REFUSAL, near 2.1 K. Batch 4 kept only 1260 of batch 3's 1934
+      entries and 719 of batch 2's 1010. From batch 4 on the count wandered 1984-2632 while
+      the DUT re-solicited old entries at a high rate (9344 NS in batch 4 alone).
+      (IPv4, T6057, is the opposite: it refuses new entries at 2045.)
+  Sandwich read with no new destinations (17:51, nbr -> hw -> nbr, 8770-s2-sandwich.out.gz):
+      nbr 1098 / hw 905 on each member / nbr 1098. Every hw row was a learned neighbour.
+      193 learned neighbours had NO hw row, although no "Table full" is in the retained log
+      before 04:54 UTC. Their ND state is not shown by this CLI. OBSERVATION, not graded.
+
+STEP 1c (cont.) -- traffic to all neighbours at line rate (tools/8770-stream.sh)
+  A) 2000 destinations (1..2000, 1514 B frames), 30 s, 17:53:00-17:53:34
+       tcpreplay: 2,438,001 packets in 30.00 s, 984.13 Mbps, 81,253 pps, 0 failed
+       eth1 exact count: 1,568,613 (64.3 % overall; 0 dropped by kernel)
+       per second (eth1 rx / eth2 tx): 5.5 % at t+1 s, rising steadily as the DUT resolved
+       destinations (~25 s to converge), then 96.5 / 98.4 / 99.2 / 98.6 / 99.2 / 96.9 /
+       98.2 / 97.8 % for the last 8 s (the rx counter includes ~700 NS/s)
+       coverage, last 2 s: 1998 of 2000 distinct neighbour MACs delivered
+       after: neighbours 2055, hw 1855 per member
+  B) 5000 destinations (1..5000), 60 s, 17:55:10-17:56:12
+       tcpreplay: 4,810,001 packets in 60.05 s, 970.07 Mbps, 80,092 pps, 0 failed
+       eth1 exact count: 1,933,476 (40.2 %)
+       per second: 37-45 % throughout, never converging; ~43 % = about 2150 destinations'
+       worth of traffic
+       coverage, last 2 s: 3661 distinct neighbour MACs (the forwarded set churns)
+       after: neighbours 3030, hw 1567 per member
+  -> Traffic flows at line rate to every neighbour the hardware holds. Beyond ~1.9 K
+     it does not.
+
+STEP 2 -- learned neighbours in hardware (`show platform table ipv6`, `show log`)
+  - Up to capacity: YES. Every hw /128 row matched a learned neighbour (10/10 at the
+    start; the members' tables were identical at every read).
+  - At load: NO. 3030 learned vs 1567 in hardware (B). The first "Table full" retained in
+    `show log` is at 04:54:02 UTC (end of run A); there are 3718 in all (IE520-stk
+    180/142/1692, -1 146/126/613, -4 133/104/582 in minutes 04:54/55/56), covering 1893
+    distinct neighbour addresses, e.g.
+      2026 Sep 30 04:56:59 local6.warning IE520-stk-4 EXFX[681]: Unable to add NH Route
+      entry nh=2001:db8:8770:1::1:4bd/128 mac=0287.7001.04bd vid:3971 port=port3.0.13.
+      Table full
+    (8770-s3-log.out.gz, 8770-s3-tablefull.out.gz). The buffer may have rolled; earlier
+    messages cannot be ruled out.
+  - Maximum hw /128 rows seen: 1904 per member (batch 8).
+  -> Step 2 FAILS as written: learned neighbours are not all in hardware, and the hardware
+     maximum (~1.9 K) is far below the case's ~5000.
+
+TEARDOWN (18:04-18:05)
+  Responder stopped (stop file + SIGTERM, stats "stopped" stamped; no tcpdump, tcpreplay or
+  responder process left, by ps). Stack:
+    no ipv6 forwarding / interface vlan3971 no ipv6 address 2001:db8:8770:1::1/64 /
+    interface port3.0.13 no switchport access vlan / vlan database no vlan 3971
+  -> "IPv6 forwarding is off"; `show ipv6 neighbors` empty; `show platform table ipv6` = the
+     two baseline rows (::/0, fe80::/64) on members 1, 3 and 4; port3.0.13 back in vlan1.
+  `show running-config` (18:06, 8770-post-u5.out) vs pre-test-configs/2026-09-30/pre-u5.out:
+     IDENTICAL (0 diff lines). Stack 1/3/4 Ready, master 3, Normal operation.
+  The SA, 4050 and x230 were not configured by this case.
+
+RUN LABEL: clean -- the bench had one probe MATCH before the group
+  (2026-09-30T043141Z). Nothing else ran on the consoles (fuser empty at the gate).
+  Pre-group capture pre-test-configs/2026-09-30/ = IDENTICAL to the row-10 baseline.
+
+EVIDENCE: evidence/8770/ (console outputs, per-batch neighbour/hardware reads, responder
+  counters, per-second rates, tcpreplay summaries; the tcpreplay files had one per-packet
+  flow-stats warning each, stripped and noted in-file). Tools: evidence/tools/nsresp.py,
+  mkpcap.py, 8770-fill.sh, 8770-stream.sh, ckcon.py (console.py wrapper; CKTO = per-command
+  timeout). Raw console transcripts: tb470 /tmp/ck11/console-u5.log (tmpfs).
