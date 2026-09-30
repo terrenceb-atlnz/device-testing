@@ -21,10 +21,10 @@ restored the bench at 17:14–17:16 (verified 17:17). **Resume next session with
 | T18302 | Private VLAN send from uplink port | — | **NOT YET RUN**: resume next session |
 | T18303 | Private VLAN send from private port | — | **NOT YET RUN**: resume next session |
 | T27887 | vlan-based QinQ interop with vlan translation | [27887-unsupported.log](27887-unsupported.log) | **UNSUPPORTED** (2026-09-30). The licence bits are on (FULL: VlanDT, VLAN-TRANS-FULL/LITE on members 1/3/4 and the SA), but the global VLAN-based QinQ command `vlan-stacking vlan … outer-vlan …` is `% Unrecognized command` on both IE520s. Supplementary, not graded: port-based QinQ + translation on one provider port was accepted and translates the OUTER tag (100/100 each way). O-2: the translation `outer-vlan` double-tag drops the customer tag |
-| T38410 | Voice VLAN basic | — | **SKIP-PENDING**: needs an IP phone or LLDP-MED emulation (Terrence's decision) |
+| T38410 | Voice VLAN basic | [38410.log](38410.log) | **PASS** (2026-09-30). `switchport voice vlan 3997` on port3.0.13 → the DUT's LLDP-MED Network Policy TLV to a scapy Class III phone on eth1 was voice, Tagged, VLAN 3997, L2 priority 5, DSCP 0 (none at baseline). Tagged DHCP was leased 192.168.97.100 from the DUT's own pool (OFFER/ACK in 3997), the MAC was learned in 3997, and ICMP 3/3. The mirror step was skipped: no capture point, and eth1 is the observer |
 
 ## 2026-09-30 run (queue row 13: T27887, T38410)
-Baseline `pre-test-configs/2026-09-30/` (12:50, includes the x230's `lldp run` and the SX link's VLAN 4000). Scratch in tb470 `/tmp/ckvlan30/`. No group isolation was needed. Each case builds and removes its own config.
+Baseline `pre-test-configs/2026-09-30/` (12:50, includes the x230's `lldp run` and the SX link's VLAN 4000). Scratch in tb470 `/tmp/ckvlan30/`. No group isolation was needed. Each case builds and removes its own config. Group close 13:13–13:14: running-config IDENTICAL to that baseline on u0/u1/u3/u5 (`post-test-configs/2026-09-30/`), boot config tb470-bench.cfg on all, probe 2026-09-30T001356Z MATCH.
 
 ## Group setup (14:27–14:31) — redo before the next case
 The 2-leg aggregators sa2 (stack ↔ x230) and sa3 (stack ↔ SA) were freed into scratch VLANs, so that each

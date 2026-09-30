@@ -1,0 +1,135 @@
+# T38410 — Voice VLAN - Basic functionality — tb470 IE520 stack — 2026-09-30 — PASS
+
+Verdict: PASS. With `switchport voice vlan 3997` on stack port3.0.13, the DUT advertised an LLDP-MED
+Network Policy TLV to the emulated phone: application voice, Tagged, VLAN 3997, L2 priority 5, DSCP
+0. It sent no such TLV before the config (baseline). The phone then ran DHCP 802.1Q-tagged in VLAN
+3997, and the DUT's own DHCP pool for the voice VLAN leased it 192.168.97.100 (OFFER and ACK tagged
+3997). The DUT learned the phone's MAC in VLAN 3997 on port3.0.13 and answered 3/3 ICMP echoes in
+that VLAN. The phone was assigned to the correct VLAN.
+
+Two limits, both stated rather than hidden:
+- The phone is a scapy emulation (Terrence, 2026-09-30: "emulate with scapy, i spose").
+- Case step 3's port mirror was NOT configured. The stack has only one host NIC (eth1, the phone
+  itself), so there is no capture point for a mirror destination. The observation point is eth1:
+  tcpdump plus the emulator's own capture, which see everything the DUT sends the phone. The mirror
+  step is "skipped", not passed.
+
+Run labelled: clean.
+
+Operator: bench-runner subagent (sentinel = parent session device-testing-ba, /test-mode shape A).
+Queue: IE520/CAMPAIGN-QUEUE-2026-09-29.md row 13. Case text: ck.db zephyr AWPTCM-T38410, 3 steps:
+(1) Configure the switchport with a voice VLAN; (2) Configure a DHCP pool for the voice VLAN; (3)
+Mirror the port with the voice VLAN and connect an IP phone to the DUT — expected "Ip phone should
+be assigned to the correct VLAN".
+
+## Bench mapping
+| role | where |
+| --- | --- |
+| DUT port with the voice VLAN | stack port3.0.13 (member 3, the Active Master), data VLAN 1 (access) |
+| IP phone | tb470 eth1 (direct cable to port3.0.13), `evidence/38410/phone.py` (scapy 2.6.1, sudo): MAC 00:00:5e:00:53:10, LLDPDU every 1 s with Chassis/Port ID = MAC, TTL 120, System Name `ck-phone`, System Capabilities Telephone/Telephone, LLDP-MED Capabilities 0x0033 + device type Class III, MED inventory hardware rev `CK-PHONE-EMU` |
+| DHCP server | the IE520 stack itself (`service dhcp-server` exists on this build, checked 13:06, so the 4050 pool + relay fallback was not needed). No host dhclient was used |
+| voice VLAN / pool | VLAN 3997 `ck-voice`, SVI 192.168.97.1/24, pool 192.168.97.100–150, lease 1 h |
+
+## Pre-case state
+Same session as T27887 (see 27887-unsupported.log). Group baseline
+`pre-test-configs/2026-09-30/` (12:50). T27887 had torn down to IDENTICAL by 13:03. Consoles free,
+boot config `flash:/tb470-bench.cfg` on u0/u1/u3/u5, stack 1/3/4 Ready, member 3 master. Probe
+2026-09-29T234443Z MATCH. Support check (qmark.py, `?` with no CR, Ctrl-U line-kill, self-test
+passed; evidence/38410/38410-q-*.out):
+- `service ?` → dhcp-relay, dhcp-server, dhcp-snooping; `ip dhcp pool ?` → WORD;
+- `switchport voice ?` → dscp | vlan; `switchport voice vlan ?` → <1-4094> | dot1p | dynamic | priority | untagged;
+- `lldp med-tlv-select ?` → all, capabilities, inventory-management, location, network-policy, power-management-ext;
+- `mirror interface port3.0.13 ?` → direction | vlan (so the mirror command exists; it was not configured, see above);
+- `lldp med-notifications ?` → `% Unrecognized command` (not needed by the case).
+
+## Step 0 — baseline, voice VLAN NOT configured (13:08:10–13:08:47) — evidence/38410/38410-s0.out, -s0-phone.pcap
+The phone sent 34 LLDPDUs over 35 s. The DUT answered with 4 LLDPDUs (a fast-start burst of 3 at 1 s
+intervals, then one at +30 s), each carrying port-id port3.0.13, MED Capabilities `0027` + device
+type `04` (network connectivity), and **no Network Policy TLV**:
+```
+rx LLDPDU from 02:00:cd:37:0d:6f: [('port-id', 'port3.0.13'), ..., ('MED-capabilities', '002704')]
+voice network policy: None
+```
+
+## Step 1 + 2 — configuration (u5, 13:09:08–13:09:32, ckcon --stop-on-error, no `% ` line) — evidence/38410/38410-cfg-u5.out
+```
+configure terminal
+vlan database / vlan 3997 name ck-voice / exit
+interface port3.0.13 / switchport voice vlan 3997 / exit
+service dhcp-server
+interface vlan3997 / ip address 192.168.97.1/24 / exit
+ip dhcp pool ck-voice / network 192.168.97.0/24 / range 192.168.97.100 192.168.97.150 / default-router 192.168.97.1 / lease 0 1 0 / exit
+end
+```
+Read back:
+- `show running-config interface port3.0.13` → switchport mode access / **spanning-tree portfast**
+  (added by the voice-vlan command, as the AW+ page says) / switchport voice vlan 3997;
+- `show vlan 3997` → ck-voice STATIC ACTIVE port3.0.13(t) (the access port became a TAGGED member of
+  the voice VLAN on its own);
+- `show ip dhcp pool` → ck-voice 192.168.97.0/24, 100–150, lease 0:1:0:0, default-router
+  192.168.97.1, 51 dynamic, 0 leased;
+- `show ip interface brief` → vlan3997 192.168.97.1/24 running.
+
+## Step 3 — the phone connects (13:10:36–13:11:21) — evidence/38410/38410-s2.out, -s2-phone.pcap, -s2-eth1.pcap (tcpdump), -s2-dut.out
+(Run s1, 13:09:56, had only an 8 s LLDP window, and no DUT LLDPDU fell inside it: the phone was
+already a known neighbour, so there was no new fast-start burst, and the periodic interval is 30 s.
+The DUT's `show lldp neighbors detail` at 13:10:18 listed port3.0.13 → `ck-phone`, Telephone,
+`LLDP-MED Device Type: Endpoint Class III`. s2 re-ran it with a 40 s window.)
+
+Network policy advertised by the DUT (decoded by phone.py and, independently, by tcpdump -v):
+```
+13:10:44.255 02:00:cd:37:0d:6f > 01:80:c2:00:00:0e LLDP
+	Organization specific TLV (127), length 8: OUI ANSI/TIA (0x0012bb)
+	  Network policy Subtype (2)
+	    Application type [voice] (0x01), Flags [Tagged]
+	    Vlan id 3997, L2 priority 5, DSCP value 0
+13:11:14.535  (same TLV again, 30 s later)
+```
+DHCP in the advertised VLAN (the phone tagged VID 3997, PCP 5, broadcast flag set):
+```
+13:11:17.698 00:00:5e:00:53:10 > ff:ff:ff:ff:ff:ff vlan 3997, p 5  DHCP Discover
+13:11:17.70–18.54  00:00:cd:37:0d:6f vlan 3997  ARP who-has 192.168.97.100 tell 192.168.97.1  x5   (the pool's ping/ARP conflict probe)
+13:11:18.751 00:00:cd:37:0d:6f > ff:ff:ff:ff:ff:ff vlan 3997, p 0  192.168.97.1.67 > 255.255.255.255.68 DHCP Reply (OFFER)
+13:11:18.962 phone vlan 3997, p 5  DHCP Request
+13:11:19.033 DUT vlan 3997  DHCP Reply (ACK)
+phone.py:  OFFER from 00:00:cd:37:0d:6f (192.168.97.1) vlan=3997: yiaddr=192.168.97.100 server_id=192.168.97.1 router=192.168.97.1 lease=3600
+           ACK   from 00:00:cd:37:0d:6f vlan=3997: yiaddr=192.168.97.100 router=192.168.97.1 lease=3600 mask=255.255.255.0
+           ARP reply: 192.168.97.1 is-at 00:00:cd:37:0d:6f vlan=3997
+           ICMP echo replies: 3/3, vlan=[3997]
+```
+DUT view (13:11:26–13:11:30):
+```
+show ip dhcp binding  -> 192.168.97.100  0000.5e00.5310  Dynamic  30 Sep 2026 01:12:01 (UTC)
+show mac address-table | include 0000.5e00.5310
+   1    port3.0.13   0000.5e00.5310   forward  dynamic   (its untagged LLDP)
+   3997 port3.0.13   0000.5e00.5310   forward  dynamic   (its tagged voice traffic)
+show counter dhcp-server -> DISCOVER in 1, REQUEST in 1, OFFER out 1, ACK out 1, NAK 0
+```
+Not graded, noted:
+- the DUT sends its own frames in the voice VLAN at PCP 0 (the advertised priority 5 is for the phone);
+- `show arp` did not list 192.168.97.100 (the emulator does not answer the DUT's later ARP
+  requests; the ICMP replies went to the requesting MAC).
+
+## Teardown (u5, 13:12:09–13:12:27, ckcon --stop-on-error, no `% ` line) — evidence/38410/38410-td-u5.out
+`interface port3.0.13` / `no switchport voice vlan` / `no spanning-tree portfast` (the voice-vlan
+`no` does not remove portfast) / `no ip dhcp pool ck-voice` / `interface vlan3997` / `no ip address` /
+`no service dhcp-server` / `vlan database` / `no vlan 3997`. `show ip dhcp binding` then empty.
+Verified 13:12:38: u5 `show running-config` **IDENTICAL** to the 12:50 baseline (empty diff);
+port3.0.13 connected in VLAN 1.
+
+## Group close (13:13–13:14)
+- `show running-config` on u0, u1, u3 and u5 is IDENTICAL to `pre-test-configs/2026-09-30/`
+  (post-test-configs/2026-09-30/final-uN.out).
+- `show boot` → Current boot config `flash:/tb470-bench.cfg (file exists)` on all four.
+- Stack 1/3/4 Ready, member 3 Active Master.
+- A bare CR on u2/u4 gives an exec prompt.
+- Every ckcon/qmark session left with `end` + `terminal no monitor`.
+- Process fault, fixed: the three tcpdumps of this case (s0/s1/s2) did not die at the step's
+  `sudo -n kill` of their sudo wrapper PID. They were found at 13:13 and killed by PID (164075,
+  164388, 164487, owner tcpdump, started 13:08:05 / 13:09:51 / 13:10:31). No capture process was
+  left afterwards. So the s0/s1 eth1 pcaps also hold traffic up to 13:13. The per-stage evidence is
+  the phone.py pcaps and the s2 tcpdump, read above.
+- `bench_probe.py run` 2026-09-30T001356Z (13:13:56 NZDT): **MATCH**, no advisory. Consoles free.
+- No framework run and no framework log (hand-driven). Exit codes: all ckcon calls rc 0; phone.py
+  s0 rc 1 (no policy, as expected for the baseline), s1 rc 1 (window too short, above), s2 rc 0.
+- Raw console transcripts: tb470 /tmp/ckvlan30/console-u5.log (tmpfs).
