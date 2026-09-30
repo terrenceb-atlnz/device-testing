@@ -1,0 +1,226 @@
+TEST 38093 -- MRP ring with DUT as MRM
+===========================================================================
+Run: 2026-09-30 14:32-14:59 NZDT, tb470, hand-driven (no framework script), queue row 9.
+Tester: bench-runner. Case text: AWPTCM-T38093 (ck.db zephyr_cases), 9 steps.
+Device clocks are UTC and run ~42 s ahead of tb470 (SA port-down 01:40:00 vs
+tb470 shut stamp 14:39:18 NZDT = 01:39:18 UTC).
+
+VERDICT: FAIL -- labelled CLEAN (reproduced 3 times; two method substitutions,
+below, that do not touch what failed).
+
+  The DUT as MRM does the job the steps ask for: the ring is operational after the
+  save, a forwarding-port shutdown recovers in 70-108 ms, the ring re-blocks one port
+  when the link returns, and after save + reboot the ring comes back and traffic is
+  received. BUT every time the ring CLOSES -- a restored link (steps 8, repeat) or
+  the post-boot ring-up (step 9) -- the MRM's own log shows
+      Ring closed -> FSM CHK_RC -> CHK_RO evt=MRP_ProtEvTestTimerExpired -> Ring opened
+  and it sets the returning port Forwarding while the other ring port is Forwarding
+  too. VLAN 1 then LOOPS for 42-303 ms: one broadcast frame arrived up to 410 times,
+  and each host NIC received its own frames back. After the reboot the DUT logged
+  `Thrash-limiting: Disabled learning on sa2 ... port1.0.2 ... port1.0.9 on vlan 1`,
+  its own loop evidence. A further false "Ring opened" fired 39 s after the ring had
+  closed, with no event on the bench at all.
+  FAIL CONDITION: MRP exists to keep the ring loop-free; here the MRM itself creates
+  the loop, on every ring closure. That is the same false test-timer expiry as
+  T28863 (28863-fail.log), seen here without any stack membership change. The
+  loop test is the one row 15 used: the same frame arriving more than once, and
+  frames returning to the NIC that sent them. Neither happens in the baseline or in
+  steady state. No threshold was invented.
+  Terrence may re-grade: on the literal "expected" columns alone (the 200 ms
+  profile is the only recovery bound available) every step would PASS.
+
+DUT / TOPOLOGY
+---------------------------------------------------------------------------
+  DUT      IE520-stk (stk_a): members 1 (u2), 3 (u5), 4 (u4); prio 128 all; VMAC on.
+           Master at start: member 4. After the step-9 reboot: member 3.
+  sw1      IE520-sa (u3), MRC.  sw2: NONE -- the bench has one MRP-capable partner
+           (x230 and AR4050S have no MRP CLI, mrp-2026-09-22/README.md), so the ring is
+           two-node. Step 4 is NOT RUN; see STEPS.
+  ring     MRP ring 1, VLAN 1 (access ports; ring VLAN auto), profile 200ms (default):
+             stack port1.0.13 [m1] <-> SA port1.0.13   AT-SP10TM, 10GBASE-TM at 1000 (copper)
+             stack port4.0.26 [m4] <-> SA port1.0.26   AT-SPSX, 1000BASE-SX (fibre)
+           sa3's other leg, stack 4.0.9 <-> SA 1.0.9, is SHUT (stack end); STP is off.
+           The ring was built in row 15 (config, every line accepted: 28863-fail.log
+           "RING CONFIG APPLIED", evidence/28863/build-u5.out, build-u3.out) and kept.
+  traffic  "Ixia" = tb470 flows.py (evidence/28863/tools), 4 raw L2 flows at 500 pps
+           each (2 ms resolution): B32/U32 eth3 -> eth2 (broadcast/unicast), B23/U23
+           eth2 -> eth3. Path: eth3 -> x230 1.0.1 -> x230 sa2 -> stack sa2 (m1) ->
+           stack VLAN 1 -> ring -> SA -> SA 1.0.2 -> eth2. It TRANSITS the ring:
+           stack learns eth2 (00f0.4d00.7717) on port1.0.13, SA learns eth3
+           (...7718) on port1.0.13 (evidence/38093/s6-mac-u4.out, s6-mac-u3.out).
+  build    awplus_main-20260923-20 on all three members and the SA (show stack detail,
+           before and after the reboot: evidence/38093/s9-postboot-u5.out).
+
+GATE (bench-runner pre-run gate, row 9, 14:32-14:34)
+---------------------------------------------------------------------------
+  1 consoles     sudo fuser /dev/u*: none held; no LCK files; no tmux / flows / pollers
+  2 prompts      bare CR 14:32:54: u0 x230-10GP#, u1 4050-5g#, u2/u4/u5 IE520-stk#,
+                 u3 IE520-sa#  (none in config, none in a shell)
+  3 /nfsHome     mounted (nfs4 10.36.250.11:/home)
+  4 probe        2026-09-30T013300Z MISMATCH (3) = exactly the inherited ring:
+                 swi_b-swi_d port1.0.9-port4.0.9 absent (4.0.9 shut); tb-swi_a eth2
+                 port1.0.13 EXTRA / tb-swi_b eth2 port1.0.2 MISSING (sa3 dissolved, the
+                 stack learns eth2 on the ring port). Nothing else. Proceeded (dispatch).
+  5 preflight    SKIPPED -- no framework script
+  6 boot config  flash:/tb470-bench.cfg (file exists) on stack, SA, x230, 4050
+  8 sentinel     sentinel: parent (/test-mode)
+  9 script CLI   SKIPPED -- no script; every command went through cfg.py, which stops
+                 on the first "% " line (none occurred)
+  Pre-row capture: evidence/row9/pre-u4.out (stack), pre-u3.out, pre-u0.out, pre-u1.out.
+
+BOOT-CONFIG SNAPSHOT (before any write -- the case saves)
+---------------------------------------------------------------------------
+  14:35  show file of flash:/tb470-bench.cfg on members 4, 1 and 3: identical, 2927
+         bytes, "Startup-config saved on Tue Sep 29 23:43:47 2026". Saved to the repo as
+         evidence/row9/orig-stack-tb470-bench.cfg; SA's (1629 bytes, 23:44:05) as
+         orig-sa-tb470-bench.cfg. On-flash copies: `copy flash:/tb470-bench.cfg
+         flash:/tb470-bench.row9.cfg` on the stack (lands on member 4's flash only) and
+         on the SA -- "Successful operation" both (evidence/row9/snap-u4.out, snap-u3.out).
+  Restored at the end of row 9 (see the row's last log / README).
+
+STEPS
+---------------------------------------------------------------------------
+  1 Topology           two-node ring as above (sw2 absent: one MRP partner on the bench).
+  2 DUT MRP config     applied in row 15, every line accepted, no "% ". Re-read 14:33:
+                       Role: Manager, Running, Network Status: Closed, Port1 port1.0.13
+                       Forwarding, Port2 port4.0.26 Blocking, Profile 200ms, Default
+                       Test Frame Interval 20ms, Test Monitoring Interval Count 3,
+                       React on Link Change: No (evidence/row9/pre-u4.out).
+                       PASS
+  3 sw1 MRC config     SA Role: Client, Running, port1.0.13 + port1.0.26 Forwarding. PASS
+  4 sw2 MRC config     NOT RUN -- no second MRP-capable node (bench structural).
+  5 Save + show mrp    14:36:54 stack `write memory` -> "Building configuration... [OK]
+                       / Synchronizing file across the stack" -> tb470-bench.cfg 2971 bytes
+                       on members 4, 1, 3 (01:37:33). 14:37:08 SA `write memory` [OK], 1649
+                       bytes. `show mrp ring`: Manager, Running, Closed, 1.0.13 Fwd /
+                       4.0.26 Blk; SA Client both Fwd (evidence/38093/s5-save-u4.out, -u3).
+                       CASE-TEXT NOTE: "expected: network status is open". In MRP a
+                       healthy ring with all links up is CLOSED; Open means a break. The
+                       ring is operational; the text's "open" is read as an error.
+                       PASS (operational)
+  6 Traffic            t93base, 60 s: 30000/flow sent, 0 lost, 0 dups, 0 echoes; latency
+                       median 0.16 ms. PASS
+  7 Shut a fwd port    run t93fo (14:38:50-14:40:10), 80 s of flows:
+                       14:39:18 stack `interface port1.0.13` / `shutdown` (MRM primary,
+                       copper). All four flows: ONE outage of 108 ms (seq 13005-13058),
+                       then continuous. MRM: Network Status Open, port1.0.13 Blocking
+                       (down), port4.0.26 Forwarding. PASS (recovered, 108 ms)
+  8 Restore the port   14:39:48 `no shutdown`; link up ~14:39:52 (device 01:40:34).
+                       Ring closes and ends Closed with ONE port blocked -- the RETURNED
+                       port: Port1 port1.0.13 Blocking, Port2 port4.0.26 Forwarding (the
+                       MRM keeps the secondary as the path). Traffic received.
+                       BUT: loop window 1790732392.264-.326 (62 ms): 2434 duplicate
+                       receptions, one frame received 410 times, echoes eth2 611 / eth3
+                       1272; unicast holes 100-102 ms. Stack mrpd, verbatim:
+                         01:40:34 mrpd: PORT: port1.0.13 link UP (0x11043)
+                         01:40:34 mrpd: ...: Ring-id[1]: Ring closed
+                         01:40:34 mrpd: FSM: ring_id=1 PRM_UP -> CHK_RC evt=MRP_ProtEvMAUTypeChangeInd
+                         01:40:34 mrpd: PORT: Update ring port port1.0.13 with state to Forwarding
+                         01:40:34 mrpd: PORT: port 5013 set Forwarding
+                         01:40:34 mrpd: ...: Ring-id[1]: Ring opened
+                         01:40:34 mrpd: FSM: ring_id=1 CHK_RC -> CHK_RO evt=MRP_ProtEvTestTimerExpired
+                         01:40:35 mrpd: PORT: Update ring port port1.0.13 with state to Blocked
+                         01:40:35 mrpd: ...: Ring closed / CHK_RO -> CHK_RC evt=MRP_ProtEvTestRingInd
+                         01:40:35 mrpd: FDB: Flush FDB entries for the ring ports ...
+                       SA: 01:40:33 "EXFX: Link flapping detected on port1.0.13", 01:40:34
+                       port1.0.13 Up -> Forwarding on the MRM's TopologyChange.
+                       (evidence/38093/s7-log-u4.out, s7-log-u3.out, t93fo/)
+                       FAIL (MRM loops the ring on closure)
+     repeat 7+8        run t93fo2 (14:41:49-14:43:10): shut the port now forwarding,
+                       stack port4.0.26 (fibre), at +20 s: outage 70 ms (B/U32 70, U23 116
+                       incl. the flush) -> MRM Open, 1.0.13 Fwd, 4.0.26 Blk(down).
+                       `no shutdown` at +50 s: loop window 42 ms, 1589 dups, max 260 copies,
+                       echoes eth2 772 / eth3 840. End: Closed, 1.0.13 Fwd / 4.0.26 Blk.
+                       Reproduced.
+  9 Save DUT + reboot  14:44:1x `write memory` [OK] + synchronised (2971 bytes, 01:44:46,
+                       all members); show boot: flash:/tb470-bench.cfg (file exists).
+                       Run t93boot: 420 s of flows; `reload` on u4 at 14:44:47 ("y" sent
+                       1790732687.349); passive recorders on u2/u5, SA poller every 3 s.
+                       - Outage 191 s = the reboot (the stack is the only path).
+                       - Boot, every member: "Loading configuration file
+                         flash:/tb470-bench.cfg, please wait. ... done!" with NO error or
+                         "% " line in between. Login banners +191..196 s.
+                       - Error-looking boot lines, all PRE-AW+ and platform-generic:
+                         "Error, no UBI device selected!" (bootloader) and "restart-gpio
+                         ... failed with error -524" (kernel). The same lines are in
+                         row 15's member-reload transcripts (tb470 /tmp/ck15/console-u5.log:
+                         3x UBI, 6x gpio), so they are this platform's boot noise, not
+                         the case. Also logged (crit/warn), pre-existing bench state, not
+                         MRP: "port3.0.13 - 10Gb SFP+ in 1Gb SFP port not supported" (the
+                         AT-SP10TM carrying eth1), "FAT-fs (sda1): Volume was not properly
+                         unmounted" (the USB stick).
+                       - Stack re-formed: 1/3/4 Ready, Normal operation, member 3 Active
+                         Master, VMAC 0000.cd37.0d6f, one build.
+                       - MRP ring up: Manager, Closed, Port1 port1.0.13 Blocking, Port2
+                         port4.0.26 Forwarding. Traffic received.
+                       - BUT at ring-up the loop again: +203.1 s window 303 ms (1735 dups,
+                         max 396 copies, echoes eth2 985 / eth3 750, U23 hole 1688 ms),
+                         and +242.6 s window 81 ms (3010 dups, echoes 137 / 2887). Stack
+                         log (evidence/38093/s9-postboot-u5.out):
+                           01:48:34 mrpd: port1.0.13 + port4.0.26 Forwarding, then both
+                                    Blocked, "Ring opened"
+                           01:48:38 mrpd: port4.0.26 Forwarding
+                           01:48:51 mrpd: Ring closed / port1.0.13 Forwarding / Ring opened /
+                                    CHK_RC -> CHK_RO evt=MRP_ProtEvTestTimerExpired  (x2)
+                           01:48:51 EXFX: Thrash-limiting: Disabled learning on sa2 by
+                                    00f0.4d00.7718 on vlan 1 (and port1.0.2, port1.0.9;
+                                    members 1 and 4 too); re-enabled 01:48:53
+                           01:49:30 mrpd: port1.0.13 Forwarding / Ring opened / CHK_RC ->
+                                    CHK_RO evt=MRP_ProtEvTestTimerExpired; 01:49:31 Blocked /
+                                    Ring closed -- no VCS or link event anywhere near it.
+                       - Post-boot steady state, run t93post 180 s (14:52:40-14:55:40):
+                         90000/flow, 0 lost, 0 dups, 0 echoes.
+                       FAIL (no errors in config load, ring up, traffic received -- but
+                       the ring-up loops, and the DUT logs thrash-limiting for it)
+
+RESULTS TABLE
+---------------------------------------------------------------------------
+  run      event                         lost B32/B23/U32/U23   dups B32/B23   echoes eth2/eth3   loop window
+  t93base  none, 60 s                    0/0/0/0                0/0            0/0                -
+  t93fo    shut 1.0.13 (copper)          57/57/104/127          273/2161       611/1272           62 ms (at no shut)
+           -> outage 108 ms all flows
+  t93fo2   shut 4.0.26 (fibre)           38/39/81/135           685/904        772/840            42 ms (at no shut)
+           -> outage 70 ms (U23 116)
+  t93boot  save + reload whole stack     95.5k/95.4k/95.5k/96.4k 968/3775      985+137/750+2887   303 ms, 81 ms
+           (191 s reboot outage)
+  t93post  none, 180 s                   0/0/0/0                0/0            0/0                -
+
+READING
+---------------------------------------------------------------------------
+  - Failover (a link going DOWN) is fast and clean: 70-108 ms, no duplicates.
+  - Every ring CLOSURE loops. At link-up the MRM goes to CHK_RC, its test timer
+    expires before its own test frames return, it declares "Ring opened" and forwards
+    BOTH ring ports; the MRC has already set its port Forwarding, so the ring is a loop
+    until the next test frame closes it again. With the 200ms profile (20 ms x 3 = 60 ms
+    monitoring) that is one to several test periods of loop per closure.
+  - `show mrp ring` never shows it: every sample reads Closed or Open as expected;
+    Topology Change Count stays 3. Only traffic and the syslog show the loop.
+  - Same mechanism as T28863 (member reload/rejoin); this case shows that no stack
+    event is needed: a plain link restore does it, and so does the post-boot ring-up.
+
+AFTER THE CASE (14:55-14:59)
+---------------------------------------------------------------------------
+  - Config: running = the ring config (unchanged since the step-5 save; the shutdowns
+    were undone). Written: stack + SA tb470-bench.cfg now hold the ring (2971 / 1649
+    bytes). Kept for T38098/T38099; the originals go back at the row-9 restore
+    (evidence/row9/orig-*.cfg, flash:/tb470-bench.row9.cfg on stack member 4 and the SA).
+  - 14:56 the sentinel session dropped (VPN); this tester's context survived. Re-verified
+    14:58-14:59: consoles free, no ck9 processes; u0/u1/u3/u5 at exec, u2/u4 at their
+    backup login banners (dropped by the reload, as expected); show stack 1/3/4 Ready,
+    master 3; MRM Closed 1.0.13 Blk / 4.0.26 Fwd; SA both Fwd; boot config
+    flash:/tb470-bench.cfg on both (evidence/row9/resume-u5.out, resume-u3.out).
+  - Probe: not re-run between cases (the ring stays up for the row; probe at row end).
+
+EVIDENCE (IE520/mrp-2026-09-29/evidence/38093/ and evidence/row9/)
+---------------------------------------------------------------------------
+  s5-save-u4.out s5-save-u3.out  s6-mac-u4.out s6-mac-u3.out  s7-log-u4.out s7-log-u3.out
+  s9-save-u4.out s9-postboot-u5.out s9-dir-u5.out
+  t93base/ t93fo/ t93fo2/ t93boot/ t93post/: flowstat.txt loopwin.txt tx.txt START
+    events.txt shut.out noshut.out after.out poll-u2.out poll-u3.out reload.out listen-u*.out
+  row9/: pre-u{4,3,0,1}.out, snap-u4.out snap-u3.out, orig-stack-tb470-bench.cfg,
+    orig-sa-tb470-bench.cfg, dir-u4.out, resume-u5.out resume-u3.out
+  Raw per-frame receive files (rx-eth2.txt / rx-eth3.txt) and console transcripts
+  (console-uN.log) stay on tb470 /tmp/ck9/ (tmpfs).
+  Tools: evidence/28863/tools/ (flows.py flowstat.py cfg.py ck15lib.py poll.py), plus
+  this row's fo.sh / boot.sh / reloadc.py / listen.py / loopwin.py, committed under
+  evidence/row9/tools/.

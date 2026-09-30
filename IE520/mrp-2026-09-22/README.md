@@ -6,7 +6,7 @@ not on the DUT.**
 | case | title | verdict |
 | --- | --- | --- |
 | 28863 | MRP - Stack failover master/slave | **UNMEASURED** here; the log moved (`git mv`, 2026-09-30) to [../mrp-2026-09-29/28863-fail.log](../mrp-2026-09-29/28863-fail.log), which supersedes it: re-run on a two-node ring with the IE520-sa |
-| 38093 | MRP ring with DUT as MRM | **UNMEASURED** |
+| 38093 | MRP ring with DUT as MRM | **UNMEASURED** here; the log moved (`git mv`, 2026-09-30) to [../mrp-2026-09-29/38093-fail.log](../mrp-2026-09-29/38093-fail.log), which supersedes it (FAIL, two-node ring with the IE520-sa) |
 | 38097 | MRP ring with DUT as MRC | **UNMEASURED** |
 | 38098 | MRP ring switch over with 200ms recovery time | **UNMEASURED** |
 | 38099 | MRP ring switch over with 500ms recovery time | **UNMEASURED** |
