@@ -17,6 +17,24 @@ classifier refused a `claude --bg` tester; an editor drop kills the tester — r
 **RUN ORDER from 2026-09-30: rows 13 → 14 → 15 → 9 → 7 → 10 → 11 → 12 → 16 → 17** (16, 17 added 15:50 on Terrence's relayed "yes"). Row 15 (T28863) and
 row 9 share the MRP two-node ring: build it once in 15, keep it for 9, restore after 9.
 
+**Resumed 2026-10-01 ~07:55 NZDT (Terrence: "please continue the testing campaign", `/test-mode verbose`).**
+Sentinel = session `device-testing-67`, tester = its `bench-runner` subagents; stay in the editor;
+stand-down = when the queue is done. Remaining order: **row 12 → 16 → 17**.
+- **T11346 (row 12) was abandoned mid-case on 2026-09-30 ~19:12 NZDT** (session ended, no log, no
+  restore). Terrence, 2026-10-01: **write it up from the 2026-09-30 evidence
+  (`routing-2026-09-29/evidence/11346/`, `evidence/tools/`), then restore — no re-run.** Its config
+  was still LIVE on the stack and the SA at 07:25 (unsaved): `service pdm`, `ip multicast-routing`,
+  VLANs 3111–3113 + PIM-DM SVIs, SA static route 10.113.1.0/24; restore reference =
+  `routing-2026-09-29/pre-test-configs/2026-09-30/pre-u{5,3,1,0}.out` (x230/4050 already identical).
+- **BENCH CHANGE 2026-10-01 (Terrence's pluggable swaps, commit `2ab61f7`, `.setup` applied, probe
+  2026-09-30T185547Z MATCH): tb470 eth1 is now on stack `port3.0.10`, NOT port3.0.13** (3.0.13 is an
+  empty cage; its T11346 `switchport access vlan 3111` must still be restored). Every recipe below
+  that names eth1/port3.0.13 now means port3.0.10 (same baseline config range). SA port1.0.2 (eth2)
+  holds an AT-SP10TM again; SA port1.0.1 is empty; stack port4.0.2 holds an AT-SP10TM (cosmetic
+  "10Gb SFP+ in 1Gb SFP port" warning, links at 1000).
+- Stack member 4 logged an **Unexpected System reboot at 2026-09-30 07:28 UTC** (alone, no PDU
+  cycle) — fleet silent-reboot signature; for the defects summary.
+
 **This file is the resume point.** A session that wakes up reads it top to bottom. It continues
 from the first queue row that is not DONE or BLOCKED, and updates the row as soon as its state
 changes.
