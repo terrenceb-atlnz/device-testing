@@ -1,0 +1,251 @@
+TEST 28863 -- MRP - Stack failover master/slave
+===========================================================================
+Run: 2026-09-30 13:42-14:25 NZDT, tb470, hand-driven (no framework script; the
+case has no steps in ck.db -- num_steps 1, empty). Tester: bench-runner, queue row 15.
+Case scope (Terrence, 2026-09-30, verbatim): "please do a basic stack failover check
+while MRP is enabled and passing traffic, that will suffice."
+
+VERDICT: FAIL -- labelled CLEAN (no confound found; reproduced).
+
+  A stack MASTER failover with MRP running makes the stack's MRM declare a
+  physically intact ring OPEN and unblock its secondary port, so the ring LOOPS for
+  a few hundred ms. Broadcast frames were received up to 264 times each, and each
+  host NIC received its OWN broadcasts back. Reproduced (runs A and C). The same
+  false "Ring opened" also fires when a member REJOINS the stack, even a backup
+  member (runs D and B).
+
+  PROVEN (these parts behave): traffic continues across the failover (worst
+  unicast outage 196 ms, worst broadcast outage 20 ms, all four flows recover);
+  the MRP config and roles carry over to the new master (Manager, Closed, same
+  primary/secondary); the stack re-forms (1/3/4 Ready, Normal operation, one
+  build awplus_main-20260923-20 on every member); the MRC is unaffected.
+  FAIL CONDITION: MRP exists to keep the ring loop-free. Here a stack failover
+  with no ring-link fault makes MRP itself create a loop. That is the failure. No
+  threshold was invented: loop = the same frame arriving more than once, and
+  frames coming back to the NIC that sent them. Neither happens in the baseline.
+  Terrence may re-grade: continuity alone would PASS.
+
+DUT / TOPOLOGY
+---------------------------------------------------------------------------
+  stack (stk_a)  IE520-stk: members 1 (u2), 3 (u5, Active Master at start), 4 (u4);
+                 prio 128 all; virtual-mac on; stack links 1-3, 1-4, 3-4 (triangle)
+  partner        IE520-sa (u3), standalone, awplus_main-20260923-20
+  ring           two-node MRP ring 1, VLAN 1 (access ports, ring VLAN auto)
+                   stack port1.0.13 [m1]  <->  SA port1.0.13     (primary, 10GBASE-TM/1000)
+                   stack port4.0.26 [m4]  <->  SA port1.0.26     (secondary, 1000BASE-SX)
+                 stack = MRM (role manager), SA = MRC (role client)
+                 sa3's other leg stack port4.0.9 <-> SA port1.0.9: SHUT (stack end).
+                 STP off everywhere (baseline).
+  traffic path   tb470 eth3 -> x230 port1.0.1 (vlan100) -> x230 sa2 -> stack sa2
+                 (m1 port1.0.2/1.0.9) -> stack VLAN 1 -> ring port1.0.13 -> SA
+                 port1.0.13 -> SA port1.0.2 -> tb470 eth2, and the reverse.
+                 Neither end sits on member 3. The flows TRANSIT the ring (MAC proof
+                 below).
+  build          awplus_main-20260923-20 (Build date Tue Sep 22 14:25:56 UTC 2026) on
+                 all three members and the SA, before and after.
+
+GATE (bench-runner pre-run gate)
+---------------------------------------------------------------------------
+  1 consoles     sudo fuser /dev/u*: no holder; no LCK files; no tmux/tcpdump/senders
+  2 prompts      bare CR 13:43: u0 x230-10GP#, u1 4050-5g#, u2/u4/u5 IE520-stk#,
+                 u3 IE520-sa#  (none parked in config or a shell)
+  3 /nfsHome     mounted (nfs4 10.36.250.11:/home)
+  4 probe        2026-09-30T004327Z  "MATCH -- the bench equals the template." (14.3 s)
+  5 preflight    SKIPPED -- no framework script (hand-driven case)
+  6 boot config  show boot on stack/SA/x230/4050: Current boot config
+                 flash:/tb470-bench.cfg (file exists) -- before AND after
+  7 server path  not used
+  8 sentinel     sentinel: parent (dispatch prompt, /test-mode)
+  9 script CLI   SKIPPED -- no framework script; every hand command was sent through
+                 a driver that stops on the first "% " line
+
+PRE-GROUP CAPTURE (taken BEFORE the ring was built -- row 9's restore reference)
+---------------------------------------------------------------------------
+  IE520/mrp-2026-09-29/pre-test-configs/2026-09-30/pre-u5.out  (stack, via master u5)
+                                                  pre-u3.out  (SA)
+                                                  pre-u0.out  (x230)
+                                                  pre-u1.out  (4050)
+                                                  pre2-u5.out, pre2-u3.out (show stack
+                                                  detail, show loop-protection, sa membership)
+  Baseline then: stack sa3 = port1.0.13 + port4.0.9; SA sa3 = port1.0.9 + port1.0.13;
+  stack port4.0.26 and SA port1.0.26 `switchport access vlan 4000` (sx-link);
+  "% MRP feature is not currently enabled." on both IE520s.
+
+RING CONFIG APPLIED (nothing written -- running-config only)
+---------------------------------------------------------------------------
+  stack (u5, 13:49-13:52):
+    interface port4.0.9      shutdown
+    interface port4.0.26     shutdown                  (kept down while building)
+    interface port1.0.13     no static-channel-group
+    interface port4.0.26     no switchport access vlan (-> VLAN 1)
+    service mrp
+    mrp ring 1 / role manager    (prompt becomes (config-mrp-ring-manager)#)
+    interface port1.0.13     mrp ring 1
+    interface port4.0.26     mrp ring 1
+    interface port4.0.26     no shutdown               (13:52:09, ring closed)
+  SA (u3, 13:51):
+    interface port1.0.13     no static-channel-group
+    interface port1.0.26     no switchport access vlan (-> VLAN 1)
+    service mrp
+    mrp ring 1 / role client     (default; does not appear in running-config)
+    interface port1.0.13     mrp ring 1
+    interface port1.0.26     mrp ring 1
+  Every line was accepted with no "% " line (evidence/28863/build-u5.out, build-u3.out,
+  close-u5.out).
+  Driver note: the first attempt used ckyn.py, which stalled when the async line
+  "switch: port 65(port4.0.9) entered disabled state" was printed AFTER the prompt
+  (its prompt regex is anchored at the end of the buffer). The `shutdown` had applied.
+  State was re-read (only 4.0.9 disabled) and the build continued with cfg.py
+  (console.py send_until_prompt, prompt-after-echo).
+
+MRP STATE, RING CLOSED (13:52:24)
+---------------------------------------------------------------------------
+  stack  show mrp ring:  Role: Manager / Network Status: Closed /
+         Port1: port1.0.13 Status: Forwarding / Port2: port4.0.26 Status: Blocking /
+         Profile: 200ms / Default Test Frame Interval: 20ms /
+         Test Monitoring Interval Count: 3 / Topology Change Count: 3
+  SA     Role: Client / Port1: port1.0.13 Forwarding / Port2: port1.0.26 Forwarding /
+         Link Change Count: 4
+  Loop-protection: the four MRP ring ports DROP OUT of `show loop-protection`. Before
+  the ring they were aggregator members (Enabled: No) or listed (4.0.26 / SA 1.0.26
+  Yes, vlan-disable). After, none of the four is listed. (`show loop-protection
+  interface <port>` is not valid syntax here: "% Can't find interface".)
+
+PATH PROOF (13:52:46, during the baseline flows)
+---------------------------------------------------------------------------
+  stack  1  port3.0.13  00f0.4d00.7716  (eth1)
+         1  port1.0.13  00f0.4d00.7717  (eth2 -- learned on the RING port)
+         1  sa2         00f0.4d00.7718  (eth3 -- via the x230)
+  SA     1  port1.0.2   00f0.4d00.7717  (eth2)
+         1  port1.0.13  00f0.4d00.7718  (eth3 -- arrives over the ring)
+
+TRAFFIC METHOD
+---------------------------------------------------------------------------
+  flows.py (evidence/28863/tools): four raw AF_PACKET flows, 500 pps each, ethertype
+  0x88B5, payload = tag + seq + send epoch; receivers on eth2 and eth3 record every
+  frame with its receive epoch (sudo, tb470 /tmp/ck15 only):
+    B32 broadcast eth3->eth2   B23 broadcast eth2->eth3
+    U32 unicast eth3->eth2 MAC U23 unicast eth2->eth3 MAC
+  flowstat.py counts lost / duplicate seqs and each run of missing seqs (2 ms per
+  frame). "Echo" = a NIC receiving frames of the flow it SENDS (only a loop can return
+  a broadcast to the port it came in on).
+  Failover trigger: reload.py sends `reload stack-member N`, waits for "(y/n)", sends
+  "y"+CR and stamps that epoch (= t0), then records the reloading member's console.
+  Pollers every 3 s: `show clock`/`show stack`/`show mrp ring` on a stack console,
+  `show mrp ring` on the SA. Each run lasts 360 s, with the reload at +~32 s.
+  Clock alignment: device UTC = tb470 + 41-42 s (show clock vs epoch stamp, each run).
+
+RESULTS
+---------------------------------------------------------------------------
+                         sent/flow  lost B32/B23/U32/U23   dups B32/B23  echoes eth2/eth3  worst outage U32/U23
+  pre-ring (sa3 path)    5000       0/0/0/0                0/0           0/0               -
+  BASELINE, ring closed  30000      0/0/0/0                0/0           0/0               -   (60 s, no failover)
+  A  reload master m3    180000     5/7/116/205            1162/892      1104/779          134/130 ms
+  D  reload BACKUP m3    180000     7/3/187/436            404/615       392/965           146/750 ms
+  B  reload master m4    180000     24/6/133/142           495/3176      351/3854          108/196 ms
+  C  = A repeated        180000     25/11/359/457          5528/6920     5660/6518         182/150 ms
+  Broadcast worst outage: 6 ms (A), 12 ms (D), 20 ms (B), 14 ms (C).
+
+  Run A -- 13:54:04-14:00:07, t0 = 1790729678.945 (13:54:38), master m3 -> m4
+    u5 (m3's own console): "reboot stack master? (y/n):" y; "tipc: Disabling bearer
+    <eth:vlan4094>" +1.7 s; "reboot: Restarting system" +4.0 s.
+    Disturbance ONLY at +4.73..+5.07 s (1790729683.676-684.019, 342 ms): duplicate
+    broadcasts, seqs 19641-19808, one frame received 264 times, copies up to 41.5 ms
+    old; unicast holes 130-134 ms. Nothing else in 360 s, including m3's rejoin
+    (login banner at +174 s).
+    New master's log (device clock), verbatim:
+      00:55:22 VCS: Member 4 (84e3.2787.09c0) has become the Active Master
+      00:55:22 mrpd: PORT: Update ring port port4.0.26 with state to Forwarding
+      00:55:22 mrpd: ...: Ring-id[1]: Ring opened
+      00:55:22 mrpd: FSM: ring_id=1 CHK_RC -> CHK_RO evt=MRP_ProtEvTestTimerExpired
+      00:55:26 mrpd: PORT: port 20026 set Blocked ... Ring closed ... FDB: Flush ...
+               port 20026 set Forwarding ... Ring opened ... Ring closed   (flapping)
+    3 s pollers: MRM "Network Status: Closed" every sample, Topology Change Count 3
+    throughout, SA Link Change Count 4 throughout -- the flap is between samples.
+    End: master m4; m3 rejoined as Backup; 1/3/4 Ready, Normal operation.
+
+  Run D (control) -- 14:02:17-14:08:22, t0 = 1790730176.572, reload of BACKUP m3
+    "reboot stack-member 3? (y/n):" y. m3 leaves: NO disturbance (0 events, t0 to +168 s).
+    Disturbances at +168.9 s and +209.2 s, while m3 was coming back (login banner
+    +172.7 s). Duplicates, echoes, U23 hole 750 ms. Master log:
+      01:06:28 mrpd: Updating late join member 3
+      01:06:28 mrpd: PORT: Update ring port port4.0.26 with state to Forwarding
+      01:06:28 mrpd: ...: Ring-id[1]: Ring opened
+      01:06:28 mrpd: FSM: ring_id=1 CHK_RC -> CHK_RO evt=MRP_ProtEvTestTimerExpired
+      01:07:08 mrpd: (twice) port4.0.26 Forwarding / Ring opened / TestTimerExpired /
+               Ring closed / FDB flush       -- no VCS event at that second
+    Pollers: Closed / TC count 3 throughout. Master stays m4.
+
+  Run B -- 14:09:19-14:15:25, t0 = 1790730594.925, reload of MASTER m4 (carries the
+  secondary/blocked ring port 4.0.26), master m4 -> m3
+    Master-change phase CLEAN: no loss event from t0 to +176 s. MRM (now on m3) read
+    "Network Status: Open" for 41 polls while 4.0.26 was absent. That is CORRECT: the
+    ring really was open, and a secondary port that is down cannot loop. SA port1.0.26
+    read Blocking while its link was down.
+    Disturbances at +176.5 s and +210.9 s (m4 rejoining; login banner +179.4 s):
+    B23 3176 dups, eth3 echoes 3854, U23 hole 196 ms. End: master m3, 1/3/4 Ready.
+
+  Run C -- 14:15:54-14:21:58, t0 = 1790730990.433, reload of MASTER m3 (= run A again),
+  master m3 -> m4
+    Disturbances at +5.2 s, +10.3 s (both loop windows: B32 5528 / B23 6920 dups,
+    echoes 5660/6518; whole-run broadcast latency p99 34-42 ms, from the looped copies) and +172 s (join).
+    Master log:
+      01:17:14 VCS: Member 4 (84e3.2787.09c0) has become the Active Master
+      01:17:14 mrpd: PORT: Update ring port port4.0.26 with state to Forwarding
+      01:17:14 mrpd: ...: Ring opened / CHK_RC -> CHK_RO evt=MRP_ProtEvTestTimerExpired
+      01:17:18 mrpd: Ring closed / Ring opened / ... x5 cycles with FDB flushes  (= +5.2 s)
+      01:17:23 mrpd: Ring opened / Ring closed x2                              (= +10.3 s)
+    Pollers: Closed / TC count 3 in every sample. End: master m4, 1/3/4 Ready.
+
+READING
+---------------------------------------------------------------------------
+  - The loop matches mrpd's own log line for line: at the master change (and at a
+    member's late join), the MRM's test-frame monitoring expires
+    (TestTimerExpired) although no ring link failed. mrpd sets the secondary
+    port4.0.26 Forwarding and declares "Ring opened" on a closed ring. Its own test
+    frames then come back and it re-blocks ("Ring closed"). The cycle repeats several
+    times per event, with an FDB flush each time.
+  - The false open is harmful only when the secondary port stays UP. Run B, whose
+    failing master took the secondary port with it, had a clean master change. Runs
+    A and C, where the ring stayed physically closed, looped.
+  - `show mrp ring` does not show any of it: Network Status Closed, Topology Change
+    Count 3 and MRC Link Change Count 4 in every 3 s sample of every run. Only the
+    traffic and the syslog show it.
+  - Not isolated (would need more runs): whether profile 500 (the longer test
+    monitoring) avoids the false expiry, and whether the member-join trigger depends on
+    which member joins. With 200 ms profile timers (20 ms x 3 = 60 ms monitoring) the
+    master change evidently exceeds the window.
+
+AFTER THE RUN (14:22-14:25)
+---------------------------------------------------------------------------
+  consoles     all six at an exec prompt (peek 14:24 + u5 re-login 14:25),
+               terminal no monitor; no flows/pollers/tcpdump left (ps 14:24)
+  show stack   1 Backup / 3 Backup / 4 Active Master, all Ready, Normal operation,
+               VMAC 0000.cd37.0d6f; software awplus_main-20260923-20 on every member
+  show boot    flash:/tb470-bench.cfg (file exists) on stack, SA, x230, 4050
+  config diff  vs pre-group capture (post-test-configs/2026-09-30/):
+               stack: +service mrp, +mrp ring 1 / role manager, port1.0.13
+                 -static-channel-group 3 +mrp ring 1, port4.0.9 +shutdown,
+                 port4.0.26 -switchport access vlan 4000 +mrp ring 1
+               SA:    +service mrp, +mrp ring 1, port1.0.13 -static-channel-group 3
+                 +mrp ring 1, port1.0.26 -switchport access vlan 4000 +mrp ring 1
+               x230, 4050: IDENTICAL
+               = exactly the ring, which is LEFT UP for queue row 9 (dispatch instruction).
+  probe        2026-09-30T012336Z MISMATCH (3), all caused by the ring left up:
+                 [portlink] swi_b-swi_d  port1.0.9-port4.0.9 absent (4.0.9 shut)
+                 [portlink] tb-swi_a eth2-port1.0.13 EXTRA / tb-swi_b eth2-port1.0.2
+                 MISSING -- a probe artefact: with sa3 dissolved, the stack learns
+                 eth2 on the physical ring port 1.0.13, so "MAC learned on a physical
+                 port" picks the wrong switch. Advisories: "eth2 learned on swi_a
+                 port1.0.13 AND swi_b port1.0.2" (eth1/eth3 likewise dual-learned).
+                 The cabling is unchanged. Expect MATCH after row 9's restore.
+  written      nothing (no `write` on any device)
+
+EVIDENCE (IE520/mrp-2026-09-29/evidence/28863/)
+---------------------------------------------------------------------------
+  build-u5.out build-u3.out close-u5.out ring-u5.out ring-u3.out base-u5.out base-u3.out
+  f-prering.flowstat.txt f-base.flowstat.txt
+  runA/ runD/ runB/ runC/: flowstat.txt tx.txt reload.out poll-*.out log-*.out (master syslog)
+  tools/: flows.py flowstat.py cfg.py ck15lib.py reload.py poll.py run.sh runA.sh
+  Raw per-frame receive files (~33 MB per run) and console transcripts
+  (console-uN.log) stay on tb470 /tmp/ck15/ (tmpfs).
