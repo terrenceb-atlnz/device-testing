@@ -8,7 +8,7 @@ hand-driven cases on the stack master `/dev/u5`. The console wrappers are ckcon.
 | case | title | log | verdict |
 | --- | --- | --- | --- |
 | T12589 | Interoperability with RIPv1/v2 (PBR) | [12589-partial.log](12589-partial.log) | **PARTIAL** (2026-09-30), probe only. PBR EXISTS: with `mls qos enable`, the policy-map class offers `set ip ?` → `next-hop  Set the Policy Based Routing nexthop`, and `set ip next-hop 10.10.10.2` was accepted. (`policy-based-routing` and `ip policy` are `% Unrecognized command`.) The full RIP + two-next-hop build waits for Terrence's scope decision (NEEDS TERRENCE sent 13:37) |
-| T11346 | PIM-DM end-to-end | — | **NOT TESTED** yet (queue row 12) |
+| T11346 | PIM-DM end-to-end | [11346.log](11346.log) | **PASS** (run 2026-09-30, written up 2026-10-01 from the evidence, no re-run): PIM-DM stack <-> IE520-sa, client stream 30,001/30,001 at 1000 pps and 2,438,001/2,438,001 at 984 Mbps line rate; no-PIM baseline 0; prune on leave / graft on join ×2; (S,G) in hardware on all 3 members. Restored 2026-10-01 (config removal + `reload` of stack and SA to clear pdmd), IDENTICAL, probe MATCH |
 | T18948 | VRRP routes near wirespeed, multiple instances | — | **NOT TESTED** yet (queue row 12) |
 | T10624 | OSPF silicon tables synced | — | **NOT TESTED** yet (queue row 12) |
 
