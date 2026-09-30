@@ -14,29 +14,37 @@ by `git mv`; the other four 09-22 logs are row 9's to handle.
 | T38098 | MRP ring switch over with 200ms recovery time | [38098.log](38098.log) | **PASS** (2026-09-30). 8 switch-overs (copper SFP+ 1.0.13 and fibre SX 4.0.26/1.0.26, shut at the MRM end and at the MRC end, two rounds): worst outage 94-146 ms, all < 200 ms, no duplicates during any switch-over. Fixed-port sub-step UNSUPPORTED (no fixed ports). Observation: every restore looped 31-62 ms (T38093's FAIL) |
 | T38099 | MRP ring switch over with 500ms recovery time | [38099.log](38099.log) | **PASS** (2026-09-30), graded on the title (text says 200 ms). `profile 500` on both nodes; 8 switch-overs 90-416 ms, all < 500 ms (MRC-end copper shuts 296-416 ms: the MRM's copper port reports link-down late, so the test-frame window decides). Fixed ports UNSUPPORTED. O-1: `profile` on a live MRM restarts the manager and loops 79 ms (+ EXFX local7.err STARGV lines). O-2: with 500 ms, only 1 of 8 restores looped (vs 10/10 at 200 ms) |
 
-## The ring (built in row 15, LEFT UP for row 9)
+## The ring -- built in row 15, used by row 9, RESTORED 2026-09-30 16:00-16:09
 
-The restore reference is the capture taken BEFORE the ring: [pre-test-configs/2026-09-30/](pre-test-configs/2026-09-30/)
-(`pre-u5.out` stack, `pre-u3.out` SA, `pre-u0.out` x230, `pre-u1.out` 4050). State at hand-back is in
-[post-test-configs/2026-09-30/](post-test-configs/2026-09-30/). The running-config diff against the pre
-capture is exactly this list; nothing was written:
+Restore reference: the capture taken BEFORE the ring, [pre-test-configs/2026-09-30/](pre-test-configs/2026-09-30/).
+Result: [post-test-configs/2026-09-30-row9/](post-test-configs/2026-09-30-row9/). Running-config on the stack,
+SA, x230 and 4050 is **IDENTICAL** to the pre capture. Boot config is `flash:/tb470-bench.cfg` (file exists) on all
+four. Probe `2026-09-30T030933Z` reads **MATCH**, with no advisory. The stack master at the end is **member 3**;
+it never pre-empts.
 
-- **stack**: `service mrp`; `mrp ring 1` / `role manager`; port1.0.13 `no static-channel-group` + `mrp ring 1`;
-  port4.0.9 `shutdown` (sa3's other leg; sa3 now = 4.0.9 only); port4.0.26 `no switchport access vlan`
-  (→ VLAN 1) + `mrp ring 1`.
-- **SA**: `service mrp`; `mrp ring 1` (role client = default, not shown); port1.0.13 `no static-channel-group`
-  + `mrp ring 1`; port1.0.26 `no switchport access vlan` + `mrp ring 1`.
-- Ring state: MRM primary port1.0.13 Forwarding, secondary port4.0.26 Blocking, Network Status Closed;
-  MRC both Forwarding. Profile 200ms (default). Ring VLAN = 1 (access).
-- **Stack master at hand-back: member 4** (u4). It was member 3 at the start. After four reloads (3→4, backup 3,
-  4→3, 3→4) roles never pre-empt back.
+Row 9 changed the roles (T38097: SA = MRM, stack = MRC) and the profile (T38099: 500, then back to default).
+The restore removed all of it:
 
-Restore (row 9's): reverse the list above. Remove `mrp ring 1` from the ports before `no mrp ring 1` /
-`no service mrp`. Put 1.0.13 back in `static-channel-group 3` on both ends, and 4.0.26 / SA 1.0.26 back to
-`switchport access vlan 4000`. Mind the ordering: shut stack 4.0.26 while re-forming sa3, or VLAN 1 loops,
-because STP is off. Then `no shutdown` 4.0.9, diff against `pre-test-configs/2026-09-30/`, and run the probe.
+1. Stack: `interface port4.0.26` / `shutdown` / `no mrp ring 1` / `switchport access vlan 4000`;
+   `interface port1.0.13` / `no mrp ring 1`; `no mrp ring 1`; `no service mrp`. Then `show mrp ring` reads
+   "% MRP feature is not currently enabled." (= baseline).
+2. SA: `interface port1.0.26` / `no mrp ring 1` / `switchport access vlan 4000`; `interface port1.0.13` /
+   `no mrp ring 1`; `no mrp ring 1`; `no service mrp`.
+3. sa3: stack port1.0.13 `static-channel-group 3`, then SA port1.0.13 `static-channel-group 3`. At that moment
+   1.0.13 was the only live link between the two, so no loop was possible. Then stack `no shutdown` on port4.0.9
+   and port4.0.26. After: sa3 = {1.0.13, 4.0.9} on the stack and {1.0.9, 1.0.13} on the SA, SX link
+   connected in VLAN 4000, loop-protection table as in pre2-u5/pre2-u3.
+4. **Boot configs.** T38093/T38097 `write memory` had put the ring into `tb470-bench.cfg` on both units, so the
+   pre-write snapshot was copied back. **AW+ refuses to overwrite the file the boot pointer names**
+   (`% Cannot overwrite flash:/tb470-bench.cfg as it is configured as the boot config file`). The fix is to
+   stage the snapshot on every member, `boot config-file flash:/tb470-bench.row9.cfg` (63 s on the stack while it
+   syncs), then `copy` the snapshot over `tb470-bench.cfg` on each member. That copy prompts
+   `Overwrite ... (y/n)[n]:`, and the `[n]` suffix needed a wider y/n pattern in the driver. Then
+   `boot config-file flash:/tb470-bench.cfg` and `delete` the snapshots. `show file` on members 1, 3, 4 and the SA:
+   **byte-identical** to `evidence/row9/orig-*.cfg`, including the original "Startup-config saved on Tue Sep 29
+   23:4x" header. Evidence: `evidence/row9/restore*.out`.
 
-## Things row 9 should know
+## Things learned in row 9 (for the next MRP session)
 
 - **Every stack membership change can make the MRM loop the ring for a moment** (T28863). Row 9's
   "save and reboot" steps and any member reload will hit it. Measure with traffic, not `show mrp ring`.
