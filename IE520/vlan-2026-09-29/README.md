@@ -7,7 +7,7 @@ line) on the stack master `/dev/u5`, the IE520-sa `/dev/u3` and the x230 `/dev/u
 bench-runner agent as tester, Terrence away. Tooling copies are in `evidence/`; the live copies and raw
 console transcripts are in tb470 `/tmp/ckvlan/` (tmpfs).
 
-**State: IN PROGRESS (resumed 2026-09-30 16:15, section "2026-09-30 resume" below).** Earlier: 2 of the 5 runnable cases done. The first tester ran out of usage at 14:57
+**State: DONE 2026-09-30 16:59** — all 8 cases have a verdict (7 PASS, 1 UNSUPPORTED); the four resumed cases ran 16:22–16:55 and the group was restored 16:57–16:59 (section "2026-09-30 resume"). History: 2 of the 5 runnable cases were done on 09-29. The first tester ran out of usage at 14:57
 after T38409's teardown, before writing its log. A successor wrote the log from the evidence and
 restored the bench at 17:14–17:16 (verified 17:17). **Resume next session with 38408, 38407, 18302,
 18303. The group setup below must be redone first**, because the bench is back at the standing topology.
@@ -37,6 +37,16 @@ seen or driven from a tb470 NIC by its scratch-VLAN tag (`evidence/group-2026-09
   → DUT port1.0.13 appears at eth2 as tag 3993, DUT port4.0.9 as 3994.
 The group-setup reference config (what each case's teardown must return to) is
 `post-test-configs/2026-09-30b/38408.u{5,3,0}.out`. Its diff against the pre-group capture is exactly the lines above.
+The T38407 and T18302/T18303 teardowns each diffed EMPTY against it (`post-test-configs/2026-09-30b/38407.*`, `18302-18303.*`).
+
+Group restore 16:57:19–16:59:37 (`evidence/group-2026-09-30/group-restore.sh` + `.out`, no `% ` line) = the 09-29
+recipe below, plus x230 port1.0.1 back to `switchport mode access` / access vlan 100 (allowed 3991,3992 removed,
+native removed) and SA port1.0.2 back to `switchport mode access` (allowed 3993,3994 removed). sa1/sa2/sa3 read their
+pre-test members, and all four legs are connected a-full a-1000.
+Verification 16:59–17:00: `show running-config` on u5, u3, u0 and u1 is **IDENTICAL** to `pre-test-configs/2026-09-30b/`
+(`post-test-configs/2026-09-30b/final-u*.out`, rcdiff empty). `show boot` → `flash:/tb470-bench.cfg (file exists)` on all
+four. Stack 1/3/4 Ready, member 3 Active Master, Normal operation. `bench_probe.py run` 2026-09-30T040001Z **MATCH**.
+Consoles free, no tcpdump or sender left running. Nothing was written to startup-config by any of the four cases.
 
 ## Group setup (14:27–14:31) — redo before the next case
 The 2-leg aggregators sa2 (stack ↔ x230) and sa3 (stack ↔ SA) were freed into scratch VLANs, so that each
