@@ -17,3 +17,9 @@ baseline in ../vlan-2026-09-29/pre-test-configs/2026-09-30). Probe 2026-09-30T00
 a scratch SVI (vlan3995), moved port3.0.13 into it for one minute, and used the 4050's vlan10 as a
 PD server. Everything was removed at the case's end. The stack and 4050 running-configs are IDENTICAL
 to the pre-group capture.
+
+## Group close (13:38–13:39, after T12589)
+`post-test-configs/2026-09-30/final-u{0,1,3,5}.out`: `show running-config` is IDENTICAL to the pre-group
+capture on u5, u3, u1 and u0. Current boot config is `flash:/tb470-bench.cfg (file exists)` on all four.
+Stack members 1/3/4 Ready, member 3 Active Master, Normal operation. `bench_probe.py run` 2026-09-30T003900Z
+MATCH. No console holders, no tcpdump/sender left running, and every console (u0–u5) is at an exec prompt.
