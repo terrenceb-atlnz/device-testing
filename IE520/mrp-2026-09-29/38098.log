@@ -1,0 +1,112 @@
+TEST 38098 -- MRP ring switch over with 200ms recovery time
+===========================================================================
+Run: 2026-09-30 15:01-15:16 NZDT, tb470, hand-driven (no framework script), queue row 9.
+Tester: bench-runner. Case text: AWPTCM-T38098 (ck.db zephyr_cases), 8 steps.
+
+VERDICT: PASS -- labelled CLEAN (8 switch-overs, copper and fibre, from both ends;
+one sub-step UNSUPPORTED, one observation carried from T38093).
+
+  Every switch-over recovered within the 200 ms profile. Worst outage per run,
+  over all four flows: 94-146 ms (8 of 8 runs; median ~105 ms). After each
+  shutdown the MRM unblocked its blocked ring port, reported Network Status Open,
+  and traffic continued on the other link. No duplicates and no echoes occurred
+  during any switch-over.
+  UNSUPPORTED (step 8, "Fixed ports"): the IE520-28GSX has no fixed copper port;
+  every front port is an SFP/SFP+ cage (orient-dt §2). The SFP/SFP+ legs were
+  measured: copper = AT-SP10TM (10GBASE-TM SFP+, linked at 1000) and
+  fibre = AT-SPSX (1000BASE-SX).
+  OBSERVATION (not a step of this case; T38093's FAIL): each link RESTORE, i.e.
+  each ring closure, looped VLAN 1 for 31-62 ms on 8 of 8 runs. The mechanism is
+  the MRM's false TestTimerExpired -> "Ring opened". The unicast hole during those
+  restores was up to 180 ms. This case has no restore step and is not graded on
+  the restores; see 38093-fail.log.
+
+DUT / TOPOLOGY
+---------------------------------------------------------------------------
+  DUT      IE520-stk (stk_a) = MRM, members 1/3/4, master member 3 (since T38093's
+           reboot); sw1 = IE520-sa = MRC; sw2 NONE (one MRP-capable partner; step 4 not
+           run). Ring 1, VLAN 1, profile 200ms (Default Test Frame Interval 20ms x
+           Monitoring Count 3), React on Link Change: No.
+             copper leg  stack port1.0.13 [m1] <-> SA port1.0.13   10GBASE-TM, a-1000
+             fibre  leg  stack port4.0.26 [m4] <-> SA port1.0.26   1000BASE-SX, a-1000
+           Same ring and traffic path as 38093-fail.log (eth3 -> x230 -> stack sa2 -> ring
+           -> SA -> eth2 and back; transit proven by MAC learning there).
+  build    awplus_main-20260923-20 everywhere.
+  Gate     row 9 gate at 14:32-14:34 (38093-fail.log); re-verified 14:58-14:59 after the
+           sentinel's VPN drop (evidence/row9/resume-u5.out, resume-u3.out). Consoles free,
+           boot config flash:/tb470-bench.cfg on stack and SA.
+
+STEPS
+---------------------------------------------------------------------------
+  1 Topology         two-node ring (above).
+  2 DUT MRP config   in place since row 15; accepted, no "% " (28863-fail.log). PASS
+  3 sw1 MRC          SA Client, Running, both ports Forwarding. PASS
+  4 sw2 MRC          NOT RUN (no second MRP-capable node).
+  5 Save + show      15:01:54 stack `write memory` [OK]; SA `write memory` [OK]. Stack:
+                     Manager, Network Status Closed, Port1 port1.0.13 Blocking, Port2
+                     port4.0.26 Forwarding, Profile 200ms. SA: Client, both Forwarding.
+                     (evidence/38098/s5-save-u5.out, s5-save-u3.out.) Ring operational.
+                     Case text says "open"; a healthy MRP ring reads Closed (see
+                     38093-fail.log). PASS (operational)
+  6 Traffic          t98base 60 s: 30000/flow, 0 lost, 0 dups, 0 echoes. PASS
+  7 Shut a fwd port  8 runs (fo.sh: 80 s of 4 x 500 pps flows, `shutdown` at +20 s,
+                     `no shutdown` at +50 s). Each run shut the link that was forwarding
+                     at that moment, so the switch-over always moved traffic:
+
+      run    port shut (end, medium)         MRM right after the shut                    outage B32/B23/U32/U23 (ms)
+      t98a   stack 4.0.26 (MRM, fibre)       Open, 1.0.13 Fwd / 4.0.26 Blk(down)         100/100/100/100
+      t98b   stack 1.0.13 (MRM, copper)      Open, 1.0.13 Blk(down) / 4.0.26 Fwd         140/140/140/146
+      t98c   SA    1.0.26 (MRC, fibre)       MRM log: Rx MRP_LinkDown + port4.0.26 link  116/116/116/116
+                                             DOWN -> "Ring opened"; SA 1.0.26 Blk(down)
+      t98d   SA    1.0.13 (MRC, copper)      SA 1.0.13 Blk(down) / 1.0.26 Fwd             98/98/106/98
+      t98e   stack 4.0.26 (MRM, fibre)       Open, 1.0.13 Fwd / 4.0.26 Blk                110/110/110/110
+      t98f   stack 1.0.13 (MRM, copper)      Open, 1.0.13 Blk / 4.0.26 Fwd                94/94/94/118
+      t98g   SA    1.0.26 (MRC, fibre)       SA 1.0.26 Blk(down) / 1.0.13 Fwd             102/102/102/102
+      t98h   SA    1.0.13 (MRC, copper)      SA 1.0.13 Blk(down) / 1.0.26 Fwd             98/98/104/98
+
+                     Worst 146 ms (t98b U23), all < 200 ms. Each outage is one contiguous
+                     run of missing sequence numbers ~6 s after the shut launch (the
+                     cfg.py login precedes the `shutdown`). Zero duplicates, zero
+                     echoes during every switch-over.
+                     By medium: fibre 100-116 ms, copper 94-146 ms. By end: MRM-side
+                     shut 94-146 ms, MRC-side shut 98-116 ms.
+                     PASS
+  8 Fixed + SFP/SFP+ Fixed ports: UNSUPPORTED on this platform (no fixed port -- every
+    (fibre, copper)  front port is a cage). SFP/SFP+ copper and fibre: measured in step 7,
+                     both PASS. SFP+ at 10G is not measured: the copper SFP+ pair links
+                     at 1000 on this cabling.
+
+OBSERVATION -- the restores (not graded here)
+---------------------------------------------------------------------------
+      run    loop window at no-shut   dups   max copies   echoes eth2/eth3   unicast hole
+      t98a   49 ms                    1326   364          1605/277           88 ms
+      t98b   31 ms                    2220   406          96/2022            88 ms
+      t98c   41 ms                    1317   437          182/1335           70 ms
+      t98d   37 ms                    1195   338          705/518            180 ms
+      t98e   61 ms                    2156   362          1904/275           174 ms
+      t98f   62 ms                    2207   326          2133/85            64 ms
+      t98g   45 ms                    1149   357          106/1413           94 ms
+      t98h   39 ms                    872    295          1373/79            72 ms
+  Stack mrpd at the t98c restore, verbatim (evidence/38098/t98c/stacklog.out):
+      02:08:12 mrpd: PORT: port4.0.26 link UP (0x11043)
+      02:08:12 mrpd: ...: Ring-id[1]: Ring closed
+      02:08:12 mrpd: ...: Ring-id[1]: Ring opened
+      02:08:12 mrpd: FSM: ring_id=1 CHK_RC -> CHK_RO evt=MRP_ProtEvTestTimerExpired
+      02:08:12 mrpd: ...: Ring-id[1]: Ring closed
+  After every restore the ring ended Closed with the RETURNED port blocked, i.e. the
+  MRM keeps the path that carried traffic during the fault.
+
+AFTER THE CASE
+---------------------------------------------------------------------------
+  Ring at 15:16: Closed, Port1 port1.0.13 Blocking, Port2 port4.0.26 Forwarding
+  (t98h). Running-config = the ring config; every shutdown was undone by its run
+  (after.out: port connected). Written: `write memory` (step 5) to the same ring
+  content already saved by T38093. The originals come back at the row-9 restore.
+
+EVIDENCE (IE520/mrp-2026-09-29/evidence/38098/)
+---------------------------------------------------------------------------
+  s5-save-u5.out s5-save-u3.out  r1.summary r2.summary
+  t98base/ t98a..t98h/: flowstat.txt loopwin.txt summary.txt tx.txt START events.txt
+    shut.out noshut.out after.out stacklog.out poll-u2.out [poll-u3.out]
+  Tools: evidence/row9/tools/ (fo.sh seq-driven; loopwin.py), evidence/28863/tools/.
+  Raw per-frame receive files and console transcripts stay on tb470 /tmp/ck9/.
