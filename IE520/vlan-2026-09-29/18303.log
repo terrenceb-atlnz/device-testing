@@ -1,0 +1,74 @@
+# T18303 — Communication Test in Private VLAN - Send from Private port — tb470 IE520 stack — 2026-09-30 — PASS
+
+Verdict: PASS. The objective, "All packets were sent to Uplink port from Private port", held for every
+stream sent from a private port: 100/100 reached the uplink, and 0 reached any other private port or the
+control port. The two unicast lines that must NOT be delivered were not (112 → 113 and 113 → 112: 0 at
+the target), even though both destination MACs were known (static FDB entries). With the private VLAN
+off (the same ports in a plain VLAN), the same broadcast and unicast did reach the other private ports,
+so the isolation comes from the private VLAN. Run labelled: clean.
+
+How the "forwarded to all ports" wording was read: the expected results say a private port's
+broadcast (lines 1 and 5) "should be forwarded to all ports". Read literally ("every port of the
+VLAN, other private ports included"), that contradicts lines 3 and 4 (private ports cannot reach each
+other) and the case objective. It was therefore graded against the objective: forwarded to every port
+a private port can reach, which is the uplink. The measurement for both readings is in the table below.
+Under the literal reading, lines 1, 2 and 5 would each fail on the missing private-port copies.
+
+Operator: bench-runner subagent (sentinel = parent session, /test-mode shape A), Terrence away.
+Queue: IE520/CAMPAIGN-QUEUE-2026-09-29.md row 7. Case text: ck.db AWPTCM-T18303 (2 steps). Step 1 is
+"Setup: Same configuration as AWP-9204" (the T18302 setup), and it ran on the configuration built for
+T18302 at 16:45, right after that case's streams.
+
+## Bench mapping and configuration
+Identical to 18302.log (read that file for the bench mapping, the configuration, its read-back, the
+plain-VLAN baseline and the teardown). In brief: private VLAN primary 3980 + isolated 3981 (case VLAN 10 is the
+sa1 transit). Uplink IXIA-111 = port3.0.13 promiscuous (eth1, 0000.0000.0110). Private IXIA-112 =
+port1.0.2 (eth3 tag 3991, 0000.0000.0120), IXIA-113 = port1.0.13 (eth2 tag 3993, 0000.0000.0130), IXIA-114 =
+port4.0.9 (eth2 tag 3994, 0000.0000.0140). Control port1.0.9 (eth3 tag 3992) is outside the private VLAN. The
+case's static ARP entries (vlan3980 192.168.100.254/24, arp .1–.4 on those ports) installed static FDB
+entries in 3980 and 3981 (evidence/18302/pv-cfg.out). **Step 1 PASS** (configuration accepted and read
+back, no `% ` line).
+
+Pre-case state: as for 18302 (gate 16:15–16:21, probe 2026-09-30T031557Z MATCH, boot configs
+tb470-bench.cfg). Gate items 5/7/9 not applicable (hand-driven, skipped).
+
+## Feature-OFF baseline (plain VLAN 3979, 16:43; evidence/18302/pv-b0a.out, pv-b0b.out)
+- 113 broadcast → eth1 100, 112 (eth3 3991) 100, 114 (eth2 3994) 100: private-to-be ports reach each other.
+- 112 unicast → 0000.0000.0130 → 113 (eth2 3993) 100: known unicast between them is delivered.
+
+## Step 2 — send from the private ports (16:49:31–16:51:30)
+Sender vsend.py, 100 frames per stream. Driver evidence/group-2026-09-30/vstep.sh. 112 is driven from
+eth3 tagged 3991 (x230 strips it: untagged into DUT port1.0.2); 113 from eth2 tagged 3993; 114 from eth2
+tagged 3994. Captures `tcpdump -Q in -e` on eth1, eth2 and eth3 (inbound only, so a sender's own frames
+are not counted), filtered on the sender MAC. DUT in/out packet deltas: background is about +10 to +36.
+
+| stream (case) | from → dst | eth1 (uplink 111) | 112 (eth3 3991) | 113 (eth2 3993) | 114 (eth2 3994) | control (eth3 3992) | DUT in (sender port) / out 3.0.13 | expected | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 Broadcast | 112 → ff:ff:ff:ff:ff:ff | **100** | (sender) | 0 | 0 | 0 | 1.0.2 in +101 / +134 | forwarded (objective: to the uplink) | **PASS** |
+| 2 Multicast | 112 → 01:80:c2:01:01:01 | **100** | (sender) | 0 | 0 | 0 | +100 / +133 | forwarded | **PASS** |
+| 3 Unicast to 113 | 112 → 0000.0000.0130 | 100 | (sender) | **0** | 0 | 0 | +100 / +133 | not forwarded to IXIA-113 | **PASS** |
+| 4 Unicast to 112 | 113 → 0000.0000.0120 | 100 | **0** | (sender) | 0 | 0 | 1.0.13 in +110 / +130 | not forwarded to IXIA-112 | **PASS** |
+| 5 Broadcast | 114 → ff:ff:ff:ff:ff:ff | **100** | 0 | 0 | (sender) | 0 | 4.0.9 in +111 / +136 | forwarded (objective: to the uplink) | **PASS** |
+| extra: unicast to the uplink | 112 → 0000.0000.0110 | **100** | (sender) | 0 | 0 | 0 | +101 / +134 | (objective) | PASS, not a case line |
+Frames at eth1 arrived untagged (promiscuous access egress). DUT output on the other private ports
+stayed at background in every stream: port1.0.13 +20..+23, port4.0.9 +20..+23, port1.0.2 +31..+35.
+Raw: evidence/18303/18303-{a.bc112,b.mc112,c.u112to113,d.u113to112,e.bc114,f.u112to111}.out + .pcap.
+
+Observation (not graded): lines 3 and 4 were not dropped. The known unicast between two isolated
+hosts was sent to the uplink (100/100 at eth1, port3.0.13 output +133/+130), although its destination
+MAC is a static entry on the other host port. So on this platform a private port's traffic goes to
+the uplink whatever its destination MAC. That is exactly the case objective ("All packets were sent to
+Uplink port from Private port"), and it differs from a lookup-then-block isolation that would drop
+it. Recorded so a future case expecting a drop is not surprised.
+
+## Teardown
+Done once for T18302 + T18303, 16:53–16:55. It is described in 18302.log: try 1 stopped on my
+`no switchport mode private-vlan` form (`% Incomplete command.`), and try 2 resumed from that line
+with `… host|promiscuous`. Post-case `show running-config`
+(post-test-configs/2026-09-30b/18302-18303.u{5,3,0}.out) diffed against the group-setup reference:
+**empty on u5, u3 and u0**. Nothing was written to startup-config.
+
+## Files
+- Raw console transcript: tb470 /tmp/ckvlan3/console-u5.log (tmpfs).
+- evidence/18303/: this case's stream outputs and pcaps. Setup, baseline and teardown: evidence/18302/pv-*.
+- No framework run (hand-driven). Exit codes: all rc 0 for this case's streams.
