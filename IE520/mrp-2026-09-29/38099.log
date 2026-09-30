@@ -1,0 +1,122 @@
+TEST 38099 -- MRP ring switch over with 500ms recovery time
+===========================================================================
+Run: 2026-09-30 15:18-15:34 NZDT, tb470, hand-driven (no framework script), queue row 9.
+Tester: bench-runner. Case text: AWPTCM-T38099 (ck.db zephyr_cases), 8 steps.
+
+VERDICT: PASS -- labelled CLEAN, graded against the TITLE (500 ms profile, recovery
+within 500 ms). 8 switch-overs, copper and fibre, from both ends; one sub-step
+UNSUPPORTED; three observations.
+
+  CASE-TEXT DISCREPANCY: the title says 500 ms, but step 7's expected result says
+  "Traffic should recover within 200ms" (the same wording as T38098). Per the
+  dispatch this is graded against the title. Against the text, 6 of 8 runs meet
+  200 ms and 2 do not: the MRC-end copper shuts took 296-304 ms and 406-416 ms.
+  Under a 500 ms profile that is expected behaviour, not a fault.
+
+  Every switch-over recovered within 500 ms: worst outage per run 90-416 ms.
+  After each shutdown the MRM unblocked its blocked port, showed Open, and traffic
+  moved to the other link. No duplicates or echoes during any switch-over.
+  UNSUPPORTED (step 8, "Fixed ports"): the IE520-28GSX has no fixed port; the
+  SFP/SFP+ copper and fibre legs were measured.
+
+DUT / TOPOLOGY
+---------------------------------------------------------------------------
+  As 38098.log: the stack is the MRM (members 1/3/4, master member 3) and the
+  IE520-sa is the MRC. sw2 is absent (step 4 not run). Ring 1 is on VLAN 1:
+    copper  stack port1.0.13 <-> SA port1.0.13   AT-SP10TM 10GBASE-TM, a-1000
+    fibre   stack port4.0.26 <-> SA port1.0.26   AT-SPSX 1000BASE-SX
+  Same traffic path and tools. Gate: row 9 gate (38093-fail.log), re-verified 14:58.
+
+STEPS
+---------------------------------------------------------------------------
+  1 Topology         two-node ring.
+  2 DUT MRP config   15:18:41 stack: `configure terminal` / `mrp ring 1` (prompt
+                     IE520-stk(config-mrp-ring)#) / `profile 500` / `end` -- accepted,
+                     no "% ". `show mrp ring`: Profile 500ms, Topology Change Interval
+                     20ms, Short Test Frame Interval 30ms, Default Test Frame Interval
+                     50ms, Test Monitoring Interval Count 5, Ext Interval Count 15;
+                     Closed. (evidence/38099/s2-cfg-u5.out)  PASS  (see O-1)
+  3 sw1 MRC config   15:18:51 SA: `mrp ring 1` / `profile 500` accepted; Profile 500ms,
+                     Link Down/Up Interval 20ms, both ports Forwarding (s3-cfg-u3.out). PASS
+  4 sw2 MRC config   NOT RUN (no second MRP-capable node).
+  5 Save + show      `write memory` [OK] on stack and SA. Stack: Manager, Closed, Port1
+                     port1.0.13 Forwarding, Port2 port4.0.26 Blocking, 500ms; SA: Client,
+                     both Forwarding, 500ms (s5-save-u5.out, s5-save-u3.out). The case
+                     text expects "open"; an intact ring reads Closed (38093-fail.log).
+                     PASS (operational)
+  6 Traffic          t99base 60 s: 30000/flow, 0 lost, 0 dups, 0 echoes. PASS
+  7 Shut a fwd port  8 runs (fo.sh via seq.sh: 80 s of 4 x 500 pps flows, `shutdown` at
+                     +20 s, `no shutdown` at +50 s); each run shuts the link that is
+                     forwarding at that moment.
+
+      run    port shut (end, medium)        right after the shut              outage B32/B23/U32/U23 (ms)
+      t99a   stack 1.0.13 (MRM, copper)     MRM Open, 1.0.13 Blk / 4.0.26 Fwd  90/90/90/94
+      t99b   stack 4.0.26 (MRM, fibre)      MRM Open, 1.0.13 Fwd / 4.0.26 Blk  124/124/124/124
+      t99c   SA    1.0.13 (MRC, copper)     SA 1.0.13 Blk(down) / 1.0.26 Fwd   296/296/304/296
+      t99d   SA    1.0.26 (MRC, fibre)      SA 1.0.13 Fwd / 1.0.26 Blk(down)   134/134/134/134
+      t99e   stack 1.0.13 (MRM, copper)     MRM Open                           106/106/106/122
+      t99f   stack 4.0.26 (MRM, fibre)      MRM Open                           118/120/118/118
+      t99g   SA    1.0.13 (MRC, copper)     SA 1.0.13 Blk(down)                406/406/416/406
+      t99h   SA    1.0.26 (MRC, fibre)      SA 1.0.26 Blk(down)                126/126/126/126
+
+                     Worst 416 ms (t99g U32), all < 500 ms. PASS
+                     Why the MRC-end copper shuts are slow: the MRM's own port1.0.13
+                     reports link DOWN late, so the MRM detects the break by missing
+                     test frames (50 ms x 5 = 250 ms window plus the switch-over)
+                     instead of by the local link event. Stack log for t99g
+                     (evidence/38099/t99g/stacklog.out), verbatim:
+                       02:32:18 mrpd: EVENT: Rx MRP_LinkDown ring_id=1 port=port4.0.26 ...
+                       02:32:18 mrpd: ...: Ring-id[1]: Ring opened
+                       02:32:18 mrpd: FSM: ring_id=1 CHK_RC -> CHK_RO evt=MRP_ProtEvTestTimerExpired
+                       02:32:18 mrpd: PORT: port1.0.13 link DOWN (0x1003)     <- after the open
+                     The MRC's LinkDown frame arrives, but the MRM has React on Link
+                     Change: No, so it ignores it. On fibre the MRM's port4.0.26 goes
+                     DOWN at once (t99b: "port4.0.26 link DOWN" then "Ring opened").
+                     The 200 ms profile's 20 ms x 3 window explains why the same shut
+                     took 98-106 ms in 38098.
+  8 Fixed + SFP/SFP+ Fixed ports: UNSUPPORTED (no fixed port on the IE520-28GSX). SFP/SFP+
+                     copper and fibre: measured in step 7, both PASS (fibre 124-134 ms,
+                     copper 90-416 ms). SFP+ at 10G is not measured (the pair links at 1000).
+
+OBSERVATIONS
+---------------------------------------------------------------------------
+  O-1  Changing the profile on a live MRM restarts the manager and loops the ring.
+       During `profile 500` on the stack (t99cfg, flows running): loop window 79 ms,
+       2848 dups, one frame 361x, echoes eth2 2506 / eth3 171, unicast hole up to 196 ms.
+       Stack log (evidence/38099/s2-log-u5.out), verbatim:
+         02:19:22 mrpd: PORT: Update ring port port1.0.13 with state to Forwarding
+         02:19:22 mrpd: PORT: Update ring port port4.0.26 with state to Forwarding
+         02:19:22 mrpd: Stopped manager ring-id 1 ...
+         02:19:22 mrpd: Started manager ring-id 1 ...
+         02:19:22 mrpd: PORT: port 5013 set Forwarding ... port 20026 set Forwarding
+         02:19:22 mrpd: FDB: Flush ... / both ring ports Blocked / Ring opened /
+                        POWER_ON -> AC_STAT1 -> PRM_UP -> Ring closed -> CHK_RC
+       and, interleaved, 8 lines at local7.err:
+         EXFX[731]: DBG:_exfx_mcl2_stargv_dbDelete 680: Failed to delete STARGV entry vid 1,
+                    grp 0.0.0.0 from exfxStargvList  (+ stargvEntryDelete / mc_entryDelete /
+                    mc_route_delete rc=1)
+       The same change on the MRC (SA) cost one 8 ms hole and no duplicates.
+  O-2  With the 500 ms profile, ring CLOSURE mostly does NOT loop. Only the first restore
+       after the profile change looped (t99a: 29 ms, 1000 dups, echoes 517/413,
+       TestTimerExpired right after "Ring closed"). The other 7 restores had no
+       duplicates, no echoes and no loss. With the 200 ms profile it looped 10 of 10
+       (38093-fail.log, 38098.log). So the false test-timer expiry that
+       T28863/T38093 report depends on the monitoring window: 60 ms at 200 ms,
+       250 ms at 500 ms.
+  O-3  The ring ends each restore Closed with the returned port blocked (the MRM keeps
+       the path that carried the traffic).
+
+AFTER THE CASE (15:34)
+---------------------------------------------------------------------------
+  Ring: Closed, Port1 port1.0.13 Forwarding / Port2 port4.0.26 Blocking (t99h).
+  Profile 500 is still configured on both nodes, and saved (step 5). T38097
+  returns them to the default when it rebuilds the roles. The originals of both
+  boot configs go back at the row-9 restore.
+
+EVIDENCE (IE520/mrp-2026-09-29/evidence/38099/)
+---------------------------------------------------------------------------
+  s2-cfg-u5.out s2-log-u5.out s3-cfg-u3.out s5-save-u5.out s5-save-u3.out r3.summary
+  t99cfg/ (flows across the profile change) t99base/ t99a..t99h/: flowstat.txt
+    loopwin.txt summary.txt tx.txt START events.txt shut.out noshut.out after.out
+    stacklog.out poll-u2.out [poll-u3.out]
+  Tools: evidence/row9/tools/, evidence/28863/tools/. Raw rx files stay on tb470 /tmp/ck9/.
