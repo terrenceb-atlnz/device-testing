@@ -1,0 +1,253 @@
+# T5093 — DHCPv6 Relay - Basic functionality — tb470 IE520 stack — 2026-09-30 — PASS
+
+Verdict: PASS. All five steps produced the result the case expects. The DUT is the IE520 VCStack
+(awplus_main-20260923-20; members 1/3/4, master member 3), running as the DHCPv6 relay.
+- (1) With no relay configured, the client's SOLICITs got no response.
+- (2) With `ip dhcp-relay server-address 2001:db8:5093:10::2 vlan10` configured on the client
+  VLAN, the client completed SOLICIT/ADVERTISE/REQUEST/REPLY and leased 2001:db8:5093:1::1cb. That
+  address is inside the client VLAN's /64.
+- (3) `show counter dhcp-relay` counted DHCPv6 Requests In / Replies In / Relayed To Server /
+  Relayed To Client = 5/5/5/5. The server counted RELAY FORWARD in 5 and held the binding.
+- (4) After the config was saved and the relay removed, the client again got no response. Neither
+  the relay counters nor the server counters moved.
+- (5) After a whole-stack reload, the stack came up from the saved config with the relay present.
+  The same client got its lease again, a new client identity got a new lease (::15e), and the relay
+  counters counted both exchanges.
+
+Run labelled: clean. The first step-2 attempt was a client-tool defect, not a DUT result: the
+ADVERTISEs arrived, but the client did not read them in time. That attempt is recorded below and
+was re-run with the tool fixed. Method note on step 5: "Save configuration" was done as
+`copy running-config flash:/ck5093.cfg` + `boot config-file flash:/ck5093.cfg`. That way the
+bench's `tb470-bench.cfg` was never overwritten, and the check is the same: the reboot loaded the
+saved config.
+
+Operator: bench-runner subagent (sentinel = parent session, /test-mode shape A). Queue:
+IE520/CAMPAIGN-QUEUE-2026-09-29.md row 10. Hand-driven case with no framework script.
+Case text: ck.db zephyr AWPTCM-T5093 ("DHCPv6 Relay - Basic functionality", /DHCPv6/DHCPv6 Relay,
+objective "Ensure basic DHCPv6 functionality is available via DHCP Relay"). Preconditions: a
+DHCPv6 server, a DHCPv6 client, and a DUT with IPv6 interfaces to each. Five steps, quoted per
+section below.
+
+## Topology used (running-config only; the standing topology was not changed)
+```
+tb470 eth1 (scapy DHCPv6 client, evidence/5093/tools/dhc6.py; installs no address or route on the host)
+   |  cable per bench-state: tb eth1 <-> swi_c port3.0.13
+IE520 stack  port3.0.13 -> scratch VLAN 3993 "ck5093"; interface vlan3993 2001:db8:5093:1::1/64  <- relay here
+             vlan10 (sa1 = port3.0.2 + port4.0.2) 2001:db8:5093:10::1/64
+   |  sa1 <-> AR4050S sa1 (port1.0.3-1.0.4), VLAN 10
+AR4050S (u1) vlan10 2001:db8:5093:10::2/64, `ipv6 dhcp server ck5093`
+             pool ck5093: address range 2001:db8:5093:1::100 - ::1ff, link-address 2001:db8:5093:1::/64
+             ipv6 route 2001:db8:5093:1::/64 2001:db8:5093:10::1
+```
+
+## Pre-case state (17:05–17:07 NZDT)
+- Gate 1: `sudo -n fuser -v /dev/u*` empty, no /var/lock/LCK..*. Gate 3: /nfsHome mounted (nfs4).
+- Gate 2: a bare CR on each console returned `x230-10GP#` (u0), `4050-5g#` (u1), `IE520-stk#`
+  (u2, u4, u5) and `IE520-sa#` (u3). No shell and no config prompt was parked.
+- Gate 4: `bench_probe.py run` 2026-09-30T040553Z → MATCH, no advisory (14.7 s).
+- Gate 6: `Current boot config: flash:/tb470-bench.cfg (file exists)` on u5/u3/u1/u0.
+- Gates 5/7/9 (script preflight, server run path, defaulting CLI) do not apply here: there is no
+  framework script (skipped). Gate 8: sentinel = parent (dispatch prompt).
+- Pre-group capture 17:06: `pre-test-configs/2026-09-30b/pre-u{5,3,1,0}.out` (show running-config,
+  show boot, show stack). Running-config is IDENTICAL on all four to the row-7 baseline
+  (`../vlan-2026-09-29/pre-test-configs/2026-09-30b/`, rcdiff 0 lines). Stack 1/3/4 Ready, member 3
+  Active Master, Normal operation.
+- `tb470-bench.cfg` on stack members 3/1/4: 2927 bytes, Sep 30 03:07:49 UTC (evidence/5093/5093-s4pre-dir-u5.out).
+- CLI help probe (qmark.py, `?` with no CR; the Ctrl-U self-test passed) in `interface vlan10`
+  (evidence/5093/5093-q-if-u5.out):
+```
+ip dhcp-relay ?  agent-option | information | max-message-length | maxhops | server-address | short-lease | short-lease-ipv6
+ip dhcp-relay server-address ?                          A.B.C.D | X:X::X:X
+ip dhcp-relay server-address 2001:db8:5093:10::2 ?      IFNAME  Name of interface out which the DHCP server is found
+ip dhcp-relay server-address 2001:db8:5093:10::2 vlan10 ?   <cr>
+```
+
+## Step 0 — set up the addressing and server (17:08:54–17:10:38; evidence/5093/5093-s0-u5.out, -s0-u1.out, -s0b-u5.out)
+Stack: `vlan database` / `vlan 3993 name ck5093`; `interface vlan3993` `ipv6 enable` + `ipv6 address
+2001:db8:5093:1::1/64`; `interface vlan10` `ipv6 enable` + `ipv6 address 2001:db8:5093:10::1/64`;
+then (17:10:16) `interface port3.0.13` `switchport access vlan 3993`. 4050: the pool, vlan10 address +
+`ipv6 dhcp server ck5093`, and the static route. No `% ` line on either device.
+```
+4050  show ipv6 dhcp pool      : DHCPv6 Pool: ck5093 / Link-Address: 2001:db8:5093:1::/64 / Address Range: 2001:db8:5093:1::100 - 2001:db8:5093:1::1ff
+4050  show ipv6 dhcp interface : vlan10 is in server mode. Using pool: ck5093
+4050  ping ipv6 2001:db8:5093:10::1 repeat 3 : 3 received, 0% loss
+stack show vlan 3993           : 3993 ck5093 STATIC ACTIVE port3.0.13(u)
+stack show ipv6 interface brief: vlan3993 2001:db8:5093:1::1/64 preferred admin up running
+                                 vlan10   2001:db8:5093:10::1/64 preferred admin up running
+stack show ip dhcp-relay       : DHCP Relay Service is enabled   (default; no relay line in running-config)
+4050  clear counter ipv6 dhcp-server -> all counters 0
+```
+
+## Step 1 — "Configure the DHCPv6 client to use DHCPv6 to obtain an IPv6 address" → expected "No response to the dhcpv6-client - solicit pkts transmitted from the client." (17:10:50–17:11:16; evidence/5093/5093-s1-eth1.out/.pcap, -s1-u1.out, -s1-u5.out)
+```
+17:10:50.847 [step1] SOLICIT 1/3 xid 0x509fa0 fe80::f667:7041:7dff:3cfc -> ff02::1:2
+17:10:54.858 [step1]   no ADVERTISE within 4.0 s
+17:10:54.907 [step1] SOLICIT 2/3 ... 17:10:58.919 no ADVERTISE within 4.0 s
+17:10:58.959 [step1] SOLICIT 3/3 ... 17:11:02.970 no ADVERTISE within 4.0 s
+   pcap: 3 packets, all OUT (Solicit); nothing IN
+17:11:03.503 [step1] RESULT rc=1 (NO ADVERTISE)
+4050  show counter ipv6 dhcp-server (17:11:08): SOLICIT in 0 ... RELAY FORWARD in 0 (every counter 0)
+4050  show ipv6 dhcp binding: empty
+```
+⇒ Step 1 as expected: the SOLICITs went out and nothing answered.
+
+## Step 2 — "Configure DHCP Relay on the DUT interface connected to the client to use the upstream DHCPv6 server" → expected "Client successfully obtains an IPv6 address lease from the server via the DUT; client has a correct IPv6 address." (17:11:32–17:12:27; evidence/5093/5093-s2cfg-u5.out, -s2b-eth1.out/.pcap)
+```
+IE520-stk(config)#interface vlan3993
+IE520-stk(config-if)#ip dhcp-relay server-address 2001:db8:5093:10::2 vlan10      (no % line)
+show running-config interface vlan3993:
+ interface vlan3993
+  ipv6 address 2001:db8:5093:1::1/64
+  ipv6 enable
+  ip dhcp-relay server-address 2001:db8:5093:10::2 vlan10
+show ip dhcp-relay interface vlan3993: vlan3993 is up, line protocol is up ... List of servers : 2001:db8:5093:10::2
+```
+First attempt, 17:11:50 (evidence/5093/5093-s2-eth1.out/.pcap). The client reported "no ADVERTISE",
+but its own capture holds three ADVERTISEs from the relay (fe80::200:cdff:fe37:d6f → the client),
+one per SOLICIT, each with the matching xid (0x509360 …) and IA_NA 2001:db8:5093:1::1cb. Cause: a tool
+defect. scapy's `AsyncSniffer.results` is only filled at `stop()`, so the client's wait loop never
+saw them. It was fixed with a `prn=` callback (tools/dhc6.py as committed) and re-run:
+```
+17:12:26.219 [step2b] SOLICIT 1/3 xid 0x5095a0 fe80::f667:7041:7dff:3cfc -> ff02::1:2
+17:12:26.220 [step2b] ADVERTISE xid 0x5095a0 from fe80::200:cdff:fe37:d6f (00:00:cd:37:0d:6f) server-duid 00010001324f140c0000cd400394 addrs [('2001:db8:5093:1::1cb', 604800, 2592000)]
+17:12:26.275 [step2b] REQUEST xid 0x5095a1 for ['2001:db8:5093:1::1cb']
+17:12:26.376 [step2b] REPLY xid 0x5095a1 from fe80::200:cdff:fe37:d6f (00:00:cd:37:0d:6f) addrs [('2001:db8:5093:1::1cb', 604800, 2592000)]
+17:12:26.376 [step2b] LEASE 2001:db8:5093:1::1cb preferred 604800 valid 2592000
+17:12:26.904 [step2b] RESULT rc=0 (LEASED)
+```
+The server DUID 0001 0001 … 0000cd400394 is DUID-LLT with the 4050's MAC (00:00:cd:40:03:94). The
+answers come from the relay's link-local on vlan3993, with the stack MAC 00:00:cd:37:0d:6f, so they
+came through the DUT. 2001:db8:5093:1::1cb lies in the pool range and in vlan3993's
+2001:db8:5093:1::/64. The host installed nothing: the address was checked in the REPLY and in the
+server's binding (step 3), not configured on eth1.
+⇒ Step 2 as expected.
+
+## Step 3 — "Check counts of relay transactions in 'show count dns-relay'" → expected "Output shows counts of requests, replies and relays to clients and servers" (17:12:41–17:12:52; evidence/5093/5093-s3-u5.out, -s3-u1.out)
+The case text's `show count dns-relay` is a typo. The AW+ command is `show counter dhcp-relay`.
+```
+IE520-stk#show counter dhcp-relay
+DHCP relay counters
+Requests In ....... 0   Replies In ....... 0   Relayed To Server ....... 0   Relayed To Client ....... 0   (IPv4; all other v4 counters 0)
+DHCPv6 Requests In      ....... 5
+DHCPv6 Replies In       ....... 5
+DHCPv6 Relayed To Server ....... 5
+DHCPv6 Relayed To Client ....... 5
+4050-5g#show counter ipv6 dhcp-server
+SOLICIT in 4   ADVERTISE out 4   REQUEST in 1   REPLY out 1   RELAY FORWARD in 5   (others 0)
+4050-5g#show ipv6 dhcp binding
+Pool ck5093
+ Address 2001:db8:5093:1::1cb
+         client IAID 00005093, DUID 0003000100f04d007716
+         preferred lifetime 604800, valid lifetime 2592000
+         starts  at 30 Sep 2026 17:12:24 / expires at 30 Oct 2026 17:12:24
+stack show ipv6 neighbors: 2001:db8:5093:10::2 0000.cd40.0394 vlan10 sa1; fe80::f667:7041:7dff:3cfc 00f0.4d00.7716 vlan3993 port3.0.13
+```
+5 = 3 SOLICITs from the first step-2 attempt + 1 SOLICIT + 1 REQUEST from the re-run, each relayed
+both ways. The server's four SOLICITs and one REQUEST all arrived as RELAY-FORW (RELAY FORWARD in 5).
+The DUID 0003 0001 00f04d007716 is DUID-LL with tb470 eth1's MAC, as the client sent it.
+⇒ Step 3 as expected.
+
+## Step 4 — "Save configuration then: Remove DHCP Relay on DUT" → expected "DHCPv6 communication from Client should again be unsuccessful" (17:13:41–17:14:56; evidence/5093/5093-s4save-u5.out, -s4-u5.out, -s4-eth1.out/.pcap, -s4pre-u1.out, -s4post-u1.out)
+```
+IE520-stk#copy running-config flash:/ck5093.cfg          Copying... Successful operation
+IE520-stk(config)#boot config-file flash:/ck5093.cfg     Synchronizing file across the stack ... member 1 / member 4 successfully completed [DONE]
+show boot: Current boot config: flash:/ck5093.cfg (file exists)
+dir: flash:/ck5093.cfg, IE520-stk-1/flash:/ck5093.cfg, IE520-stk-4/flash:/ck5093.cfg — 3199 bytes each, 04:14:21 UTC
+show file flash:/ck5093.cfg | include relay|3993|5093:
+  vlan 3993 name ck5093 / switchport access vlan 3993 / ipv6 address 2001:db8:5093:10::1/64 /
+  interface vlan3993 / ipv6 address 2001:db8:5093:1::1/64 / ip dhcp-relay server-address 2001:db8:5093:10::2 vlan10
+IE520-stk(config-if)#no ip dhcp-relay server-address 2001:db8:5093:10::2 vlan10    (no % line)
+show running-config interface vlan3993: ipv6 address 2001:db8:5093:1::1/64 / ipv6 enable   (relay gone)
+show ip dhcp-relay interface vlan3993: List of servers :   no servers configured
+```
+Client (a fresh client identity, DUID-LL 00:f0:4d:00:77:17, so an existing binding cannot help it):
+```
+17:14:30.987 [step4] SOLICIT 1/3 ... 17:14:35.004 no ADVERTISE within 4.0 s
+17:14:35.059 [step4] SOLICIT 2/3 ... 17:14:39.079 no ADVERTISE within 4.0 s
+17:14:39.123 [step4] SOLICIT 3/3 ... 17:14:43.145 no ADVERTISE within 4.0 s
+   pcap: 3 packets, all OUT
+17:14:43.675 [step4] RESULT rc=1 (NO ADVERTISE)
+stack  show counter dhcp-relay after: DHCPv6 Requests In 5 / Replies In 5 / Relayed To Server 5 / Relayed To Client 5   (unchanged)
+4050   show counter ipv6 dhcp-server before and after: SOLICIT in 4, REPLY out 1, RELAY FORWARD in 5 (unchanged)
+```
+⇒ Step 4 as expected.
+
+## Step 5 — "Reboot DUT" → expected "DUT starts correctly with DHCP relay present and functioning. DHCPv6 communication to downstream successful" (17:15:23–17:20:35; evidence/5093/5093-s5pre-u5.out, -s5reload-u5.out, -s5up-u5.out, -s5-eth1.out/.pcap, -s5post-u*.out, -s5b-*)
+`reload` on the master console at 17:15:23 (`(y/n)` answered `y` + CR). Console transcript:
+`04:18:01 awplus-3 VCS[723]: Member 1 (84e3.2787.0ac0) has joined the stack`, `04:18:04 … Member 4
+(84e3.2787.09c0) has joined the stack`, and `IE520-stk login:` at 17:18:54, 3 m 31 s after the
+reload. `show reboot history` on member 1 records `2026-09-30 04:16:07 Expected User Request`.
+```
+17:19:21 show stack : 1 Ready Backup Member / 3 Ready Active Master / 4 Ready Backup Member / Normal operation
+17:19:22 show boot  : Current boot config: flash:/ck5093.cfg (file exists)
+17:19:23 show running-config interface vlan3993:
+          ipv6 address 2001:db8:5093:1::1/64 / ipv6 enable / ip dhcp-relay server-address 2001:db8:5093:10::2 vlan10
+17:19:24 show ip dhcp-relay interface vlan3993: vlan3993 is up, line protocol is up ... List of servers : 2001:db8:5093:10::2
+17:19:26 show vlan 3993: port3.0.13(u)
+17:19:28 show counter dhcp-relay: every counter 0 (reset by the reboot)
+```
+The same client as step 2 (DUID-LL 00:f0:4d:00:77:16):
+```
+17:19:44.419 [step5] SOLICIT 1/3 xid 0x50a100
+17:19:44.420 [step5] ADVERTISE xid 0x50a100 from fe80::200:cdff:fe37:d6f (00:00:cd:37:0d:6f) addrs [('2001:db8:5093:1::1cb', 604800, 2592000)]
+17:19:44.483 [step5] REQUEST xid 0x50a101
+17:19:44.585 [step5] REPLY xid 0x50a101 ... addrs [('2001:db8:5093:1::1cb', 604361, 2591561)]
+17:19:45.125 [step5] RESULT rc=0 (LEASED)
+stack show counter dhcp-relay: DHCPv6 Requests In 2 / Replies In 2 / Relayed To Server 2 / Relayed To Client 2
+```
+A new client identity (DUID-LL 00:f0:4d:00:77:14), to show a fresh allocation and not only the
+existing binding:
+```
+17:20:22.328 [step5b] ADVERTISE xid 0x509360 ... addrs [('2001:db8:5093:1::15e', 604800, 2592000)]
+17:20:22.481 [step5b] REPLY xid 0x509361 ... addrs [('2001:db8:5093:1::15e', 604800, 2592000)]
+17:20:23.013 [step5b] RESULT rc=0 (LEASED)
+stack show counter dhcp-relay: DHCPv6 Requests In 4 / Replies In 4 / Relayed To Server 4 / Relayed To Client 4
+4050  show counter ipv6 dhcp-server: SOLICIT in 6, ADVERTISE out 6, REQUEST in 3, REPLY out 3, RELAY FORWARD in 9
+4050  show ipv6 dhcp binding: 2001:db8:5093:1::15e (DUID 0003000100f04d007714, starts 17:20:21) and 2001:db8:5093:1::1cb (DUID 0003000100f04d007716)
+```
+⇒ Step 5 as expected: the stack re-formed with the same master, the relay config came back from the
+saved file, and relayed DHCPv6 worked for an existing and a new client.
+
+## Observation O-1 carried from T5082 (not graded here)
+T5082 saw the 4050 send ADVERTISE out on vlan10 while the DUT's own DHCPv6 client counted
+ADVERTISE in 0. The relay path in this case crosses the same stack vlan10 / sa1 / 4050 vlan10 link.
+Every server message was delivered and processed. The DUT counted DHCPv6 Replies In 5, then 4 after
+the reboot, with Relayed To Client equal each time, and the client received every one. The server's
+replies to a relay go to the relay agent's address on UDP 547 (RFC 8415). They were counted, but not
+captured on the wire, since there is no capture point on vlan10. So the T5082 loss is
+NOT a general failure of DHCPv6 from the 4050 to the DUT over that link, and not the 4050's server
+config. What T5082 exercised and this case did not is the DUT's own client receive path (UDP 546,
+to its link-local). That path remains the open candidate. Not investigated further (outside T5093).
+
+## Teardown (17:20:50–17:23:47; evidence/5093/5093-td-u5.out, -td-del*-u5.out, -td-u1.out)
+- Stack: `boot config-file flash:/tb470-bench.cfg` (synchronised to members 1 and 4); port3.0.13
+  `no switchport access vlan`; vlan3993 `no ip dhcp-relay server-address …`, `no ipv6 address …`, `no
+  ipv6 enable`; vlan10 `no ipv6 address …`, `no ipv6 enable`; `vlan database` `no vlan 3993`. No `% ` line.
+- `delete flash:/ck5093.cfg`: the first attempt (17:22:2x) was declined. The prompt is
+  `Delete flash:/ck5093.cfg?  (y/n)[n]:`, the driver's y/n regex did not allow the `[n]`, and its
+  cleanup CR took the default `n`. The file stayed and the console was left at the exec prompt. The
+  regex was fixed (tools/ckyn.py) and the delete re-run: `Deleting... Successful operation` on the
+  master, then `delete IE520-stk-1/flash:/ck5093.cfg` and `delete IE520-stk-4/flash:/ck5093.cfg`, the
+  same. The master's delete does not propagate to members. `dir` afterwards: only `tb470-bench.cfg`
+  (2927 bytes, 03:07:49, unchanged) on members 3, 1 and 4.
+- 4050: vlan10 `no ipv6 dhcp server`, `no ipv6 address …`, `no ipv6 enable`; `no ipv6 route
+  2001:db8:5093:1::/64 2001:db8:5093:10::1`; `no ipv6 dhcp pool ck5093`. `show ipv6 dhcp pool` and
+  `show ipv6 dhcp binding` are empty, and `show ipv6 dhcp interface` shows only `vlan1 is in client mode`.
+- tb470: nothing was installed. The client is a scapy process that exited at the end of each run;
+  no tcpdump was started. `ps` afterwards: no dhc6 or tcpdump process.
+
+## Post-case state (17:24–17:25)
+- `post-test-configs/2026-09-30b/final-u{5,3,1,0}.out`: `show running-config` is IDENTICAL to the
+  pre-group capture on all four. rcdiff gave 0 lines, with 184/108/106/85 lines parsed on each side.
+- `Current boot config: flash:/tb470-bench.cfg (file exists)` on u5/u3/u1/u0.
+- Stack 1/3/4 Ready, member 3 Active Master, Normal operation.
+- `bench_probe.py run` 2026-09-30T042449Z → MATCH.
+- A bare CR on u0–u5 returns an exec prompt, and `fuser -v /dev/u*` is empty.
+- The IE520-sa (u3) and the x230 (u0) were not touched by this case.
+
+## Evidence
+`evidence/5093/` holds the per-step console outputs (`5093-s*-u5.out` = stack, `-u1.out` = 4050) and
+the client output and pcap of every attempt (`5093-s*-eth1.out/.pcap`). `evidence/5093/tools/`
+holds `dhc6.py` (the DHCPv6 client), `ckyn.py` (the y/n-aware driver, regex fixed), `peek.py` and
+`rcdiff.py`. ckcon.py and qmark.py are unchanged copies of `../vlan-2026-09-29/evidence/` (same md5).
+The raw console transcripts are in tb470 `/tmp/ck5093/console-u{0..5}.log` (tmpfs).
