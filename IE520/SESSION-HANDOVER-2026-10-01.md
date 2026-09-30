@@ -186,6 +186,20 @@ The earlier ones are in [SESSION-HANDOVER-2026-09-29.md](SESSION-HANDOVER-2026-0
     and a fourth call succeeds. This is the second time (the first was 2026-09-29 12:55). The unit
     boots normally.
 
+## 4b. After the wrap (12:35–12:55 NZDT): row 6's second NIC fitted
+
+On Terrence's request, "Which eth do you want moved into the stack, and where": **eth3 was moved
+from x230 port1.0.1 to stack port3.0.9** (member 3, u5).
+- The module in 3.0.9 is the AT-SP10TM taken from SA port1.0.2. The "spare AT-SPTXc in SA
+  port1.0.1" named in the 09-29 notes did not exist any more: SA 1.0.1 read `not present` in
+  every probe today.
+- Terrence then put eth2 back on SA port1.0.2 (10GBASE-TM, 1000/full).
+- `bench_probe.py apply` ran on his "run apply" (snapshots `backups/2026-09-30T235326Z.*`). The
+  re-probe reads **MATCH**.
+- New template: `tb-swi_b = eth2-port1.0.2`, `tb-swi_c = eth1-port3.0.10, eth3-port3.0.9`.
+  **There is no `tb-swi_f` now**, so the x230 has no host link.
+- Row 6's T24032 and T12067 are UNBLOCKED; re-triage them before running.
+
 ## 5. OPEN questions
 
 - **Member 4's 07:28 UTC unexpected reboot:** is it a new signature, or the fleet pattern?
