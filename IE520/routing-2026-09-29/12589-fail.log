@@ -1,0 +1,252 @@
+TEST 12589 -- Interoperability with RIPv1/v2 (Policy Based Routing)
+===========================================================================
+Run:    2026-10-01 09:00-09:45 NZDT, tb470, bench-runner (queue CAMPAIGN-QUEUE-2026-09-29.md
+        row 16, sentinel device-testing-67). Hand-driven: no framework script.
+Build:  awplus_main-20260923-20 (stack and IE520-sa); x230 awplus_5.5.5_2-20260918-7
+DUT:    IE520 3-member VCStack "IE520-stk" (members 1/3/4, master member 3), router MAC
+        0000.cd37.0d6f (virtual). RIP peers: the standalone IE520-sa and the x230-10GP.
+Case:   AWPTCM-T12589 (ck.db, folder "/Policy Based Routing/Policy based Routing - x510").
+        Objective "Confirm that Policy-based Routing and RIPv1/v2 work correctly each other."
+        IXIA1 packets: Pkts1 = source 192.168.10.1-127 (NOT matching the traffic class),
+        Pkts2 = source 192.168.10.128-254 (matching). Steps:
+          1 transmit Pkt1+Pkt2          -> Pkts1 to VLAN40, Pkts2 to VLAN30
+          2 VLAN30 down, transmit       -> Pkts1 and Pkts2 to VLAN40
+          3 VLAN30 up, transmit         -> Pkts1 to VLAN40, Pkts2 to VLAN30
+          4 invalid PBR next-hop, transmit -> Pkts1 and Pkts2 to VLAN40
+          5 RIP version 2 -> 1 on all switches, repeat 1-4 -> same results
+        The environment and switch config are "See attachment file"; the attachment is not in
+        ck.db, so the topology below is built from the steps (VLAN30 = PBR next hop, VLAN40 =
+        the RIP route). Scope: Terrence, relayed 2026-09-30 15:50, "yes" to the full build.
+
+VERDICT: FAIL.
+  PBR and RIP interoperate while the PBR next hop is reachable AND already in the DUT's ARP
+  table: steps 1 and 3 give exactly the expected split under RIPv2 and RIPv1 (5,080/5,080 of
+  each kind, nothing on the wrong path). Whenever the next hop is NOT usable, the DUT does not
+  fall back to the routing table (the RIP route via VLAN40), as steps 2 and 4 expect.
+  Instead it routes every PBR-matched packet out of the INGRESS port, untagged in vlan1, to
+  the MAC of an unrelated host: tb470 eth1, 00f0.4d00.7716 = 10.38.215.1, the first entry in
+  the stack's ARP table.
+    step 2 (VLAN30 SVI shut)                   v2 FAIL, v1 FAIL
+    step 4 (next-hop 172.16.30.99, in-subnet, no host) v2 FAIL, v1 FAIL
+    step 4 (next-hop 10.99.99.1, no route)     v2 FAIL, v1 FAIL
+    step 3 (VLAN30 up)                         FAIL as the step reads: the misdirection
+      continues after `no shutdown`, because the DUT never re-resolves the next hop by
+      itself. Correct (5,080/5,080 to VLAN30) only once the next hop's ARP entry exists
+      (primed with `ping 172.16.30.2` from the DUT); v2 and v1 alike.
+  Pkts1 (not matched) were routed correctly by RIP to VLAN40 in every run, 5,080/5,080.
+  RIPv1 and RIPv2 both work between the IE520 stack, the IE520-sa and the x230, and the
+  version change makes no difference to the PBR result.
+
+  Two defects for review:
+  D-1 PBR with an unusable next hop (down, unresolved, or with no route) misroutes matched
+      traffic to an unrelated neighbour's MAC in another VLAN, out of the ingress port. It
+      does not fall back to the routing table and does not drop. Effects: traffic goes to the
+      wrong host, crosses a VLAN boundary, and here it escaped the lab through tb470 (below).
+  D-2 PBR does not trigger ARP resolution of its next hop. After `no shutdown` of the next
+      hop's VLAN (which flushes the entry), PBR stays broken (it misroutes per D-1) until
+      something else makes the DUT ARP the next hop. Observed: no traffic ever
+      re-resolves it. A steady-state entry did NOT age out in 12 min with no traffic
+      (12589-arpwatch.txt).
+
+TOPOLOGY (standing bench, no recable; all addressing and VIDs scratch)
+  case VLAN10 (ingress) = vlan3210 192.168.10.1/24 on stack port3.0.10 (member 3), trunk:
+        native vlan 1 (baseline) + 3210 tagged <- tb470 eth1 (tcpreplay, tagged 3210)
+  case VLAN30 (PBR next hop) = vlan3230 over sa2 (stack port1.0.2+1.0.9 <-> x230 port1.0.3+1.0.4):
+        stack 172.16.30.1/24, x230 172.16.30.2/24; sa2 trunk, native 1 (stack) / 100 (x230)
+        kept as baseline, 3230 tagged
+  case VLAN40 (RIP route) = vlan3240 over the SX link (stack port4.0.26 <-> SA port1.0.26):
+        stack 172.16.40.1/24, SA 172.16.40.2/24; trunk native none, 3240 tagged
+  destination 172.16.89.0/24 exists on BOTH peers, so each path is counted separately:
+        SA  vlan3289 172.16.89.1/24 on port1.0.2 (trunk native 1 + 3289 tagged) -> eth2,
+            static ARP 172.16.89.2 -> 0212.5890.0040
+        x230 vlan3289 172.16.89.1/24 on port1.0.1 (trunk native 100 + 3289 tagged) -> eth3,
+            static ARP 172.16.89.2 -> 0212.5890.0030
+        => a frame at eth2 with dst 02:12:58:90:00:40 went VLAN40; one at eth3 with dst
+           02:12:58:90:00:30 went VLAN30. Native VLANs were left untouched, so tb470's
+           10.38.215.x addresses and the 4050's NTP path to eth3 stayed up.
+  RIP: stack network 192.168.10.0/24, 172.16.30.0/24, 172.16.40.0/24; SA 172.16.40.0/24,
+        172.16.89.0/24 (the SA advertises the destination); x230 172.16.30.0/24 only.
+  PBR (stack): mls qos enable; access-list 3001 permit ip 192.168.10.128/25 any;
+        class-map ck12589 / match access-group 3001; policy-map ck12589 / class ck12589 /
+        set ip next-hop 172.16.30.2; port3.0.10 service-policy input ck12589.
+  Traffic: tools/mk12589.py builds one frame from each fake host 192.168.10.1-254 (MAC
+        02:12:58:90:10:<h>, tagged 3210, 128 B, to 172.16.89.2 via the stack's router MAC).
+        Pkts1 carry UDP sport 5001 and Pkts2 sport 5002. 4 rounds = 1016 frames, x10
+        loops = 10,160 per run (5,080 of each) at 1000 pps. tools/12589-traffic.sh counts
+        each kind at eth2 and eth3 (and, from 09:31, arriving back at eth1).
+  Controls: no RIP/no PBR = 0 anywhere; RIP only = all 10,160 at VLAN40.
+
+PRE-CASE (09:00-09:02)
+  Gate: no console holders (fuser), every console at an exec prompt, /nfsHome mounted, probe
+  2026-09-30T200108Z MATCH. Capture evidence/12589/12589-pre-u{5,3,0,1}.out: running-config
+  IDENTICAL to pre-test-configs/2026-10-01/ on all four; stack master member 3, 1/3/4 Ready.
+  Support check (qmark.py, `?` with no CR, self-test passed; 12589-q1-u5.out, -q2-*.out):
+  stack `service ?` offers rip, `router ?` offers rip, `access-list ?` offers
+  "<3000-3699> Hardware IP access list"; `access-list 3001 permit ip A.B.C.D/M` + dest.
+  x230 `service ?` offers rip, `router rip ?` = <cr>. RIP is licensed on the stack (show
+  license brief: RIP, RIP-16, RIP-256).
+
+STEP A -- build, no RIP, no PBR (09:05; 12589-b1-*.out, -b1v-*.out). No "% " line.
+  stack: vlan3210/3230/3240 admin up running; port3.0.10 and port4.0.26 connected trunk
+  a-1000; sa2 connected trunk. ping 172.16.40.2 3/3, ping 172.16.30.2 3/3. The ARP entry
+  172.16.30.2 -> 001a.eb91.cca1 (sa2) comes from this ping; see step 1.
+  SA and x230: VLANs and SVIs up, 172.16.89.0/24 connected. tb470 -> 10.38.215.10/.41/.2 2/2
+  each (management through the native VLANs intact).
+
+BASELINE -- no RIP, no PBR (09:06:53; 12589-base-*)
+  sent 10,160; VLAN40 path Pkts1=0 Pkts2=0 | VLAN30 path Pkts1=0 Pkts2=0.
+
+STEP B -- RIPv2 on all three (09:07-09:08; 12589-b2*-*.out)
+  `service rip`, then `router rip` ONE second later:
+    % RIP protocol daemon is not running or feature license is not available
+  on all three (stack, SA, x230). This is a daemon start-up race, not a refusal: `show ip rip`
+  answered without error 28 s later, and the same `router rip` blocks were then accepted
+  (09:08:10, no "% " line).
+  09:08:37 stack show ip route:
+    R       172.16.89.0/24 [120/2] via 172.16.40.2, vlan3240, 00:00:23
+  show ip protocols rip: "Default version control: send version 2, receive version 2",
+    vlan3210/3230/3240 Send 2 Recv 2; sources 172.16.30.2 and 172.16.40.2.
+  SA: R 172.16.30.0/24 and R 192.168.10.0/24 via 172.16.40.1; x230: R 172.16.40.0/24,
+    R 192.168.10.0/24 via 172.16.30.1 (and 172.16.89.0/24 metric 3 in its RIP db, connected
+    wins).
+  RIP-only control (09:08:51; 12589-v2-ripOnly-*): VLAN40 Pkts1=5080 Pkts2=5080 | VLAN30 0/0.
+    first frame at eth2: 84:e3:27:87:07:80 (SA) > 02:12:58:90:00:40, vlan 3289, ttl 62,
+    192.168.10.1.5001 > 172.16.89.2.5009.
+
+STEP C -- PBR on the stack (09:09:21-09:09:29; 12589-b3-u5.out, -b3v-u5.out). No "% " line.
+    IE520-stk(config)#mls qos enable
+    Traffic will stop while configuration is applied. Continue? (y/n): y
+  show policy-map ck12589: "Interfaces: port3.0.10 / Default class-map action: permit /
+    CLASS-MAP-NAME: ck12589 / QOS-ACCESS-LIST-NAME: 3001 / Set Nexthop: 172.16.30.2".
+  show ip route 172.16.89.0/24: Known via "rip" ... * via 172.16.40.2, vlan3240.
+
+RIPv2 -- case steps 1-4
+  step 1 (09:09:53; 12589-v2-step1-*)   PASS
+    VLAN40 Pkts1=5080 Pkts2=0 | VLAN30 Pkts1=0 Pkts2=5080
+    eth3: 00:1a:eb:91:cc:a1 (x230) > 02:12:58:90:00:30, vlan 3289, ttl 62,
+          192.168.10.128.5002 > 172.16.89.2.5009
+  step 2 (09:10:20 `interface vlan3230` / `shutdown`; 12589-v2-s2-u5.out, -v2-step2*)  FAIL
+    stack: vlan3230 admin down / down; route still R via 172.16.40.2; ARP 172.16.30.2 gone.
+    09:10:26 run: VLAN40 Pkts1=5080 Pkts2=0 | VLAN30 0/0
+    09:11:09 repeat, with counters and an eth1 inbound capture (12589-v2-step2b-*):
+      VLAN40 Pkts1=5080 Pkts2=0 | VLAN30 0/0, and at eth1 (inbound):
+      00:00:cd:37:0d:6f > 00:f0:4d:00:77:16, ethertype IPv4, length 124:
+          192.168.10.128.5002 > 172.16.89.2.5009: UDP, length 82   (and .129, .130 ...)
+      stack port3.0.10 output packets 8387 -> 13544 (+5157 = 5080 + background);
+      port4.0.26 output +5107 (the 5080 Pkts1 + background); sa2 +51 (none of the test).
+    => Pkts2 are routed (source = the stack's router MAC), untagged in vlan1, out the
+       ingress port to tb470 eth1's MAC (stack ARP: "10.38.215.1 00f0.4d00.7716 vlan1
+       port3.0.10"), not to VLAN40. Expected: both to VLAN40.
+  step 3 (09:13:36 `no shutdown`; 12589-v2-s3*-u5.out, -v2-step3*)
+    09:13:43 vlan3230 admin up running; show arp has NO 172.16.30.2 entry.
+    09:14:08 canary (tcpreplay --limit=128 = 127 Pkts1 + 1 Pkts2): the Pkts2 frame came back
+      to eth1 (00:00:cd:37:0d:6f > 00:f0:4d:00:77:16), none at eth3; ARP still has no
+      172.16.30.2 => FAIL as the step reads (the DUT never resolves its PBR next hop).
+    09:14:48 `ping 172.16.30.2 repeat 2` from the stack -> 2/2, ARP entry back.
+    09:14:54 canary: the Pkts2 frame at eth3 via 00:1a:eb:91:cc:a1, none at eth1.
+    09:15:07 full run: VLAN40 Pkts1=5080 Pkts2=0 | VLAN30 Pkts1=0 Pkts2=5080  (as expected
+      once primed)
+  step 4 -- run 09:36-09:38, AFTER the RIPv1 block (below), with RIP switched back to v2
+    (`version 2` on all three, `clear ip rip route all` on the stack, route re-learned
+    09:36:08; send/receive 2 on every interface). 12589-v2-s4*-u5.out, -v2-step4*:
+    pre-control, next-hop 172.16.30.2:  VLAN40 5080/0 | VLAN30 0/5080 | back to eth1 0/0
+    next-hop 172.16.30.99 (in-subnet, no host):
+                                        VLAN40 5080/0 | VLAN30 0/0 | back to eth1 0/5080  FAIL
+    next-hop 10.99.99.1 (no route):     VLAN40 5080/0 | VLAN30 0/0 | back to eth1 0/5080  FAIL
+    restored 172.16.30.2:               VLAN40 5080/0 | VLAN30 0/5080 | back to eth1 0/0
+    `set ip next-hop <new>` on the attached policy took effect at once (show policy-map
+    "Set Nexthop: ..."); both invalid forms were accepted with no "% " line.
+
+STEP 5 -- RIP version 1 on all three (09:15:40; 12589-b5*-*.out)
+  `router rip` / `version 1` on stack, SA, x230: no "% " line. `clear ip rip route all` on the
+  stack at 09:15:48 removed the RIP route. Re-learned at 09:16:10:
+    R       172.16.89.0/24 [120/2] via 172.16.40.2, vlan3240, 00:00:18
+  "Default version control: send version 1, receive version 1" on all three; every RIP
+  interface Send 1 Recv 1. With receive version 1 only, the route came from a RIPv1
+  update (classful 172.16.0.0, /24 subnets, mask inferred correctly).
+
+RIPv1 -- case steps 1-4 (repeat)
+  step 1 (09:16:31; 12589-v1-step1-*)   PASS  VLAN40 5080/0 | VLAN30 0/5080
+  step 3 (09:17:03-09:17:45; 12589-v1-s3*-u5.out, -v1-step3-*)
+    shut/no shut vlan3230 with no traffic sent while down; after `no shutdown` show arp at
+    09:17:06 and 09:17:13 still had no 172.16.30.2 entry = the same unprimed state that
+    misrouted under v2. No unprimed canary was sent here (it would have leaked; see below).
+    Primed with `ping 172.16.30.2 repeat 2` (2/2) -> full run VLAN40 5080/0 | VLAN30 0/5080.
+    => same as v2: FAIL as the step reads, correct once primed.
+  step 2 (09:31:37 shutdown; 12589-v1-s2-u5.out, -v1-step2-*)   FAIL
+    route R via 172.16.40.2 (v1), ARP 172.16.30.2 gone.
+    09:31:44 VLAN40 Pkts1=5080 Pkts2=0 | VLAN30 0/0 | back to eth1 0/5080
+    09:32:37 repeat (uplink capture added): identical, VLAN40 5080/0 | VLAN30 0/0 | eth1 0/5080
+  step 4 (09:33-09:34; 12589-v1-s4*-u5.out, -v1-step4*)  (VLAN30 up again, ARP primed first)
+    next-hop 172.16.30.99:  VLAN40 5080/0 | VLAN30 0/0 | back to eth1 0/5080   FAIL
+    next-hop 10.99.99.1:    VLAN40 5080/0 | VLAN30 0/0 | back to eth1 0/5080   FAIL
+      (show ip route 10.99.99.1 -> "% Network not in table")
+    restored 172.16.30.2:   VLAN40 5080/0 | VLAN30 0/5080 | back to eth1 0/0
+  => "same results as above": yes. RIPv1 behaves exactly as RIPv2, including both defects.
+
+INCIDENT -- misrouted test traffic left the lab through tb470 (09:10-09:14)
+  tb470 has ip_forward=1 and loose rp_filter (eth1 = 2), and its default route is via
+  10.36.255.254 (dev network). The Pkts2 the DUT misrouted to eth1's MAC were therefore
+  forwarded out tb470's uplink: 5,080 in each of the two v2 step-2 runs, plus 1 canary
+  frame. FORWARD chain policy ACCEPT counter = 10,161 packets / 1,117,710 bytes. They were
+  124-byte UDP packets from spoofed sources 192.168.10.128-254 to 172.16.89.2, over ~20 s at
+  500 pps. Nothing else reached the uplink.
+  Reported to the sentinel at 09:12 (NEEDS TERRENCE); steps that could misroute were held.
+  Terrence (relayed): "did (b), continue". He added, on tb470:
+    -A FORWARD -s 192.168.10.0/24 -j DROP        (first rule in FORWARD)
+  From then on every run was bracketed and proved: the rule's own packet counter, and a
+  capture on dev network for src 192.168.10.0/24 beside an unfiltered liveness capture:
+    run            DROP rule pkts        uplink src 192.168.10.x
+    v1 step 2 #1   0 -> 5080             (no uplink capture yet)
+    v1 step 2 #2   5080 -> 10160         0
+    v1 step 4a     10160 -> 15240        0
+    v1 step 4b     15240 -> 20320        0
+    v2 step 4 pre  20320 -> 20320        0 of 501 uplink frames
+    v2 step 4a     20320 -> 25400        0 of 448
+    v2 step 4b     25400 -> 30480        0 of 587
+    v2 restored    30480 -> 30480        0 of 587
+  FORWARD's ACCEPT policy and DOCKER-USER counters stayed at 10,161 (their pre-rule value)
+  throughout, so no 192.168.10.x packet got past the DROP. NB: on this kernel (6.12)
+  IpForwDatagrams counts forward ATTEMPTS before the FORWARD hook, so it rose by 5,080
+  per run even while the rule dropped them; it is not evidence of a leak.
+  THE RULE IS STILL IN PLACE (30,480 hits at 09:45). It is Terrence's to remove.
+
+TEARDOWN (09:38-09:45; 12589-td1-*.out, -td2-*.out, -reload-*.txt, -post-*.out)
+  stack: no service-policy input ck12589 (port3.0.10); no policy-map ck12589; no class-map
+    ck12589; no access-list 3001; no mls qos (NO (y/n) prompt on this build, ~7 s, as on
+    2026-09-30; the dispatch expected one); no router rip; no ip address on vlan3210/3230/
+    3240; port3.0.10 switchport mode access; port4.0.26 switchport mode access + switchport
+    access vlan 4000; sa2 switchport mode access; no vlan 3210/3230/3240; no service rip.
+  SA: no router rip; no arp 172.16.89.2; no ip address vlan3240/3289; port1.0.26 access
+    vlan 4000; port1.0.2 switchport mode access; no vlan 3240/3289; no service rip.
+  x230: no router rip; no arp 172.16.89.2; no ip address vlan3230/3289; sa2 and port1.0.1
+    switchport mode access + switchport access vlan 100; no vlan 3230/3289; no service rip.
+  The stack end of the SX link was back in 4000 before the SA end left the trunk.
+  The only "% " line on each was the last: `no service rip` -> "% Save the config and
+  restart for this change to take effect." (service-gated daemon, as pdm/vrrp/ospf).
+  09:40 running-config IDENTICAL to pre-test-configs/2026-10-01/ on u5/u3/u0/u1, `show mls
+  qos` Disable, but ripd still answered `show ip rip` on the stack, SA and x230.
+  09:40:28 `reload` of the stack, SA and x230 (tools/ckreload.py; no save question asked,
+  nothing written) -> login: after 196 / 189 / 203 s.
+  09:44 post capture: running-config IDENTICAL to pre-test-configs/2026-10-01/ on u5/u3/u0/u1;
+  "% RIP protocol daemon is not running" on all; boot `flash:/<platform>-tb470.rel` +
+  `flash:/tb470-bench.cfg (file exists)` on all four; stack members 1/3/4 Ready, member 3
+  Active Master, Normal operation. Probe 2026-09-30T204444Z MATCH, Advisories none. Every
+  console at an exec prompt; no tcpdump/tcpreplay left running.
+
+RUN LABEL: clean, with three notes.
+  (1) The case steps ran in the order v2 1-3, v1 1 and 3, v1 2 and 4, then v2 4 (RIP set
+      back to version 2 first). Steps 2 and 4 were held for Terrence's answer on the leak.
+  (2) The step-3 "correct" results needed a DUT-side `ping` of the next hop (D-2). That is
+      stated at each step, and the unprimed result is the graded one.
+  (3) Step 1's first run relied on the ARP entry made by the step-A verification ping (09:06).
+  Measurements were not confounded: every run was 10,160 frames with 0 tcpreplay failures
+  and 0 kernel drops at every capture.
+
+EVIDENCE: evidence/12589/ (console outputs 12589-b*/-v1-*/-v2-*/-td*/-post-*-u{5,3,0,1}.out;
+  per-run *-summary.txt / *-tx.txt / *-first-eth{2,3}.txt; 12589-v2-step2b-eth1-in.txt;
+  canaries 12589-v2-step3-canary*.txt; 12589-arpwatch.txt). The 2026-09-30 probe files
+  (12589-q-*.out, -s1/-s2/-s3/-td-u5.out) are unchanged. Tools: evidence/tools/mk12589.py,
+  12589-traffic.sh, ckyn3.py (ckyn2.py + "YN?:" = an optional (y/n)), ckreload.py; qmark.py /
+  ckcon.py / peek.py / rcdiff.py (copies in ../ipv6-bgp-2026-09-29/evidence/tools/). Raw console transcripts:
+  tb470 /tmp/ck16/console-u{0..5}.log (tmpfs).
