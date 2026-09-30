@@ -1,0 +1,102 @@
+# T38407 — VLAN translation - basic functionality — tb470 IE520 stack — 2026-09-30 — PASS
+
+Verdict: PASS. Step 1 (configure VLAN translation) was accepted and read back. Step 2: tagged
+traffic matching the rule left the DUT with the translated VLAN-ID, 100/100. Proof on the wire at a
+host behind the egress port, and in the mirror of the egress port (the case's observation method).
+The translation also worked in reverse and on an egress-side rule (100/100 each). With the feature
+OFF, the same wire VID was dropped (0/100). Run labelled: clean (one mirror stage was invalid and
+re-run; see m2 below).
+
+Operator: bench-runner subagent (sentinel = parent session, /test-mode shape A), Terrence away.
+Queue: IE520/CAMPAIGN-QUEUE-2026-09-29.md row 7. Case text: ck.db AWPTCM-T38407, 2 steps: "Configure
+VLAN translation on the DUT"; "Send tagged traffic into the DUT that matches the VLAN translation rule
+and mirror the egress port" → "The traffic leaving the DUT should have the translated VLAN-ID". No
+objective or precondition text.
+
+## Bench mapping
+| role | DUT port | observed / driven by |
+| --- | --- | --- |
+| ingress, translation rule wire 3996 ↔ internal 3995 | port3.0.13 — trunk, allowed 3995 (native 1) | tb470 eth1, direct |
+| egress, no rule (shows the translated VID) | port1.0.13 — trunk, allowed 3995, native 3993 | tb470 eth2 via SA port1.0.13 (trunk native 3993, +3995) → SA port1.0.2 (observer trunk, +3995) |
+| egress, egress-side rule internal 3995 ↔ wire 3997 | port1.0.2 — trunk, allowed 3995, native 3991 | tb470 eth3 via x230 port1.0.3 (trunk native 3991, +3997 ONLY) → x230 port1.0.1 (observer trunk, +3995,3997) |
+| mirror test port | port1.0.9 | tb470 eth3 via x230 port1.0.4 (trunk native 3992, +3995; +3997 in stage m2) |
+Scratch VLANs: 3995 (internal) on the DUT, SA and x230; 3997 on the x230 only. VLAN 3996 exists
+nowhere (it is only the wire VID).
+
+## Pre-case state
+Same session as T38408: gate at 16:15–16:21 (consoles free and at exec, /nfsHome mounted, probe
+2026-09-30T031557Z MATCH, boot config `flash:/tb470-bench.cfg (file exists)` on u5/u3/u0/u1, stack 3 =
+Active Master). Group setup in place since 16:21 (README). T38408 teardown verified at 16:29
+(`post-test-configs/2026-09-30b/38408.u{5,3,0}.out` = the group-setup reference). Gate items 5/7/9:
+not applicable, because this case is hand-driven (skipped). Support probe (qmark.py, evidence/group-2026-09-30/q-if-u5.out):
+`mirror interface port1.0.13 direction ?` → both | receive | transmit. `switchport vlan translation`
+forms from T27887's probe (evidence/27887/27887-q-xlate-u5.out).
+
+## Configuration
+Stage 0 (feature OFF, 16:30:58–16:32:13; evidence/38407/38407-cfg-base.sh + .out, no `% ` line): the
+trunks and VLANs above, no translation rule. `show interface switchport vlan translation`: only
+`default accept` on port1.0.2, port1.0.13, port3.0.13.
+Step 1 (16:33:26–16:33:31; 38407-cfg-xlate.sh + .out, no `% ` line):
+```
+interface port3.0.13 / switchport vlan translation vlan 3996 vlan 3995
+interface port1.0.2  / switchport vlan translation vlan 3997 vlan 3995
+```
+Read back, `show interface switchport vlan translation`:
+```
+Interface: port1.0.2    VLAN on Wire 3997   VLAN 3995   Outer Vlan 0   / default accept
+Interface: port1.0.13   default accept
+Interface: port3.0.13   VLAN on Wire 3996   VLAN 3995   Outer Vlan 0   / default accept
+```
+`show running-config interface port3.0.13`: trunk, `allowed vlan add 3995`, `switchport vlan
+translation vlan 3996 vlan 3995`. port1.0.2: trunk, allowed 3995, native 3991, `switchport vlan
+translation vlan 3997 vlan 3995`. **Step 1 PASS.**
+
+## Traffic (step 2)
+Sender vsend.py, 100 × IPv4/UDP per stage, unknown-unicast dst (flooded), marker CKVLAN-<stage>.
+Driver evidence/group-2026-09-30/vstep.sh. Captures `tcpdump -Q in -e` filtered on the sender MAC,
+counted by vcount.py. DUT in/out packet counters before and after (background about +11 to +37).
+
+| stage | config | sent | captured | DUT deltas | result |
+| --- | --- | --- | --- | --- | --- |
+| s0a | OFF | eth1 → 3.0.13, 100 × `tags=3996` | eth2 **0**, eth3 **0** | 3.0.13 in +100; 1.0.13 out +26, 1.0.2 out +39 (background) | wire VID with no rule: dropped (baseline) |
+| s0b | OFF | eth1, 100 × `tags=3995` | eth2 100 × `tags=3995`; eth3 **0** (x230 1.0.3 carries only 3997) | 1.0.13 out +122, 1.0.2 out +133 | untranslated path; proves eth3 sees port1.0.2 only when it emits 3997 |
+| **s1f** | ON | eth1, 100 × `tags=3996` | eth2 **100 × `tags=3995`**; eth3 **100 × `tags=3997`** | 3.0.13 in +100; 1.0.13 out +124; 1.0.2 out +136 | **PASS**: ingress rule 3996→3995 (port1.0.13 egress carries 3995); egress rule 3995→3997 at port1.0.2 |
+| s1r | ON | eth2 → SA → 1.0.13, 100 × `tags=3995` | eth1 **100 × `tags=3996`**; eth3 **100 × `tags=3997`** | 1.0.13 in +122; 3.0.13 out +134; 1.0.2 out +133 | reverse: internal 3995 leaves port3.0.13 as wire 3996 |
+| s1x | ON | eth3 → x230 → 1.0.2, 100 × `tags=3997` | eth1 **100 × `tags=3996`**; eth2 **100 × `tags=3995`** | 1.0.2 in +100; 3.0.13 out +133; 1.0.13 out +123 | egress-side rule also translates on ingress (3997→3995) |
+| s1n | ON | eth1, 100 × `tags=3995` (the internal VID itself) | eth2 100 × `tags=3995`; eth3 100 × `tags=3997` | | `default accept`: a VID with no rule that the port allows passes untranslated. Observation, not graded (same as T27887 s2r5) |
+| **m1** | ON + port1.0.9 `mirror interface port1.0.13 direction transmit` | eth1, 100 × `tags=3996` | eth2 100 × `tags=3995` (wire); eth3 **100 × `tags=3995` (mirror copies of port1.0.13's egress)** + 100 × `tags=3997` (port1.0.2 path) | 1.0.9 out **+122**; 1.0.13 out +120 | **PASS (case literal)**: the mirrored egress traffic carries the translated VLAN-ID 3995 |
+| m2invalid | intended: mirror source → port1.0.2 | eth1, 100 × `tags=3996` | eth3 100 × `tags=3995` | | **INVALID, not graded.** The reconfiguration stopped (see below), so the mirror still monitored port1.0.13. My one-liner did not gate the stage on the config's rc. Kept as `38407-m2invalid*` |
+| **m2** | ON + mirror source port1.0.2 (transmit); x230 1.0.3 −3997, 1.0.4 +3997 (eth3 sees only mirror copies) | eth1, 100 × `tags=3996` | eth2 100 × `tags=3995`; eth3 **100 × `tags=3997`** | 1.0.9 out **+133**; 1.0.2 out +133 | the mirror of the egress-translating port carries the translated wire VID 3997 (post-translation) |
+
+Raw: evidence/38407/38407-{s0a,s0b,s1f,s1r,s1x,s1n,m1,m2,m2invalid}.out and the per-NIC .pcap files.
+Mirror config: 38407-cfg-m1.out (`show mirror`: test port port1.0.9, transmit, monitored port1.0.13),
+38407-cfg-m2-u0.out, 38407-cfg-m2-u5.out (monitored port1.0.2).
+**Step 2 PASS**: s1f (and m1 by the case's own mirror method) show the traffic leaving the DUT with
+the translated VLAN-ID.
+
+## Two CLI behaviours met on the way (recorded, not graded)
+1. Entering a mirror test port's interface mode prints a `%` caution line:
+   `% port1.0.9 is currently configured as a mirror-port. Use caution when altering its config`. The
+   first m2 reconfiguration (16:36:46) stopped there under `--stop-on-error`. It was redone at 16:37:32
+   with the caution accepted and every other line checked. No other `% ` line appeared (that try's
+   output file was overwritten by the redo, and the raw text is in tb470 /tmp/ckvlan3/console-u5.log).
+2. On the mirror port, `no mirror interface port1.0.13` + `mirror interface port1.0.2 …` removed the port's
+   `switchport access vlan 3992` line. `show running-config interface port1.0.9` then read only
+   `switchport` / `switchport mode access` / `mirror interface port1.0.2 direction transmit`. The
+   teardown re-added `switchport access vlan 3992`.
+
+## Teardown (16:38:33–16:40:08; evidence/38407/38407-teardown.sh + .out, td-mirror.out)
+DUT: port1.0.9 `no mirror interface port1.0.2` (the caution line only), `switchport access vlan 3992`;
+port3.0.13 `no switchport vlan translation all` / `trunk allowed vlan remove 3995` / `switchport mode
+access`; port1.0.13 and port1.0.2 back to access 3993/3991 (port1.0.2 also `no switchport vlan
+translation all`); `no vlan 3995`. `show interface switchport vlan translation` and `show mirror`
+then print nothing. SA: port1.0.13 back to access 3993, port1.0.2 `remove 3995`, `no vlan 3995`. x230:
+port1.0.3 → access 3991, port1.0.4 → access 3992, port1.0.1 `remove 3995,3997`, `no vlan 3995`,
+`no vlan 3997`. Post-case `show running-config` (post-test-configs/2026-09-30b/38407.u{5,3,0}.out) diffed
+against the group-setup reference (38408.u{5,3,0}.out): **empty on all three**. Nothing was written to
+startup-config.
+
+## Files
+- Raw console transcripts: tb470 /tmp/ckvlan3/console-u5.log, console-u3.log, console-u0.log (tmpfs).
+- evidence/38407/: config/teardown scripts and outputs, stage outputs, pcaps, post-case configs.
+- No framework run (hand-driven). Exit codes: every call rc 0, except the stopped m2 reconfiguration (rc 2).
