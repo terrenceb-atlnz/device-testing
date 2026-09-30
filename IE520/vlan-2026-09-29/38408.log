@@ -1,0 +1,116 @@
+# T38408 — QinQ - basic functionality — tb470 IE520 stack — 2026-09-30 — PASS
+
+Verdict: PASS. Both steps passed. Step 1: the customer-edge port added the S-tag to every frame
+coming in (customer-tagged and untagged, 100/100 each), and removed it from every frame going out
+(100/100). Step 2: double-tagged frames arriving on either provider port were switched on the
+outer tag. The other provider port and the CE port received them (100/100). They left the other
+provider port still double-tagged with the inner tag unchanged (100/100). The inner VID did not
+steer forwarding: a decoy VLAN equal to the inner VID got nothing, and a second inner VID (2200)
+was switched exactly like 2100. With the feature OFF, the same customer-tagged frames were dropped
+(0/100), so the result is due to the QinQ configuration. Run labelled: clean.
+
+The support check at run time passed. The case is port-based QinQ ("configure a port as a customer
+edge port / provider port"), and `switchport vlan-stacking customer-edge-port|provider-port` is
+offered and accepted on awplus_main-20260923-20. This is not the global VLAN-based `vlan-stacking
+vlan … outer-vlan …` that T27887 found absent.
+
+Operator: bench-runner subagent (sentinel = parent session, /test-mode shape A), Terrence away.
+Queue: IE520/CAMPAIGN-QUEUE-2026-09-29.md row 7. Case text: ck.db AWPTCM-T38408 (2 steps; objective
+"Check QinQ works on the DUT"; precondition "Ixia --CE port DUT Provider port -- Ixia").
+
+## Bench mapping (Ixia -> tb470 NICs through partner switches)
+| case role | DUT port | observed / driven by |
+| --- | --- | --- |
+| CE port (customer side) | port3.0.13 — access vlan 3995 + `switchport vlan-stacking customer-edge-port` | tb470 eth1, direct |
+| provider port A | port1.0.13 — trunk, allowed 3995, native 3993, `provider-port` | tb470 eth2 via IE520-sa port1.0.13 (trunk, native 3993, +3995) → SA port1.0.2 (observer trunk, +3995) |
+| provider port B | port1.0.2 — trunk, allowed 3995, native 3991, `provider-port` | tb470 eth3 via x230 port1.0.3 (trunk, native 3991, +3995) → x230 port1.0.1 (observer trunk, +3995) |
+| decoy (VLAN = the inner VID) | port1.0.9 — access vlan 2100 | tb470 eth3 via x230 port1.0.4 (3992), arriving tagged 3992; plus DUT output counters |
+S-VLAN 3995, customer VIDs 2100 and 2200. The partner switches are plain 802.1Q trunks for 3995, so
+they pass the outer tag and leave the inner tag alone. They are an observation path, not part of
+the device under test.
+
+## Pre-case state (16:15–16:21 NZDT)
+- Consoles free (`sudo fuser -v /dev/u*` empty, no locks, 16:15). A bare CR gave an exec prompt on all
+  six (`x230-10GP#`, `4050-5g#`, `IE520-stk#` u2/u4/u5, `IE520-sa#`). No shell or config prompt was parked.
+- /nfsHome mounted. Probe 2026-09-30T031557Z **MATCH** (14.2 s, no advisory).
+- Pre-group capture `pre-test-configs/2026-09-30b/pre-u{5,3,0,1}.out` (16:16): running-config IDENTICAL
+  to the 12:50 baseline `pre-test-configs/2026-09-30/`. `show boot` → Current boot config
+  `flash:/tb470-bench.cfg (file exists)` on u5, u3, u0, u1. Stack 1 Backup / 3 Active Master / 4 Backup,
+  Normal operation. STP disabled on the stack and the SA (`no spanning-tree rstp enable`).
+- Group setup redone 16:19–16:21 (README, `evidence/group-2026-09-30/group-setup.sh` + `.out`, no `% ` line).
+- Gate items 5/7/9 (script preflight, server path, defaulting CLI): not applicable. This is a
+  hand-driven case with no framework script (skipped).
+- Support probe (qmark.py, `?` without CR, Ctrl-U self-test passed; evidence/group-2026-09-30/q-if-u5.out):
+  `switchport vlan-stacking ?` → customer-edge-port | provider-port.
+
+## Configuration
+Stage 0 (feature OFF, 16:22–16:24; evidence/38408/38408-cfg-base.sh + .out). The same VLANs, trunks and
+decoy as below, WITHOUT any `vlan-stacking` line:
+```
+SA:   vlan 3995 name ck-svlan; port1.0.13 mode trunk / trunk native vlan 3993 / trunk allowed vlan add 3995;
+      port1.0.2 trunk allowed vlan add 3995
+x230: vlan 3995; port1.0.3 mode trunk / native 3991 / allowed add 3995; port1.0.1 allowed add 3995
+DUT:  vlan 3995 name ck-svlan, vlan 2100 name ck-cvlan-decoy
+      port3.0.13 switchport access vlan 3995
+      port1.0.13 mode trunk / trunk allowed vlan add 3995 / trunk native vlan 3993
+      port1.0.2  mode trunk / trunk allowed vlan add 3995 / trunk native vlan 3991
+      port1.0.9  switchport access vlan 2100
+```
+Two refusals came from my script, not the DUT: try 1 stopped on my show form `show vlan 3993-3995`
+(`% ` after every SA config line had applied), and try 2 stopped on the re-sent `vlan 3995 name ck-svlan`
+(`% VLAN 3995 is already named ck-svlan`). Try 3 skipped the SA part, which was already applied. Raw:
+38408-cfg-base-try1.out, -try2.out, 38408-cfg-base.out.
+Steps 1 + 2 (16:25:11–16:25:19; 38408-cfg-qinq.sh + .out, no `% ` line):
+```
+interface port3.0.13 / switchport vlan-stacking customer-edge-port
+interface port1.0.13 / switchport vlan-stacking provider-port
+interface port1.0.2  / switchport vlan-stacking provider-port
+```
+Read back (`show running-config interface …`): port3.0.13 access vlan 3995 + `switchport vlan-stacking
+customer-edge-port`; port1.0.13 trunk, allowed 3995, native 3993, `switchport vlan-stacking
+provider-port`; port1.0.2 the same with native 3991. `show interface status`: all four connected
+a-full a-1000.
+
+## Traffic
+Sender: evidence/vsend.py (scapy), 100 × IPv4/UDP per stage, unknown-unicast dst (flooded), marker
+CKVLAN-<stage>-<seq>. Driver: evidence/group-2026-09-30/vstep.sh. Captures are `tcpdump -Q in -e -w`
+filtered on the sender MAC, one per listed NIC, stopped by PID and counted by vcount.py (tags read
+from the 802.1Q headers). DUT counters are `show interface … | include input|output packets`
+before and after each burst. Background on these ports is about +11 to +34 per ~20 s read interval.
+
+| stage | sent (NIC, tags on the wire) | captured | DUT deltas (in/out) | result |
+| --- | --- | --- | --- | --- |
+| s0f — feature OFF | eth1 → port3.0.13, 100 × `tags=2100` | eth2 **0**, eth3 **0** | 3.0.13 in +100; 1.0.13 out +23, 1.0.2 out +33 (background) | dropped: no QinQ, no forwarding (baseline) |
+| s1f — step 1, CE ingress | eth1, 100 × `tags=2100` | eth2 **100 × `tags=3995,2100`**, eth3 **100 × `tags=3995,2100`**, decoy 0 | 3.0.13 in +100; 1.0.13 out +122, 1.0.2 out +134, 1.0.9 out +11 | **PASS**: outer 3995 added, customer tag kept, both provider ports |
+| s1u — step 1, CE ingress untagged | eth1, 100 × untagged | eth2 **100 × `tags=3995`**, eth3 **100 × `tags=3995`** | 3.0.13 in +100; 1.0.13 out +123, 1.0.2 out +133 | **PASS**: outer added to an untagged customer frame |
+| s1r — steps 1 + 2 | eth2 → SA → provider port1.0.13, 100 × `tags=3995,2100` | eth1 **100 × `tags=2100`**; eth3 **100 × `tags=3995,2100`**; no tag-3992 (decoy) frame at eth3 | 1.0.13 in +123; 3.0.13 out +122; 1.0.2 out +134; 1.0.9 out +12 (background) | **PASS**: CE egress removed the outer tag; provider → provider switched on 3995 and left still double-tagged; decoy VLAN 2100 got nothing |
+| s2r — step 2, other provider port, other inner VID | eth3 → x230 → provider port1.0.2, 100 × `tags=3995,2200` | eth1 **100 × `tags=2200`**; eth2 **100 × `tags=3995,2200`**; eth3 inbound 0 | 1.0.2 in +101; 3.0.13 out +122; 1.0.13 out +122; 1.0.9 out +12 | **PASS**: switched on the outer tag whatever the inner VID; still double-tagged on the provider egress |
+
+Raw: evidence/38408/38408-s{0f,1f,1u,1r,2r}.out and the per-NIC .pcap files.
+
+Per the case's expected results:
+- Step 1 "Traffic leaving this port will have the outer-tag removed. Traffic entering this port will
+  have an outer-tag added": s1r/s2r (removed, 200/200) and s1f/s1u (added, 200/200). **PASS**.
+- Step 2 "Double tagged traffic should be switched based on the outer-tag. Traffic leaving this port
+  should still be double tagged": s1r/s2r (switched on 3995 to the S-VLAN's ports only, the decoy VLAN
+  2100 received nothing, inner 2100 and 2200 handled the same) and provider egress still `3995,<inner>`
+  (200/200). **PASS**.
+
+## Teardown (16:27:33–16:28:55; evidence/38408/38408-teardown.sh + .out, no `% ` line)
+DUT: port3.0.13 `no switchport vlan-stacking` / `no switchport access vlan`; port1.0.13 and port1.0.2
+`no switchport vlan-stacking` / `trunk allowed vlan remove 3995` / `no switchport trunk native vlan` /
+`switchport mode access` / `switchport access vlan 3993|3991`; port1.0.9 `switchport access vlan 3992`;
+`no vlan 2100`, `no vlan 3995`. SA: port1.0.13 back to access 3993, port1.0.2 `allowed remove 3995`,
+`no vlan 3995`. x230: port1.0.3 back to access 3991, port1.0.1 `allowed remove 3995`, `no vlan 3995`.
+Post-case `show running-config` (post-test-configs/2026-09-30b/38408.u{5,3,0}.out, 16:29) diffed
+against pre-test-configs/2026-09-30b/: the ONLY differences are the group-setup lines. On the stack:
+vlans 3991-3994, the four legs in 3991-3994 instead of sa2/sa3, `interface sa2-3` gone. On the SA:
+3993-3994, legs in 3993/3994, the port1.0.2 observer trunk (+3993-3994), sa3 gone. On the x230:
+3991-3992, legs in 3991/3992, the port1.0.1 observer trunk (native 100, +3991-3992), sa2 gone. No
+T38408 residue. Nothing was written to startup-config. The u1 (AR4050S) was not touched.
+
+## Files
+- Raw console transcripts: tb470 /tmp/ckvlan3/console-u5.log, console-u3.log, console-u0.log (tmpfs).
+- evidence/38408/: config/teardown scripts and outputs, the stage outputs, pcaps, post-case configs.
+- No framework run and no framework log (hand-driven). Exit codes: every ckcon/vstep call rc 0, apart
+  from the two script-side refusals above (rc 2).

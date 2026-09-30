@@ -7,7 +7,7 @@ line) on the stack master `/dev/u5`, the IE520-sa `/dev/u3` and the x230 `/dev/u
 bench-runner agent as tester, Terrence away. Tooling copies are in `evidence/`; the live copies and raw
 console transcripts are in tb470 `/tmp/ckvlan/` (tmpfs).
 
-**State: IN PROGRESS.** 2 of the 5 runnable cases are done. The first tester ran out of usage at 14:57
+**State: IN PROGRESS (resumed 2026-09-30 16:15, section "2026-09-30 resume" below).** Earlier: 2 of the 5 runnable cases done. The first tester ran out of usage at 14:57
 after T38409's teardown, before writing its log. A successor wrote the log from the evidence and
 restored the bench at 17:14–17:16 (verified 17:17). **Resume next session with 38408, 38407, 18302,
 18303. The group setup below must be redone first**, because the bench is back at the standing topology.
@@ -16,7 +16,7 @@ restored the bench at 17:14–17:16 (verified 17:17). **Resume next session with
 | --- | --- | --- | --- |
 | T18252 | vlan classifier and tag vlan | [18252.log](18252.log) | **PASS**. Five frame types were classified by ipv4-subnet/proto rules into 210/220 and flooded to exactly the predicted ports in both directions: host captures 100/100 with the right tags, DUT output deltas +100/0 (commit 09bba4f) |
 | T38409 | GVRP - basic functionality | [38409.log](38409.log) | **PASS**. GVRP ran on stack port4.0.26 ↔ SA port1.0.26 (1G SX). The SA learned the DUT's 3991/3992 and later 302 as DYNAMIC. The DUT learned the SA's 301 as DYNAMIC (registrar INN). Observation O-1 (not graded): a VLAN created, or getting its first live member, after GVRP is up is not declared until `no gvrp`/`gvrp` on the port. Seen on both IE520s |
-| T38408 | QinQ basic | — | **NOT YET RUN**: resume next session (support check at run time) |
+| T38408 | QinQ basic | [38408.log](38408.log) | **PASS** (2026-09-30). Port-based QinQ: CE port3.0.13 added S-tag 3995 to customer-tagged and untagged frames and popped it on egress. Provider ports 1.0.13/1.0.2 switched double-tagged frames on the outer tag, provider → provider still double-tagged. Decoy VLAN = inner VID got nothing. Feature-OFF baseline dropped 100/100. 100/100 in every stage |
 | T38407 | VLAN translation basic | — | **NOT YET RUN**: resume next session |
 | T18302 | Private VLAN send from uplink port | — | **NOT YET RUN**: resume next session |
 | T18303 | Private VLAN send from private port | — | **NOT YET RUN**: resume next session |
@@ -25,6 +25,18 @@ restored the bench at 17:14–17:16 (verified 17:17). **Resume next session with
 
 ## 2026-09-30 run (queue row 13: T27887, T38410)
 Baseline `pre-test-configs/2026-09-30/` (12:50, includes the x230's `lldp run` and the SX link's VLAN 4000). Scratch in tb470 `/tmp/ckvlan30/`. No group isolation was needed. Each case builds and removes its own config. Group close 13:13–13:14: running-config IDENTICAL to that baseline on u0/u1/u3/u5 (`post-test-configs/2026-09-30/`), boot config tb470-bench.cfg on all, probe 2026-09-30T001356Z MATCH.
+
+## 2026-09-30 resume (queue row 7: T38408, T38407, T18302, T18303)
+Scratch in tb470 `/tmp/ckvlan3/` (console transcripts `console-u{0,3,5}.log`). Pre-group capture
+`pre-test-configs/2026-09-30b/` (16:16, IDENTICAL to the 12:50 baseline). Probe 2026-09-30T031557Z MATCH.
+Group setup 16:19–16:21 = the 14:27 recipe below **plus two observer trunks**, so every freed leg can be
+seen or driven from a tb470 NIC by its scratch-VLAN tag (`evidence/group-2026-09-30/group-setup.sh`, `.out`):
+- x230 port1.0.1 (eth3): `switchport mode trunk`, `trunk native vlan 100` (its baseline access VLAN),
+  `trunk allowed vlan add 3991,3992` → DUT port1.0.2 appears at eth3 as tag 3991, DUT port1.0.9 as 3992.
+- SA port1.0.2 (eth2): `switchport mode trunk` (native 1 = baseline), `trunk allowed vlan add 3993,3994`
+  → DUT port1.0.13 appears at eth2 as tag 3993, DUT port4.0.9 as 3994.
+The group-setup reference config (what each case's teardown must return to) is
+`post-test-configs/2026-09-30b/38408.u{5,3,0}.out`. Its diff against the pre-group capture is exactly the lines above.
 
 ## Group setup (14:27–14:31) — redo before the next case
 The 2-leg aggregators sa2 (stack ↔ x230) and sa3 (stack ↔ SA) were freed into scratch VLANs, so that each
