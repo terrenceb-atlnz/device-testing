@@ -193,14 +193,11 @@ The earlier ones are in [SESSION-HANDOVER-2026-09-29.md](SESSION-HANDOVER-2026-0
 - **Which copper-SFP / cage / host-NIC combinations need forcing?** Is the 09-09 "copper SFP facing
   a host NIC only links when forced" rule tied to a module lot, a cage or a NIC? Today's AT-SPTXc in
   3.0.10 linked on autoneg. See orient-dt §2 (2026-10-01 counter-observation).
-- **Should the framework `run.stdout` files be kept?** `port-2026-09-29/framework-run{1..4}*/
-  run.stdout` (8 KB–284 KB) are gitignored (`*.stdout`) and untracked on the share. That matches
-  the precedent from runs 1–3. The per-case log is the deliverable. Terrence: keep (`git add -f`)
-  or delete?
+- ~~Should the framework `run.stdout` files be kept?~~ **Resolved 2026-10-01:** Terrence said "delete the misc run files if the log is built". All five were deleted; the case logs are complete.
 
 ## 6. Ordered next steps
 
-1. **Terrence:** remove the iptables FORWARD DROP rule; `git push origin main`.
+1. **Terrence:** remove the iptables FORWARD DROP rule. (`git push`: done, Terrence 2026-10-01.)
 2. **Row 6, if wanted:**
    - T24032 and T12067 need a **second tb470 NIC on the stack**. Put a copper SFP in stack
      port3.0.9 (the spare AT-SPTXc is in SA port1.0.1), cable eth2 or eth3 to it, then run

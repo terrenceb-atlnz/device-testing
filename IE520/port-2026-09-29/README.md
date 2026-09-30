@@ -10,6 +10,8 @@ generated `9001_Port/test-9001.33234.py` (+ `library_9001.py`, `ck_media.py`), r
 | T33235 | (3) Port — Fixed port speed | [33235.log](33235.log) | **PASS** (run 4, 2026-10-01 10:00–11:13, Test-cases 3454bc0, rc 0): 32 PASS / 1 UNSUPPORTED / 0 FAIL. Copper sweep on stack port1.0.9 (AT-SPTXc) ↔ x230 port1.0.4: 10 rejected, 100/1000 fixed OK, 2500/5000/10000 rejected; FIBRE sweep on stack port4.0.26 (AT-SPSX) ↔ IE520-sa port1.0.26: 100 rejected, 1000 fixed OK, 10000/40000/100000 rejected (1G SX is the only fibre — expected); shutdown/no shutdown, auto restore, per-port isolation, S2, copy run start and whole-stack reload all PASS. TestCase_20 UNSUPPORTED (needs speed 10, the DUT rejects it) — graded via failed() so one PDU cycle (D-1). Bench restored: configs IDENTICAL, boot tb470-bench.cfg, probe 2026-09-30T222119Z MATCH. Earlier: run 1 stopped (no fibre link) — git history |
 
 ## What is in this directory
+
+> **2026-10-01:** every `framework-run*/run.stdout` was deleted on Terrence's instruction ("delete the misc run files if the log is built"). They were gitignored (`*.stdout`) and never committed. The case logs (`33234-unsupported.log`, `33235.log`) quote the parts that carry the verdicts. The framework's own per-device logs remain.
 - `33234-unsupported.log` — the case log (run 3, UNSUPPORTED): what the case needs, what the bench
   lacks, the ruling, the verbatim marking-pass lines, the framework's boot-config touch and its
   restore, the after-run probe; plus a pointer to the run-2 evidence. (Its git history holds the
