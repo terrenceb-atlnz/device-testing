@@ -1,4 +1,32 @@
-# Session handover — 2026-10-01 (wrapped ~11:40 NZDT; re-wrapped ~15:45 NZDT)
+# Session handover — 2026-10-01 (wrapped ~11:40 NZDT; re-wrapped ~15:45 and ~15:55 NZDT)
+
+## Session facts
+Test Engineer: terrenceb@terrenceb-dl
+Testbox: tb470
+Consoles: u0,u1,u2,u3,u4,u5 (u6 absent)
+PDU: 10.36.150.14; outlets per bench-setup/tb470.static
+Constraints: none stated
+
+## Third wrap ~15:55 NZDT
+
+Only records changed after the 15:45 re-wrap:
+- `STANDING-ORDERS.md` and the wiki are now testbox- and user-agnostic (`b4017f0`);
+- `/orient-dt` and `/wrap-dt` were rewritten (`0c46a63`).
+
+No console was driven in that time, apart from one read-only `show reboot history` on u2.
+
+Final checks:
+- `precheck` was CLEAR on u0–u5.
+- Probe `2026-10-01T025425Z` reads the **same single MISMATCH**: the sa2 leg, stack port1.0.2 ↔ x230
+  port1.0.3, is still down; see below.
+- Stack: members 1/3/4 Ready, member 3 master. No reboots on 2026-10-01 beyond those already listed.
+- All four devices boot `tb470-bench.cfg` (file exists).
+- eth1, eth2 and eth3 are up at 1000.
+- **The iptables DROP rule is confirmed gone.**
+- No Monitor, cron or subagent of this session is running.
+
+This file stays at its legacy path (`IE520/`), because today's campaign uses the pre-2026-10-01
+layout.
 
 ## Re-wrap ~15:45 NZDT — read this first
 
