@@ -16,7 +16,8 @@ Other checks at the re-wrap:
 - `precheck` was CLEAR on u0–u5 (no holder, lock, screen/minicom or python script).
 - Stack reboot history: nothing new since the 11:09 T33235 reload.
 - eth1/eth2/eth3 are up at 1000.
-- The iptables FORWARD DROP rule for 192.168.10.0/24 is **still in place**.
+- The iptables FORWARD DROP rule for 192.168.10.0/24 was still in place at the re-wrap. **The
+  Test Engineer removed it afterwards (2026-10-01).**
 
 Since the first wrap:
 1. **Run files:** the five framework `run.stdout` files were deleted, on the Test Engineer's "delete
@@ -43,9 +44,9 @@ Since the first wrap:
 
 Still open, beyond §5 below:
 - the sa2 leg above;
-- remove the iptables rule;
-- `STANDING-ORDERS.md` §4 still says `NEEDS TERRENCE:` while the agent sends `NEEDS TEST ENGINEER:`;
-- `/orient-dt` and `/wrap-dt` are still tb470-only.
+- ~~`STANDING-ORDERS.md` §4 wording; `/orient-dt` and `/wrap-dt` tb470-only~~ — done after the
+  re-wrap: both skills, STANDING-ORDERS and the wiki are testbox- and user-agnostic (`0c46a63` and
+  the commit after it).
 
 First action next session: `/orient-dt`, then check the stack port1.0.2 ↔ x230 port1.0.3 cable or
 module, re-probe, and only then `/test-mode --resume` (row 6: T24032, T12067).
