@@ -1,5 +1,5 @@
 ---
-verified: 2026-10-01
+verified: 2026-10-02
 ---
 # Standing orders — device-testing bench campaigns (any testbox)
 
@@ -34,39 +34,15 @@ exist, which consoles) is NOT here. Bench facts live in the box's generated `ben
   Verify by diffing `show running-config` against the pre-case copy (the 2026-09-24 queue rule).
 - **Startup config:** nothing is written unless the case requires it (unchanged, 2026-09-24).
 - **Licences and keys:** settled, and no longer a per-campaign question. If a case needs a
-  feature the unit does not have, that is UNSUPPORTED with the reason (§2), not a request.
+  feature the unit does not have, that is UNSUPPORTED with the reason (`logged-output.md` §1),
+  not a request.
 
-## 2. Outcomes — the log's NAME carries the verdict (bench owner, 2026-09-28)
+## 2. Outcomes and logs — see `logged-output.md` (moved 2026-10-02)
 
-**One log per case** under the campaign's group directory
-(`<TB>/<FAMILY>/<group>-<STAMP>/`; campaigns before 2026-10-01: `IE520/<group>-<date>/`). It
-holds the latest run, and **its name states that run's outcome at a glance**. The agent writing
-the log determines the outcome, so the agent names the file. **A plain `<case-id>.log` means the
-case explicitly PASSED. Nothing else may use that name.**
-
-**What each verdict means (bench owner, 2026-09-30):**
-
-> 1. If a platform doesnt support something, that test case is UNSUPPORTED. the Overall test set
->    is a PASS even if it has UNSUPPORTED test cases within. FAIL means the test was run
->    unsuccessfully, the platform prevented it from running, etc. PARTIAL means that the test was
->    *unable* to be run, likely due to a misconfiguration physically or otherwise, a script error,
->    etc., but not resulting from a FAIL condition being set. otherwise it would be NOT TESTED.
-
-| outcome | when | file | what it must hold |
-| --- | --- | --- | --- |
-| PASS | it ran and every step the platform supports passed. **Steps or TestCases that are UNSUPPORTED inside it do not stop a PASS** | `<id>.log` | the evidence chain: config applied, commands, raw output, per-step verdicts, and each UNSUPPORTED step named with its proof |
-| FAIL | it ran unsuccessfully: a check failed, or the platform prevented it from running | `<id>-fail.log` | everything that was tried, what went wrong, the raw output that shows it, and the reason |
-| PARTIAL | it was *unable* to run (fully): a physical or other misconfiguration, a script error, etc. — **not** a FAIL condition being met | `<id>-partial.log` | which steps passed, which could not run and why, and the exact change that would unblock them (§3) |
-| UNSUPPORTED | the platform does not support what the case tests | `<id>-unsupported.log` | what the case needs, the proof the platform lacks it (the refused command, the missing hardware) |
-| NOT TESTED | never attempted | no log — the queue row carries the reason | |
-
-The pre-2026-09-30 `SKIP` outcome (`<id>-skip.log`) is retired. A platform gap is UNSUPPORTED, a
-bench or script gap is PARTIAL, and a case nobody attempted is NOT TESTED.
-
-Record **as much evidence as possible** for anything that is not a PASS, plus the box, consoles
-and session facts the run used. A re-run replaces the case's log under the new outcome's name
-(`git mv`, so the case still has exactly one file); git history is the history. The group
-`README.md` verdict table lists every case with its file name.
+The verdicts (PASS / FAIL / PARTIAL / UNSUPPORTED / NOT TESTED) and their meaning, the tester's
+working logs, the `RESULT` line to the sentinel, the results list, and the final per-case log
+template all live in **[logged-output.md](logged-output.md)** at the repo root. The final logs
+are made only by `/create-logs`, on the Test Engineer's request.
 
 ## 3. Triage first: how many cases can this bench run, and exactly what unblocks the rest (bench owner, 2026-09-28)
 
@@ -97,7 +73,7 @@ session re-triages them after the Test Engineer reports the change made. A case 
   session constraint, so ask. `tb504` — not ours.
 
 For any of these:
-1. Record the need in the case log.
+1. Record the need in the case's working log (`logged-output.md` §2).
 2. Send the sentinel one line starting `NEEDS TEST ENGINEER:`.
 3. Carry on with the next runnable case.
 
@@ -106,7 +82,8 @@ The answer comes back relayed by the sentinel named at setup (memory
 
 ## 5. Keep going (the campaign is the unit of work)
 
-Per the sentinel memory: commit per case, and end a turn only when you genuinely need the Test
+Per the sentinel memory: commit the working log and evidence per case, send the sentinel the
+case's `RESULT` line (`logged-output.md` §2), and end a turn only when you genuinely need the Test
 Engineer, never on a status sentence. A **Sentinel** session watching the queue and the logs is
 **mandatory** alongside a campaign (bench-runner gate, 2026-09-28). It:
 - pokes a stalled session;
