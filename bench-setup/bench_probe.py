@@ -1,49 +1,55 @@
 #!/usr/bin/env python3
-"""bench_probe.py -- the one bench-state tool for a testbox (consolidated 2026-09-25 for tb470;
-testbox-agnostic since 2026-10-01: `--box tbNNN`, default tb470).
+"""bench_probe.py -- the one bench-state tool for an AlliedWare Plus testbox <TB> (any tbNNN;
+tb470 is the worked example). Consolidated 2026-09-25 on tb470; testbox-agnostic since
+2026-10-01 (`--box tbNNN`).
 
 It sees what is actually THERE and nothing else. Four steps, one script:
 
   1. capture   read a short, fixed list of `show` commands from every console
-               (/dev/u0..u6 over pyserial, ON tb470) and save the raw output under
+               (/dev/u0..u6 over pyserial, ON <TB>) and save the raw output under
                captures/<UTC stamp>/ so the parser can be re-run without the bench.
   2. generate  parse a capture offline into bench-state.md: a device table, the links,
-               advisories, and ONE ```setup fence that IS the tb470.setup.
-  3. diff      compare that fence against the deployed tb470.setup (the intended
+               advisories, and ONE ```setup fence that IS the <TB>.setup.
+  3. diff      compare that fence against the deployed <TB>.setup (the intended
                template), ignoring comments and ordering.
                Exit 0 MATCH / 1 MISMATCH / 2 NEEDS-CHECK.
-  4. apply     (optional) write the fence to the box as tb470.setup: snapshot the
+  4. apply     (optional) write the fence to the box as <TB>.setup: snapshot the
                outgoing pair into backups/ first, write in place, verify by readback.
 
-    bench_probe.py run [--consoles 0-6] [--template PATH]    # 1 -> 2 -> 3, ON tb470
-    bench_probe.py capture [--consoles 0-6]                  # 1 only, ON tb470
+    bench_probe.py run [--consoles 0-6] [--template PATH]    # 1 -> 2 -> 3, ON <TB>
+    bench_probe.py capture [--consoles 0-6]                  # 1 only, ON <TB>
     ... run|capture --read-only                              # change NOTHING (shared testboxes)
     bench_probe.py generate captures/<stamp>                 # 2 only, anywhere
     bench_probe.py diff [live.md|.setup] [template.setup]    # 3 only, anywhere
     bench_probe.py render                                    # print what apply would write
-    bench_probe.py apply [--force]                           # 4, from tb470 or the dev host
+    bench_probe.py apply [--force]                           # 4, from <TB> or a dev host
     bench_probe.py precheck [--consoles 2-5]                 # 0, ON the box: is anything in the way?
 
-Every subcommand takes `--box tbNNN` first (default: $BENCH_BOX, else this host's name when
-it is tbNNN, else tb470 ONLY on the dev host terrenceb-dl; anywhere else --box is required). tb470 keeps its flat files in bench-setup/ (bench-state.md,
+--consoles takes numbers, ranges and lists, with or without a `u` / `/dev/u` prefix:
+`0-6`, `0,2,5`, `u0,u1,u2`, `u0-u5`, `/dev/u3`.
+
+Every subcommand takes `--box tbNNN` first. Without it the box is $BENCH_BOX, else this
+host's name when it is tbNNN, else this dev host's line in bench-setup/default-boxes
+(`<dev-hostname> <tbNNN>`; add your own host's line, never another user's); with none of
+those --box is required. tb470 keeps its flat legacy layout in bench-setup/ (bench-state.md,
 tb470.static, tb470.setup.current, captures/, backups/); any other box gets the same set
-under bench-setup/<box>/. The deployed template is /home/st-art/st-art/configs/<box>.setup.
+under bench-setup/<TB>/. The deployed template is /home/st-art/st-art/configs/<TB>.setup.
 
 SESSION FACTS (run / generate, 2026-10-01): `--pdu IP`, `--outlet uN=OUTLET` and `--name
 uN=swi_x` (each repeatable, or comma-separated) carry what the Test Engineer said at the
 start of the session. They are used for THIS run and never overwrite a recorded fact: a
-unit not yet in <box>.static is appended with them; where they disagree with <box>.static
+unit not yet in <TB>.static is appended with them; where they disagree with <TB>.static
 (or with what the consoles show) the run lists a USER-CONFLICT and exits 4, so the session
 asks the Test Engineer instead of picking a side.
 Exit codes: 0 MATCH, 1 MISMATCH, 2 NEEDS-CHECK, 4 USER-CONFLICT (precheck: 0 clear, 5 found).
 
 It holds no bench facts of its own. The facts no `show` command can reveal -- a unit's
-swi_ name, its PDU outlet, the PDU's IP -- live in tb470.static, entered once by the
+swi_ name, its PDU outlet, the PDU's IP -- live in <TB>.static, entered once by the
 user (the script asks when it meets a unit it has no name for, if it has a terminal).
-bench-state.md carries nothing beyond what the run measured (Terrence, 2026-09-25).
+bench-state.md carries nothing beyond what the run measured (the bench owner, 2026-09-25).
 
 LLDP is what proves switch-to-switch cabling, so a device found with `lldp run` OFF gets
-it switched on and it is LEFT ON (Terrence, 2026-09-30: the first probe run applies it,
+it switched on and it is LEFT ON (the bench owner, 2026-09-30: the first probe run applies it,
 later runs find it on and carry on). Running-config only, never `write`n, so a reboot
 drops it and the next run applies it again. Only a run that switched LLDP on waits for
 neighbours; it polls until complete rather than sleeping a fixed time.
@@ -71,6 +77,7 @@ import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# Per-testbox paths: placeholders (tb470's flat layout) until main() calls set_box(<TB>).
 STATE = os.path.join(HERE, "bench-state.md")            # generated, measured state only
 STATE_MIRROR = os.path.join(HERE, "bench-state.current.md")   # the last APPLIED version
 CURRENT = os.path.join(HERE, "tb470.setup.current")     # local copy of the deployed file
@@ -83,23 +90,46 @@ REMOTE = "/home/st-art/st-art/configs/tb470.setup"
 USER = {"pdu": None, "outlets": {}, "names": {}}       # session facts (--pdu/--outlet/--name)
 
 
-LEGACY_HOST = "terrenceb-dl"   # the only dev host where tb470 is the default (2026-10-01)
+DEFAULT_BOXES = os.path.join(HERE, "default-boxes")   # `<dev-hostname> <tbNNN>` per line (tracked)
+
+
+def load_default_boxes(path=None):
+    """bench-setup/default-boxes -> {dev-hostname (lowercase): box}. One `<dev-hostname> <tbNNN>`
+    per line; `#` starts a comment, blank lines are ignored. A missing file is no entries; a
+    malformed line is reported on stderr and skipped, never guessed at."""
+    path = path or DEFAULT_BOXES
+    out = {}
+    if not os.path.exists(path):
+        return out
+    for i, ln in enumerate(io.open(path, encoding="utf-8"), 1):
+        fields = ln.split("#", 1)[0].split()
+        if not fields:
+            continue
+        if len(fields) != 2:
+            print("{}:{}: expected `<dev-hostname> <tbNNN>`, got {!r} -- line ignored".format(
+                os.path.relpath(path, os.path.dirname(HERE)), i, ln.rstrip("\n")), file=sys.stderr)
+            continue
+        out.setdefault(fields[0].lower(), fields[1])
+    return out
 
 
 def default_box():
     """--box when not given: $BENCH_BOX, else this host's name when it IS a testbox (tbNNN),
-    else tb470 ONLY on the legacy dev host. Anywhere else there is no default: a session on
-    another user's host must name its box rather than silently read tb470's files."""
+    else this dev host's line in bench-setup/default-boxes (hostname case-insensitive; the
+    full name or its first label). Anywhere else there is no default: a session on another
+    user's host must name its box rather than silently read some other bench's files."""
     env = os.environ.get("BENCH_BOX")
     if env:
         return env
     host = os.uname().nodename
     if re.match(r"^tb\d+$", host):
         return host
-    if host.lower() == LEGACY_HOST:
-        return "tb470"
-    sys.exit("no testbox: pass --box tbNNN (or set BENCH_BOX). There is no default on {}; "
-             "tb470 is the default only on {}.".format(host, LEGACY_HOST))
+    boxes = load_default_boxes()
+    for key in (host.lower(), host.lower().split(".")[0]):
+        if key in boxes:
+            return boxes[key]
+    sys.exit("no testbox: pass --box tbNNN, set BENCH_BOX, or add a `{} <tbNNN>` line to "
+             "bench-setup/default-boxes. There is no default on {}.".format(host, host))
 
 
 def set_box(box):
@@ -171,7 +201,7 @@ def mac_dotted(mac):
 
 
 # =============================================================================
-# 1. capture -- the console driver (pyserial, ON tb470)
+# 1. capture -- the console driver (pyserial, ON the testbox)
 # =============================================================================
 
 class Probe:
@@ -1562,7 +1592,7 @@ def render():
 
 def snapshot(setup_text):
     """Archive the outgoing PAIR under one stamp: the .setup being replaced and the
-    bench-state.md that produced it (Terrence's rule: the record and its reflection)."""
+    bench-state.md that produced it (the bench owner's rule: the record and its reflection)."""
     os.makedirs(BACKUPS, exist_ok=True)
     stamp = utc_stamp()
     made = []
@@ -1728,16 +1758,37 @@ def precheck(nums):
     return 0
 
 
+CONSOLE_RE = re.compile(r"^(?:/dev/)?u?(\d+)$")
+
+
 def _nums(spec):
+    """'0-5', '0,2,5', 'u0,u1,u2', 'u0-u5', 'u0-5', '/dev/u3' -> [0, 1, ...]. Each item, and
+    each end of a range, is N, uN or /dev/uN. Anything else raises ValueError."""
     nums = []
     for part in spec.split(","):
         part = part.strip()
-        if "-" in part:
-            a, b = part.split("-")
-            nums += list(range(int(a), int(b) + 1))
-        elif part:
-            nums.append(int(part))
+        if not part:
+            continue
+        ends = part.split("-") if "-" in part else [part]
+        ms = [CONSOLE_RE.match(e.strip()) for e in ends]
+        if len(ends) > 2 or not all(ms):
+            raise ValueError("bad console {!r}: expected N, uN or /dev/uN, or a range of them "
+                             "(e.g. 0-6, u0-u5, 0,2,5)".format(part))
+        a, b = int(ms[0].group(1)), int(ms[-1].group(1))
+        if b < a:
+            raise ValueError("bad console range {!r}: {} is below {}".format(part, b, a))
+        nums += list(range(a, b + 1))
+    if not nums:
+        raise ValueError("no consoles in {!r}".format(spec))
     return nums
+
+
+def _consoles(spec):
+    """argparse type for --consoles: a clean usage error (exit 2), never a traceback."""
+    try:
+        return _nums(spec)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e))
 
 
 def _facts(items):
@@ -1762,14 +1813,17 @@ def default_template():
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--box", default=None, help="testbox name, e.g. tb470 (default: $BENCH_BOX, "
-                    "else this host's name when it is tbNNN, else tb470 only on terrenceb-dl)")
+    ap.add_argument("--box", default=None, help="testbox name tbNNN, e.g. tb470 (default: $BENCH_BOX, "
+                    "else this host's name when it is tbNNN, else this dev host's line in "
+                    "bench-setup/default-boxes; otherwise required)")
     sub = ap.add_subparsers(dest="cmd")
     s = sub.add_parser("precheck")
-    s.add_argument("--consoles", default="0-6", help="range/list of /dev/uN this session uses")
+    s.add_argument("--consoles", default="0-6", type=_consoles,
+                   help="range/list of /dev/uN this session uses: 0-6, 0,2,5, u0,u1,u2, u0-u5 (default 0-6)")
     for name in ("run", "capture"):
         s = sub.add_parser(name)
-        s.add_argument("--consoles", default="0-6", help="range/list of /dev/uN (default 0-6)")
+        s.add_argument("--consoles", default="0-6", type=_consoles,
+                       help="range/list of /dev/uN: 0-6, 0,2,5, u0,u1,u2, u0-u5 (default 0-6)")
         s.add_argument("--quiet", action="store_true")
         s.add_argument("--no-prompt", action="store_true", help="never ask about unnamed units")
         s.add_argument("--read-only", action="store_true",
@@ -1807,14 +1861,14 @@ def main(argv=None):
             ap.error(str(e))
 
     if args.cmd == "precheck":
-        return precheck(_nums(args.consoles))
+        return precheck(args.consoles)
     if args.cmd == "capture":
-        capture(_nums(args.consoles), quiet=args.quiet, read_only=args.read_only)
+        capture(args.consoles, quiet=args.quiet, read_only=args.read_only)
         return 0
     if args.cmd in ("run", "generate"):
         ask = sys.stdin.isatty() and not args.no_prompt
         cap_dir = (args.capture_dir if args.cmd == "generate"
-                   else capture(_nums(args.consoles), quiet=args.quiet, read_only=args.read_only))
+                   else capture(args.consoles, quiet=args.quiet, read_only=args.read_only))
         md = generate(cap_dir, ask=ask)
         os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
         io.open(args.out, "w", encoding="utf-8").write(md)
