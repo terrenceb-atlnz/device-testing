@@ -1729,9 +1729,10 @@ def precheck(nums):
 
 
 def _nums(spec):
+    """'0-5' | '2,4,5' | 'u0-u5' | 'u2,u4' -> [ints]; the skills write the uN form."""
     nums = []
     for part in spec.split(","):
-        part = part.strip()
+        part = part.strip().lower().replace("u", "")
         if "-" in part:
             a, b = part.split("-")
             nums += list(range(int(a), int(b) + 1))
