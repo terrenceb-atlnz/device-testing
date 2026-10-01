@@ -55,10 +55,10 @@ def login(c, tries=5, username=None, password=None):
     c.s.write(b"\r")
     if expect(c, [PRIV], 8)[0] is None:
         return False
+    if not c.to_exec():             # a parked host(config)# prompt -> end first
+        return False
     c.cmd("terminal length 0", timeout=15.0)
-    c.cmd("terminal no monitor", timeout=15.0)
-    c.monitor = False
-    return True
+    return c.monitor_off()          # exec-only; console.py set_monitor()
 
 
 def stamp():

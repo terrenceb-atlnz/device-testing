@@ -220,7 +220,12 @@ dispatch prompt names:
   when you raise one. On a hang, keep the partial output: completed TestCases are evidence.
 - Console captures for your own gates use `tools/console.py` or the `tools/` drivers built on
   it (orient-dt §0/§3), never minicom.
-  - Always send `terminal no monitor` + `end` when you leave a console.
+  - When you leave a console: `end` FIRST, then `terminal no monitor`. Both `terminal` commands
+    are exec-only, so in config mode they fail (`Command [terminal no monitor] failed` in the
+    device log), and typed into a busy console they queue and run later in whatever mode it is
+    in. Re-issuing `terminal monitor` does not turn it off. `console.py`'s `monitor_off()` does
+    this safely: it sends nothing when no prompt comes back (memory
+    `terminal-monitor-exec-only`).
   - Write the transcript to the box's `/tmp/<run>/console-<uN>.log`: that is the path the
     sentinel's normal mode watches.
 - **Never send a secret down a console** (licence keys, passwords) unless the Test Engineer asks

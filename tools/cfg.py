@@ -29,7 +29,7 @@ try:
         if "(config" in raw:
             print("%s console was parked in config mode: %r -- sending end" % (L.stamp(), raw.strip()[-40:]))
             c.send_until_prompt("end", timeout=15.0)
-            c.cmd("terminal length 0", timeout=15.0); c.cmd("terminal no monitor", timeout=15.0)
+            c.cmd("terminal length 0", timeout=15.0); c.monitor_off()
     for line in (cmds if ok else []):
         yn = line.startswith("YN:"); cmd = line[3:] if yn else line
         L.expect(c, [r"$^"], 0.2)
@@ -55,10 +55,8 @@ try:
 finally:
     if ok:
         try:
-            raw = c.send_until_prompt("", timeout=10.0)
-            if "(config" in raw:
-                c.send_until_prompt("end", timeout=15.0)
-            c.cmd("terminal no monitor", timeout=15.0)
+            if not c.monitor_off():
+                print("cleanup: console busy or not at exec -- sent nothing")
         except Exception as e:
             print("cleanup:", e)
     c.close()

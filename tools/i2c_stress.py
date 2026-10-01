@@ -154,6 +154,10 @@ class Console:
         if not PROMPT_ANYWHERE_RE.search(out):
             raise ConsoleError('no privileged prompt on {}. Tail: {!r}'.format(
                 self.port, out[-300:]))
+        # Both commands below are exec-only: a console parked at host(config)#
+        # answers them "% Invalid input" (console.py set_monitor(), 2026-10-02).
+        if '(' in (re.findall(r'[\w.-]+(?:\([\w -]+\))?#', out) or [''])[-1]:
+            self.send('end', quiet=0.6, timeout=15.0)
         self.send('terminal length 0', quiet=0.6, timeout=15.0)
         self.send('terminal no monitor', quiet=0.6, timeout=15.0)
         # NB: kernel printk (the i2c lock line) is printed BELOW the AW+ log

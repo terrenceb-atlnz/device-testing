@@ -34,7 +34,7 @@ def expect(pats, timeout):
 expect([r"$^"], 0.5); c.s.write(b"\r")
 p, _ = expect([r"#\s*$", r"login:\s*$"], 10)
 if p != r"#\s*$": sys.exit("not at a privileged prompt (p=%r); refusing" % p)
-c.cmd("terminal no monitor", timeout=15.0)
+if not c.monitor_off(): sys.exit("cannot reach exec / terminal no monitor refused; refusing to reload")
 t0 = time.time(); print(time.strftime("%T"), ">>> reload"); c.s.write(b"reload\r")
 YN = r"\(y/n\)\s*:?\s*$"
 for _ in range(3):

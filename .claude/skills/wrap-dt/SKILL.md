@@ -80,8 +80,10 @@ SSH_AUTH_SOCK=$sock ssh -o BatchMode=yes <TB> \
 Read your own session for every `configure terminal` you sent. For each change, decide **keep,
 revert, or record**, and say which:
 
-- **Session-scoped settings always revert:** `terminal no monitor`, and **`end` on every console
-  you touched.** A console left in `configure terminal` answers every plain `show` with
+- **Session-scoped settings always revert:** **`end` on every console you touched, THEN
+  `terminal no monitor`.** The `terminal` commands are exec-only: in config mode, or typed into a
+  console still busy with a long command, they fail and log `Command [terminal no monitor]
+  failed` (measured 2026-10-02; `console.py` `monitor_off()`). A console left in `configure terminal` answers every plain `show` with
   `% Invalid input detected at '^' marker` and reads as a dead unit to the next session (u5,
   2026-09-09: declared dead for an hour). Console mode persists across serial sessions.
 - **Temporary addressing and test config** (a scratch SVI, an `access vlan` you moved a port

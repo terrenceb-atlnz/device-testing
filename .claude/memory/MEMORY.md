@@ -60,3 +60,4 @@
 - [IE520 is Marvell — CPU queues](ie520-is-marvell-cpu-queues.md) — "tomahawk" is a codename, the counters are Marvell `sdmaRegs.rxDmaPcktCnt[N]`: copy-to-cpu = queue 0, send-to-cpu = queue 6; exactly ONE packet on the wire; one rule per flow
 - [Product dirs archive to old test runs/](product-dirs-archive-to-old-test-runs.md) — IE520/ moves into "old test runs/" when its testing ends and a new product dir replaces it; never tidy "old test runs/"; nothing shared may depend on IE520/ paths
 - [Refused stack command lands on backups](stack-refused-command-lands-on-backups.md) — 2026-10-02: master refused `flowcontrol` yet backups got `flowcontrol both`; after stack work check `remote-diff all show running-config`
+- [terminal (no) monitor is exec-only](terminal-monitor-exec-only.md) — does NOT toggle; config-mode/busy-console sends caused the "Command [terminal no monitor] failed" lines; `end` first or console.py monitor_off()

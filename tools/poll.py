@@ -50,9 +50,8 @@ try:
 finally:
     try:
         if logged:
-            raw = c.send("", timeout=5.0)
-            if "(config" in raw: c.cmd("end", timeout=15.0)
-            c.cmd("terminal no monitor", timeout=15.0)
+            if not c.monitor_off():
+                print("cleanup: console busy or not at exec -- sent nothing")
     except Exception as e:
         print("cleanup:", e)
     c.close()

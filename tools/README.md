@@ -45,7 +45,14 @@ on; this one does not (orient-dt §3).
   - The prompt regex expects AW+ `host#` / `host(mode)#`.
   - `stty -hupcl` is an IE520 DTR/BREAK workaround and is harmless elsewhere.
   - It raises at a forced password change rather than guessing.
-- **Status:** verified 2026-10-02 on tb470, IE520 standalone (u3), read-only (through ckcon, cfg, qmark, poll, listen, witness_log); x230 at 9600 via ckcon
+- **Mode-aware terminal settings (2026-10-02):** `to_exec()`, `set_monitor(on)` and
+  `monitor_off()`. `terminal monitor` / `terminal no monitor` / `terminal length` are exec-only
+  and `terminal monitor` does not toggle, so these methods confirm a prompt first, `end` out of
+  config, and then send the command. They send nothing more than one CR to a busy console and
+  return False. `login()` and every driver here (`awlogin`, `ckcon`, `ckyn`, `cfg`, `poll`,
+  `qmark`, `ckreload`; `i2c_stress` has its own `end` check) use them. Memory
+  `terminal-monitor-exec-only`.
+- **Status:** verified 2026-10-02 on tb470, IE520 standalone (u3), read-only (through ckcon, cfg, qmark, poll, listen, witness_log); x230 at 9600 via ckcon. The mode-aware methods were verified the same day on u3 through `ckcon`: login at a parked `(config)#` prompt, a plain run, and a cleanup during a 30 s ping. None of them logged `Command [terminal no monitor] failed`. The other drivers' changed call sites compile but were not re-run on hardware.
 
 ### `awlogin.py`
 Shared AW+ login and expect helpers for the console drivers. It waits for prompts, never for a

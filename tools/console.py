@@ -168,10 +168,14 @@ class Console:
         # No paging either way.  Log mirroring follows `monitor`.  Both are
         # best-effort: some platform messages ('switch: port N entered ...') are
         # printed to the console below the AW+ log layer and appear regardless.
+        # A console parked in config mode is brought to exec first: both
+        # commands are exec-only and fail at a host(config)# prompt.
+        if not self.to_exec(timeout=10.0):
+            raise ConsoleError('{}: no exec prompt after login'.format(self.port))
         self.send('terminal length 0', quiet=0.6, timeout=15.0)
-        self.send('terminal monitor' if monitor else 'terminal no monitor',
-                  quiet=0.6, timeout=15.0)
-        self.monitor = monitor
+        if not self.set_monitor(monitor):
+            raise ConsoleError('{}: terminal {}monitor refused'.format(
+                self.port, '' if monitor else 'no '))
         return True
 
     def send_until_prompt(self, line, timeout=60.0, settle=0.15):
@@ -243,6 +247,57 @@ class Console:
         while lines and PROMPT_RE.search(lines[-1].rstrip()):
             lines.pop()
         return '\n'.join(lines).strip()
+
+    # ---- mode-aware console settings -------------------------------------
+    #
+    # `terminal monitor` / `terminal no monitor` / `terminal length` are EXEC
+    # commands.  Measured 2026-10-02 on tb470 u3 (IE520, awplus_main-20260923-20):
+    #   exec   `terminal monitor`     -> "% Warning: Console logging enabled", ON
+    #   exec   `terminal monitor` x2  -> still ON: it does NOT toggle
+    #   exec   `terminal no monitor`  -> silent, OFF ("logconf: Update log configuration")
+    #   config `terminal no monitor`  -> "% Invalid input detected", logged as
+    #                                    "Command [terminal no monitor] failed"
+    # The failures seen in device logs came from tools typing it (a) at a
+    # host(config)# prompt, and (b) into a console busy with a long command
+    # (a stack file sync), where it queued and ran later in config mode.
+    # So: confirm a prompt, leave config with `end`, THEN send it -- or send
+    # nothing at all.
+
+    @staticmethod
+    def _last_prompt(buf):
+        found = re.findall(r'[\w.-]+(?:\([\w -]+\))?#', buf)
+        return found[-1] if found else None
+
+    def to_exec(self, timeout=10.0):
+        """Bring the console to the exec `host#` prompt. Returns False, having
+        typed nothing beyond one CR, when no prompt comes back (console busy)."""
+        raw = self.send_until_prompt('', timeout=timeout)
+        if not self.last_prompt_seen:
+            return False
+        for _ in range(3):
+            p = self._last_prompt(raw) or ''
+            if '(' not in p:
+                return True
+            raw = self.send_until_prompt('end', timeout=15.0)
+            if not self.last_prompt_seen:
+                return False
+        return False
+
+    def set_monitor(self, on, timeout=10.0):
+        """`terminal monitor` / `terminal no monitor`, sent only from exec.
+        Returns True when the device accepted it; False (nothing sent) when the
+        console is busy or will not reach exec."""
+        if not self.to_exec(timeout=timeout):
+            return False
+        out = self.send_until_prompt(
+            'terminal monitor' if on else 'terminal no monitor', timeout=15.0)
+        if not self.last_prompt_seen or re.search(r'^% (?!Warning)', out, re.M):
+            return False
+        self.monitor = on
+        return True
+
+    def monitor_off(self, timeout=10.0):
+        return self.set_monitor(False, timeout=timeout)
 
     def close(self):
         try:

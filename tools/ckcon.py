@@ -66,9 +66,10 @@ def login():
     c.s.write(b"\r")
     if expect([PRIV], 8)[0] is None:
         raise SystemExit("no privileged prompt on %s" % tty)
+    if not c.to_exec():
+        raise SystemExit("no exec prompt on %s" % tty)
     c.cmd("terminal length 0", timeout=15.0)
-    c.cmd("terminal no monitor", timeout=15.0)
-    c.monitor = False
+    c.monitor_off()                 # exec-only; console.py set_monitor()
 
 rc = 0
 ok = False
@@ -86,10 +87,8 @@ try:
 finally:
     if ok:
         try:
-            raw = c.send("", timeout=5.0)
-            if "(config" in raw:
-                c.cmd("end", timeout=15.0)
-            c.cmd("terminal no monitor", timeout=15.0)
+            if not c.monitor_off():
+                print("cleanup: console busy or not at exec -- sent nothing")
         except Exception as e:
             print("cleanup: {}".format(e))
     c.close()
