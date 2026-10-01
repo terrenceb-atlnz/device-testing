@@ -25,7 +25,7 @@
 #   SCRATCH   the sentinel session's scratchpad dir
 #   UNTIL     hard stand-down, anything `date -d` reads  ("2026-09-22 16:00")
 #   MODE      starting mode when $SCRATCH/sentinel.mode is absent   (default normal)
-#   BOX       testbox (/test-mode passes the Test Engineer's; default: this host's line in bench-setup/default-boxes)
+#   BOX       testbox (/test-mode passes the Test Engineer's; else $BENCH_BOX, else this host's line in bench-setup/default-boxes)
 #   CLI_GLOB  CLI transcripts on BOX, space-separated globs: console.py transcripts + the
 #             framework's per-device console logs
 #             (default /tmp/*/console-*.log /home/st-art/pytest-create/*/*/swi_*.log /home/st-art/pytest-create/*/*/stk_*.log)
@@ -39,6 +39,7 @@ set -u
 : "${PEER_LOG:?}" "${SCRATCH:?}" "${UNTIL:?}"
 SELF=${SELF:-0}; PEER_PID=${PEER_PID:-}
 [ "$SELF" = 1 ] && PEER_PID=""          # one-session: no separate process to watch
+BOX=${BOX:-${BENCH_BOX:-}}   # same order as bench_probe.py: BOX=, $BENCH_BOX, then the file
 if [ -z "${BOX:-}" ]; then   # this dev host's line in bench-setup/default-boxes, else none
   DEFAULTS="$(dirname "$0")/../../../../bench-setup/default-boxes"
   BOX=$(awk -v h="$(hostname | tr '[:upper:]' '[:lower:]')" \

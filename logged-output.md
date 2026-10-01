@@ -25,7 +25,8 @@ Placeholders:
 - `<TB>` is the testbox, for example `tb470`.
 - `<FAMILY>` is the DUT's product family, for example `IE520`.
 - `<group>` is the queue group, for example `routing`.
-- `<STAMP>` is the group's start, `YYYY-MM-DDTHHMM` local.
+- `<STAMP>` is the campaign's start, `YYYY-MM-DDTHHMM` local, shared by all its groups
+  (`/test-mode` §2).
 - `<id>` is the case id without its prefix, for example `38472` for AWPTCM-T38472.
 - `<dev>` is a device's name in the box's `.setup`, for example `stk_a` or `swi_b`.
 
@@ -303,6 +304,7 @@ never go in. They stay on the box.
 
 ### Existing logs
 
-Logs written before 2026-10-02 (`IE520/<group>-<date>/`, flat, with no per-case folder) keep
+Logs written before 2026-10-02 are flat, with no per-case folder: `IE520/<group>-<date>/<id>.log`
+(tb470, before 2026-10-01) or `<TB>/<FAMILY>/<group>-<STAMP>/<id>.log` (2026-10-01). They keep
 their own structure and are not rewritten. A case re-run in a new campaign gets a new folder
 and log from this template.

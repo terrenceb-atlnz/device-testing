@@ -112,6 +112,9 @@ stay as they are.
     bench run".
   - The rules block cites `logged-output.md` for verdicts, working logs and the final output.
   - A `## Queue` table has one row per group: `# | case(s) | group dir | state | note`.
+  - Per group, its **setup and restore recipe**, written by the tester before the group's first
+    case. A tester that dies mid-group leaves the bench in that setup, and a fresh one restores
+    from here.
   - A **`## Results`** table: the results list, one row per case, in the columns of
     logged-output.md §2. You add a row on every `RESULT` line (§7). NOT TESTED rows go in when a
     case is BLOCKED or dropped, with the reason.

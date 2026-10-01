@@ -724,7 +724,7 @@ prompt blocking it."* So it has two jobs:
   relays to the tester. They never have to wait on a tester's turn to finish.
 
 No test case starts until a sentinel is armed on the tester. §9 briefs whether one is, and
-`bench-runner` gate 8 refuses without one. Orienting, read-only bench work and record-keeping
+`bench-runner` gate 9 refuses without one. Orienting, read-only bench work and record-keeping
 need none.
 
 For why it pays, see memory `sentinel-session-keeps-long-runs-moving`. Everything below comes from

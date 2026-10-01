@@ -66,7 +66,7 @@ prompt blocking it."* The second reason is new since 09-22. The sentinel is also
 **channel** to a tester that is busy mid-turn, not only its rescuer.
 
 Where it is enforced:
-- orient-dt §10 holds the rule, §9(e) briefs it, and `bench-runner` gate 8 refuses without one.
+- orient-dt §10 holds the rule, §9(e) briefs it, and `bench-runner` gate 9 refuses without one.
 - Since 2026-09-28 evening the default way to satisfy it is `/test-mode`: ONE session that is
   the sentinel and dispatches `bench-runner` subagents as the tester ([[sentinel-kit-in-orient-dt]]).
 - wrap-dt §1 stands it down.

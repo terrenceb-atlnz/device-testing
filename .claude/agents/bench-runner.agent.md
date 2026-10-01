@@ -60,7 +60,9 @@ dispatch prompt names:
   - A second TRIAGE message after a recable means: re-run the occupancy check and the probe,
     and re-report. Never trust the earlier capture.
 - **RUN** — the queue rows the prompt names (one group per dispatch; the parent dispatches the
-  next group). Run every case in order and update its queue row as its state changes. Per case,
+  next group). Before the group's first case, write the group's bench setup and its exact
+  restore recipe into the queue file and commit it, so a fresh tester can restore if you die
+  mid-group. Run every case in order and update its queue row as its state changes. Per case,
   follow `logged-output.md` §2:
   - save the `<dev>.cfg` files after setup;
   - write `work/run<N>.log` as you go;
@@ -258,7 +260,9 @@ Every rule is in `logged-output.md` §2. In short, per case:
 These are bench-level, not test-level:
 - anything that contradicts a session fact, or a session fact against `<TB>.static`;
 - a console outside the session's list;
-- licences and their keys;
+- installing or removing licences, and their keys (a missing feature is UNSUPPORTED,
+  STANDING-ORDERS §1);
+- a box the Test Engineer does not own or has not been given;
 - applying a new `.setup` (`bench_probe.py apply`), or leaving the standing topology changed
   after the run;
 - root on the box (keys, sshd, routes, mounts, device trust);

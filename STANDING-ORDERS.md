@@ -72,6 +72,9 @@ session re-triages them after the Test Engineer reports the change made. A case 
 - Anything outside the box's own lab segment. Each box's segment is a session constraint, so
   ask; never assume another box's (tb470's, for example, is `10.38.215.0/24`).
 - A box the Test Engineer does not own or has not been given: never target it or propose it.
+- A write outside the repos (the lab home's write boundary).
+- Installing or removing a licence. A case that needs a feature the unit lacks is UNSUPPORTED
+  (§1), not a licence request.
 
 For any of these:
 1. Record the need in the case's working log (`logged-output.md` §2).

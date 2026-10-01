@@ -66,8 +66,9 @@ Why a sentinel is worth running: [[sentinel-session-keeps-long-runs-moving]].
 type dispatched with NO tools three times because of an empty `tools:` key (fixed dd2b337, effective next
 session); the workaround was a general-purpose subagent told to read bench-runner.agent.md. (2) A subagent
 that runs out of usage credits dies mid-group and leaves the bench in its group setup (LAG legs freed and
-VLAN-isolated at 14:57 on 09-29). Every group README must carry its setup AND restore recipe so a fresh
-tester can restore; near a usage limit or the stand-down, dispatch only a bounded record-and-restore job.
+VLAN-isolated at 14:57 on 09-29). Every group's setup AND restore recipe must be in the campaign's queue
+file (the resume record; since 2026-10-02 the group README is a verdict table written only by
+/create-logs, logged-output.md) so a fresh tester can restore; near a usage limit or the stand-down, dispatch only a bounded record-and-restore job.
 (3) The sentinel's default globs do not watch a framework run dir under /tmp/ck*/; add a line-buffered
 `tail -F run.stdout | stdbuf -oL tr | grep --line-buffered` Monitor for it. Related: [[restate-topology-gaps-before-dispatch]].
 
