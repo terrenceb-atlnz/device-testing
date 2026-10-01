@@ -207,9 +207,15 @@ Sections that earn their place:
 
 Link the box's bench-state.md for the topology rather than duplicating it.
 
-Deliverables follow the house rule: for an individual lab test case the per-case `<case-id>.log`
-**is** the deliverable. An `after-action-<suite>.md` is for a whole campaign, written from that
-run's own logs, and only when it is a campaign or the Test Engineer asks.
+**Deliverables are not the handover's job.** Each case's final `.log` and its `.cfg` files are
+made only by `/create-logs`, on the Test Engineer's request (`logged-output.md`). The wrap
+never writes or edits a case log. The handover's **Results** section is built from the queue's
+`## Results` table, and it says, per campaign group, either:
+- **final logs created** (the `/create-logs` commit hash), or
+- **final logs NOT created yet: `<n>` cases still hold `work/`. Run `/create-logs <queue file>`
+  after review.** Find these with `find <TB>/<FAMILY> -type d -name work`.
+
+An `after-action-<suite>.md` is written only when the Test Engineer asks for one.
 
 ## 6. Fold durable lessons into the records that outlive the session
 
@@ -240,8 +246,9 @@ Three homes, no duplication, every entry dated:
   - If the session produced one, **ask the Test Engineer whether to commit it (`git add -f` /
     Git LFS) or delete it**. Do not leave it untracked on the share as a decision for someone
     else.
-  - Then **commit** the records (bench-state.md, the handover, skill edits, memories, per-case
-    logs), **and stop there.**
+  - Then **commit** the records (bench-state.md, the handover, skill edits, memories, the
+    queue's Results table, and any working logs not yet committed), **and stop there.** Never
+    delete a `work/` folder at a wrap; only `/create-logs` does that.
 - **Claude cannot `git push` here.** Company-set permissions deny it every time, including
   straight after a human approved it (three attempts on 2026-09-11), and nothing on the remote can
   be overwritten or forced. So:
@@ -282,6 +289,7 @@ Dense and skimmable, with clickable relative paths: the mirror of `/orient-dt` �
 - **(c) Records updated:**
   - bench-state.md (regenerated; quote its stamp, plus `backups/<stamp>` if you applied);
   - the handover path;
+  - final logs: created (hash) or **pending `/create-logs`** (how many cases);
   - any `orient-dt` edit, with its `pre-<YYYYMMDD>` snapshot;
   - any memory written;
   - **the local commit hash, stated as "committed, NOT pushed — push is yours"** (§6).

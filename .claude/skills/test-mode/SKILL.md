@@ -89,14 +89,17 @@ the testbox (`tb470`) and `<FAMILY>` is the DUT's product family (`IE520`). One 
 stamp, `<STAMP>` = the campaign's start, local time, `YYYY-MM-DDTHHMM` (e.g. `2026-10-01T1430`):
 
 ```
-<TB>/<FAMILY>/CAMPAIGN-QUEUE-<STAMP>.md          the queue: the resume point
-<TB>/<FAMILY>/<group>-<STAMP>/<case-id>.log      one log per case, named per STANDING-ORDERS §2
-<TB>/<FAMILY>/<group>-<STAMP>/README.md          the group's verdict table
-<TB>/<FAMILY>/<group>-<STAMP>/evidence/…         captures, pre/post configs, helper tools
+<TB>/<FAMILY>/CAMPAIGN-QUEUE-<STAMP>.md          the queue and the results list: the resume point
+<TB>/<FAMILY>/<group>-<STAMP>/<id>/work/         the tester's working logs and case scripts
+<TB>/<FAMILY>/<group>-<STAMP>/<id>/<dev>.cfg     one per device, saved after setup
+<TB>/<FAMILY>/<group>-<STAMP>/<id>/<id><suffix>.log   final log, written ONLY by /create-logs
+<TB>/<FAMILY>/<group>-<STAMP>/README.md          group verdict table, written by /create-logs
 ```
 
-for example `tb470/IE520/routing-2026-10-01T1430/12589-fail.log`. Campaigns before 2026-10-01
-live under `IE520/<group>-<date>/` (all tb470) and stay there.
+For example, `tb470/IE520/routing-2026-10-01T1430/12589/`. Every rule about these files is in
+**`logged-output.md`**; this skill does not restate them. Campaigns before 2026-10-02 are flat
+(`<group>-<STAMP>/<case-id>.log`, or `IE520/<group>-<date>/` on tb470 before 2026-10-01) and
+stay as they are.
 
 - **Group** the list the way the cases group themselves (suite / feature / topology need). A
   group is what one `bench-runner` dispatch runs: a dozen simple cases, or two or three
@@ -107,8 +110,11 @@ live under `IE520/<group>-<date>/` (all tb470) and stay there.
     first line is `Test Engineer: <whoami>@<hostname>`, then `Testbox:`, `Consoles:`, `PDU:` and
     `Constraints:`. This is the layout `/orient-dt` §0b and `/wrap-dt` read to find "the last test
     bench run".
-  - The rules block cites STANDING-ORDERS §2 for log names.
+  - The rules block cites `logged-output.md` for verdicts, working logs and the final output.
   - A `## Queue` table has one row per group: `# | case(s) | group dir | state | note`.
+  - A **`## Results`** table: the results list, one row per case, in the columns of
+    logged-output.md §2. You add a row on every `RESULT` line (§7). NOT TESTED rows go in when a
+    case is BLOCKED or dropped, with the reason.
   - A `## Issues` list.
 - `--resume`: take the named queue file, else the newest `*/*/CAMPAIGN-QUEUE-*.md` (legacy:
   `IE520/CAMPAIGN-QUEUE-*.md`). Do not rewrite it. Re-ask §1 only for facts it lacks, and confirm
@@ -236,13 +242,16 @@ For each runnable group, in order:
    - `sentinel: parent` and the address;
    - **the same session block as §5**;
    - the queue file and **this group's rows only**;
-   - "commit per case; hand back when the group is done or every remaining row is BLOCKED; if
-     you stop for any other reason, say which row is next".
+   - "follow logged-output.md §2: per case, save the `<dev>.cfg` files after setup, keep
+     `work/run<N>.log`, commit, and send me the `RESULT` line. Do NOT write the final log. Hand
+     back when the group is done or every remaining row is BLOCKED; if you stop for any other
+     reason, say which row is next".
 2. Fill the subagent's name into the brief. Say one line. **End your turn.**
-3. On its completion notification, read the report against the queue file and the group's log
-   directory, never from memory:
-   - every row DONE or BLOCKED, logs named per STANDING-ORDERS §2, commit hashes given → next
-     group;
+3. On its completion notification, read the report against the queue file and the group's case
+   folders, never from memory:
+   - every row DONE or BLOCKED, every DONE case with a Results row, a committed
+     `<id>/work/run<N>.log` ending in its `VERDICT:` line, and its `.cfg` files, commit hashes
+     given → next group;
    - rows left with no BLOCKED reason → the subagent ended early. Continue it by name with one
      message: what the queue shows completed, the exact next row, "no reply needed". If it has
      gone, dispatch a fresh RUN for the remaining rows;
@@ -257,6 +266,19 @@ unacknowledged NEEDS YOU on the table.
 
 ## 7. While it runs — you are the channel and the rescuer
 
+- **`RESULT <id> <VERDICT> -- <reason> -- <working log>` from the tester** (logged-output.md §2):
+  1. Check that the working log exists in the case folder and ends with the same `VERDICT:`.
+  2. Add the case's row to the queue's `## Results` table, with graded-by `tester`, and commit
+     it. If the log disagrees with the line, or is missing, write the row anyway, mark the
+     mismatch in its reason, and tell the Test Engineer. Do not pick a side.
+  3. Report it to the Test Engineer as **one line**:
+     `T<id> <VERDICT> -- <reason>  (<done>/<total>: <n> PASS, <n> FAIL, …)`.
+     Batch the lines when several arrive together. This is the running results list they
+     review; nothing more is written for them until `/create-logs`.
+  4. No reply to the tester is needed.
+- **The Test Engineer re-grades a case** ("12589 is a PASS") → change that Results row to the
+  new verdict with graded-by `Test Engineer, re-graded from <old> on <date>`, commit, and confirm
+  in one line. The tester's working log is not edited.
 - **`NEEDS TEST ENGINEER:` from the tester** → surface it at once under a bold **NEEDS YOU:**
   header, with the running list of everything unanswered. Do not answer it yourself and do not
   nudge the tester: it has already moved on to other runnable work. When the Test Engineer
@@ -282,14 +304,25 @@ unacknowledged NEEDS YOU on the table.
 ## 8. Completion
 
 When every group is DONE or BLOCKED:
-1. Give a summary table built **from the queue file and the log names**, one row per case:
-   outcome (from the file name), log path, commit.
-2. List the BLOCKED rows, with the exact change each still needs.
-3. Run `/wrap-dt`. Its §1 stands the sentinel down (Monitor, cron, stray sweep).
-   - `/wrap-dt` §0 picks this session's bench and consoles from the queue's Session facts.
-   - The handover goes to `<TB>/<FAMILY>/SESSION-HANDOVER-<YYYY-MM-DD>.md`, with the same Session
-     facts block.
-   - On a shared box, confirm the tester logged out of every console it opened.
+1. **Show the final results list**, built from the queue's `## Results` table (never from
+   memory). Give one row per case: verdict, reason, graded-by, working log. Give the counts by
+   verdict, NOT TESTED included.
+2. **List the BLOCKED rows**, with the exact change each still needs.
+3. **End with this line, exactly, and stop:**
+
+   > please run /create-logs after reviewing the results for the final uploadable product.
+
+   - Do **not** run `/create-logs` yourself, and do **not** run `/wrap-dt` in the same turn. The
+     Test Engineer reviews first, and may re-grade (§7) before running `/create-logs`.
+     `/create-logs` ends by reminding them to run `/wrap-dt`.
+   - Leave the sentinel armed until they run `/wrap-dt`. They may still send direction.
+
+When the Test Engineer runs `/wrap-dt`:
+- Its §1 stands the sentinel down (Monitor, cron, stray sweep).
+- `/wrap-dt` §0 picks this session's bench and consoles from the queue's Session facts.
+- The handover goes to `<TB>/<FAMILY>/SESSION-HANDOVER-<YYYY-MM-DD>.md`, with the same Session
+  facts block. It notes any case whose final log has not been created yet.
+- On a shared box, confirm the tester logged out of every console it opened.
 
 ## 9. `--resume`
 
@@ -297,6 +330,10 @@ Same session or a new one, after a cut, a crash or a deliberate stop:
 1. §1 step 1, and step 3 only if this is a fresh session; step 2 only for facts the queue file
    lacks, plus the one-line confirmation.
 2. §2: the named or newest queue file; do not rewrite it. Say which row is next.
+   - Reconcile the `## Results` table with the case folders. A committed `work/run<N>.log` that
+     ends in a `VERDICT:` line but has no Results row was reported just before the cut: add its
+     row. A queue from before 2026-10-02 has no Results table: add one, empty, and start it from
+     this resume.
 3. §3: the occupancy check, always. Time has passed and somebody may be on a console now.
 4. §4: arm on yourself.
 5. §5 only if the box's `bench-state.md` "Generated" stamp predates a recable the Test Engineer
