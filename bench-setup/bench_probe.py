@@ -16,6 +16,7 @@ It sees what is actually THERE and nothing else. Four steps, one script:
 
     bench_probe.py run [--consoles 0-6] [--template PATH]    # 1 -> 2 -> 3, ON tb470
     bench_probe.py capture [--consoles 0-6]                  # 1 only, ON tb470
+    ... run|capture --read-only                              # change NOTHING (shared testboxes)
     bench_probe.py generate captures/<stamp>                 # 2 only, anywhere
     bench_probe.py diff [live.md|.setup] [template.setup]    # 3 only, anywhere
     bench_probe.py render                                    # print what apply would write
@@ -501,7 +502,7 @@ def _own_macs(stack_text, mac_text):
     return macs
 
 
-def capture(nums, out_dir=None, quiet=False):
+def capture(nums, out_dir=None, quiet=False, read_only=False):
     """Read every console and save the raw output. Returns the capture directory.
 
     Phase A logs in to every console at once and reads `show stack`, which groups the
@@ -512,7 +513,11 @@ def capture(nums, out_dir=None, quiet=False):
     LLDP_SETTLE -- neighbours send every 30 s, and the fixed 35 s sleep this replaces paid
     the worst case on every run (2026-09-30). Only the first
     console of a stack runs the list: build_model() reads a stack from that one; the others
-    are read for their banner and `show stack` only."""
+    are read for their banner and `show stack` only.
+
+    read_only (`--read-only`, for SHARED testboxes, 2026-10-01): change nothing -- no `lldp
+    run` on a device that has it off (its cabling is then unproven) and no MAC-learning pings
+    out of the host NICs. Logins and `show` commands only."""
     t0 = time.time()
     stamp = utc_stamp()
     out_dir = out_dir or os.path.join(CAPTURES, stamp)
@@ -540,7 +545,7 @@ def capture(nums, out_dir=None, quiet=False):
     # host NICs: the pings that make each far switch learn a NIC's MAC go out now, in
     # parallel, and are reaped before the MAC tables are read
     nics = host_nics()
-    pings = force_learn(nics)
+    pings = [] if read_only else force_learn(nics)
 
     # Phase A -- open, identify, log in, `show stack`: every console at once.
     def _a(path):
@@ -620,6 +625,9 @@ def capture(nums, out_dir=None, quiet=False):
             o = _run(path, "show running-config | include lldp run", timeout=20)
             if any(ln.strip() == "lldp run" for ln in o.splitlines()):
                 rec["lldp"] = "on"
+            elif read_only:
+                rec["lldp"] = "off (read-only: left off)"
+                rec["notes"].append("lldp run is off and --read-only left it off; cabling from this device unproven")
             else:
                 probes[path].config("lldp run")
                 o = _run(path, "show running-config | include lldp run", timeout=20)
@@ -670,6 +678,7 @@ def capture(nums, out_dir=None, quiet=False):
     timing["total"] = round(time.time() - t0, 1)
     say("timing: " + ", ".join("{} {} s".format(k, v) for k, v in timing.items()))
     meta = {"tool": "bench_probe.py", "version": 4, "utc": stamp, "host": os.uname().nodename,
+            "read_only": read_only,
             "commands": COMMANDS, "consoles": recs, "host_nics": nics, "timing": timing}
     io.open(os.path.join(out_dir, "meta.json"), "w", encoding="utf-8").write(
         json.dumps(meta, indent=2, sort_keys=True))
@@ -1504,6 +1513,8 @@ def main(argv=None):
         s.add_argument("--consoles", default="0-6", help="range/list of /dev/uN (default 0-6)")
         s.add_argument("--quiet", action="store_true")
         s.add_argument("--no-prompt", action="store_true", help="never ask about unnamed units")
+        s.add_argument("--read-only", action="store_true",
+                       help="change nothing (shared testboxes): no `lldp run`, no host-NIC pings")
         if name == "run":
             s.add_argument("--template", default=None, help="the .setup to diff against")
             s.add_argument("--out", default=STATE, help="where to write bench-state.md")
@@ -1520,11 +1531,12 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     if args.cmd == "capture":
-        capture(_nums(args.consoles), quiet=args.quiet)
+        capture(_nums(args.consoles), quiet=args.quiet, read_only=args.read_only)
         return 0
     if args.cmd in ("run", "generate"):
         ask = sys.stdin.isatty() and not args.no_prompt
-        cap_dir = args.capture_dir if args.cmd == "generate" else capture(_nums(args.consoles), quiet=args.quiet)
+        cap_dir = (args.capture_dir if args.cmd == "generate"
+                   else capture(_nums(args.consoles), quiet=args.quiet, read_only=args.read_only))
         md = generate(cap_dir, ask=ask)
         io.open(args.out, "w", encoding="utf-8").write(md)
         print("bench-state -> {}".format(args.out), file=sys.stderr)

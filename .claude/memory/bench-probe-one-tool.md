@@ -72,5 +72,8 @@ its last-run ports and every port a neighbour sees it on. The 7–26 s that rema
 neighbours' 30 s LLDP send interval, paid only on a run that has to switch LLDP on. Runs that find
 it on take ~15 s.
 
+**On a SHARED testbox (not tb470):** run the no-console occupancy check first and probe only the
+free consoles with `--read-only` (no `lldp run`, no host pings); without sudo its busy test misses `sudo minicom` holders — [[shared-testbox-console-occupancy]].
+
 Related: [[tb470-topology-and-setup]], [[setup-file-declares-topology]],
-[[testbox-console-access]], [[tb470-reboot-nfshome-unmounted]].
+[[testbox-console-access]], [[tb470-reboot-nfshome-unmounted]], [[shared-testbox-console-occupancy]].

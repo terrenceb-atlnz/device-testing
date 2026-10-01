@@ -1,0 +1,284 @@
+''How to run a list of test cases on lab hardware with Claude Code's <code>/test-mode</code> skill. Owner: Terrence Beach. Last updated: 1 October 2026, checked against the skill, agent and sentinel-kit files in the <code>device-testing</code> repository on that date.''
+
+'''<code>/test-mode</code>''' runs a list of test cases on the tb470 bench as one supervised campaign. You give it the cases and it sorts out which ones the bench can run. It tells you what blocks the rest and then runs the runnable ones, writing one log per case. A watchdog (the ''sentinel'') keeps the run moving and passes messages between you and the tester while it works.
+
+It is part of the [[Ask-ck]] tooling: Ask-CK's Test Composer turns a test case into a <code>.setup</code> + script pair, and <code>/test-mode</code> is how those scripts, and the device-testing campaign cases, get run on hardware.
+
+__TOC__
+
+== At a glance ==
+
+{| class="wikitable"
+! Question !! Answer
+|-
+| What does it do? || Takes a list of case IDs or titles, sorts them into groups, checks the bench can run each one, runs the runnable ones, and writes a per-case log whose ''file name'' states the verdict.
+|-
+| Which bench? || '''tb470 only''' (the IE520 bench). See [[#Testboxes with other sessions or users on them]] for what that means on a shared box.
+|-
+| How many Claude sessions? || '''One.''' The session you type into becomes the sentinel. It starts the tester as a background sub-agent (<code>bench-runner</code>), one per group of cases.
+|-
+| Do I have to run <code>/orient-dt</code> first? || No, but it is recommended. See [[#Is /orient-dt required?]]
+|-
+| Will it ask me questions? || Two at the start: is this a multi-hour run, and (after triage) proceed now or reconfigure the bench first. After that, only when something is genuinely yours to decide.
+|-
+| Can it change device config? || Yes, within a test: config, <code>write</code>, reloads and DUT power-cycles that a case needs, then it restores what it changed. Bench-level changes (recabling, applying a new <code>.setup</code>, root on tb470, licences) stay with the bench owner.
+|-
+| Does it push to GitHub? || No. It commits per case. Company permissions deny <code>git push</code> to Claude; the owner pushes.
+|-
+| How do I resume after a crash? || <code>/test-mode --resume</code>. The queue file and per-case commits are the resume point.
+|}
+
+== Before you start ==
+
+# '''Start Claude Code in the repository root''', <code>claude/device-testing/</code>. The harness picks which memories a session loads by its launch directory, so a session started at the lab home or in <code>~</code> loads the wrong memories or none.
+# '''For a run of more than an hour, start it inside <code>tmux</code>''' (see [[#Running long campaigns: use tmux]]).
+# '''SSH from the dev host needs the keyring agent.''' Tool shells do not inherit it, so the tools set <code>SSH_AUTH_SOCK=/run/user/1971/keyring/ssh</code> explicitly. You don't need to do anything unless SSH fails.
+# '''tb470's <code>/nfsHome</code> must be mounted.''' After a tb470 reboot it may not be, and then the deployed <code>.setup</code> looks missing even though the file is intact. Re-mounting needs root, so the bench owner does it.
+# '''Nobody else should be mid-run on the bench.''' The tester checks this itself and waits rather than interrupting (next section), but it is quicker if you know.
+
+== Invoking it ==
+
+<pre>
+/test-mode T24032 T12067                 # case IDs
+/test-mode 33235, "Fixed port speed"     # IDs, titles, or a mix
+/test-mode --resume                      # carry on with the newest campaign queue
+/test-mode --resume IE520/CAMPAIGN-QUEUE-2026-09-29.md   # a specific queue
+</pre>
+
+With neither a list nor <code>--resume</code>, it asks for the list and stops.
+
+To see more of what the tester is doing, say so (for example "verbose") when you invoke it, or ask the sentinel at any time. See [[#Normal and verbose modes]].
+
+== What happens, step by step ==
+
+{| class="wikitable"
+! # !! Step !! Who !! What you see
+|-
+| 1 || '''Read''' || Sentinel || If the session has not run <code>/orient-dt</code>, it reads that skill's reference sections and <code>STANDING-ORDERS.md</code> (the owner's standing answers). No bench access.
+|-
+| 2 || '''Ask: multi-hour?''' || Sentinel → you || If yes and you are in the VS Code editor, it explains the risk and offers to stop so you can restart in <code>tmux</code>. Otherwise it carries on.
+|-
+| 3 || '''Write the queue''' || Sentinel || <code>IE520/CAMPAIGN-QUEUE-<date>.md</code>: one row per group of cases, with state and notes. It is committed before anything runs, because '''it is the resume point'''.
+|-
+| 4 || '''Arm the sentinel''' || Sentinel || A one-line confirmation: armed, which mode, where the live feed file is. See [[#How the sentinel works]].
+|-
+| 5 || '''Triage''' || Tester (sub-agent, mode TRIAGE) || A read-only check of the bench and of every case, reported as '''N runnable / M blocked by topology (with the exact change that unblocks each) / K blocked by something else'''. You see it verbatim.
+|-
+| 6 || '''Proceed or reconfigure?''' || You || ''Proceed'': the N run and the blocked rows are marked BLOCKED with their reason. ''Reconfigure'': you make the change (recable, move a module, apply a new <code>.setup</code>), say done, and triage re-runs with a fresh probe. Repeat until you say proceed.
+|-
+| 7 || '''Run''' || Tester (one sub-agent per group, mode RUN) || Each case runs and is logged and committed. The sentinel says one line per dispatch, then stays quiet unless something needs you.
+|-
+| 8 || '''Completion''' || Sentinel || A summary table built from the queue file and the log ''names'' (outcome, log path, commit), then the blocked rows with what each still needs. Then run <code>/wrap-dt</code>, which stands the sentinel down and writes the session handover.
+|}
+
+Between groups nothing runs on the bench, so that is the cheapest time to recable for a blocked group. The sentinel says so if one is pending and re-triages that group before running it. Before each dispatch it also restates any topology gap the triage found ("cases X need Y; fit Z first or accept UNSUPPORTED"), because a gap mentioned hours earlier gets buried.
+
+== Is /orient-dt required? ==
+
+'''No.''' <code>/test-mode</code> works in a fresh session:
+* If the session has not oriented, step 1 reads the orient skill's reference sections (where things live, platform limits, driver and framework traps, the sentinel procedure) and <code>STANDING-ORDERS.md</code>.
+* The tester reads the same material on its own, and '''probes the bench itself before every run''' (gate 4 below). So the bench check does not depend on an earlier orient.
+
+'''Running <code>/orient-dt</code> first is still recommended''', for three things <code>/test-mode</code> does not give you:
+* '''A live briefing before you commit to a campaign:''' which unit is on which console, stack IDs and master, builds, boot images, recent unexpected reboots, free flash.
+* '''The last session's handover:''' whether the bench was left whole or ''parked'', and what is still shut, unsaved, or waiting on the owner (for example a host firewall rule left from a previous test).
+* '''A clean starting point:''' if the probe reads MISMATCH, you find out before the campaign's triage spends a sub-agent on it.
+
+<code>--resume</code> skips triage unless the bench has been recabled since the last generated bench state. The tester re-probes before each run either way.
+
+== How the sentinel works ==
+
+The sentinel is '''mandatory''' for any session that runs tests (owner's ruling, 28 September 2026). It has two jobs:
+* '''Rescue:''' it notices a tester that has stalled or stopped early, and gets it going again.
+* '''Channel:''' you talk to the sentinel, which is never busy with the bench, so you never wait for a tester's turn to finish. It relays your direction to the tester and the tester's questions to you.
+
+In <code>/test-mode</code> the sentinel is the session you are typing into. '''It never touches the bench''': no consoles, no config, no SSH to a device. Two writers on one console is the classic failure on this bench, so it sends facts and the tester acts.
+
+=== Its parts ===
+
+{| class="wikitable"
+! Part !! What it is !! Lifetime
+|-
+| '''Watcher''' (<code>sentinel.sh</code> under a Claude Code ''Monitor'') || A shell loop that wakes every 30 s and makes '''one''' SSH call to tb470, reading only the new bytes of the console transcripts and framework logs. It never opens a console. It also reads the sub-agents' transcripts and background-task output on the dev host. || A Monitor expires after 30 min. The sentinel re-arms it on every expiry, and the read offsets persist so nothing is missed or replayed.
+|-
+| '''Backstop''' (a 15-minute cron trigger in the session, at :10, :25, :40, :55) || A periodic check that wakes the sentinel even if the watcher has died, classifies the tester (healthy / needs you / stalled) and acts. || Lives in this session only: '''closing the session kills it'''.
+|-
+| '''Completion notifications''' || A sub-agent that finishes, or ends its turn early, notifies the session that started it. || This is the primary stall signal in the one-session shape.
+|-
+| '''Brief''' (filled-in template in the session scratchpad) || The sentinel's standing orders for this campaign: tester name, queue file, stand-down time, mode. || Never committed: it names live process details.
+|-
+| '''Stand-down time''' || A hard stop for the watcher (default: end of the working day). || The watcher exits when it is reached.
+|}
+
+=== Normal and verbose modes ===
+
+{| class="wikitable"
+! Mode !! What the sentinel is shown
+|-
+| '''normal''' (default) || Every console byte sent and received, from the tester's <code>console.py</code> transcripts and the framework's per-device console logs, plus the rescue alarms.
+|-
+| '''verbose''' || Normal, plus the tester's narration, every command it runs and its output, its background-task output, and the framework's other logs.
+|}
+
+* '''Switch at any time''' by asking the sentinel. It writes <code>verbose</code> or <code>normal</code> to a mode file, and no re-arm is needed.
+* '''Every line the watcher prints wakes the sentinel and costs tokens''', so output is capped at 40 lines per source per 30-second tick.
+* The '''full verbose feed is always written''' to <code><scratchpad>/sentinel.feed</code>, whatever the mode. For a free live view, run <code>tail -f</code> on it in your own terminal. That is cheaper than running the sentinel in verbose for hours.
+
+=== How it talks to you ===
+
+* '''Healthy ticks are silent.''' The sentinel does not narrate progress.
+* When the tester needs you, the sentinel puts it under a bold '''NEEDS YOU:''' header, with a running list of everything still unanswered. Remote Control is disabled by company setting, so '''the session text is the only channel'''. Check back on long runs.
+* Your answer is relayed as "Terrence's answer, relayed: …", and your direction ("stop after this case", "write the handover now") as "Terrence's instruction, relayed: …". The sentinel relays only what you said and never supplies an answer of its own.
+* The sentinel batches its messages and adds "no reply needed". In the September 2026 campaign three of four tester stalls came straight after a sentinel message.
+
+== What the sub-agent does ==
+
+The tester is the '''<code>bench-runner</code>''' agent, started by the sentinel as a background sub-agent. Each dispatch gets one mode.
+
+=== TRIAGE ===
+
+Read-only apart from the bench probe. It runs the bench gate below, then checks every case's cabling needs against the measured topology (an offline preflight of each script). It reports N runnable / M blocked by topology (each with the exact change that removes the block, stated so someone at the bench can do it without asking) / K blocked otherwise. It changes no device state and runs no case. A second TRIAGE message after a recable means re-probe from scratch, never trust the earlier capture.
+
+=== RUN ===
+
+One group of queue rows per dispatch. Before each run it passes '''the pre-run gate''':
+
+{| class="wikitable"
+! # !! Check !! If it fails
+|-
+| 1 || '''Nobody holds a console''' (<code>sudo -n fuser</code> on every console, lock files). || Waits, and tells the sentinel what it is waiting on. '''Never displaces''' a holder.
+|-
+| 2 || '''No console is parked''' in a root shell (left by a killed run) or in config mode. || Records the state in the case log, then exits it.
+|-
+| 3 || '''<code>/nfsHome</code> is mounted.''' || Owner's job: root.
+|-
+| 4 || '''The bench matches its template''': <code>bench_probe.py run</code> on tb470 must print '''MATCH''' against the <code>.setup</code> the run will bind. || That run does not start. The diff goes to you as NEEDS TERRENCE, and the tester carries on with cases that do not depend on what moved. It never "fixes" the bench to make it match.
+|-
+| 5 || '''Offline preflight''' of the script against the deployed <code>.setup</code> (a missing cable otherwise looks like a script defect). || The case is BLOCKED by topology.
+|-
+| 6 || '''Every device boots the config the topology declares''' (<code>flash:/tb470-bench.cfg</code> for the standing bench). || Fixed within the test, or reported.
+|-
+| 7 || Ask-CK's server run path still carries the agreed run flags. || Launch by hand instead.
+|-
+| 8 || '''A sentinel is watching''' (the dispatch prompt says <code>sentinel: parent</code>). || Refuses to start the first case.
+|-
+| 9 || '''The script's defaulting commands are valid on this platform.''' A rejected command would fail every TestCase at step 1, and the framework then power-cycles all six units after each failure. || Does not launch; reports a script defect.
+|}
+
+Then, per case:
+* '''Runs the framework script''' with <code>--noupdate --nodefaultcfg</code>, always. Without them the framework's default setup rewrites every device's boot config, strips licences, reboots everything and tries to reload firmware from a scratch directory that empties on every tb470 reboot.
+* '''Has full authority within the test''': config, <code>write</code>, boot config, <code>reload</code> / <code>reload stack-member</code>, a PDU power-cycle of a DUT, test traffic from tb470's NICs, and scratch in tb470's <code>/tmp</code>. It asks nobody. '''It restores what the case changed.'''
+* '''After the run:''' it closes every console cleanly, re-probes (expects MATCH), diffs each device's running config against the pre-run capture, and stops anything it started.
+* '''Writes the log and commits it.''' One <code><case-id>.log</code> per case, whose '''name carries the verdict''':
+{| class="wikitable"
+! Outcome !! File !! Meaning
+|-
+| PASS || <code><id>.log</code> || Ran, and every supported step passed. UNSUPPORTED steps inside it do not stop a PASS.
+|-
+| FAIL || <code><id>-fail.log</code> || Ran unsuccessfully: a check failed, or the platform prevented it.
+|-
+| PARTIAL || <code><id>-partial.log</code> || Could not run fully (physical or other misconfiguration, script error), not because a FAIL condition was met. Holds the exact change that would unblock it.
+|-
+| UNSUPPORTED || <code><id>-unsupported.log</code> || The platform does not support what the case tests, with the proof.
+|-
+| NOT TESTED || no log || Never attempted; the queue row carries the reason.
+|}
+* '''Updates its queue row''' as the state changes, and '''hands back''' when the group is done or every remaining row is BLOCKED, with outcomes, log names and commit hashes. If it stops for any other reason it says exactly which row is next.
+
+'''Not the tester's to decide''': licences, applying a new <code>.setup</code> or leaving the standing topology changed, root on tb470, writes outside the three repositories, anything outside <code>10.38.215.0/24</code>. For these it records the need in the case log, sends the sentinel one line starting <code>NEEDS TERRENCE:</code>, and '''carries on with the next runnable case'''. It never sits on a prompt.
+
+== Recovery: what the sentinel can and cannot rescue ==
+
+{| class="wikitable"
+! What goes wrong !! How it is noticed !! What happens !! What is lost
+|-
+| Tester ends its turn early ("Next: running T931" and then stops: the most common failure) || Completion notification || The sentinel compares the report with the queue file and continues the ''same'' sub-agent by name: what completed, the exact next row, "no reply needed". || Nothing.
+|-
+| Sub-agent has gone (finished, crashed, out of context) with rows left || Completion notification, or the IDLE alarm "nothing running anywhere" || A fresh RUN dispatch for the remaining rows. || Nothing; the queue and commits carry the state.
+|-
+| Tester waiting on something that can never fire (e.g. an SSH <code>pgrep</code> loop that matches itself; one spun for 14.6 h) || IDLE alarm after 300 s of no activity, with '''STALL SIGNATURE''' (stale wait loops on the dev host and no live job on tb470) || The sentinel messages the tester with what actually completed and where to resume. || The idle time.
+|-
+| Tester needs the owner || <code>NEEDS TERRENCE:</code> message || Surfaced under '''NEEDS YOU:''', and your answer relayed back. The sentinel does not nudge, because the tester has already moved on. || Nothing; only the blocked case waits.
+|-
+| Watcher killed (editor or VPN drop, 30-min expiry) || Expiry notification, or the 15-minute cron finds no watcher this session armed || Re-armed by the arming procedure: '''sweep and kill stray watchers first''', clear the heartbeat, arm. Offsets persist, so nothing is replayed or missed. || Nothing.
+|-
+| Orphaned watcher keeping the heartbeat fresh while its output goes nowhere || A heartbeat is trusted only if ''this'' session armed the watcher || Treated as dead: swept and re-armed. || Nothing.
+|-
+| Usage window runs out mid-campaign || The cron fires after the window refreshes || Continues or re-dispatches from the first row not DONE / BLOCKED. || The wait.
+|-
+| Sub-agent dies mid-group (e.g. out of credits) with the bench in the group's setup || Notification / IDLE alarm || A fresh tester restores from the group README, which must hold both the setup and the restore recipe. Near a usage limit or the stand-down, the sentinel dispatches only a bounded record-and-restore job. || The case in flight.
+|-
+| '''The session's process dies''' (window closed, editor reload, xrdp/VPN drop takes the editor) || Nothing in-session: the sentinel, its cron and the sub-agent all die together || '''You''' start a session in the repo root and run <code>/test-mode --resume</code>. It reads the queue file, says which row is next, re-arms and continues. The tester re-probes before running. || The case in flight. Check its group's restore before resuming.
+|}
+
+The sentinel '''cannot''' fix the bench, take a bench-level decision for you, or lift a mechanical block: the no-stray-scripts hook, the auto-mode safety classifier and the company <code>git push</code> denial do not change because a message was relayed. Those come back to you to do yourself.
+
+=== Running long campaigns: use tmux ===
+
+In the one-session shape the tester lives inside the session's process, so if that process dies the whole campaign stops until someone resumes it.
+* A VS Code window is exposed to editor reloads and connection drops: in September 2026 an editor-attached watcher was killed by a VPN drop.
+* A bare terminal is not safer: closing it sends SIGHUP.
+* A terminal inside <code>tmux</code> survives a closed window or a dropped connection:
+<pre>
+tmux new -s test-mode
+cd /media/terrenceb/mnt/testbox_home/claude/device-testing
+claude
+/test-mode <cases>          # re-attach later with:  tmux attach -t test-mode
+</pre>
+For a tester that must outlive its sentinel, the older '''two-session shape''' is still supported: one session runs the cases, a second watches it as a peer (orient-dt §10).
+
+== Testboxes with other sessions or users on them ==
+
+<code>/test-mode</code> and <code>bench-runner</code> are '''wired to tb470''': its <code>.setup</code>, its generated bench state, its static name/PDU table. The bench is still shared: the owner's own ST-ART framework runs, people on minicom, and other Claude sessions all use it. Here is how each case is handled.
+
+=== Someone holds a console (minicom, another script, another session) ===
+* The tester's gate 1 sees the holder and '''waits''', telling the sentinel what it is waiting on (you see it as NEEDS YOU). It never logs in on top of someone.
+* The bench probe skips a held console (status ''busy'') and reports '''NEEDS-CHECK''' rather than MATCH, so gate 4 stops any run that needs that console.
+* '''Idle is not free:''' a minicom left open for hours is still someone's console. Ask, or wait.
+* '''Without passwordless sudo, a root-owned minicom is invisible''' to <code>fuser</code> and looks exactly like a free console. tb470 has passwordless sudo, so the gate sees it. On any other box, treat a console you cannot verify as ''unknown'', not free.
+
+=== An ST-ART framework run is in progress ===
+* Its traces are a stack hostname like <code>stk_a_<test>_<run></code> and <code>[SCRIPT]</code> lines in the device log. That is the owner's work, not drift; nothing should "restore" it.
+* Between steps a framework run may hold no console and look idle. Check the time of the last <code>[SCRIPT]</code> line before sending traffic, because two runs on one bench corrupt each other's results.
+
+=== Another Claude session on the same bench ===
+* '''Run one campaign per bench at a time.''' Two testers configuring the same devices collide, and nothing in the tooling arbitrates between them.
+* The sentinel's console feed reads '''every''' console transcript under tb470's <code>/tmp/*/</code> and the framework run directories, so another session's console traffic shows up in your feed.
+* The IDLE alarm counts '''any''' <code>python3</code> or <code>tcpdump</code> on tb470 as a live job, so another user's job can mask a stalled tester. Completion notifications are unaffected and remain the primary signal.
+
+=== Two /test-mode sessions on the same dev host ===
+* '''Avoid it for now.''' The arming procedure kills ''every'' <code>sentinel.sh</code> process it finds on the host before arming its own, so one session's re-arm (every 30 min, and on each cron backstop that finds no watcher) kills the other session's watcher. Each would keep killing the other's.
+* Each session's own completion notifications still work, but stall detection and the console feed flip between them.
+
+=== A different testbox ===
+* '''Not supported by <code>/test-mode</code> today.''' The bench probe has a <code>--read-only</code> mode for shared boxes: logins and <code>show</code> commands only, no LLDP switch-on and no traffic, run on an explicit <code>--consoles</code> list of free consoles after a no-console occupancy check. That is for ''reading'' another box, not campaigning on it.
+* '''Never run <code>bench_probe.py apply</code> against another box''': it writes tb470's <code>.setup</code>.
+* By default the probe '''switches LLDP on''' where a device has it off (running config only), and it '''leaves each console logged in''' as manager. On someone else's box both are changes they did not ask for.
+* <code>tb504</code> is a shared testbox outside our control. Do not target it.
+
+== Notes ==
+
+* '''Time and power cycles.''' After any TestCase that ends FAIL, UNSUPPORTED or ERROR, the framework power-cycles every bound device (about 4 minutes for six units). This is accepted by design; nothing works around it. A script that fails every case at the same defaulting step is stopped instead, after two consecutive failures. Budget generously: reloads, failovers and SPI-flash writes on the IE520 take minutes, and the unit answers nothing during a flash write. It looks crashed, but never power-cycle it then.
+* '''Bench setup changes once per TestSet, not between its cases.''' Cabling, aggregator changes, VLAN isolation and boot pointers are set before the TestSet and restored after it. A case that needs a different physical setup belongs in a different group.
+* '''Configs are kept tidy between unrelated cases.''' Each case's additions are removed and checked by diffing running config against the pre-case copy. Nothing is written to startup config unless the case requires it.
+* '''The probe is the bench's source of truth.''' <code>bench-setup/bench-state.md</code> is generated by <code>bench_probe.py run</code> and never hand-edited. Neither is the <code>.setup</code> on the box; <code>apply</code>, the owner's call, writes it.
+* '''Evidence lives in the repo.''' One log per case under the group directory, holding the latest run only. A re-run replaces it under the new outcome's name (<code>git mv</code>), so history is in git. Raw captures stay in tb470's <code>/tmp</code>, which is tmpfs and is wiped by a tb470 reboot.
+* '''Nothing is pushed.''' Every case is a commit on <code>main</code> in <code>device-testing</code>, reported as "committed, NOT pushed". The owner pushes.
+* '''Agent definition changes need a new session.''' <code>bench-runner</code>'s definition is read when the session starts; an edit takes effect in the next session.
+* '''Framework run directories under <code>/tmp/ck*/</code> are not watched''' by the default sentinel feed (it watches <code>/home/st-art/pytest-create/</code>). A tester that runs there needs an extra Monitor on its <code>run.stdout</code>.
+* '''A rejected or interrupted tool call can still be running on tb470''' and holding a console or changing config. Rejecting a call stops Claude reading the output, not the remote command. The tester checks <code>ps</code> and the consoles after any interrupt, before claiming nothing changed.
+* '''Never send <code><command> ?</code> with a trailing Enter''' through a console driver: if <code><cr></code> is a valid completion, the command executes.
+* '''Platform limits produce UNSUPPORTED, not FAIL.''' On the IE520 that includes no SD card slot, no battery-backed RAM, no SSH/telnet (console only), and MDI/MDI-X polarity on SFP-cage ports. Triage says up front which cases these touch.
+* '''Finish with <code>/wrap-dt</code>.''' It stops what the session started, stands the sentinel down (watcher, cron, stray sweep), records the final bench state and writes the dated session handover the next session reads.
+
+== See also ==
+
+* [[Ask-ck]]: the test-case workbench that produces the scripts this runs.
+* In the <code>device-testing</code> repository:
+** <code>.claude/skills/test-mode/SKILL.md</code>: the skill itself.
+** <code>.claude/agents/bench-runner.agent.md</code>: the tester and its gate.
+** <code>.claude/skills/orient-dt/SKILL.md</code> §10 and <code>.claude/skills/orient-dt/sentinel/</code>: the sentinel procedure and kit.
+** <code>STANDING-ORDERS.md</code>: verdict rules, triage report shape, what stays with the owner.
+** <code>TESTBOX-ACCESS.md</code>: SSH access and launching framework runs.
+
+[[Category:Test Automation]]
