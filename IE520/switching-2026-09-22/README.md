@@ -14,7 +14,7 @@
 | [45788](45788.log) | 5005 EPSR performance test on SFP port | **UNMEASURED** — bench: no SFP fitted |
 | [45789](45789.log) | 5005 EPSR performance test on SFP+ port | **UNMEASURED** — bench: no free SFP+ |
 | [24032](../epsr-l2-2026-09-29/24032-partial.log) | 5706 L2 platform test | **MOVED 2026-10-02** to `../epsr-l2-2026-09-29/24032-partial.log` (re-run: PARTIAL). The 09-22 "case-scope mismatch" reading was wrong: 5706 is a framework suite (raw-data/test_scripts/5706_Platform_L2) |
-| [12067](12067.log) | Flow control operation with MDI | **SKIPPED** (Terrence's ruling, 2026-09-23) — was bench: no wire rate; tcpreplay now gives ~983 Mbps, reopen is open (queue I-19) |
+| [12067](../epsr-l2-2026-09-29/12067-unsupported.log) | Flow control operation with MDI | **MOVED 2026-10-02** to `../epsr-l2-2026-09-29/12067-unsupported.log` (re-run: UNSUPPORTED — the IE520 refuses `flowcontrol`: "not supported on this product") |
 
 ## Bench limits vs case-scope — they need different answers
 

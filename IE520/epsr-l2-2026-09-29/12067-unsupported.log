@@ -1,0 +1,107 @@
+TEST T12067 -- Flow control operation with MDI -- tb470 IE520 stack -- 2026-10-02 -- UNSUPPORTED
+==================================================================================================
+
+VERDICT: UNSUPPORTED. The case tests 802.3x flow control under each MDI configuration. The IE520
+supports neither half of it on this build (awplus_main-20260923-20):
+  1. FLOW CONTROL: the DUT REFUSES to enable it, on every port tried, on both IE520s, and its own log
+     says why: "DBG:exfx_port_flowControlSet 1979: Configuring flow-control receive is not supported
+     on this product". With flow control unset, it ignores received PAUSE frames (measured, B1).
+  2. MDI/MDI-X (steps 2 and 3): every front port is an SFP cage, and polarity is UNSUPPORTED here
+     (bench owner's ruling 2026-09-29, T33234; orient-dt §2). Both test ports read
+     "current polarity auto". Steps 2-3 were not attempted.
+Run label: clean (the bench delivered everything the case needs: wire-rate load, a separate PAUSE
+source, and observation of PAUSE on the DUT and the hosts; it was the DUT that refused).
+Note for the Test Engineer: the command PARSES (`flowcontrol {both|receive|send}`, `{on|off}`), then
+fails with "% Error setting flow control ...". If the IE520 is meant to support 802.3x, this is a
+defect rather than a platform gap and the grade should become FAIL. The platform's own message says
+"not supported on this product", so it is graded UNSUPPORTED here.
+
+Case text (ck.db AWPTCM-T12067, /Pause Control / Flow Control/.../Back Pressure/End to End test):
+  objective: "Confirm that flowcontrol works correctly on all of supported MDI configuration."
+  precondition: Tools IXIA*2; Set up IXIA1---DUT---IXIA2; "Set IXIA1,2 enable flow control send/receive."
+  step 1: wire rate from IXIA1, then PAUSE from IXIA2 -> expect IXIA2 receives at 1/2 rate, and the DUT
+          sends PAUSE to IXIA1 to suppress the original rate.
+  step 2: same, after `polarity mdi` on the ports connected to IXIA1/2.
+  step 3: same, after `polarity mdix`.
+(The precondition's "see attachment cfg file" is not in ck.db: attachments NULL.)
+
+## Session facts (Test Engineer, 2026-10-02, verbatim in the queue)
+box tb470; consoles u0-u5 (u6 absent); PDU 10.36.150.14, outlets per tb470.static; names none given;
+constraints None. Operator: bench-runner subagent; sentinel = parent session device-testing-67.
+Relayed answer: "Proceed with both (Recommended)" -- T12067 by hand, step 1 measured, steps 2-3 UNSUPPORTED.
+
+## Bench mapping
+| case role | bench | DUT port | module |
+| IXIA1 (load source, PAUSE observer) | tb470 eth1 (igc, 00:f0:4d:00:77:16) | stack port3.0.10 (member 3) | AT-SPTXc 1000BASE-T, a-full a-1000 |
+| IXIA2 (receiver, PAUSE source)      | tb470 eth3 (igc, 00:f0:4d:00:77:18) | stack port3.0.9 (member 3)  | AT-SP10TM 10GBASE-TM at a-1000 |
+| DUT | IE520 stack, master member 3, console /dev/u5 | | |
+Both ports on one member: the case is a single-device IXIA1-DUT-IXIA2 path, so no stack link is in it.
+Load: `tcpreplay -i eth1 --topspeed --duration=10 --loop=0` of 500 x 1000-byte frames, unicast to eth3's
+MAC, ethertype 0x88B5 (no IP; never routed). PAUSE: scapy L2 socket on eth3, 01:80:c2:00:00:01 / 0x8808 /
+opcode 0x0001 / quanta 0xFFFF (33.6 ms at 1 Gb/s), every 67 ms = ~50% duty, 13 s spanning the load window.
+Observation: DUT `show platform port portX counters` (Pkts, FlowCtrlFrms RX/TX, Drop Events); host
+`ethtool -S` (rx/tx_packets, rx/tx_flow_control_xon/xoff, rx_missed_errors). Tools: evidence/12067/.
+
+## Pre-case
+- Gate: precheck CLEAR; probe 2026-10-01T182835Z MATCH (the T24032 restore probe); boot configs
+  flash:/tb470-bench.cfg on all four; running-configs = post-test-configs/2026-10-02-24032/.
+- DUT: `show flowcontrol interface port3.0.9` / `port3.0.10` -> "Flow control is not set on interface ..."
+- DUT counters (reset by the T24032 power cycles): FlowCtrlFrms 0/0 on both ports.
+- Host: `ethtool -a eth1|eth3` -> Autonegotiate on, RX on, TX off (left unchanged throughout).
+
+## B0 -- feature-off baseline: flow control unset, no PAUSE (07:31:20)
+tcpreplay: "Actual: 1220501 packets (1220501000 bytes) sent in 10.00 seconds / Rated: ... 976.10 Mbps,
+122013.49 pps" (wire rate for 1000-byte frames: 1000/1020 x 1 Gb/s = 980 Mb/s).
+eth3 rx_packets +1220502 (all of them, +1 background); rx_missed_errors 0; all xon/xoff 0.
+DUT: port3.0.10 RX Pkts 18 -> 1220519; port3.0.9 TX Pkts 908 -> 1221451; FlowCtrlFrms 0 everywhere; Drop Events 0.
+
+## B1 -- PAUSE from IXIA2 with flow control unset (07:31:57)
+"PAUSE sent: 195 frames on eth3 in 13.09 s, period 67.0 ms, quanta 0xffff, len 60"; eth3 tx_packets +195.
+DUT port3.0.9 RX FlowCtrlFrms 0 -> 195: the PAUSE frames reached the DUT's MAC. This disproves the two
+triage risks: igc does transmit software-built MAC-control frames, and the AT-SP10TM does not absorb them.
+eth3 still received rx_packets +1220527 = the whole load (+26 background). tcpreplay again 976.10 Mbps.
+=> With flow control unset, the DUT ignores PAUSE (expected for the feature-off state).
+
+## Step 1 -- enable flow control on the DUT: REFUSED (07:3x)
+  IE520-stk(config)#interface port3.0.9,port3.0.10
+  IE520-stk(config-if)#flowcontrol receive on
+  % Error setting flow control receive on port3.0.9
+  % Error setting flow control receive on port3.0.10
+  IE520-stk(config-if)#flowcontrol send on
+  % Error setting flow control send on port3.0.9
+  % Error setting flow control send on port3.0.10
+  show flowcontrol interface port3.0.9  -> Flow control is not set on interface port3.0.9
+  show flowcontrol interface port3.0.10 -> Flow control is not set on interface port3.0.10
+  running-config: no flowcontrol line. Links stayed up (a-full a-1000).
+The command exists (read-only help, sent without a CR and erased with Ctrl-U, in interface mode on port3.0.10):
+  flowcontrol ?          -> both / receive / send
+  flowcontrol receive ?  -> off / on
+  flowcontrol send ?     -> off / on
+The DUT's own log (show log | include flowCo):
+  2026 Oct 01 18:33:26 local7.err IE520-stk EXFX[665]: DBG:exfx_port_flowControlSet 1979: Configuring flow-control receive is not supported on this product
+  2026 Oct 01 18:33:27 local7.err IE520-stk EXFX[341]: Last message 'DBG:exfx_port_flowCo' repeated 1 times, suppressed by syslog-ng on IE520-stk
+Not tied to the port or module:
+  - stack port3.0.11 (empty cage, "not present"): the same two "% Error setting flow control ..." lines;
+    log 18:34:38 the same "not supported on this product".
+  - IE520-sa (standalone, /dev/u3, same build) port1.0.1 (empty cage): the same two errors;
+    log 2026 Oct 01 18:35:23 local7.err IE520-sa EXFX[689]: DBG:exfx_port_flowControlSet 1979:
+    Configuring flow-control receive is not supported on this product.
+  Nothing was applied on any of them (show flowcontrol "not set"; running-config unchanged).
+So the step-1 configuration ("enable flow control send/receive") cannot be set. Measuring the "1/2 rate"
+and "DUT sends PAUSE to IXIA1" without it would only repeat B1. Not run.
+
+## Steps 2 and 3 -- UNSUPPORTED (polarity on an SFP cage), not attempted
+`show interface port3.0.10` / `port3.0.9`: "current duplex full, current speed 1000, current polarity auto /
+configured ... polarity auto". Per the 2026-09-29 ruling (T33234), a DUT-side MDI/MDI-X role cannot
+be set or resolved on these cages. They also depend on step 1's flow control, which is refused.
+
+## Restore and after-case checks
+- Nothing to undo on the DUT (every flowcontrol command was refused; no config applied). Host NIC pause
+  settings never changed (ethtool -a eth1/eth3 still autoneg on / RX on / TX off). The PAUSE sender
+  exited on its own (13 s); no tcpdump was started.
+- Consoles: u5 and u3 left at exec with `end` + `terminal no monitor`.
+- Probe 2026-10-01T183505Z: MATCH, Advisories none. running-config diff vs the pre-case capture
+  (post-test-configs/2026-10-02-24032/): u0, u1, u2, u3 IDENTICAL (post-test-configs/2026-10-02-12067/).
+  Boot configs all flash:/tb470-bench.cfg.
+- Raw: evidence/12067/B0-*, B1-* (host counter snapshots, tcpreplay and PAUSE output),
+  console-u5.log, console-u3.log (full transcripts), and the tools used.
