@@ -1,4 +1,62 @@
-# Session handover — 2026-10-01 (wrapped ~11:40 NZDT)
+# Session handover — 2026-10-01 (wrapped ~11:40 NZDT; re-wrapped ~15:45 NZDT)
+
+## Re-wrap ~15:45 NZDT — read this first
+
+**The bench is NOT at the template now.** The final probe, `2026-10-01T024134Z` (15:41 NZDT), reads
+**MISMATCH on one link**: the stack's port1.0.2 (one leg of the stack–x230 static aggregator sa2)
+to x230 port1.0.3. Both ends read `notconnect`. Both still hold their config (`static-channel-group 2`,
+not shut), and the module still reads `1000BASE-T`.
+- It was up in the 13:45 probe (`2026-10-01T004533Z`, committed in `d9464c1`).
+- This session sent nothing to any console after 12:53, so the cause is physical (cable or module)
+  or another operator's. That is not established.
+- sa2 runs on port1.0.9 ↔ 1.0.4 alone.
+- **Not applied and not repaired.** It is the Test Engineer's to check at the bench.
+
+Other checks at the re-wrap:
+- `precheck` was CLEAR on u0–u5 (no holder, lock, screen/minicom or python script).
+- Stack reboot history: nothing new since the 11:09 T33235 reload.
+- eth1/eth2/eth3 are up at 1000.
+- The iptables FORWARD DROP rule for 192.168.10.0/24 is **still in place**.
+
+Since the first wrap:
+1. **Run files:** the five framework `run.stdout` files were deleted, on the Test Engineer's "delete
+   the misc run files if the log is built" (`52964a5`).
+2. **Row 6's second NIC:** eth3 was moved to stack port3.0.9 and applied (§4b, `515b1d6`).
+3. **The tools are now testbox- and user-agnostic** (`c437513`), on the Test Engineer's five
+   guidelines:
+   - `/test-mode` asks for the testbox, U interfaces, PDU and constraints first;
+   - it runs a no-console occupancy check before any probe;
+   - it probes with the user's facts, never overwrites them, and turns any disagreement into a
+     USER-CONFLICT prompt;
+   - logs go under `<TB>/<FAMILY>/<group>-<STAMP>/`;
+   - `bench-runner` and the sentinel kit say "Test Engineer";
+   - `bench_probe.py` gained `--box`, `precheck` and `--pdu/--outlet/--name`.
+
+   tb470's output is unchanged: today's capture, regenerated, is byte-identical apart from the stamp.
+4. **Wiki:** `docs/WIKI-Ask-ck-test-mode.wiki` rewritten for the new flow (`88d29bc`).
+5. **The Test-cases session `test-cases-da` was stopped** (SIGTERM, pid 2327454) on the Test
+   Engineer's "kill the other session". It was midway through its own second wrap, running its test
+   suite, so **that wrap did not finish**: no handover from it. The Test-cases repo had no
+   uncommitted changes afterwards.
+6. Records: orient-dt §0 probe row notes the new options (snapshot `SKILL.md.pre-20261001b`), and
+   memories `bench-probe-one-tool` and `shared-testbox-console-occupancy` are updated.
+
+Still open, beyond §5 below:
+- the sa2 leg above;
+- remove the iptables rule;
+- `STANDING-ORDERS.md` §4 still says `NEEDS TERRENCE:` while the agent sends `NEEDS TEST ENGINEER:`;
+- `/orient-dt` and `/wrap-dt` are still tb470-only.
+
+First action next session: `/orient-dt`, then check the stack port1.0.2 ↔ x230 port1.0.3 cable or
+module, re-probe, and only then `/test-mode --resume` (row 6: T24032, T12067).
+
+Verify the re-wrap state with:
+```bash
+cd ~/claude/device-testing/bench-setup && python3 bench_probe.py precheck --consoles 0-5 && ./bench_probe.py run
+# expect: CLEAR, then MISMATCH (1) [portlink] swi_a-swi_f bench port1.0.9-port1.0.4, until the leg is fixed
+```
+
+---
 
 Session `device-testing-67`: `/orient-dt`, a bench-state update after Terrence's pluggable swaps,
 then `/test-mode verbose --resume` of [CAMPAIGN-QUEUE-2026-09-29.md](CAMPAIGN-QUEUE-2026-09-29.md)
