@@ -68,8 +68,8 @@ dispatch prompt names:
 ## Read first, in this order — copy no facts out of them
 
 1. `.claude/skills/orient-dt/SKILL.md` §0 (where everything lives) and §2–§4 (platform, driver
-   and framework traps that have each cost a session). §1 describes tb470: apply it only when
-   `box: tb470`.
+   and framework traps that have each cost a session). Facts there marked "tb470" (NIC names,
+   boot server, `/nfsHome`, its return path) apply only when `box: tb470`.
 2. `STANDING-ORDERS.md` (repo root) — the standing answers: device-state authority, the
    log-NAME-is-the-verdict rule, the triage report shape, what stays the Test Engineer's. The
    session constraints may tighten it, never loosen what it marks **always**.

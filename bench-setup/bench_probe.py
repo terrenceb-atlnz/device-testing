@@ -25,7 +25,7 @@ It sees what is actually THERE and nothing else. Four steps, one script:
     bench_probe.py precheck [--consoles 2-5]                 # 0, ON the box: is anything in the way?
 
 Every subcommand takes `--box tbNNN` first (default: $BENCH_BOX, else this host's name when
-it is tbNNN, else tb470). tb470 keeps its flat files in bench-setup/ (bench-state.md,
+it is tbNNN, else tb470 ONLY on the dev host terrenceb-dl; anywhere else --box is required). tb470 keeps its flat files in bench-setup/ (bench-state.md,
 tb470.static, tb470.setup.current, captures/, backups/); any other box gets the same set
 under bench-setup/<box>/. The deployed template is /home/st-art/st-art/configs/<box>.setup.
 
@@ -83,12 +83,23 @@ REMOTE = "/home/st-art/st-art/configs/tb470.setup"
 USER = {"pdu": None, "outlets": {}, "names": {}}       # session facts (--pdu/--outlet/--name)
 
 
+LEGACY_HOST = "terrenceb-dl"   # the only dev host where tb470 is the default (2026-10-01)
+
+
 def default_box():
+    """--box when not given: $BENCH_BOX, else this host's name when it IS a testbox (tbNNN),
+    else tb470 ONLY on the legacy dev host. Anywhere else there is no default: a session on
+    another user's host must name its box rather than silently read tb470's files."""
     env = os.environ.get("BENCH_BOX")
     if env:
         return env
     host = os.uname().nodename
-    return host if re.match(r"^tb\d+$", host) else "tb470"
+    if re.match(r"^tb\d+$", host):
+        return host
+    if host.lower() == LEGACY_HOST:
+        return "tb470"
+    sys.exit("no testbox: pass --box tbNNN (or set BENCH_BOX). There is no default on {}; "
+             "tb470 is the default only on {}.".format(host, LEGACY_HOST))
 
 
 def set_box(box):
@@ -1752,7 +1763,7 @@ def default_template():
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--box", default=None, help="testbox name, e.g. tb470 (default: $BENCH_BOX, "
-                    "else this host's name when it is tbNNN, else tb470)")
+                    "else this host's name when it is tbNNN, else tb470 only on terrenceb-dl)")
     sub = ap.add_subparsers(dest="cmd")
     s = sub.add_parser("precheck")
     s.add_argument("--consoles", default="0-6", help="range/list of /dev/uN this session uses")

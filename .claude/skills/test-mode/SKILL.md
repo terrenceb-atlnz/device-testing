@@ -46,8 +46,9 @@ away.
    anything it answers.
 2. **Ask the setup questions in ONE AskUserQuestion call**, before touching any box. Each is
    free text through "Other"; offer the obvious options:
-   - **Testbox:** which box (`tbNNN`)? Offer the box from the previous queue file, if there is
-     one, plus "Other".
+   - **Testbox:** which box (`tbNNN`)? Offer the box `/orient-dt` §0b finds, if any: the last
+     test bench run this Test Engineer recorded, or tb470 on terrenceb-dl. Always also offer
+     "Other". Never preselect tb470 for another user or host.
    - **U interfaces:** which `/dev/uN` consoles does this session use, and which device is on
      each, if known (for example `u2,u4,u5 = stack; u3 = DUT2`)? Only these consoles are ever
      probed or opened. Every other console on the box belongs to someone else.
@@ -75,10 +76,10 @@ away.
      start `claude`, then re-run `/test-mode` with the same arguments. End this invocation with
      nothing armed.
 4. **Read for the box, not from memory.**
-   - tb470: `/orient-dt` §0–§4 and §10 apply as written.
-   - Any other box: §2–§4 (platform, driver and framework traps) apply to its products. §1's
-     tb470 specifics (NIC names, the boot-server role, `/nfsHome`) do not; ask the Test Engineer
-     rather than assume them.
+   - `/orient-dt` §0–§4 and §10 apply to any box. Its §2–§4 traps are per product.
+   - The facts marked "tb470" in it (NIC names, the boot-server role, `/nfsHome`, the
+     `10.38.215.0/24` return path) apply only there. On another box, ask the Test Engineer rather
+     than assume them.
    - Read `TESTBOX-ACCESS.md` before the first ssh.
 
 ## 2. The session directory and the queue file — the resume point
@@ -102,8 +103,10 @@ live under `IE520/<group>-<date>/` (all tb470) and stay there.
   reload-heavy ones.
 - **The queue file**: copy the layout of the newest existing one, not its rows.
   - The header names the ask verbatim and says "**This file is the resume point**".
-  - A **`## Session facts`** block holds the Test Engineer's §1 answers word for word, dated:
-    testbox, U interfaces, PDU, constraints.
+  - A **`## Session facts`** block holds the Test Engineer's §1 answers word for word, dated. Its
+    first line is `Test Engineer: <whoami>@<hostname>`, then `Testbox:`, `Consoles:`, `PDU:` and
+    `Constraints:`. This is the layout `/orient-dt` §0b and `/wrap-dt` read to find "the last test
+    bench run".
   - The rules block cites STANDING-ORDERS §2 for log names.
   - A `## Queue` table has one row per group: `# | case(s) | group dir | state | note`.
   - A `## Issues` list.
@@ -283,9 +286,9 @@ When every group is DONE or BLOCKED:
    outcome (from the file name), log path, commit.
 2. List the BLOCKED rows, with the exact change each still needs.
 3. Run `/wrap-dt`. Its §1 stands the sentinel down (Monitor, cron, stray sweep).
-   - On tb470 it runs as written.
-   - On any other box, read its tb470-specific steps against `<TB>`'s bench-state and the
-     session facts, and write the handover as `<TB>/<FAMILY>/SESSION-HANDOVER-<YYYY-MM-DD>.md`.
+   - `/wrap-dt` §0 picks this session's bench and consoles from the queue's Session facts.
+   - The handover goes to `<TB>/<FAMILY>/SESSION-HANDOVER-<YYYY-MM-DD>.md`, with the same Session
+     facts block.
    - On a shared box, confirm the tester logged out of every console it opened.
 
 ## 9. `--resume`

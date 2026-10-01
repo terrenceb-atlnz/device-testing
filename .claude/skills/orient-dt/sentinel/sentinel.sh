@@ -25,7 +25,7 @@
 #   SCRATCH   the sentinel session's scratchpad dir
 #   UNTIL     hard stand-down, anything `date -d` reads  ("2026-09-22 16:00")
 #   MODE      starting mode when $SCRATCH/sentinel.mode is absent   (default normal)
-#   BOX       testbox (/test-mode passes the Test Engineer's; default tb470)
+#   BOX       testbox (/test-mode passes the Test Engineer's; default tb470 ONLY on terrenceb-dl)
 #   CLI_GLOB  CLI transcripts on BOX, space-separated globs: console.py transcripts + the
 #             framework's per-device console logs
 #             (default /tmp/*/console-*.log /home/st-art/pytest-create/*/*/swi_*.log /home/st-art/pytest-create/*/*/stk_*.log)
@@ -39,7 +39,10 @@ set -u
 : "${PEER_LOG:?}" "${SCRATCH:?}" "${UNTIL:?}"
 SELF=${SELF:-0}; PEER_PID=${PEER_PID:-}
 [ "$SELF" = 1 ] && PEER_PID=""          # one-session: no separate process to watch
-BOX=${BOX:-tb470}
+if [ -z "${BOX:-}" ]; then   # tb470 is the default ONLY on the legacy dev host (2026-10-01)
+  case "$(hostname)" in terrenceb-dl|TERRENCEB-DL) BOX=tb470 ;;
+    *) echo "sentinel: no BOX given and no default on $(hostname) -- pass BOX=tbNNN"; exit 2 ;; esac
+fi
 RUNS=/home/st-art/pytest-create/*/*          # bench-runner's WORK dirs (TESTBOX-ACCESS.md §3)
 CLI_GLOB=${CLI_GLOB:-/tmp/*/console-*.log $RUNS/swi_*.log $RUNS/stk_*.log}
 FW_GLOB=${FW_GLOB:-/home/st-art/pytest-create/*/*/*.log}
