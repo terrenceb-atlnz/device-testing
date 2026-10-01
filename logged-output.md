@@ -139,7 +139,14 @@ RESULT <id> <VERDICT> -- <one-line reason> -- <group>-<STAMP>/<id>/work/run<N>.l
 ### The results list
 
 The sentinel keeps the **results list**, the `## Results` table in the campaign's queue file:
-one row per case with the case, title, verdict, reason, working log and graded-by. The
+one row per case:
+
+| case | title | group | verdict | reason | working log | graded |
+| --- | --- | --- | --- | --- | --- | --- |
+| T<id> | <title> | <group>-<STAMP> | <VERDICT> | <one line> | <id>/work/run<N>.log | tester |
+
+NOT TESTED rows carry the reason and no working log. `graded` is `tester`, or `Test Engineer,
+re-graded from <VERDICT> on <date>`. The
 sentinel updates it on every `RESULT` line and reports progress to the Test Engineer as the
 campaign goes on.
 

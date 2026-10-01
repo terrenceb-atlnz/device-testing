@@ -58,3 +58,4 @@
 - [Framework post-failure restart is accepted](no-power-cycle-between-testcases.md) — Terrence 2026-09-29: don't engineer around the PDU restart after a FAILED case; DO stop a run that fails systematically, and never adjust bench setup between cases
 - [Terrence's ART pipeline is the consumer](terrence-art-pipeline-is-the-consumer.md) — his own st-art tests run on tb470 from our method; `stk_a_<test>_<run>` hostname + `[SCRIPT]` log lines = his run, not drift
 - [IE520 is Marvell — CPU queues](ie520-is-marvell-cpu-queues.md) — "tomahawk" is a codename, the counters are Marvell `sdmaRegs.rxDmaPcktCnt[N]`: copy-to-cpu = queue 0, send-to-cpu = queue 6; exactly ONE packet on the wire; one rule per flow
+- [Product dirs archive to old test runs/](product-dirs-archive-to-old-test-runs.md) — IE520/ moves into "old test runs/" when its testing ends and a new product dir replaces it; never tidy "old test runs/"; nothing shared may depend on IE520/ paths
