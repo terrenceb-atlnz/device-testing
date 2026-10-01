@@ -1,4 +1,4 @@
-# Session handover — 2026-10-02 (wrapped ~09:00 NZDT; shareable-repo session re-wrapped ~10:30)
+# Session handover — 2026-10-02 (wrapped ~09:00 NZDT; re-wrapped ~10:30 NZDT)
 
 ## Session facts
 Test Engineer: terrenceb@terrenceb-dl
@@ -153,6 +153,48 @@ By hand: a bare `0` in a submenu, a bare `9` on the main menu, `0` + Enter in a 
   `tb470-topology-and-setup`, `ie520-silent-reboot-watch-2026-09-02`
 
 ---
+
+
+## Re-wrap ~10:30 NZDT — READ THIS FIRST: the stack is SPLIT on the old build
+
+**State read at 10:25–10:26 NZDT (read-only, this session):**
+
+| console | unit (MAC) | stack ID / role | build | boot image |
+| --- | --- | --- | --- | --- |
+| u2 | 84e3.2787.0ac0 (was member 1) | ID 1, Active Master, **Standalone unit** | `tomahawk_ie520-20260825-42` | `coro-IE520-tb470.rel` |
+| u5 | 84e3.2787.0740 (was member 3, master) | ID 1, Active Master, **Standalone unit** | `tomahawk_ie520-20260825-42` | `coro-IE520-tb470.rel` (file exists) |
+| u4 | 84e3.2787.09c0 (was member 4) | ID 1, Active Master, **Standalone unit** | `tomahawk_ie520-20260825-42` | `coro-IE520-tb470.rel` |
+| u3 | IE520-sa | standalone, unchanged | `awplus_main-20260923-20` | `flash:/IE520-tb470.rel` (file exists) |
+
+- **Three masters, one virtual MAC:** all three former members read the same
+  `0000.cd37.0d6f`, and each lists only ID 1 plus a `Provisioned` ID 2. They boot the same
+  config, so the stack's addresses (e.g. interface vlan10) may now be live on three units at
+  once. Observed, not tested.
+- **Who reloaded:** reboot history on all three reads "Expected User Request" at 21:07:16 and
+  21:22:12 UTC (10:07 and 10:22 NZDT). **This session sent no reload.** A `minicom --wrap -D
+  /dev/u2` (terrenceb) was running from ~10:00 and had gone by 10:25. This is the Test Engineer's
+  rollback test ("verify a fault has been repaired").
+- **Cause of the split: inferred, not established.** It is consistent with the pre-`20260913`
+  limit of member IDs 1–2 (memory `ie520-4stack-flashprep`): each unit came up as ID 1.
+- The "Unexpected System reboot" entries 18:15–19:40 UTC on 2026-10-01 (07:15–08:40 NZDT
+  2026-10-02) are T24032's framework power cycles.
+- **Final probe SKIPPED at this wrap.** The bench is mid-test by the Test Engineer, and a probe
+  opens every console and switches LLDP on where it is off. bench-state.md is still the 08:53 MATCH
+  (`2026-10-01T195349Z`), which describes the stack **before** the rollback. Do not `apply`
+  from the split bench.
+- **To restore the stack on the current build** (Test Engineer's call): on each unit
+  `boot system flash:/IE520-tb470.rel` (that file is still in every unit's flash), then reload
+  all three. Check that `show stack` lists IDs 1/3/4 Ready, then re-probe → MATCH.
+
+**Also since the first wrap (commits 616b828, 6617d6c, 18423ec, all pushed by the Test Engineer):**
+- The rollback image was staged (below).
+- `terminal (no) monitor` was measured on u3. It is exec-only and **does not toggle**. Every
+  `tools/` console driver now goes through `console.py` `monitor_off()`, which sends `end` first
+  and sends nothing to a busy console. The tester's and wrap-dt's order is now `end` first (memory
+  `terminal-monitor-exec-only`). u3 was left at exec with monitor off.
+- No process of this session is running on tb470; precheck CLEAR on u0–u5 at 10:25. Scratch is
+  `/tmp/ckflash/` on tb470 (tmpfs).
+- Superseded below: the side-mission line "nothing has been reloaded yet" was true at 09:55.
 
 ## Side mission ~09:30–09:55 NZDT — rollback image staged on the stack. READ THIS FIRST
 
