@@ -7,6 +7,42 @@ Consoles: u0,u1,u2,u3,u4,u5 (u6 absent)
 PDU: 10.36.150.14; outlets per bench-setup/tb470.static
 Constraints: none
 
+
+## Side mission ~09:30–09:55 NZDT — rollback image staged on the stack. READ THIS FIRST
+
+**The stack's boot pointer now names an OLD build.** The next stack reload boots
+`tomahawk_ie520-20260825-42`. That is intentional (Test Engineer: "we are rolling the stack back
+to an old build to verify a fault has been repaired"), and nothing has been reloaded yet.
+
+- Source: tb470 `/tftproot/IE520-tb470.rel`, dropped there 09:24, 41,104,007 bytes, sha256
+  `09bbe149…f0c5` (matches its `.sha256sum`); `.info` = `IE520-tomahawk_ie520-20260825-42.rel`.
+- Staged as **`flash:/coro-IE520-tb470.rel`** (the Test Engineer's name), because AW+ refuses to
+  overwrite the current boot image. It is on members 1, 3 and 4, each 41,104,007 bytes.
+- How it got there:
+  1. `tools/tftp_copy.py` onto the master (member 3, u5) from `10.38.215.1`: 265 s.
+  2. A push from the master to member 1 (`copy flash:/… IE520-stk-1/flash:/…`) **failed** as on
+     09-14 and 09-23: `nfs: server 192.168.255.1 not responding` → `% Input/Output error due to
+     external media removal`. No partial file was left.
+  3. **`boot system flash:/coro-IE520-tb470.rel` on the master synced it to both members in about
+     5 min**: "File synchronization with stack member 4 / 1 successfully completed", on the
+     console only.
+- `show boot` on the master: `Current boot image : flash:/coro-IE520-tb470.rel (file exists)`.
+  `Current software` is still `IE520-tb470.rel` (`awplus_main-20260923-20`), which also stays in
+  flash on every member.
+- **cmsg check (Test Engineer's ask): none.** The stack log has no hits for `cmsg|CMSG|Cmsg`. The
+  master's console during the sync, and the consoles of members 1 and 4, printed none either
+  (passive `listen.py` on u2/u4/u5 from 09:49:24). The only error logged is
+  `Command [terminal no monitor] failed`, a line queued during the sync that ran in config mode.
+  The console was then returned to exec with `end`.
+- Stack after: 1/3/4 Ready, member 3 master. The SA links (port1.0.13, port4.0.9, port4.0.26,
+  `sa3`) read down at 09:36–09:37, during a reload of the SA (u3) by someone else's
+  `ckreload.py`, PID 393877, which this session left alone. All four read running at 09:55.
+- **Before reloading onto the old build:** builds before `awplus_main-20260913-1734` limited the
+  stack to member IDs 1–2 (memory `ie520-4stack-flashprep`). This stack is IDs 1/3/4, so check
+  that members 3 and 4 rejoin. To go back: `boot system flash:/IE520-tb470.rel`.
+- The bench template is unaffected (`[boot_from_flash]`). bench-state.md's "boot image" column
+  will read `coro-IE520-tb470.rel` at the next probe; that is this change, not drift.
+
 As recorded in `CAMPAIGN-QUEUE-2026-09-29.md` → Session facts (the 2026-10-02 resume: "cable
 re-seated", stand down when row 6 is done).
 

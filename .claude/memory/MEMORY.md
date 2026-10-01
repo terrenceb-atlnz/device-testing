@@ -24,7 +24,7 @@
 - [IE520 silent-reboot watch 2026-09-02](ie520-silent-reboot-watch-2026-09-02.md) — DEFERRED to a weekend run; caught member 1's silent reboot; 3 harness defects to fix first; only console.py survives
 - [IE520 DoS test method](ie520-dos-test-method.md) — AWPTCM DoS suite on tb470: attacks must TRANSIT the switch; batch sendp (fastdos.py); disarm `no dos <type>`; method in DOS-METHOD.md
 - [Prefer a pragmatic fix over infra debugging](prefer-pragmatic-fix-over-infra-debugging.md) — when incidental infra breaks mid-task, take the deterministic fix (static IP, skip); don't rabbit-hole
-- [IE520 4-stack flash-prep](ie520-4stack-flashprep.md) — REVERSED 2026-09-14: the 2-member cap was an OLD-build limit. FLASHING MEMBERS: a large push master→member FAILS (NFS timeout, re-hit 2026-09-23) — make each member master in turn + local TFTP
+- [IE520 4-stack flash-prep](ie520-4stack-flashprep.md) — 2-member cap was an OLD-build limit. FLASHING MEMBERS: a large `copy` push master→member FAILS (NFS timeout); TFTP to the master + `boot system` there syncs to all (~5 min, 2026-10-02)
 - [IE520 mcast/L3 test method](ie520-mcast-l3-test-method.md) — IGMP/MLD-snooping + directed-broadcast on tb470 with ONE host NIC: u4=querier, u5 ping=source, host scapy=receiver; gotchas inside
 - [AW+ service-gated routing daemons](awplus-service-gated-routing-daemons.md) — "daemon is not running" = run `service ospf|rip|vrrp|pim|pdm|pim6|bfd` first; `no service X` lingers until reload; `show bfd peer`
 - [Claude cannot push — Terrence pushes](claude-cannot-push-terrence-pushes.md) — company permissions deny `git push` every time (and any overwrite)

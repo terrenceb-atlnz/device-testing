@@ -32,6 +32,13 @@ flash while that member is the MASTER (local TFTP).** Every non-master path is a
 - Local TFTP on the master works (that is how the master got `IE520-awplus_main-20260913-1734.rel`).
   ⇒ To flash members, make each the master in turn (priority + reload) and TFTP locally; TFTP from
   `10.38.215.1` works from any master (data crosses the fabric as normal forwarding).
+- **BETTER, MEASURED 2026-10-02 (build `awplus_main-20260923-20`, 3-member stack 1/3/4):** TFTP the
+  image to the MASTER only, then `boot system flash:/<file>` there. The stack's own file sync
+  copies it to every member ("File synchronization with stack member N successfully completed",
+  console only, not in the log) in **~5 min for 41 MB, with no reloads and no NFS stall**. A
+  plain `copy` push of the same file to member 1 had failed with the NFS timeout ten minutes earlier.
+  The cost is that the boot pointer changes, so the next reload boots it. To stage without
+  booting it, set the pointer back afterwards; the files stay.
 
 Other durable facts (unchanged):
 - Cross-member path syntax for small files is `awplus-N/flash:<file>` (**no slash** after `flash:`).
