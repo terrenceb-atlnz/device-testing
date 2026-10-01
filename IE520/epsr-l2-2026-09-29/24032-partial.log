@@ -1,0 +1,131 @@
+TEST T24032 -- 5706 L2 platform test -- tb470 IE520 stack -- 2026-10-02 -- PARTIAL
+===========================================================================================
+
+VERDICT: PARTIAL. The suite was stopped after TestCase 80 on a SYSTEMATIC script/bench collision
+(STANDING-ORDERS §6), not on a DUT failure condition. 6 of 19 TestCases PASS (10, 20, 30, 40, 50, 80);
+TC60 and TC70 graded FAIL by the framework, for reasons that are NOT DUT faults (below); TC90-TC190
+(11 TestCases: QinQ, ingress filtering x2, trunking over aggregator, thrash-limiting x4,
+loop-protection x3) NOT RUN.
+Run label: confounded -- by the suite's own use of VLAN 10, which is the bench's standing VLAN
+("vlan 10 name data", sa1 -> AR4050S, interface vlan10).
+
+TO UNBLOCK (one decision, no recable; asked as NEEDS TEST ENGINEER 07:2x via the sentinel):
+  remap the suite's test VLAN 10 to an unused VID (proposed 3910; VLAN 20 is free and stays) in the
+  STAGED copy, then re-run only TC70 and TC90-TC190 (`--include-test-cases 70 90 100 110 120 130 140
+  150 160 170 180 190`). The TC120 sa4/sa5 patch stays. TC60 additionally needs the 80-column wrap
+  handled (see TC60) -- or is graded on the evidence below.
+
+Case text (ck.db AWPTCM-T24032, folder /VLAN/Project:2256 Using VLAN stacking and VLAN translation on
+the same port): 1 step -- "Run the 5706 automated test" / expected "All tests pass".
+CORRECTION of the 2026-09-22 log (was SKIPPED, "case-scope mismatch: a 5706 platform"): 5706 is a
+FRAMEWORK SUITE NUMBER, not a product. The suite is
+  claude/raw-data/test_scripts/5706_Platform_L2/test-5706.1001.py (+ library_5706.py)
+(ck.db scripts id legacy/5706_Platform_L2/test-5706.1001.py, "Static MAC - not overwritten by dynamic"
+... 19 TestCases), and it runs against stk_a.
+
+## Session facts (Test Engineer, 2026-10-02, verbatim in the queue)
+box tb470; consoles u0,u1,u2,u3,u4,u5 (u6 absent); PDU 10.36.150.14, outlets per bench-setup/tb470.static
+(swi_a 6, swi_b 8, swi_c 5, swi_d 4, swi_e 7, swi_f 1); names none given; constraints None (normal probe).
+Operator: bench-runner subagent, sentinel = parent session device-testing-67 (one-session /test-mode).
+Test Engineer's relayed answers: "Proceed with both (Recommended)"; TC120: "Use sa4/sa5 (Recommended)".
+
+## Pre-run gate
+- precheck (no console opened) u0-u5: CLEAR, exit 0 (06:19 and again 06:35).
+- probe 2026-10-01T171936Z (triage) and 2026-10-01T173500Z (pre-run, 06:35 NZDT): MATCH, exit 0,
+  Advisories none. The re-seated sa2 leg (stack port1.0.2 <-> x230 port1.0.3) is back (LLDP both ends).
+  Pre-run running-configs + show boot: pre-test-configs/2026-10-02-24032/ (u0 x230, u1 4050, u2 stack, u3 SA).
+- Boot configs: all four devices flash:/tb470-bench.cfg (file exists).
+- /nfsHome mounted; template /home/st-art/st-art/configs/tb470.setup present; PDU 10.36.150.14 pings.
+- pt_exec FRAMEWORK_RUN_FLAGS = ("--noupdate", "--nodefaultcfg") -- launched by hand anyway.
+- Preflight: pt_preflight.py reports "UN-RUNNABLE (0/4 links)" -- a FALSE NEGATIVE: it cannot resolve
+  `self.dut`-attribute bindings (same result with tabs normalised). Resolved by hand from
+  framework Setup.py: init_portlink(stk_a, tb) expands the stack's members; only swi_c has tb links,
+  so portA/ethA = port3.0.10/eth1 and portB/ethB = port3.0.9/eth3 (confirmed in the run:
+  "tb via : port3.0.10-eth1, port3.0.9-eth3"). init_swi('swi_a') returns the stack's member object
+  (no double open of /dev/u2).
+- Defaulting CLI: TestSet configure() sends only `no spanning-tree rstp enable` (already in the
+  running config). Read-only check on u5: `show platform table macaddr` prints
+  "6072  00f0.4d00.7716  1  port3.0.10 ... dyn 0", matching the suite's mac_hw_check pattern.
+
+## The staged copy (Test Engineer's TC120 answer) -- evidence/24032-tc120-sa4-sa5.diff, evidence/24032-md5.txt
+WORK = tb470:/home/st-art/pytest-create/24032/run-2026-10-02T0635 (framework logs stay there)
+  2ba740d6ae4fc5dbed864be77e4fdb92  test-5706.1001.py.orig  (raw-data original)
+  6742858601749dd86da752e335e8f4d6  test-5706.1001.py       (staged; md5 re-checked on the box)
+  a70c3837c249cb81f1cbe1f8e5d7ffd7  library_5706.py         (unchanged)
+  632,633c632,633  static-channel-group 1 / interface sa1  ->  static-channel-group 4 / interface sa4
+  637,638c637,638  static-channel-group 2 / interface sa2  ->  static-channel-group 5 / interface sa5
+Nothing else changed. (TC120 itself was never reached.)
+
+## Run
+  cd $WORK && setsid nohup sudo -n PYTHONPATH=/home/st-art python3 $WORK/test-5706.1001.py \
+      -s /home/st-art/st-art/configs/tb470.setup -v --noupdate --nodefaultcfg > run.log 2>&1 &
+started 06:35:57 NZDT, PID 375808 (sudo 375807); stopped by SIGINT (sudo kill -INT 375808) at 07:22:31,
+exited 07:22:36 "TESTSET FINISHED (rc = 3)". Framework log: $WORK/test-5706.1001.log
+(copy: evidence/24032-framework-test-5706.1001.log, NULs/CRs stripped; read with grep -a).
+Bound devices: stk_a (swi_a u2, swi_c u5, swi_d u4), swi_b (u3), tb (eth1, eth3).
+
+!! FRAMEWORK BEHAVIOUR NEW TO THIS BENCH: "======== Power down all devices that have not been
+initialized" (06:36:00) switched OFF PDU outlets 1 (x230, swi_f) and 7 (AR4050S, swi_e) for the whole
+run, because this legacy suite initialises only stk_a/swi_a/swi_b (generated scripts call
+init_all_devices, so they never hit it). Restored after the run (below). The sentinel was told at 06:3x.
+The post-failure power cycles hit only the bound units (stk_a, swi_b).
+
+## Per-TestCase results (framework "<<" lines, then what they rest on)
+| TC | desc | framework | what was measured |
+| 10 | Static MAC not overwritten by dynamic | PASS 13/0 | static 2222.2222.2222 on port3.0.10 in SW + HW table; broadcast from eth3 did not move it |
+| 20 | Static MAC replaces dynamic | PASS 13/0 | dynamic on 3.0.10 (SW+HW 'dyn'), static on 3.0.9 replaced it (SW+HW 'sta') |
+| 30 | Dynamic MAC default ageing | PASS 12/0 | aged out of SW+HW within 393 s |
+| 40 | Dynamic MAC custom ageing (60 s) | PASS 12/0 | aged out within 106 s |
+| 50 | Dynamic MAC clear | PASS 14/0 | `clear mac address-table dynamic` removed dynamic, static 4444.4444.4444 kept |
+| 60 | Dynamic MAC logging | FAIL 9/2 | HARNESS ARTEFACT, DUT behaved: see TC60 |
+| 70 | Native VLAN forward | FAIL 9/1 | the case's own check PASSED ("Untagged frames ingressing on a trunk with native VLAN were correctly switched", 07:17:12); FAIL = framework config compare: tear_down `no vlan 10` deleted the BENCH's VLAN 10 |
+| 80 | Native VLAN discard | PASS 10/0 | untagged frames on a `native vlan none` trunk discarded |
+| 90-190 | | NOT RUN | stopped |
+
+TC60 -- why it is not a DUT failure. The DUT logged BOTH events; the suite's single-line match
+(cmd_output_line_check needs 'add'/'age-out', the MAC and 'port3.0.10' on ONE line) cannot see them
+because the framework console wraps `show log` at 80 columns. Raw console (swi_a log,
+evidence/24032-tc60-show-log-wrapped-lines.txt):
+  2026 Oct 01 17:52:11 user.notice IE520-stk EXFX[710]: MAC add 2222.2222.2222 por
+  t3.0.10 vlan1
+  2026 Oct 01 17:58:53 user.notice IE520-stk EXFX[710]: MAC age-out 2222.2222.2222
+   port3.0.10 vlan1
+  -> "!!FAIL: MAC add was not logged" (06:51:41), "!!FAIL: MAC remove/age-out was not logged" (07:11:21).
+
+TC70 -- the config-compare diff (framework log 07:17:32), TestCase_tear_down.cfg vs stk_a_5706_1001.cfg:
+  vlan database:  missing "vlan 10 name data", "vlan 10,4000 state enable"
+  port3.0.2 / port4.0.2 (sa1 members, to the 4050): missing "switchport access vlan 10"
+Every remaining VLAN-10 TestCase (90, 100, 110, 120, 150-190) has the same `no vlan 10` tear_down, so
+each would FAIL the compare and pay a full power cycle. Two framework power cycles had already been paid
+(07:12:43-07:13:10 after TC60, 07:17:37-07:17:57 after TC70). Stopped at the next case boundary (TC90's
+pre-run), after TC80 had completed.
+
+Known script defect, not reached: TC130 sends `thrash-limiting timeout 1` in GLOBAL config; the AW+
+wiki (x230) gives Interface Configuration only -> expect a `%` line there.
+
+## Restore (within the test) and after-run checks
+- Console states found after the kill: u2 `IE520-stk#`, u4 `IE520-stk-4 login:`, u5 `IE520-stk login:`,
+  u3 `IE520-sa(config)#` (left by the killed run) -> `end`, exec.
+- SIGINT landed after TC90's configure: port3.0.10 had `switchport mode trunk`, `trunk allowed vlan add 10`,
+  `vlan-stacking provider-port`; port3.0.9 `access vlan 10`, `vlan-stacking customer-edge-port`.
+  Undone on u5 (TC90's own tear_down minus `no vlan 10`): port3.0.10 `no switchport vlan-stacking`,
+  `switchport mode access`; port3.0.9 `no switchport vlan-stacking`, `no switchport access vlan`.
+  `show vlan 10` -> 10 data STATIC ACTIVE sa1(u) port3.0.2(u) port4.0.2(u).
+- Boot config: stack `boot config-file flash:/tb470-bench.cfg` ("File synchronization with stack member
+  1/4 successfully completed"), SA the same. show boot: Current boot config flash:/tb470-bench.cfg
+  (file exists) on both.
+- Deleted (delete force): stack master flash stk_a_5706_1001{,_10.._90}.cfg + TestCase_tear_down.cfg;
+  IE520-stk-1/ and IE520-stk-4/ flash stk_a_5706_1001{,_10.._80}.cfg (dir afterwards: "No such file");
+  SA flash swi_b_5706_1001{,_10.._90}.cfg + TestCase_tear_down.cfg.
+  NOT this run's, left in place: IE520-stk-1/ and -4/ flash still hold stk_a_9001_33235*.cfg (34) and
+  stk_a_9001_33234*.cfg (3) from the 2026-09-28..30 runs (only the master's copies were deleted then).
+- PDU: outlets 1 and 7 switched ON 07:23:4x with the framework's own HTTP calls (status.xml / ons.cgi,
+  default creds; PduPower() itself hit the known OSError(40) on its log file in /tmp). Status first read
+  "11111121" (outlet 7 = '2', the known transitional state), then "11111111".
+- Loop-protection baseline: never touched (TC170+ not run); running-config still has
+  `loop-protection loop-detect ldf-interval 1 fast-block`.
+- Probe 2026-10-01T182729Z (07:27): MATCH. Final probe 2026-10-01T182835Z (07:28): MATCH, Advisories none.
+- running-config diff vs pre-test-configs/2026-10-02-24032/: u0, u1, u2, u3 IDENTICAL
+  (post-test-configs/2026-10-02-24032/). Boot configs: all four flash:/tb470-bench.cfg.
+- Nothing left running: PID 375808/375807 gone; no tcpdump/sender started by this case.
+- Run exit code: rc = 3 (SIGINT).
