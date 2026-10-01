@@ -17,7 +17,7 @@
 - [x230v2 5700 control corpus](x230v2-5700-control-corpus.md) — raw-data/test_scripts/5700_bootloader/ = a full x230v2 run = the control separating IE520 divergence from test rot; grep logs with -a
 - [IE520 SPIFlash goes dark](ie520-spiflash-goes-dark.md) — SPIFlash is incredibly slow (41 MB copy ≈ 12 min) and the unit answers NOTHING meanwhile — looks like a crash; wait it out
 - [IE520 TFTP boot needs a USB NIC](ie520-tftp-boot-needs-usb-nic.md) — no onboard mgmt eth; the .setup's eth0 is an ASIX USB dongle seen only by the bootloader; link is up only DURING BOOT
-- [IE520 bootloader console driving](ie520-bootloader-console-driving.md) — POINTER only: mechanics live in orient-dt skill §3; the worked example of a bench fact copied into a mechanics memory
+- [IE520 bootloader console driving](ie520-bootloader-console-driving.md) — POINTER only: mechanics live in platforms/IE520.md §2 (state-driven escape: main-menu 0 = Restart, 9 in Select device SAVES); the worked example of a bench fact copied into a mechanics memory
 - [tb470 IE520s flash-boot — reboots OK](tb470-ie520-flash-boot-reboots-ok.md) — 2026-09-11: all IE520s default-boot from flash .rel so `reload` is safe
 - [Run attribution: 5700 campaign](run-attribution-5700-campaign.md) — only the 2026-08-07/08 run is bidhanc's; everything from 2026-08-10 is OURS; TestCases belong to the suite
 - [i2c stress tooling](i2c-stress-tooling.md) — tools/i2c_stress.py + i2c_stress_fw.py (moved 2026-10-02) = validated IE520 i2c stress scripts; smoke-clean tb470 2026-08-26; the full 300 run not yet fired

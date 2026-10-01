@@ -157,7 +157,7 @@ prints an EVENT epoch, then records the console passively for `listen_s`.
 - **Where:** testbox; **needs:** pyserial
 - **Imports:** console, awlogin
 - **Limits:** it only answers a `(y/n)` prompt, and exits 4 if none appears
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified on tb470 u3, 2026-10-02 (`reload`: `y` sent, login banner after 187 s, running-config unchanged)
 
 ### `ckreload.py`
 From a console already at `#`, it sends `reload`. It answers `y` only to the reboot question and
@@ -168,7 +168,7 @@ From a console already at `#`, it sends `reload`. It answers `y` only to the reb
 - **Limits:**
   - It does not log in; log in first, for example with `ckcon.py`.
   - The 720 s default boot wait was measured on IE520; other products may need another value.
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified on tb470 u3, 2026-10-02 (reboot question only, `y`; login after 189 s; running-config unchanged)
 
 ### `flash_copy.py`
 Copies a file from any AW+ path into flash, then checks with `dir` that it landed at the right
@@ -199,15 +199,26 @@ that it landed.
 - **Status:** verified 2026-10-02 on tb470 IE520 stack master (u5), 41,104,007 bytes in 265 s, delta +0
 
 ### `bootmenu_escape.py`
-Backs a console out of the bootloader Boot Menu with `0` (cancel/back) and `9` (quit and continue
-booting). Nothing is saved.
-- **Run:** `bootmenu_escape.py <tty> [--baud 115200]`
-- **Where:** testbox; **needs:** pyserial
+Backs a console out of the bootloader Boot Menu and lets the unit boot. Nothing is saved. It reads
+which menu is on screen and sends only the key that backs out of it:
+- file list (`0 to cancel) and press Enter`): `0` + Enter;
+- submenu (`0. Return to previous menu`): bare `0`;
+- main menu (`9. Quit and continue booting`): bare `9`, then it waits for `login:`;
+- CLI or `login:` prompt: nothing;
+- anything else: nothing, exit 3.
+
+It never sends `0` on the main menu (Restart) and never `9` in a submenu (in `Select device`, 9
+SAVES the default boot source).
+- **Run:** `bootmenu_escape.py <tty> [--baud 115200] [--boot-wait 360]`. Exit 0 booted (or
+  already at a prompt), 3 unknown state, 4 no `login:` after `9`
+- **Where:** testbox; **needs:** pyserial, `stty`
 - **Imports:** none
-- **Limits:**
-  - The menu strings and option numbers are the IE520 Boot Menu's.
-  - **Check on hardware:** it sends each key with a trailing CR. orient-dt §3 says this menu takes bare keypresses and that a CR answers the next prompt.
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Limits:** the menu strings are the IE520 Boot Menu's; on another product read a bootloader
+  transcript first and confirm they match
+- **Status:** rewritten and verified on tb470 u3, 2026-10-02: parked in `Select device`, it sent
+  CR (re-prints the menu), `0`, `9`; booted to `login:` in 188 s; no `Saving settings`; `show
+  boot` and running-config unchanged. The version before it read `Enter selection ==>` as a CLI
+  prompt and sent `9\r` from any menu, which in `Select device` changes the boot source
 
 ## Product-specific stress
 

@@ -1,6 +1,6 @@
 ---
 name: ie520-bootloader-console-driving
-description: "POINTER — IE520 bootloader-menu driving mechanics live in the orient-dt skill §3 (stop ticking Ctrl+B once the menu appears; drive 0/0/9 out in an unconditional finally). This memory holds no facts, only the provenance and the reason it was emptied."
+description: "POINTER — IE520 bootloader-menu driving mechanics live in platforms/IE520.md §2 (stop ticking Ctrl+B once the menu appears; drive the menu out in an unconditional finally, with the key the current menu needs). This memory holds no facts, only the provenance and the reason it was emptied."
 metadata: 
   node_type: memory
   type: feedback
@@ -9,10 +9,10 @@ metadata:
   verified: 2026-09-02
 ---
 
-**The mechanics now live in `.claude/skills/orient-dt/SKILL.md` §3** — bootloader-menu
+**The mechanics now live in `platforms/IE520.md` §2** (moved from orient-dt §3, 2026-10-02) — bootloader-menu
 keypress conventions (menu options and Y/N take a *bare* keypress; only file selection takes
-Enter, and AW+ CLI `(y/n)` wants `y\r`), the `Ctrl+B` rule, and the unconditional `0`/`0`/`9`
-`finally:`. Read it there; do not restate it here.
+Enter, and AW+ CLI `(y/n)` wants `y\r`), the `Ctrl+B` rule, and the unconditional `finally:` (state-driven since 2026-10-02:
+main-menu `0` is Restart, and `9` in `Select device` saves the boot source). Read it there; do not restate it here.
 
 **Provenance, which is why this file still exists.** Terrence caught a script parked in the boot
 menu on tb470 `u5`, 2026-08-10, before I did — a scripted `Ctrl+B` tick that never stopped, so
