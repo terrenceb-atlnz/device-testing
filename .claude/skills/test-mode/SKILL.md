@@ -47,8 +47,8 @@ away.
 2. **Ask the setup questions in ONE AskUserQuestion call**, before touching any box. Each is
    free text through "Other"; offer the obvious options:
    - **Testbox:** which box (`tbNNN`)? Offer the box `/orient-dt` §0b finds, if any: the last
-     test bench run this Test Engineer recorded, or tb470 on terrenceb-dl. Always also offer
-     "Other". Never preselect tb470 for another user or host.
+     test bench run this Test Engineer recorded, or this host's `bench-setup/default-boxes`
+     line. Always also offer "Other". Never preselect a box §0b did not find.
    - **U interfaces:** which `/dev/uN` consoles does this session use, and which device is on
      each, if known (for example `u2,u4,u5 = stack; u3 = DUT2`)? Only these consoles are ever
      probed or opened. Every other console on the box belongs to someone else.

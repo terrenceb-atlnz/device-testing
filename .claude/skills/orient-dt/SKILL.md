@@ -1,6 +1,6 @@
 ---
 name: orient-dt
-description: Orient a device-testing bench session on ANY testbox — work out which bench this session is about (a box the Test Engineer names, else the last test bench run they recorded, else tb470 only on the dev host terrenceb-dl, else SKIPPED), run the no-console occupancy check and bench_probe.py on that box's consoles to regenerate its bench-state.md (the ONLY home for measured bench facts), load the platform/driver/framework traps that don't rot, then brief the user and wait. Use at the start of any session that will touch testbox hardware. Pairs with /wrap-dt.
+description: Orient a device-testing bench session on ANY testbox — work out which bench this session is about (a box the Test Engineer names, else the last test bench run they recorded, else this dev host's line in bench-setup/default-boxes, else SKIPPED), run the no-console occupancy check and bench_probe.py on that box's consoles to regenerate its bench-state.md (the ONLY home for measured bench facts), load the platform/driver/framework traps that don't rot, then brief the user and wait. Use at the start of any session that will touch testbox hardware. Pairs with /wrap-dt.
 ---
 
 # Orient — device-testing bench (any testbox)
@@ -15,8 +15,8 @@ only, with no prose (bench owner, 2026-09-25). This file holds what does not rot
 - driver and framework mechanics;
 - the traps that have each cost a session.
 
-**Which bench** is decided first (§0b). It is never assumed: tb470 is the default only on the
-dev host it has always been driven from. Then establish state from **reality**, load the facts
+**Which bench** is decided first (§0b). It is never assumed: a dev host has a default box only if
+it has a line in `bench-setup/default-boxes`. Then establish state from **reality**, load the facts
 that don't rot, brief the user and wait.
 
 **The Test Engineer** is whoever runs this session. Rulings quoted below with a date were given by
@@ -72,8 +72,8 @@ refers to these by NAME**; when something moves, fix this table and nothing else
   anywhere.
 - It takes about 15 s for six consoles, up to about 40 s when LLDP has to be switched on.
 - **No `--box` given:** `$BENCH_BOX`, else the host's own name when the host IS a testbox, else
-  tb470 **only on the dev host terrenceb-dl**. Anywhere else the probe exits and asks for
-  `--box`.
+  this host's line in `bench-setup/default-boxes`. With none, the probe exits and asks for
+  `--box`. `--consoles` takes `0-5`, `0,2,5` or `u0,u1,…`.
 - Memory: `bench-probe-one-tool`.
 
 ¹ Still in the Test-cases repo and **expected to move into this repo**. If a path is stale,
@@ -115,25 +115,31 @@ FIRST rule that gives an answer:
    ```bash
    me="$(whoami)@$(hostname)"
    command grep -l -F "Test Engineer: $me" */*/CAMPAIGN-QUEUE-*.md */*/SESSION-HANDOVER-*.md \
-     handovers/SESSION-HANDOVER-*.md 2>/dev/null | xargs -r ls -t | head -1
+     */CAMPAIGN-QUEUE-*.md */SESSION-HANDOVER-*.md handovers/SESSION-HANDOVER-*.md \
+     2>/dev/null | xargs -r ls -t | head -1
    ```
+   The one-level globs catch the legacy `IE520/` records, some of which had a Session facts
+   block added later (the 2026-09-29 queue did on 2026-10-02).
    That record gives the box, its consoles, its PDU facts and its constraints. Use them exactly
    as recorded. They are the Test Engineer's, and §1 probes with them.
-   - **Legacy, tb470:** records from before 2026-10-01 (`IE520/CAMPAIGN-QUEUE-*`,
-     `IE520/SESSION-HANDOVER-*`) carry no Session facts. They count for rule 2 only on
-     **terrenceb-dl**, as tb470 with the consoles in tb470's bench-state.md.
-3. **The legacy host default.** On **terrenceb-dl** only: tb470, with the consoles in tb470's
-   bench-state.md (`u0`–`u6`).
-4. **SKIPPED.** No box identified: this is a different user or host, with no record and no named
-   box. **Skip every bench step** (§1's checks and probe, §6–§7's live reads) and say
+   - **Legacy records with no Session facts** (tb470's from before 2026-10-01:
+     `IE520/CAMPAIGN-QUEUE-*`, `IE520/SESSION-HANDOVER-*`) name no Test Engineer. They count for
+     rule 2 only on a dev host whose `bench-setup/default-boxes` line names tb470, as tb470 with
+     the consoles in tb470's bench-state.md.
+3. **This dev host's default.** If `bench-setup/default-boxes` has a line for this host
+   (`<hostname> <tbNNN>`, case-insensitive), use that box with the consoles in its
+   bench-state.md. A Test Engineer adds their own host's line once; never another user's. (The
+   same file is `bench_probe.py`'s and `sentinel.sh`'s default.)
+4. **SKIPPED.** No box identified: no named box, no record and no `default-boxes` line for this
+   host. **Skip every bench step** (§1's checks and probe, §6–§7's live reads) and say
    `Bench: SKIPPED — no test bench identified yet` in the brief. Still load §2–§5 and the memories
-   (§8). Do not pick a box, and do not read or probe tb470 "to be helpful". When work needs a
+   (§8). Do not pick a box, and do not read or probe any box "to be helpful". When work needs a
    bench, the Test Engineer names one, or `/test-mode` asks for it with its PDU facts.
 
-A box from rule 1 or 3 has no recorded consoles or PDU facts for this Test Engineer. Before the
-probe, ask for them (consoles, PDU IP and outlets, constraints) as `/test-mode` §1 does. On
-terrenceb-dl and tb470, tb470.static already holds the PDU facts, so only the consoles need
-confirming.
+A box from rule 1 or 3 may have no recorded consoles or PDU facts for this Test Engineer. Before
+the probe, ask for whatever is missing (consoles, PDU IP and outlets, constraints) as
+`/test-mode` §1 does. Where the box's `<TB>.static` already holds the PDU facts, only the
+consoles need confirming.
 
 ---
 
@@ -681,7 +687,7 @@ Dense and skimmable, with clickable relative paths.
 - **(0) Bench** — first line, always one of:
   - `Bench: <TB> (named)`;
   - `Bench: <TB> (last test bench run: <record path>)`;
-  - `Bench: tb470 (terrenceb-dl default)`;
+  - `Bench: <TB> (this host's default, bench-setup/default-boxes)`;
   - `Bench: SKIPPED — no test bench identified yet`. With SKIPPED, (a) reads "skipped", and the
     rest of the brief covers only what does not need a bench.
 

@@ -1,36 +1,37 @@
 ---
-verified: 2026-09-23
+verified: 2026-10-02
 ---
-# Testbox Access & Script Execution (from this host)
+# Testbox Access & Script Execution (from a dev host)
 
-How to SSH to a lab testbox from this development host, drive a switch's CLI console, and
-run an ATTestSet framework test script on hardware. Grounded in what actually works from
-this machine (verified 2026-07-28) plus the mechanism the PyTest Creator uses
-(`ask-ck/CK-main/CK_server/pt_exec.py`).
+How to SSH to a lab testbox from your development host, drive a switch's CLI console, and run
+an ATTestSet framework test script on hardware. It is written for any Test Engineer and any
+testbox. Facts measured on one box (tb105, tb470) are labelled as examples. The mechanism is the
+one the PyTest Creator uses (`ask-ck/CK-main/CK_server/pt_exec.py`).
 
-> **Provenance markers below:** ✅ = verified from this host this session · 📄 = from a
-> prior session's record (`SESSION_STATE.md` 2026-07-28d) · 🔧 = documented from tool code,
-> not personally executed here (needs a testbox profile + `.setup`).
+> **Provenance markers below:** ✅ = verified on the named box/host on the date given · 📄 = from
+> a prior session's record (`SESSION_STATE.md` 2026-07-28d) · 🔧 = documented from tool code,
+> not executed (needs a testbox profile + `.setup`).
 
 ---
 
 > ## ⛔ This document is NOT the source of truth for bench connection information
 >
-> **For tb470 the source of truth is `~/claude/device-testing/bench-setup/bench-state.md`.**
-> What is cabled to what, which console fronts which device, stack membership, baud and boot
-> source are MEASURED into it by `bench-setup/bench_probe.py run` (on tb470; since 2026-09-25 the
-> one bench-state tool). It is generated, carries no prose, and always holds the latest run under
-> that name. A unit's `swi_` name and PDU outlet come from `bench-setup/tb470.static`
-> (hand-entered once).
+> **For a testbox `<TB>` the source of truth is its generated `bench-state.md`**:
+> `bench-setup/<TB>/bench-state.md` in this repo (tb470 keeps the flat legacy path
+> `bench-setup/bench-state.md`; orient-dt §0 has the table). What is cabled to what, which console
+> fronts which device, stack membership, baud and boot source are MEASURED into it by
+> `bench-setup/bench_probe.py --box <TB> run`, run ON the box (the one bench-state tool since
+> 2026-09-25). It is generated, carries no prose, and always holds the latest run. A unit's `swi_`
+> name and PDU outlet come from the box's `<TB>.static` (hand-entered once).
 >
-> `/home/st-art/st-art/configs/tb470.setup` is that file's ```setup fence, written to the box by
-> `bench_probe.py apply` (superseded versions are dated into `bench-setup/backups/`) —
+> `/home/st-art/st-art/configs/<TB>.setup` is that file's ```setup fence, written to the box by
+> `bench_probe.py apply` (superseded versions are dated into the box's `backups/`) —
 > `SETUP-FILE-REFERENCE.md` explains the format. **Do not hand-edit it on the box** and never
 > write a `.bak` beside it. `bench_probe.py run` diffs the bench against it: MATCH, MISMATCH or
 > NEEDS-CHECK.
 >
-> To read the bench without SSH, `bench-setup/tb470.setup.current` is an always-current local
-> copy on the NFS lab home — no need to `scp` it down.
+> To read the bench without SSH, the box's `<TB>.setup.current` is an always-current local copy
+> on the NFS lab home — no need to `scp` it down.
 >
 > This document covers **how to reach and drive a bench, and the traps in doing so** — the
 > methods, not the wiring. Any bench fact recorded here would be a second copy with no
@@ -50,47 +51,54 @@ this machine (verified 2026-07-28) plus the mechanism the PyTest Creator uses
 >
 > | Looking for | Read |
 > |---|---|
-> | what is cabled to what, PDU outlets, bench addressing, loopback plugs | `~/claude/device-testing/bench-setup/bench-state.md` |
-> | IE520 platform limits, framework traps, which console driver to use, bench hygiene | `.claude/skills/orient-dt/SKILL.md` ("orient" below) |
-> | tb470 host DHCP / routing / `tcpdump` / no-NAT | `TB470-HOST-NETWORKING.md` |
+> | what is cabled to what, PDU outlets, bench addressing, loopback plugs | the box's `bench-state.md` (above) |
+> | platform limits, framework traps, which console driver to use, bench hygiene | `.claude/skills/orient-dt/SKILL.md` ("orient" below) |
+> | reusable console drivers and traffic tools | `tools/README.md` |
+> | tb470's host DHCP / routing / `tcpdump` / no-NAT (tb470 only) | `TB470-HOST-NETWORKING.md` |
 > | de-stacking, split-stack diagnosis and recovery | orient §6 |
 >
-> **This file owns:** SSH auth from this host, which console is which unit, and how to launch a
+> **This file owns:** SSH auth from a dev host, which console is which unit, and how to launch a
 > run (framework or legacy). Nothing else. If you are about to add a bench fact or a product
 > fact here, it belongs in one of the files above.
 
 
-## TL;DR — reconnect to tb105 now
+## TL;DR — reach a testbox console
 
 ```bash
-SSH_AUTH_SOCK=/run/user/1971/keyring/ssh ssh tb105
-#   then, in the interactive shell on tb105:
-u5                       # = minicom --wrap -D /dev/u5  → the x950 stack console
+export SSH_AUTH_SOCK=/run/user/$(id -u)/keyring/ssh    # §0: only if your default agent is empty
+ssh -o BatchMode=yes tb<NNN> hostname                  # proves key auth, no prompt
+ssh tb<NNN>
+#   then, in the interactive shell on the box:
+u<N>                     # the lab alias for: minicom --wrap -D /dev/u<N>
 #   Ctrl-A then Q to leave minicom without resetting the port.
 ```
 
-For automation (minicom needs a TTY, so it can't be driven by one-shot SSH commands), drive
-the same serial port with **pyserial on tb105** — see §2.
+Before opening ANY console on a shared box, run the no-console occupancy check
+(`bench_probe.py --box <TB> precheck --consoles <list>`, orient-dt §1). For automation (minicom
+needs a TTY, so it can't be driven by one-shot SSH commands), drive the serial port with
+**pyserial on the box**, through `tools/console.py` and the drivers built on it — see §2.
 
 ---
 
-## 0. The one gotcha: SSH auth from this host ✅
+## 0. The one gotcha: SSH auth from your dev host ✅ (measured on one dev host, 2026-07-28)
 
-This host is a Mac-attached VS Code Remote-SSH session; `git`/`ssh` actually run on the
-Linux host, but the **default `SSH_AUTH_SOCK` points at the forwarded Mac agent, which is
-empty** — so a plain `ssh tb105` fails `Permission denied (publickey)`. The on-disk
-`~/.ssh/id_rsa` is passphrase-encrypted (useless non-interactively). The **working key lives
-in the Linux gnome-keyring agent**:
+If your dev host is reached through a remote editor (for example VS Code Remote-SSH from a Mac),
+`git`/`ssh` actually run on the Linux host, and the **default `SSH_AUTH_SOCK` may point at the
+forwarded agent of the machine in front of you, which can be empty**. A plain `ssh tb<NNN>` then
+fails `Permission denied (publickey)`, and a passphrase-encrypted `~/.ssh/id_rsa` is no use
+non-interactively. On the dev host this was measured on, the **working key lived in the Linux
+gnome-keyring agent**:
 
 ```bash
-export SSH_AUTH_SOCK="${XDG_RUNTIME_DIR:-/run/user/1971}/keyring/ssh"   # = /run/user/1971/keyring/ssh
-ssh-add -l        # → 2048 SHA256:ob3X… terrenceb@terrenceb-dl (RSA)
+export SSH_AUTH_SOCK="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/keyring/ssh"
+ssh-add -l        # must list your key; if it lists nothing, this is not your agent
 ```
 
-`~/.bashrc` exports this for **interactive** shells, so a normal terminal `ssh tb105` just
-works. **Non-interactive / tool shells must set `SSH_AUTH_SOCK` explicitly.** This is the same
-key that authenticates GitHub — for Terrence's own `git push`; Claude does not push from this
-seat (company-set permissions deny it), it commits and reports the hashes.
+If `~/.bashrc` exports this for **interactive** shells, a normal terminal `ssh tb<NNN>` just
+works — but **non-interactive / tool shells (and Claude's) must set `SSH_AUTH_SOCK`
+explicitly.** Your agent may hold the same key that authenticates GitHub; Claude still does not
+push from these seats (company-set permissions deny it): it commits and reports the hashes, and
+the Test Engineer pushes.
 
 ---
 
@@ -99,18 +107,21 @@ seat (company-set permissions deny it), it commits and reports the hashes.
 Testboxes resolve by short name on the lab DNS; the connection is direct (no jump host):
 
 ```bash
-SSH_AUTH_SOCK=/run/user/1971/keyring/ssh ssh tb105
+SSH_AUTH_SOCK=/run/user/$(id -u)/keyring/ssh ssh tb<NNN>
 ```
+
+`ssh -G tb<NNN>` shows the resolved host and login user without connecting. You log in as
+**your own user**; the lab home (`~`) is the shared NFS home, so this repo is at
+`~/claude/device-testing/` on the box too.
+
+Example, tb105 as surveyed 2026-07-28:
 
 | Fact (tb105) | Value |
 |---|---|
 | resolves to | `10.36.200.105`, port 22 (OPEN) ✅ |
-| login user | `terrenceb` (from `ssh -G tb105`) |
+| login user | the engineer's own user (from `ssh -G tb105`) |
 | the device it fronts | an **8-member x950 stack** 📄 |
 | mgmt path | tb105 `eth2` `10.37.105.100/25` ↔ stack `eth0` `10.37.105.6/25` (shared mgmt LAN, no data-plane link) 📄 |
-
-Generalises to any box: `SSH_AUTH_SOCK=$sock ssh tb<NNN>`. `ssh -G tb<NNN>` shows the
-resolved host/user without connecting.
 
 ---
 
@@ -210,30 +221,21 @@ watching one arbitrary member and waiting for it is a coin flip. Work out who wi
 
 **Interactive** 📄: `ssh tb105` → `u5` (minicom, 115200). Leave with `Ctrl-A Q`.
 
-**Programmatic (recommended for scripted grounding)** 📄 — run this **on tb105** (the console
-is local to tb105), driving `/dev/u5` directly with pyserial:
+**Programmatic (recommended for scripted grounding)** — run it **on the box** (the console is
+local to it) with the maintained drivers in `tools/` (`tools/README.md`). Copy the directory to
+the box's scratch first:
 
-```python
-# on tb105:  python3 drive.py
-import serial, time
-s = serial.Serial('/dev/u5', 115200, timeout=1)
-
-def cmd(c, settle=0.4):
-    s.write((c + '\r').encode()); time.sleep(settle)
-    out = b''
-    while True:
-        chunk = s.read(4096)
-        if not chunk: break
-        out += chunk
-        if b'--More--' in chunk:            # answer the pager with a space, no newline
-            s.write(b' '); time.sleep(settle)
-    return out.decode(errors='replace')
-
-s.write(b'\r'); time.sleep(0.3); s.read(4096)   # wake the console, clear banner
-cmd('terminal length 0')                        # session-scoped: disable the pager
-print(cmd('show interface port1.0.1'))          # read-only 'show' commands only
-s.close()
+```bash
+scp -r ~/claude/device-testing/tools tb<NNN>:/tmp/<campaign>/      # or cp: the NFS home is shared
+ssh tb<NNN> 'cd /tmp/<campaign>/tools && python3 peek.py /dev/u<N> 115200 /tmp/<campaign>/console-u<N>.log'
+ssh tb<NNN> 'cd /tmp/<campaign>/tools && python3 ckcon.py /dev/u<N> 115200 /tmp/<campaign>/console-u<N>.log \
+    "show system" "show interface port1.0.1"'
 ```
+
+`ckcon.py` logs in by waiting for each prompt, never for a quiet gap (orient-dt §3: a
+quiet-based login answers every prompt one step late), handles the pager, and writes the whole
+exchange to the transcript. An earlier version of this section gave a hand-rolled quiet-based
+pyserial loop; do not copy that pattern.
 
 **Discipline** 📄: read-only `show` commands, session-scoped `terminal length 0`, leave
 nothing on the box. This is how the CLI-grounding session captured real `show interface`
@@ -279,7 +281,7 @@ it), passwordless `sudo`, `python3`. `check_profile()` probes exactly these.
 **Steps (mirroring `RunManager._run`):**
 
 ```bash
-sock=/run/user/1971/keyring/ssh
+sock=/run/user/$(id -u)/keyring/ssh
 BOX=st-art@<testbox>                         # profile default user is st-art, key auth
 WORK=/home/st-art/pytest-create/<CASE_KEY>/<RUN_ID>
 
@@ -299,7 +301,7 @@ SSH_AUTH_SOCK=$sock ssh "$BOX" "
   — T33234 inside `_ck_discover()` at init, T33235 in `assert_role_media_now()` — and this recipe
   used to copy only the script, the library and the `.setup`. `run_script` ships
   `_media_helper_source()` (`ask-ck/tools/pt_media.py`) as `MEDIA_HELPER_NAME`; by hand, copy it yourself.
-- **`--noupdate --nodefaultcfg` are not optional** (Terrence, 2026-09-25). §3b says what the
+- **`--noupdate --nodefaultcfg` are not optional** (bench owner, 2026-09-25). §3b says what the
   framework does to every bound device without them. The server path carries them in
   `pt_exec.FRAMEWORK_RUN_FLAGS` (Test-cases `57d2021`). On tb470, runs go through this repo's
   **`bench-runner`** agent (`.claude/agents/bench-runner.agent.md`), which gates the bench before
@@ -324,36 +326,36 @@ SSH_AUTH_SOCK=$sock ssh "$BOX" "
 - ⚠ **The framework POWER-CYCLES EVERY device after any FAILED / UNSUPPORTED / ERROR TestCase**
   (`ATTestCase.run()` → `_power_cycle()`; `powerCycleOnFail` is re-armed True by `__run()` before each
   case's methods, and no run flag disables it — `--nopower` only skips the initial cycle). Seen 2026-09-29:
-  two six-unit PDU cycles for two failed cases. **Accepted by Terrence** ("I dont mind that
+  two six-unit PDU cycles for two failed cases. **Accepted by the bench owner** ("I dont mind that
   restart") — do not override it; instead stop a run whose failures are systematic. STANDING-ORDERS.md §6.
 
 ### 3a. The two things a server-side run needs that are easy to miss ✅
 
 Both verified 2026-08-03 on tb470.
 
-**1. The profile user is `terrenceb`, NOT the `st-art` default.** `st-art@tb470` does *not*
-authenticate with the keyring key — `Permission denied (publickey,password)`. `terrenceb@tb470`
-does, and it has passwordless `sudo` and `python3` 3.13.5, and can read
-`/home/st-art/framework`. So the profile must set `user` explicitly:
+**1. The profile user is YOUR user, NOT the `st-art` default.** `st-art@<TB>` does *not*
+authenticate with your key — `Permission denied (publickey,password)`. Your own user does, and on
+tb470 it had passwordless `sudo`, `python3` 3.13.5 and read access to `/home/st-art/framework`. So
+the profile must set `user` explicitly:
 
 ```bash
 curl -s -X POST localhost:8000/api/pytest-create/profiles -H 'Content-Type: application/json' -d '{
-  "name":"tb470","tb_number":"470","host":"tb470","user":"terrenceb","auth":"key",
-  "setups":{"tb470":"/home/st-art/st-art/configs/tb470.setup"}}'
-curl -s -X POST localhost:8000/api/pytest-create/profiles/tb470/check
+  "name":"<TB>","tb_number":"<NNN>","host":"<TB>","user":"'"$(whoami)"'","auth":"key",
+  "setups":{"<TB>":"/home/st-art/st-art/configs/<TB>.setup"}}'
+curl -s -X POST localhost:8000/api/pytest-create/profiles/<TB>/check
 ```
 
 **2. The SERVER process needs the keyring agent, not just your shell.** `pt_exec._connect`
 falls back to `key_path` (`~/.ssh/id_rsa`, passphrase-encrypted and useless
 non-interactively) and otherwise relies on paramiko's agent support — i.e. on the *uvicorn
-process's* `SSH_AUTH_SOCK`. Started from VS Code it inherits the forwarded **Mac** agent, which
-is empty. The hosted `ask-ck.service` inherits `SSH_AUTH_SOCK=/run/user/1971/keyring/ssh` from
+process's* `SSH_AUTH_SOCK`. Started from a remote editor it may inherit the forwarded agent,
+which can be empty (§0). On the dev host where it is hosted, `ask-ck.service` inherits `SSH_AUTH_SOCK=/run/user/$(id -u)/keyring/ssh` from
 the systemd user manager's environment (checked 2026-09-23), so it needs nothing extra — restart
 it with `ck restart`, never `run.sh --restart`. For a checkout you run by hand, export the keyring
 socket before starting; `run.sh` passes the environment through:
 
 ```bash
-export SSH_AUTH_SOCK="${XDG_RUNTIME_DIR:-/run/user/1971}/keyring/ssh"
+export SSH_AUTH_SOCK="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/keyring/ssh"
 ssh-add -l                            # must list the RSA key
 ./ask-ck/CK-main/run.sh --restart     # a hand-run checkout only — not the hosted unit
 ```
@@ -370,8 +372,8 @@ batch — this cost a mid-run case here.
 > **Refined 2026-07-29** ✅: that holds for *data-plane* runs only. **Console-only scripts run
 > fine on tb105** — a script that just drives the master console (stack reboot/failover loops,
 > CLI grounding) needs no portlinks at all, and several were executed there successfully. The
-> distinction is portlinks, not "can't run scripts here". Also note tb105 runs as user
-> `terrenceb`, not `st-art`, and needs no `sudo` for serial access.
+> distinction is portlinks, not "can't run scripts here". Also note tb105 runs as the
+> engineer's own user, not `st-art`, and needs no `sudo` for serial access.
 
 ### 3b. What the framework's default setup does to a bench — and why every run skips it ✅
 
@@ -430,17 +432,17 @@ current framework. Verified 2026-07-29 staging three stack-reboot scripts onto t
 
 ### Never patch the source of truth
 
-**`ck.db` and `/home/st-art/framework` are both off-limits for edits** — Terrence: "explicitly
+**`ck.db` and `/home/st-art/framework` are both off-limits for edits** — the bench owner: "explicitly
 bad things". The workflow is:
 
 1. Extract `scripts.source_text` from `ck.db` (read-only; `sqlite3 'file:…ck.db?mode=ro'`).
 2. Verify what you extracted against the stored `scripts.sha1` — the DB holds the whole literal
    file body, so this should match exactly.
 3. Write it to a **staging copy**, keep a `.orig` beside it, and patch only the copy.
-4. The lab home is `/home/terrenceb` on the testbox over NFS (`10.36.250.11:/home`), so a file
-   there needs no SCP step — but it is a *shared* lab home, and since 2026-09-11 nothing is written
-   outside the three repos without Terrence's consent for that write (root `CLAUDE.md`). Stage in
-   the owning repo, or in `/tmp/<scratch>/` on the box.
+4. Your lab home (`~`) is the same NFS home on the testbox (`10.36.250.11:/home`), so a file
+   there needs no SCP step — but it is a *shared* lab home, and nothing is written outside the
+   repos without the bench owner's consent for that write (the lab home's `CLAUDE.md`, 2026-09-11).
+   Stage in the owning repo, or in `/tmp/<scratch>/` on the box.
 
 ### The four breakages, in the order they bite
 
@@ -471,12 +473,12 @@ whole set of attributes a script assigns *before* launching, rather than crash-a
 ### Worked example — console-only run on tb105
 
 ```bash
-sock=/run/user/1971/keyring/ssh
+sock=/run/user/$(id -u)/keyring/ssh
 # cwd holds the framework's per-device console logs; logDir gets the script's own run log
 SSH_AUTH_SOCK=$sock ssh tb105 '
   cd ~/x950-reboot-run &&
   setsid nohup env PYTHONPATH=/home/st-art python3 ~/<script>.py -v \
-      <args> /home/terrenceb/ > run.stdout 2>&1 < /dev/null &'
+      <args> ~/ > run.stdout 2>&1 < /dev/null &'
 ```
 
 - `setsid nohup … < /dev/null &` so the run survives the SSH session closing. These loops run for
@@ -505,7 +507,7 @@ SSH_AUTH_SOCK=$sock ssh tb105 '
 
 | Goal | Command |
 |---|---|
-| Reconnect to tb105 console | `SSH_AUTH_SOCK=/run/user/1971/keyring/ssh ssh tb105` → `u5` |
+| Reach a testbox console | `SSH_AUTH_SOCK=/run/user/$(id -u)/keyring/ssh ssh tb<NNN>` → `u<N>` (precheck first on a shared box) |
 | Confirm the agent has the key | `SSH_AUTH_SOCK=…/keyring/ssh ssh-add -l` |
 | See how a name resolves | `ssh -G tb<NNN>` |
 | Probe reachability, no login | `getent hosts tb<NNN>` · `timeout 4 bash -c 'echo > /dev/tcp/tb<NNN>/22'` |

@@ -1,6 +1,6 @@
 ---
 name: wrap-dt
-description: Wrap a device-testing session on ANY testbox — stop what the session started (sentinel included), restore what it changed, ground-truth and re-probe the session's bench (the one it oriented or tested on, else the last test bench run this Test Engineer recorded, else tb470 only on terrenceb-dl, else SKIPPED), write the dated session handover with its Session facts, fold durable lessons into orient-dt / memory, and commit. Use at the end of any device-testing session. Pairs with /orient-dt.
+description: Wrap a device-testing session on ANY testbox — stop what the session started (sentinel included), restore what it changed, ground-truth and re-probe the session's bench (the one it oriented or tested on, else the last test bench run this Test Engineer recorded, else this dev host's line in bench-setup/default-boxes, else SKIPPED), write the dated session handover with its Session facts, fold durable lessons into orient-dt / memory, and commit. Use at the end of any device-testing session. Pairs with /orient-dt.
 ---
 
 # Wrap — device-testing bench (any testbox)
@@ -36,9 +36,9 @@ Take the FIRST rule that gives an answer, and say in the brief (§8) which one i
    session touched more than one box, wrap each one in turn.
 2. **The last test bench run** for this Test Engineer: `/orient-dt` §0b rule 2, the newest record
    whose Session facts says `Test Engineer: <whoami>@<hostname>`.
-3. **On terrenceb-dl only:** tb470.
-4. **SKIPPED.** No bench identified: this is a different user or host, with no record. **Skip
-   §1's box checks, §2, §3 and §4 entirely**, and do not ssh to any box, tb470 included. Still do
+3. **This dev host's default:** its line in `bench-setup/default-boxes` (`/orient-dt` §0b rule 3).
+4. **SKIPPED.** No bench identified: no record and no `default-boxes` line for this host. **Skip
+   §1's box checks, §2, §3 and §4 entirely**, and do not ssh to any box. Still do
    §1's own-process cleanup, §5 (only if the session changed records) and §6. The brief's first
    line is `Bench: SKIPPED — no test bench identified`.
 
@@ -223,8 +223,10 @@ Three homes, no duplication, every entry dated:
 
 - **`orient-dt`** gets *mechanics and traps*: platform behaviour, driver behaviour, framework
   behaviour, diagnosis signatures.
-  - **Snapshot first** (`cp -p SKILL.md SKILL.md.pre-<YYYYMMDD>`, the directory's convention).
-    Date every claim, and mark observed vs inferred. Say which box it was measured on.
+  - **Git is the history.** Do not leave `SKILL.md.pre-<date>` snapshot copies (retired
+    2026-10-02, when the 21 existing ones were deleted); commit the edit with a message saying
+    what changed. Date every claim, and mark observed vs inferred. Say which box it was measured
+    on.
   - It does **not** get bench facts, **not even as a "dated hint"**. A bench fact found there is
     deleted (the probe measures it into bench-state.md) and replaced with a pointer (bench owner,
     2026-09-11).
@@ -266,7 +268,7 @@ Three homes, no duplication, every entry dated:
 | **Leaving the TFTP-serving NIC pinned 1000-only** | Nothing, until the next member reboots and boot-loops | §3. Restore the full advert, and read the multi-line list back. |
 | **Powering a member off and not writing it down** | A "dead" unit next session | §4: power state is part of the recorded final state. |
 | **Trusting a stale bench-state.md** | A record describing a bench that no longer exists | It changes only when `bench_probe.py run` runs: check its "Generated <stamp>" line, and re-run it at every wrap. |
-| **Wrapping the wrong bench** | tb470 re-probed by a session that worked on another box, or by another user's session | §0: the session's own bench, else the last recorded run, else tb470 only on terrenceb-dl, else SKIPPED. |
+| **Wrapping the wrong bench** | tb470 re-probed by a session that worked on another box, or by another user's session | §0: the session's own bench, else the last recorded run, else this host's `default-boxes` line, else SKIPPED. |
 | **Touching someone else's console on the way out** | A colleague's minicom logged out, or a probe across every `/dev/uN` | Only the session's consoles; `precheck` first; never displace. |
 | **Writing a *confounded* run up as a result** | A "failover outage" that was really a member that could not reboot; a "slave-failure" flow sourced on the slave | Label every run *clean* or *confounded — because …*. A confounded run still teaches; it does not grade. |
 | **Recording an inference as a fact** | "The FDB is split across members" from one exactly-half observation | Date it, write *observed* and *cause inferred*, and say what would prove it. |
@@ -278,8 +280,8 @@ Three homes, no duplication, every entry dated:
 
 Dense and skimmable, with clickable relative paths: the mirror of `/orient-dt` §9.
 
-- **(0) Bench:** `<TB>` and how §0 chose it (session's own / last recorded run / terrenceb-dl
-  default), the consoles, and the occupancy result. Or `SKIPPED — no test bench identified`.
+- **(0) Bench:** `<TB>` and how §0 chose it (session's own / last recorded run / this host's
+  `default-boxes` line), the consoles, and the occupancy result. Or `SKIPPED — no test bench identified`.
 - **(a) Bench left as:** whole or *parked*. Per unit: power, role, stack/ring state, boot source
   and whether its pointer is valid, and anything still `shutdown`, running-only or unrecovered.
   Also the host NICs, and the TFTP path if the bench netboots. From §4's reads, not from memory.
@@ -290,7 +292,7 @@ Dense and skimmable, with clickable relative paths: the mirror of `/orient-dt` �
   - bench-state.md (regenerated; quote its stamp, plus `backups/<stamp>` if you applied);
   - the handover path;
   - final logs: created (hash) or **pending `/create-logs`** (how many cases);
-  - any `orient-dt` edit, with its `pre-<YYYYMMDD>` snapshot;
+  - any `orient-dt` edit, with its commit hash;
   - any memory written;
   - **the local commit hash, stated as "committed, NOT pushed — push is yours"** (§6).
 - **(d) OPEN items and the first action for the next session.**

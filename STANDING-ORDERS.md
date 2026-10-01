@@ -21,8 +21,8 @@ exist, which consoles) is NOT here. Bench facts live in the box's generated `ben
 ## 1. Device state — you have authority (bench owner, 2026-09-28)
 
 - **Every unit on the session's consoles may be power-cycled, rebooted and interacted with**, as
-  a test requires.
-  - On tb470 that includes the AR4050S and the x230: both are **in play, 100%**.
+  a test requires. That includes partner units (routers, other switches), not only the DUT:
+  on tb470 the bench owner put its AR4050S and x230 **in play, 100%** (2026-09-28).
   - Units on other consoles of the box are someone else's and are never touched.
   - A power-cycle needs the unit's PDU outlet: from the Test Engineer's session facts, or the
     box's `<TB>.static`. An outlet recorded as `-` produces no `[powerlink]`, and the framework
@@ -69,8 +69,9 @@ session re-triages them after the Test Engineer reports the change made. A case 
   box's `<TB>.static` (a USER-CONFLICT). Neither side is changed without their answer.
 - A console outside the session's list, and any holder the occupancy check (`bench_probe.py
   precheck`) finds. Never displace anyone.
-- Anything outside the box's own lab segment: tb470's is `10.38.215.0/24`; another box's is a
-  session constraint, so ask. `tb504` — not ours.
+- Anything outside the box's own lab segment. Each box's segment is a session constraint, so
+  ask; never assume another box's (tb470's, for example, is `10.38.215.0/24`).
+- A box the Test Engineer does not own or has not been given: never target it or propose it.
 
 For any of these:
 1. Record the need in the case's working log (`logged-output.md` §2).
