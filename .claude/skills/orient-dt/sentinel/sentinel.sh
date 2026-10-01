@@ -25,7 +25,7 @@
 #   SCRATCH   the sentinel session's scratchpad dir
 #   UNTIL     hard stand-down, anything `date -d` reads  ("2026-09-22 16:00")
 #   MODE      starting mode when $SCRATCH/sentinel.mode is absent   (default normal)
-#   BOX       testbox                                   (default tb470)
+#   BOX       testbox (/test-mode passes the Test Engineer's; default tb470)
 #   CLI_GLOB  CLI transcripts on BOX, space-separated globs: console.py transcripts + the
 #             framework's per-device console logs
 #             (default /tmp/*/console-*.log /home/st-art/pytest-create/*/*/swi_*.log /home/st-art/pytest-create/*/*/stk_*.log)
@@ -45,7 +45,7 @@ CLI_GLOB=${CLI_GLOB:-/tmp/*/console-*.log $RUNS/swi_*.log $RUNS/stk_*.log}
 FW_GLOB=${FW_GLOB:-/home/st-art/pytest-create/*/*/*.log}
 JOBS=${JOBS:-python3|tcpdump}
 TICK=${TICK:-30}; IDLE_ALARM=${IDLE_ALARM:-300}; CAP=${CAP:-40}
-export SSH_AUTH_SOCK=${SSH_AUTH_SOCK_TB:-/run/user/1971/keyring/ssh}   # TESTBOX-ACCESS.md §0
+export SSH_AUTH_SOCK=${SSH_AUTH_SOCK_TB:-/run/user/$(id -u)/keyring/ssh}   # TESTBOX-ACCESS.md §0
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=10 "$BOX")
 
 SID=$(basename "$PEER_LOG" .jsonl); SLUG=$(basename "$(dirname "$PEER_LOG")")
@@ -200,7 +200,7 @@ while true; do
     if [ "$stale" -gt 0 ] && [ "$remote" -eq 0 ]; then echo "  >>> STALL SIGNATURE: tester waits on a watcher that cannot fire -- message it"; fi
     if [ "$stale" -eq 0 ] && [ "$remote" -eq 0 ]; then
       if [ "$SELF" = 1 ]; then echo "  >>> nothing running anywhere -- if the queue has rows not DONE/BLOCKED, continue the bench-runner subagent or dispatch the next group (/test-mode)"
-      else echo "  >>> tester idle, nothing running anywhere -- stalled, or NEEDS TERRENCE (read its last text)"; fi
+      else echo "  >>> tester idle, nothing running anywhere -- stalled, or NEEDS TEST ENGINEER (read its last text)"; fi
     fi
     next_alarm=$(( now + IDLE_ALARM ))
   fi

@@ -77,3 +77,12 @@ free consoles with `--read-only` (no `lldp run`, no host pings); without sudo it
 
 Related: [[tb470-topology-and-setup]], [[setup-file-declares-topology]],
 [[testbox-console-access]], [[tb470-reboot-nfshome-unmounted]], [[shared-testbox-console-occupancy]].
+
+**2026-10-01, box-agnostic:**
+- `--box tbNNN` (default `$BENCH_BOX`, else a tbNNN hostname, else tb470) selects that box's
+  files: tb470 stays flat in `bench-setup/`, every other box goes under `bench-setup/<box>/`.
+- `precheck` is the no-console occupancy check ([[shared-testbox-console-occupancy]]).
+- Session facts `--pdu IP --outlet uN=O --name uN=swi_x` are used for that run and never
+  overwrite `<box>.static`. A new unit is appended; a disagreement is a USER-CONFLICT (exit 4)
+  for the Test Engineer to settle.
+- Regenerating a tb470 capture without facts is byte-identical apart from the stamp.

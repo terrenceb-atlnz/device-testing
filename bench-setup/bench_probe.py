@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""bench_probe.py -- the one bench-state tool for tb470 (consolidated 2026-09-25).
+"""bench_probe.py -- the one bench-state tool for a testbox (consolidated 2026-09-25 for tb470;
+testbox-agnostic since 2026-10-01: `--box tbNNN`, default tb470).
 
 It sees what is actually THERE and nothing else. Four steps, one script:
 
@@ -21,6 +22,20 @@ It sees what is actually THERE and nothing else. Four steps, one script:
     bench_probe.py diff [live.md|.setup] [template.setup]    # 3 only, anywhere
     bench_probe.py render                                    # print what apply would write
     bench_probe.py apply [--force]                           # 4, from tb470 or the dev host
+    bench_probe.py precheck [--consoles 2-5]                 # 0, ON the box: is anything in the way?
+
+Every subcommand takes `--box tbNNN` first (default: $BENCH_BOX, else this host's name when
+it is tbNNN, else tb470). tb470 keeps its flat files in bench-setup/ (bench-state.md,
+tb470.static, tb470.setup.current, captures/, backups/); any other box gets the same set
+under bench-setup/<box>/. The deployed template is /home/st-art/st-art/configs/<box>.setup.
+
+SESSION FACTS (run / generate, 2026-10-01): `--pdu IP`, `--outlet uN=OUTLET` and `--name
+uN=swi_x` (each repeatable, or comma-separated) carry what the Test Engineer said at the
+start of the session. They are used for THIS run and never overwrite a recorded fact: a
+unit not yet in <box>.static is appended with them; where they disagree with <box>.static
+(or with what the consoles show) the run lists a USER-CONFLICT and exits 4, so the session
+asks the Test Engineer instead of picking a side.
+Exit codes: 0 MATCH, 1 MISMATCH, 2 NEEDS-CHECK, 4 USER-CONFLICT (precheck: 0 clear, 5 found).
 
 It holds no bench facts of its own. The facts no `show` command can reveal -- a unit's
 swi_ name, its PDU outlet, the PDU's IP -- live in tb470.static, entered once by the
@@ -65,7 +80,38 @@ BACKUPS = os.path.join(HERE, "backups")
 
 BOX = "tb470"
 REMOTE = "/home/st-art/st-art/configs/tb470.setup"
-SOCK = "/run/user/1971/keyring/ssh"                     # the agent that holds the key
+USER = {"pdu": None, "outlets": {}, "names": {}}       # session facts (--pdu/--outlet/--name)
+
+
+def default_box():
+    env = os.environ.get("BENCH_BOX")
+    if env:
+        return env
+    host = os.uname().nodename
+    return host if re.match(r"^tb\d+$", host) else "tb470"
+
+
+def set_box(box):
+    """Point every per-testbox path at <box>. tb470 keeps the flat legacy layout (its
+    files predate the flag and other tools read them there); any other box lives in
+    bench-setup/<box>/."""
+    global BOX, REMOTE, STATE, STATE_MIRROR, CURRENT, STATIC, CAPTURES, BACKUPS
+    if not re.match(r"^[\w.-]+$", box):
+        sys.exit("bad --box {!r}".format(box))
+    BOX = box
+    REMOTE = "/home/st-art/st-art/configs/{}.setup".format(box)
+    base = HERE if box == "tb470" else os.path.join(HERE, box)
+    STATE = os.path.join(base, "bench-state.md")
+    STATE_MIRROR = os.path.join(base, "bench-state.current.md")
+    CURRENT = os.path.join(base, box + ".setup.current")
+    STATIC = os.path.join(base, box + ".static")
+    CAPTURES = os.path.join(base, "captures")
+    BACKUPS = os.path.join(base, "backups")
+
+
+def static_rel():
+    return os.path.relpath(STATIC, os.path.dirname(HERE))      # e.g. bench-setup/tb470.static
+SOCK = os.environ.get("SSH_AUTH_SOCK_TB") or "/run/user/{}/keyring/ssh".format(os.getuid())   # the keyring agent (TESTBOX-ACCESS.md §0)
 
 BAUDS = [115200, 9600]
 USERNAME = "manager"
@@ -388,7 +434,7 @@ def _sudo_ok():
 def console_holder(path, use_sudo):
     """Who holds the node, or '' if nobody. Root-owned holders are invisible without sudo."""
     pre = ["sudo", "-n"] if use_sudo else []
-    r = subprocess.run(pre + ["fuser", "-v", path], capture_output=True, text=True)
+    r = subprocess.run(pre + [FUSER, "-v", os.path.realpath(path)], capture_output=True, text=True)
     return (r.stdout + r.stderr).strip() if r.returncode == 0 else ""
 
 
@@ -784,8 +830,9 @@ def parse_mac_table(text):
     return rows
 
 
-def load_static(path=STATIC):
-    """tb470.static: [pdu] ip, [units] serial = name, outlet. Missing file -> empty."""
+def load_static(path=None):
+    """<box>.static: [pdu] ip, [units] serial = name, outlet. Missing file -> empty."""
+    path = path or STATIC
     cp = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=("#",))
     cp.optionxform = str
     units, pdu = {}, None
@@ -800,7 +847,18 @@ def load_static(path=STATIC):
     return {"pdu": pdu, "units": units}
 
 
-def save_static_unit(serial, name, outlet, note, path=STATIC):
+def save_static_unit(serial, name, outlet, note, path=None):
+    """APPEND one unit. Never rewrites a line: an existing entry is the Test Engineer's."""
+    path = path or STATIC
+    if not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with io.open(path, "w", encoding="utf-8") as f:
+            f.write("### {}.static -- the bench facts no `show` command can reveal. Hand-entered.\n"
+                    "### serial = name, outlet (numeric; '-' = unknown). Created {} by bench_probe.py\n"
+                    "### from the Test Engineer's session facts.\n\n".format(BOX, time.strftime("%Y-%m-%d")))
+            if USER.get("pdu"):
+                f.write("[pdu]\nip = {}\n\n".format(USER["pdu"]))
+            f.write("[units]\n")
     with io.open(path, "a", encoding="utf-8") as f:
         f.write("{} = {}, {}{}\n".format(serial, name, outlet or "-",
                                          ("    ### " + note) if note else ""))
@@ -839,6 +897,9 @@ class Stack:
         self.oper = None
         self.name = None
         self.rec = None          # one console's capture (all relay to the master CLI)
+
+
+LAST_CONFLICTS = []          # the last generate()'s USER-CONFLICTs, for run's exit code
 
 
 def build_model(meta):
@@ -910,20 +971,47 @@ def build_model(meta):
     return list(stacks.values()), devs, notes
 
 
-def assign_names(devs, static, ask):
-    """swi_ names come from tb470.static by serial. A unit not listed there gets the next
-    free letter -- and, on a terminal, the user is asked once and the answer saved."""
+def assign_names(devs, static, ask, conflicts=None):
+    """swi_ names come from <box>.static by serial. A unit not listed there gets the
+    session's --name/--outlet for its console if the Test Engineer gave them (appended to
+    <box>.static), else the next free letter -- and, on a terminal, the user is asked once.
+    A session fact that disagrees with a recorded one is used for THIS run, the record is
+    left alone, and the disagreement goes to `conflicts` (USER-CONFLICT)."""
+    conflicts = conflicts if conflicts is not None else []
     used = {u["name"] for u in static["units"].values()}
     notes = []
+    seen_consoles = set()
     for d in sorted(devs, key=lambda d: (d.stack is None, d.member_id or 0, d.serial)):
+        uo = USER["outlets"].get(d.console) if d.console else None
+        un = USER["names"].get(d.console) if d.console else None
+        if d.console:
+            seen_consoles.add(d.console)
         u = static["units"].get(d.serial)
         if u:
-            d.name = u["name"]
-            d.outlet = u["outlet"]
+            d.name, d.outlet = u["name"], u["outlet"]
+            if un and un != u["name"]:
+                conflicts.append("{} ({} S/N {}): the session names it {}, {} records {} -- this run "
+                                 "uses {}".format(d.console, d.model, d.serial, un, static_rel(), u["name"], un))
+                d.name = un
+            if uo and uo != (u["outlet"] or None):
+                conflicts.append("{} ({} S/N {} = {}): the session says PDU outlet {}, {} records {} -- "
+                                 "this run uses {}".format(d.console, d.model, d.serial, d.name, uo,
+                                                         static_rel(), u["outlet"] or "'-' (unknown)", uo))
+                d.outlet = uo
+            used.add(d.name)
             continue
         free = next(("swi_" + c for c in LETTERS if "swi_" + c not in used), None)
-        d.name, d.outlet = free, None
-        if ask:
+        d.name, d.outlet = un or free, uo
+        if un in used:
+            conflicts.append("{} ({} S/N {}): the session names it {}, but {} already gives that name "
+                             "to another serial".format(d.console, d.model, d.serial, un, static_rel()))
+        if un or uo:
+            save_static_unit(d.serial, d.name, d.outlet, "{} {} -- from the session's facts {}".format(
+                d.model, d.console or "", time.strftime("%Y-%m-%d")))
+            static["units"][d.serial] = {"name": d.name, "outlet": d.outlet}
+            notes.append("added {} = {}, {} to {} (session facts)".format(
+                d.serial, d.name, d.outlet or "-", static_rel()))
+        elif ask:
             print("\nNew unit: {} S/N {} on {} (hostname {}).".format(
                 d.model, d.serial, d.console or "?", d.hostname), file=sys.stderr)
             nm = input("  swi_ name [{}]: ".format(free)).strip() or free
@@ -932,11 +1020,17 @@ def assign_names(devs, static, ask):
             save_static_unit(d.serial, nm, ol, "{} {} -- added {}".format(
                 d.model, d.console or "", time.strftime("%Y-%m-%d")))
             static["units"][d.serial] = {"name": nm, "outlet": ol}
-            notes.append("added {} = {} to tb470.static".format(d.serial, nm))
+            notes.append("added {} = {} to {}".format(d.serial, nm, static_rel()))
         else:
-            notes.append("unit {} S/N {} on {} is not in tb470.static -- named {} for this run; "
-                         "add it there (name, PDU outlet)".format(d.model, d.serial, d.console, free))
+            notes.append("unit {} S/N {} on {} is not in {} -- named {} for this run; "
+                         "add it there (name, PDU outlet)".format(d.model, d.serial, d.console,
+                                                                   static_rel(), free))
         used.add(d.name)
+    for c in sorted(set(USER["outlets"]) | set(USER["names"])):
+        if c not in seen_consoles:
+            conflicts.append("the session gives facts for {} (outlet {}, name {}), but no device was "
+                             "read on {} this run".format(c, USER["outlets"].get(c, "-"),
+                                                          USER["names"].get(c, "-"), c))
     return notes
 
 
@@ -1039,8 +1133,8 @@ def render_setup(stacks, devs, links, edges, static, stamp):
     pdu = static.get("pdu") or "?"
     w("### GENERATED {} by bench_probe.py from a console capture -- DO NOT HAND-EDIT.".format(stamp))
     w("### Source: claude/device-testing/bench-setup/bench-state.md (regenerate with")
-    w("### `bench_probe.py run` on tb470; `bench_probe.py apply` writes this file).")
-    w("### Names and PDU outlets come from bench-setup/tb470.static.")
+    w("### `bench_probe.py run` on {}; `bench_probe.py apply` writes this file).".format(BOX))
+    w("### Names and PDU outlets come from {}.".format(static_rel()))
     w("")
     w("[power]")
     for d in named:
@@ -1097,7 +1191,18 @@ def generate(cap_dir, static=None, ask=False):
     meta = load_capture(cap_dir)
     static = static or load_static()
     stacks, devs, notes = build_model(meta)
-    notes += assign_names(devs, static, ask)
+    conflicts = []
+    if USER.get("pdu"):
+        if static.get("pdu") and static["pdu"] != USER["pdu"]:
+            conflicts.append("the session says PDU {}, {} records {} -- this run uses {}".format(
+                USER["pdu"], static_rel(), static["pdu"], USER["pdu"]))
+        elif not static.get("pdu") and os.path.exists(STATIC):
+            notes.append("{} has no [pdu] ip; this run uses the session's {} -- add it there".format(
+                static_rel(), USER["pdu"]))
+        static = dict(static, pdu=USER["pdu"])
+    notes += assign_names(devs, static, ask, conflicts)
+    LAST_CONFLICTS[:] = conflicts
+    notes = ["!! USER-CONFLICT: " + c for c in conflicts] + notes
     # stack names: stk_a = the stack holding the lowest-named member
     for i, st in enumerate(sorted(stacks, key=lambda s: min(d.name for d in s.members.values()))):
         st.name = "stk_" + LETTERS[i]
@@ -1130,13 +1235,15 @@ def generate(cap_dir, static=None, ask=False):
 
     L = []
     w = L.append
-    w("# tb470 — bench state")
+    w("# {} — bench state".format(BOX))
     w("")
     w("> **Generated {} by `bench_probe.py`** from `captures/{}/` on {}. Measured state only;".format(
         stamp, os.path.basename(os.path.normpath(cap_dir)), meta.get("host", "?")))
-    w("> nothing here is hand-written. Regenerate with `./bench_probe.py run` on tb470. The")
-    w("> `setup` fence at the end IS `tb470.setup`; `./bench_probe.py apply` writes it to the box.")
-    w("> Names and PDU outlets come from `tb470.static`; platform mechanics live in the orient-dt")
+    w("> nothing here is hand-written. Regenerate with `./bench_probe.py{} run` on {}. The".format(
+        "" if BOX == "tb470" else " --box " + BOX, BOX))
+    w("> `setup` fence at the end IS `{}.setup`; `./bench_probe.py apply` writes it to the box.".format(BOX))
+    w("> Names and PDU outlets come from `{}`; platform mechanics live in the orient-dt".format(
+        os.path.basename(STATIC)))
     w("> skill; what a session did lives in its handover.")
     w("")
     w("## Devices")
@@ -1180,7 +1287,7 @@ def generate(cap_dir, static=None, ask=False):
     else:
         w("- none")
     w("")
-    w("## tb470.setup")
+    w("## {}.setup".format(BOX))
     w("")
     w("```setup")
     w(render_setup(stacks, devs, links, edges, static, stamp).rstrip("\n"))
@@ -1414,9 +1521,10 @@ def ssh(args, stdin=None):
 
 
 def live_setup():
+    """The deployed template, or '' when the box has none yet (a new testbox)."""
     if on_box():
-        return io.open(REMOTE, encoding="utf-8").read()
-    return ssh(["cat " + REMOTE]).decode("utf-8")
+        return io.open(REMOTE, encoding="utf-8").read() if os.path.exists(REMOTE) else ""
+    return ssh(["cat " + REMOTE + " 2>/dev/null || true"]).decode("utf-8")
 
 
 def write_setup(text):
@@ -1428,7 +1536,7 @@ def write_setup(text):
 
 def render():
     if not os.path.exists(STATE):
-        sys.exit("no bench-state.md -- run `bench_probe.py run` (on tb470) or `generate` first")
+        sys.exit("no {} -- run `bench_probe.py run` (on {}) or `generate` first".format(STATE, BOX))
     text = extract_fence(io.open(STATE, encoding="utf-8").read())
     if not text.strip():
         sys.exit("bench-state.md has no ```setup fence")
@@ -1447,7 +1555,7 @@ def snapshot(setup_text):
     os.makedirs(BACKUPS, exist_ok=True)
     stamp = utc_stamp()
     made = []
-    p = os.path.join(BACKUPS, stamp + ".tb470.setup")
+    p = os.path.join(BACKUPS, "{}.{}.setup".format(stamp, BOX))
     io.open(p, "w", encoding="utf-8").write(setup_text)
     made.append(p)
     if os.path.exists(STATE_MIRROR):
@@ -1470,10 +1578,11 @@ def apply(force=False):
         io.open(STATE_MIRROR, "w", encoding="utf-8").write(io.open(STATE, encoding="utf-8").read())
         return 0
     if cur is not None and have != cur and not force:
-        print("\nREFUSING: the live file does not match tb470.setup.current -- someone edited")
+        print("\nREFUSING: the live file does not match {} -- someone edited".format(os.path.basename(CURRENT)))
         print("{}:{} by hand. Look at it first; re-run with --force to overwrite (it is".format(BOX, REMOTE))
         print("snapshotted into backups/ regardless).")
         return 2
+    os.makedirs(os.path.dirname(CURRENT), exist_ok=True)
     for p in snapshot(have):
         print("snapshot -> {}".format(p))
     write_setup(want)
@@ -1483,11 +1592,130 @@ def apply(force=False):
         return 3
     io.open(CURRENT, "w", encoding="utf-8").write(want)
     io.open(STATE_MIRROR, "w", encoding="utf-8").write(io.open(STATE, encoding="utf-8").read())
-    print("written in place and verified by readback; tb470.setup.current refreshed")
+    print("written in place and verified by readback; {} refreshed".format(os.path.basename(CURRENT)))
     return 0
 
 
 # =============================================================================
+
+# =============================================================================
+# 0. precheck -- is anything in the way, BEFORE the probe opens a console (2026-10-01)
+# =============================================================================
+
+BLOCKER_RE = re.compile(r"(^|/)(screen|SCREEN|tmux|minicom|picocom|microcom|cu|kermit|ckermit|"
+                        r"socat|ser2net|conserver|python[0-9.]*)$")
+FUSER = next((p for p in ("/bin/fuser", "/usr/bin/fuser", "/sbin/fuser", "/usr/sbin/fuser")
+              if os.path.exists(p)), "fuser")          # ssh's PATH has no sbin (memory)
+
+
+def _ancestors():
+    """This process and every parent up to init: the ssh `bash -c` wrapper that started us
+    is one of them, and a name match on it would be the self-match trap."""
+    pids, pid = set(), os.getpid()
+    while pid and pid not in pids:
+        pids.add(pid)
+        pid = _ppid(pid)
+    return pids
+
+
+def _ppid(pid):
+    try:
+        stat = open("/proc/{}/stat".format(pid)).read()
+        return int(stat[stat.rindex(")") + 2:].split()[1])
+    except Exception:
+        return 0
+
+
+def _human(pid, user):
+    """A root-owned holder (`sudo minicom`) belongs to whoever started it: walk the PPIDs
+    to the first non-root owner (memory shared-testbox-console-occupancy, tb105)."""
+    seen = set()
+    while user == "root" and pid > 1 and pid not in seen:
+        seen.add(pid)
+        pid = _ppid(pid)
+        r = subprocess.run(["ps", "-o", "user=", "-p", str(pid)], stdout=subprocess.PIPE,
+                           stderr=subprocess.DEVNULL, universal_newlines=True)
+        user = r.stdout.strip() or user
+    return user
+
+
+def precheck(nums):
+    """Report everything on the box that could hold or fight over a console, WITHOUT
+    opening one (no byte is sent to any console). Per session console: its ttyUSB target,
+    `fuser -v` on it (with sudo where it works -- a `sudo minicom` holder is INVISIBLE
+    without it, so no sudo = UNKNOWN, never free), and lock files for both names. Box-wide:
+    every screen / tmux / minicom-type / python-script process, whoever owns it, and who is
+    logged in. Changes nothing. Exit 0 = clear, 5 = something found or unverifiable."""
+    use_sudo = _sudo_ok()
+    found = []
+    print("precheck on {} ({}), consoles {}".format(
+        os.uname().nodename, BOX, ", ".join("u{}".format(n) for n in nums)))
+    if not use_sudo:
+        print("  NOTE: no passwordless sudo -- a console held by root (sudo minicom) is invisible;"
+              " every console without other evidence reads UNKNOWN")
+    for n in nums:
+        path = "/dev/u{}".format(n)
+        if not os.path.exists(path):
+            print("  {}: absent (no such device node)".format(path))
+            continue
+        real = os.path.realpath(path)
+        pre = ["sudo", "-n"] if use_sudo else []
+        r = subprocess.run(pre + [FUSER, "-v", real], stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, universal_newlines=True)
+        holder = r.stdout.strip() if r.returncode == 0 else ""
+        evidence = False
+        if holder:
+            found.append("{} ({}) is HELD: {}".format(path, real, " ".join(holder.split())))
+            evidence = True
+        for lock in sorted({"/run/lock/LCK..{}".format(os.path.basename(x)) for x in (path, real)}):
+            if not os.path.exists(lock):
+                continue
+            try:
+                lpid = int(open(lock).read().split()[0])
+                alive = os.path.exists("/proc/{}".format(lpid))
+            except Exception:
+                lpid, alive = None, False
+            found.append("{} has lock file {} (pid {}, {})".format(
+                path, lock, lpid or "?", "LIVE" if alive else "stale"))
+            evidence = True
+        if not evidence and not use_sudo:
+            found.append("{} ({}): UNKNOWN -- no holder visible, but without sudo a root-owned "
+                         "holder would not show".format(path, real))
+        elif not evidence:
+            print("  {} ({}): free".format(path, real))
+    mine = _ancestors()
+    ps = subprocess.run(["ps", "-eo", "pid=,user:32=,etime=,args="], stdout=subprocess.PIPE,
+                        universal_newlines=True).stdout
+    for ln in ps.splitlines():
+        parts = ln.split(None, 3)
+        if len(parts) < 4:
+            continue
+        pid, user, etime, args = int(parts[0]), parts[1], parts[2], parts[3]
+        if pid in mine:
+            continue
+        prog = args.split()[0] if args.split() else ""
+        if not BLOCKER_RE.search(prog):
+            continue
+        if prog.split("/")[-1].startswith("python") and ".py" not in args:
+            continue                                   # a bare interpreter, no script
+        who_ = _human(pid, user)
+        found.append("process {} ({}{}, up {}): {}".format(
+            pid, user, "" if who_ == user else " for " + who_, etime, args[:200]))
+    w = subprocess.run(["w", "-h"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                       universal_newlines=True).stdout.strip()
+    if w:
+        print("  logged in (information only):")
+        for ln in w.splitlines():
+            print("    " + ln)
+    if found:
+        print("\nFOUND -- {} item(s) that hold, may hold, or could not be checked; ask the Test"
+              " Engineer before probing:".format(len(found)))
+        for f in found:
+            print("  - " + f)
+        return 5
+    print("\nCLEAR -- no console holder, lock file, screen/tmux/minicom-type session or python script.")
+    return 0
+
 
 def _nums(spec):
     nums = []
@@ -1501,13 +1729,33 @@ def _nums(spec):
     return nums
 
 
+def _facts(items):
+    """['u2=6', 'u3=8,u5=5'] -> {'/dev/u2': '6', ...}"""
+    out = {}
+    for item in items:
+        for part in item.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            k, sep, v = part.partition("=")
+            m = re.match(r"^(?:/dev/)?u(\d+)$", k.strip())
+            if not sep or not m or not v.strip():
+                raise ValueError("expected uN=VALUE, got {!r}".format(part))
+            out["/dev/u" + m.group(1)] = v.strip()
+    return out
+
+
 def default_template():
     return REMOTE if on_box() and os.path.exists(REMOTE) else CURRENT
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--box", default=None, help="testbox name, e.g. tb470 (default: $BENCH_BOX, "
+                    "else this host's name when it is tbNNN, else tb470)")
     sub = ap.add_subparsers(dest="cmd")
+    s = sub.add_parser("precheck")
+    s.add_argument("--consoles", default="0-6", help="range/list of /dev/uN this session uses")
     for name in ("run", "capture"):
         s = sub.add_parser(name)
         s.add_argument("--consoles", default="0-6", help="range/list of /dev/uN (default 0-6)")
@@ -1517,19 +1765,38 @@ def main(argv=None):
                        help="change nothing (shared testboxes): no `lldp run`, no host-NIC pings")
         if name == "run":
             s.add_argument("--template", default=None, help="the .setup to diff against")
-            s.add_argument("--out", default=STATE, help="where to write bench-state.md")
+            s.add_argument("--out", default=None, help="where to write bench-state.md")
     s = sub.add_parser("generate")
     s.add_argument("capture_dir")
-    s.add_argument("--out", default=STATE)
+    s.add_argument("--out", default=None)
     s.add_argument("--no-prompt", action="store_true")
+    for s in (sub.choices["run"], s):
+        s.add_argument("--pdu", default=None, help="session fact: the PDU's IP")
+        s.add_argument("--outlet", action="append", default=[], metavar="uN=OUTLET",
+                       help="session fact: the PDU outlet of the unit on /dev/uN (repeatable, or a,b)")
+        s.add_argument("--name", action="append", default=[], metavar="uN=swi_x",
+                       help="session fact: the swi_ name of the unit on /dev/uN")
     s = sub.add_parser("diff", aliases=["check"])
-    s.add_argument("live", nargs="?", default=STATE)
+    s.add_argument("live", nargs="?", default=None)
     s.add_argument("template", nargs="?", default=None)
     sub.add_parser("render")
     s = sub.add_parser("apply")
     s.add_argument("--force", action="store_true")
     args = ap.parse_args(argv)
+    set_box(args.box or default_box())
+    for k in ("out", "live"):
+        if hasattr(args, k) and getattr(args, k) is None:
+            setattr(args, k, STATE)
+    if hasattr(args, "outlet"):
+        try:
+            USER["pdu"] = args.pdu
+            USER["outlets"] = _facts(args.outlet)
+            USER["names"] = _facts(args.name)
+        except ValueError as e:
+            ap.error(str(e))
 
+    if args.cmd == "precheck":
+        return precheck(_nums(args.consoles))
     if args.cmd == "capture":
         capture(_nums(args.consoles), quiet=args.quiet, read_only=args.read_only)
         return 0
@@ -1538,15 +1805,25 @@ def main(argv=None):
         cap_dir = (args.capture_dir if args.cmd == "generate"
                    else capture(_nums(args.consoles), quiet=args.quiet, read_only=args.read_only))
         md = generate(cap_dir, ask=ask)
+        os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
         io.open(args.out, "w", encoding="utf-8").write(md)
         print("bench-state -> {}".format(args.out), file=sys.stderr)
-        if args.cmd == "generate":
-            return 0
-        tmpl = args.template or default_template()
-        if not os.path.exists(tmpl):
-            print("no template at {} -- diff skipped".format(tmpl))
-            return 0
-        return run_diff(args.out, tmpl)
+        conflicts = list(LAST_CONFLICTS)
+        rc = 0
+        if args.cmd == "run":
+            tmpl = args.template or default_template()
+            if not os.path.exists(tmpl):
+                print("no template at {} -- diff skipped".format(tmpl))
+            else:
+                rc = run_diff(args.out, tmpl)
+        if conflicts:
+            print("\nUSER-CONFLICT -- the session's facts disagree with the record or the bench ({}):\n"
+                  .format(len(conflicts)))
+            for c in conflicts:
+                print("  - " + c)
+            print("\n  Nothing recorded was changed. Ask the Test Engineer which is right.")
+            return 4
+        return rc
     if args.cmd in ("diff", "check"):
         tmpl = args.template or default_template()
         return run_diff(args.live, tmpl)

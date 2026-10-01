@@ -55,6 +55,18 @@ the host NICs. Default tb470 behaviour unchanged (offline regenerate byte-identi
 **Why:** two writers on one console is the classic failure ([[sentinel-kit-in-orient-dt]]), and
 on a shared box the other writer is a colleague, not our own stray process.
 
+**UPDATE 2026-10-01 (later the same day): the check is now a probe subcommand, and the probe is
+box-agnostic.** `bench_probe.py --box tbNNN precheck --consoles <list>` does steps 1–5 above
+without opening a console: it resolves uN to ttyUSB, uses `/bin/fuser` via `sudo -n` where that
+works, checks `/run/lock/LCK..` under both names, lists screen/tmux/minicom-type processes and
+python scripts box-wide (walking PPIDs to find the human behind a root `sudo minicom`), and runs
+`w -h`. No sudo makes every console with no other evidence read **UNKNOWN**. Exit 0 = CLEAR,
+5 = FOUND. `--box` puts a non-tb470 box's files under `bench-setup/<box>/` (captures, static,
+backups, bench-state.md) and its template at `/home/st-art/st-art/configs/<box>.setup`. That
+removes the two cautions below ("captures land beside tb470's", "apply would overwrite
+tb470.setup"), but only when `--box` is passed. `/test-mode` runs the precheck before every
+probe and returns to the Test Engineer on FOUND.
+
 **How to apply:**
 - On any box but tb470: run this check first, then pass bench_probe `--consoles` listing only
   the free ones. Idle ≠ free — an open minicom idle for hours is still someone's console.
