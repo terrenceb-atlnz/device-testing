@@ -219,10 +219,14 @@ An `after-action-<suite>.md` is written only when the Test Engineer asks for one
 
 ## 6. Fold durable lessons into the records that outlive the session
 
-Three homes, no duplication, every entry dated:
+Four homes, no duplication, every entry dated:
 
-- **`orient-dt`** gets *mechanics and traps*: platform behaviour, driver behaviour, framework
-  behaviour, diagnosis signatures.
+- **`platforms/<FAMILY>.md`** gets what is true of the DUT's product family only: hardware
+  limits, boot and bootloader behaviour, build naming, CLI differences, measured quirks, with
+  the box and build each was measured on (`platforms/README.md`). No file for the family yet →
+  start one when the session measured something worth keeping.
+- **`orient-dt`** gets *mechanics and traps* true of any AW+ product: driver behaviour,
+  framework behaviour, stack mechanics, diagnosis signatures.
   - **Git is the history.** Do not leave `SKILL.md.pre-<date>` snapshot copies (retired
     2026-10-02, when the 21 existing ones were deleted); commit the edit with a message saying
     what changed. Date every claim, and mark observed vs inferred. Say which box it was measured

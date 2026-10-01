@@ -38,6 +38,7 @@ refers to these by NAME**; when something moves, fix this table and nothing else
 | **campaign queues** | `<TB>/<FAMILY>/CAMPAIGN-QUEUE-<YYYY-MM-DDTHHMM>.md` (from 2026-10-01; tb470 before that: `IE520/CAMPAIGN-QUEUE-<date>.md`) | the resume point; its **Session facts** block names the Test Engineer, box, consoles, PDU and constraints (§0b reads it) |
 | **session handovers** | `<TB>/<FAMILY>/SESSION-HANDOVER-<YYYY-MM-DD>.md`; a session with no bench: `handovers/SESSION-HANDOVER-<YYYY-MM-DD>-<user>.md`; tb470 before 2026-10-01: `IE520/SESSION-HANDOVER-<date>.md` | latest first; `/wrap-dt` writes them, with a Session facts block |
 | **per-case logs** | `<TB>/<FAMILY>/<group>-<STAMP>/<id>/`: the final `<id><suffix>.log` and one `<dev>.cfg` per device; before 2026-10-02 flat: `<TB>/<FAMILY>/<group>-<STAMP>/<case-id>.log`, tb470 before 2026-10-01 `IE520/<suite>/<case-id>.log` | every rule is in **logged-output.md** |
+| **platform facts** (added 2026-10-02) | `platforms/<FAMILY>.md` (repo root), e.g. `platforms/IE520.md`; how to add one: `platforms/README.md` | the DUT family's hardware limits, boot and bootloader traps, build naming, CLI differences. Read in §2. Not in the product's campaign directory, which is archived when its testing ends |
 | **logged-output.md** (added 2026-10-02) | `logged-output.md` (repo root) | verdicts, the tester's working logs, the `RESULT` line, the results list, the final log template, `/create-logs`. The one home for logging rules |
 | **tools/** (added 2026-10-02) | `tools/` (repo root), catalogue `tools/README.md` | every reusable helper, including **console.py** (the maintained driver). Copy the whole directory to the box's `/tmp/<campaign>/` and run from there; the tools import each other from their own directory. Look here before writing a helper (logged-output.md §2) |
 | **memories** | `.claude/memory/` in this repo | index `MEMORY.md`; Test-cases symlinks to ours |
@@ -89,6 +90,8 @@ is CLEAR.
 - **§2, §3 and §4 are immutable platform, tooling and framework facts.** Each one has already cost
   hardware hours or been mistaken for a defect. Do not convert them to lookups. Where one was
   measured on tb470 it says so; the mechanic holds wherever the same product and build run.
+  **This file holds only what is true of any AW+ product.** A fact true of one product family
+  goes in `platforms/<FAMILY>.md` (§2), never here.
 - **§1, §6 and §7 describe HOW to read a bench and WHAT to plan for, never what any bench
   currently is.** Bench state, stack state, roles, addresses, boot source and flash contents are
   **always** a live lookup reconciled against the box's bench-state.md.
@@ -229,46 +232,29 @@ else; it is not repeated here on purpose. What is durable is *how* to read it:
   prompt — a `Password:` in the tail means the port was left mid-dialog; send a CR and retry
   (2026-09-11).
 
-### Five things that present as something else
+### Things that present as something else (any AW+ product; the product's own are in §2's file)
 
 - **A DESTACKED UNIT KEEPS ITS OLD STACK ID — the *phantom-port* trap.** Its whole old-range
   (e.g. `port1.0.x`) goes phantom — `Provisioned`, MAC `0000.0000.0000` — while the real ports are
   the other range. Whether any unit is in that state today is a bench fact (bench-state.md);
   verify which case you are in before naming a port.
 - **BOOT SOURCE IS A BENCH FACT (bench-state.md → the device table's "boot image" column and
-  `[boot_from_flash]`) AND IT HAS FLIPPED BEFORE.** The units
-  can boot two ways, and each way has its own traps that have been misread as faults:
-  - **Flash boot** (on tb470, the state the bench owner set on all units from the bootloader config on 2026-09-11):
-    a plain `reload` is safe. **But `show boot` must read `Current boot image : … (file exists)`
-    before you reload** — the stack was running `IE520-tb470.rel` while its boot pointer named a
-    deleted `tomahawk` file; `boot system flash:/<the .rel that exists>` fixes it and, on a stack,
-    **syncs the 40 MB image to the other member with the console dark for ~10–12 min** (§2 SPIFlash)
-    — wait it out. Memory: `tb470-ie520-flash-boot-reboots-ok`.
-  - **TFTP netboot** (the 2026-09-02 → 09-10 state; bootloader autoboots from tb470
-    `/tftproot/IE520-tb470.rel`, re-fetched on every reboot). Three things read as faults and are
-    not: AW+'s `Autoboot status : disabled` is the AW+-level setting, not the bootloader's;
-    `show boot … (file not found)` or an empty flash is NOT a unit that cannot boot; and
-    `local6.alert … booted from non-default location, SW version auto synchronization cannot be
-    supported` is normal. Two hazards ARE real: replacing that one file while the bench is live
-    arms the version split (below), and **a member that cannot reach the TFTP server never comes
-    back** — it boot-loops (`Failed to load tftp://…` → `Restarting system in 5..` → `BootROM`,
-    ~5/min, indefinitely; the survivor reads `Standalone unit`, peer `Provisioned`, both stackports
-    `Down` — an *absent* peer, not a split, §6). So: prefer `reload stack-member <id>` over a PDU
-    cut unless the TFTP path is proven up, and **never leave the TFTP-serving host NIC pinned
-    1000-only** (`advertise 0x20`) — the bootloader's ASIX dongle is 10/100-class; restore
-    `advertise 0x2f`.
+  `[boot_from_flash]`) AND IT CAN FLIP.** A unit may boot from flash or netboot from the
+  testbox, and each has traps that read as faults. Under flash boot, `show boot` must read
+  `Current boot image : … (file exists)` before any reload. Under netboot, an empty flash or
+  `(file not found)` is not a unit that cannot boot, and a member that cannot reach the boot
+  server may never come back. The product's own boot traps are in its platform file (§2): for
+  IE520, `platforms/IE520.md` §1.
 - **The release filename is CONSTANT BY CONVENTION and carries no date** — a build is loaded under
-  the name of the testbox it came from, so on tb470 it is `IE520-tb470.rel`. `show system`'s
-  `Current software : IE520-tb470.rel` is therefore **correct and expected**; it is not a
-  mislabel, an oddity or something to chase. A *dated* filename in flash (the historical
-  `IE520-20260825.rel`) is the deviation, not the norm. Read the build from `show system`'s
+  the name of the testbox it came from (`<PLATFORM>-<TB>.rel`), so on tb470 the IE520s run
+  `IE520-tb470.rel`. `show system`'s `Current software : <PLATFORM>-<TB>.rel` is therefore
+  **correct and expected**; it is not a mislabel, an oddity or something to chase. A *dated*
+  filename in flash is the deviation, not the norm. Read the build from `show system`'s
   `Software version` / `Build date`, or `show version` — **never from the filename**.
-- **A NEWER BUILD DATE IS NOT DRIFT.** These units deliberately track the newest mainline build,
+- **A NEWER BUILD DATE IS NOT DRIFT.** Bench units deliberately track the newest mainline build,
   so a build date that has moved since anyone last looked is the bench working as intended. Do not
   open a session by reporting it as drift, and never compare the live date against one written
-  down in a file. From **2026-09-02** releases are `awplus_main` plus a coded date (first one:
-  `IE520-awplus_main-20260902-1700.rel`), which supersedes the `tomahawk_ie520-continuous` builds;
-  the `.info` beside a staged `/tftproot` image gives its full dated name.
+  down in a file. A product's build-naming history is in its platform file.
 - **🔥 WHAT ACTUALLY BREAKS THINGS IS A VERSION MISMATCH *BETWEEN THE TWO MEMBERS* — AND NEITHER
   THE FILENAME NOR `show boot` WILL SHOW IT.** Under netboot a member that reboots comes back on
   **whatever `/tftproot/IE520-tb470.rel` holds at that instant** while the other keeps the build it
@@ -281,21 +267,16 @@ else; it is not repeated here on purpose. What is durable is *how* to read it:
   `08/25/26 05:33:09`, and both units sat as masters seeing each other as `Provisioned`.
   **⇒ Compare the build date on BOTH members against EACH OTHER. `show boot` is not evidence.**
   After any unexpected reboot, compare the two before trusting the stack.
-- **Console rate is not fixed and not interesting** — the IE520 runs at either 9600 or 115200.
-  What matters is that the `.setup`'s `[baudrates]` matches the bench, because
-  `AWPConsoleCore._connect_serial()` opens the port once and never renegotiates. A mismatch looks
-  like a dead console: a bare CR returns a few garbage bytes, not silence.
-- **The bootloader-side link is only up DURING BOOT.** Testbox-side carrier is *not* a valid
-  pre-flight check — a working TFTP path looks identical to an unplugged one until the DUT
-  power-cycles.
-- **UNEXPECTED REBOOTS HAPPEN ON BOTH MEMBERS, AND ACROSS THE FLEET.** Bench owner, 2026-09-02:
-  *"ive had word that all of our units do it"*, and *"we will be keeping an eye on BOTH members"*.
-  Both carry unattended `Unexpected System reboot` entries — member 1 at 2026-08-31 22:10 and
-  2026-09-02 05:35 / 10:42; member 2 at 2026-08-29 05:57 / 10:17 and 2026-08-31 10:48. So do
-  **not** attribute one to a single bad unit, and do not treat a reboot as evidence of a defect in
-  whatever you were testing. **Check any unexplained stack event against `show reboot history` on
-  BOTH members first**, and report a change in *rate* or a new *signature* rather than the bare
-  fact of a reboot.
+- **Console rate is not fixed and not interesting** — a unit may run at 9600 or 115200 (the
+  x230 on tb470 runs at 9600, the IE520s at either). What matters is that the `.setup`'s
+  `[baudrates]` matches the bench, because `AWPConsoleCore._connect_serial()` opens the port once
+  and never renegotiates. A mismatch looks like a dead console: a bare CR returns a few garbage
+  bytes, not silence.
+- **AN UNEXPLAINED REBOOT IS NOT, BY ITSELF, A DEFECT IN WHAT YOU WERE TESTING.** Check
+  `show reboot history` on EVERY member first, and match the entries against the framework's own
+  post-failure power cycles (§4). Some platforms reboot unattended across the whole fleet (IE520:
+  `platforms/IE520.md` §1). Report a change in *rate* or a new *signature*, not the bare fact of
+  a reboot.
 
 **On tb470** only `10.38.215.0/24` has an upstream return path and the box has **no NAT** (proof
 commands and the DHCP/routing/capture detail: **TB470-HOST-NETWORKING.md**, §0). Another box's
@@ -309,43 +290,36 @@ save + reboot to take effect. Log: `IE520/ipv4-routing/10623.log`.
 
 ---
 
-## 2. IE520 platform facts — permanent, not bench gaps
+## 2. Platform facts — one file per product family
 
-Hardware and firmware characteristics. They will not change, and each has already been mistaken
-for a provisioning problem or a defect once.
+**Read `platforms/<FAMILY>.md` for the DUT's family before touching it** (for example
+[platforms/IE520.md](../../../platforms/IE520.md)). It holds what is true of that product and
+not of AW+ in general: its hardware limits (no SD slot, no management ethernet, SPIFlash …), its
+boot and bootloader behaviour, its build naming, the CLI forms that differ, and measured quirks.
+Each fact has already been mistaken once for a provisioning problem or a defect, so an expected
+UNSUPPORTED is never read as a failure. Moved out of this file on 2026-10-02 so it serves any
+product; how to add to a file or start one: `platforms/README.md`.
 
-| Fact | Consequence |
-|---|---|
-| **No SD card slot at all** | Any case needing SD media can never produce a verdict on this platform. Mark it `testCaseExcl`; don't chase it, and don't propose fitting a card — there is nowhere to fit one. |
-| **No battery-backed RAM / NVS** | Any case depending on it is permanently unsupported. Also: the clock does not survive a power cycle without NTP. |
-| **No onboard management ethernet** (`show interface eth0` → `% Can't find interface eth0`) | The `eth0` a `.setup` names for TFTP boot is an **ASIX USB-to-Ethernet dongle** in the switch's USB port, visible **only to the bootloader**. Cabling a front-panel port gives it no download path. |
-| **No SSH and no telnet** on these units | They answer on 80/443, but **the console is the only CLI path**. Enabling `ssh server` would itself need CLI access. |
-| **Flash is SPIFlash and is extraordinarily slow** | A 41 MB flash-to-flash copy is **~12 minutes**, and during it the unit answers **nothing** — console silent even to a bare CR, ping and ARP failing. This looks exactly like a crash. **Never power-cycle mid-write.** Also: `cmd()` returns on `Copying...` without verifying the file landed. **Counter-observation 2026-09-23** (`awplus_main-20260923-20` load, one TFTP write each on two units): a 40 MB TFTP write into flash took **206–268 s** and added **+0 bytes** — faster than the ~12 min here and contrary to the `+352` row below. Two samples only; re-measure before generalising, and budget for the slow case. |
-| **Cross-member flash copy beats TFTP** | `copy awplus-2/flash:/<f> flash:/<f>` moved 41 MB in **3.5 min** vs ~12 min for TFTP, and needs no IP address. |
-| **Opening or closing a serial port drops DTR, and the IE520 reads that as a BREAK** | It can park a unit in the bootloader. Drive these consoles with a tool that does `stty -hupcl` first; leave minicom with `Ctrl-A Q`, never by closing the window. A `sysrq: HELP` banner on open means a BREAK was just sent. |
-| **USB dongle and stick share one rear port through a hub** | u4's stick has dropped off the bus unprompted with nobody touching it. If a USB case fails oddly, **suspect the hub before the product.** |
-| **Every TFTP-written release is `+352` bytes** vs source | Deterministic across transfers and devices, so it is an AW+ write artefact, not corruption. Images boot. Not a finding. **Flash-to-flash copies are +0 bytes** — the artefact is TFTP-specific. (2026-09-23 saw +0 on two TFTP writes — see the SPIFlash row; compare sizes rather than expect +352.) |
-| **The CLI is media-blind** | On fibre, `speed`/`duplex`/`polarity` are all still offered and nothing errors, so a speed matrix pointed at fibre records a false *"DUT failed to set speed"*. Media is knowable only from the `Type` column of `show interface <port> status`. **Refined 2026-10-01 (T33235 run 4, awplus_main-20260923-20, observed):** the CLI still *offers* every speed on an AT-SPSX SX port, but running one is refused — only `speed 1000` is accepted (100 and 10000/40000/100000 rejected, on both IE520s); on the AT-SPTXc copper SFP `speed 10` answers `% Unsupported speed/duplex combination`. So "offered" still proves nothing; the refusal happens only when the command runs. |
-| **1000BASE-T copper SFPs (AT-SPTX / -SPTXa / -SPTXc) facing a host NIC only link when FORCED** (2026-09-09) | Autoneg on both ends left every such edge `notconnect` while the host (Intel igc) reported `Link detected: yes` — a half-link that reads exactly like a wiring error. The recipe that linked 3 of 3 good ports: switch `speed 1000` + `duplex full` + shut/no-shut, host `ethtool -s ethN autoneg on advertise 0x20`, allow ~20 s. Switch-to-switch copper SFP links never needed this. Mind the TFTP-NIC caveat in §1 before pinning. **Counter-observation 2026-10-01 (observed once):** after the bench owner's pluggable swaps, an AT-SPTXc in stack port3.0.10 linked to tb470 eth1 on **autoneg at both ends** (1000/full; probe MATCH, carried T12589's traffic). So this is not universal — try autoneg first, and force only if the edge stays `notconnect`. Which module/cage/NIC combination needs forcing is not yet known. |
-| **A dead SFP cage still reads the module's EEPROM** (2026-09-09) | `show system pluggable` lists the SFP; the port never links. Stack `port1.0.1` and u4 `port1.0.1` each defeated 2 SFPs × 2 cables × 2 NICs that all linked one cage over. Isolate by swapping the cable at the **switch** end — if the fault stays with the port, it is the cage. Route around it to a free cage; don't debug it. |
-| **Map host NIC → switch port by shutting the port and watching `/sys/class/net/ethN/carrier`** | Definitive even when the switch reads `notconnect`, and non-destructive. It disproved a cabling assumption twice on 2026-09-09 in under a minute each. |
-| **No `show mac address-table count` / `summary` / `interface <port>` on this build** | Every form is `% Invalid input` (the `interface <port>` form too, 2026-09-11). Filter client-side with `\| include <port>` or `\| include <mac>` — ~9,500 matching lines take ~25 s at 115200 and read cleanly. **Non-destructive host-NIC → switch-port mapping (2026-09-11):** `ping -c1 -I ethN <any address in its /27>` on tb470 forces one ARP broadcast out that NIC, then `show mac address-table \| include <that NIC's MAC>` on every switch — the switch that learned it on a *physical* port (not a trunk or `saN`) is the cabled one; the others show the trunk it arrived through. Mapped all three tb470 NICs in under a minute. (Host-side LLDP capture with `tcpdump` needs root and returned nothing unprivileged.) |
-| **A 2-member VCStack shows ~HALF the MACs a standalone learns from the same flood** (observed 2026-09-09, cause inferred) | 4,750 vs 9,348 of 9,500 broadcast sources — consistent with the hardware FDB being split across members, not proven. For an FDB-scale claim count on a standalone node, or treat the stack's figure as a per-member view. |
-| **Unpaced broadcast floods lose about half to storm-control** | 200 sent → 100 learned. Paced (chunks of 500, ~0.8 ms between frames) the same 9,500 landed 9,497. Pace anything you expect the FDB to hold. |
-| **Absence from `ck.db`'s CLI reference means UNKNOWN, not unsupported** | `polarity` is undocumented for `ie520` and both units support it. Verify on the device. |
-| **The ARP table caps at ~2045 entries, and a full table REFUSES new neighbours** (measured 2026-09-24, `awplus_main-20260923-20`, T6057) | Past the cap the DUT sends no ARP requests at all; `ping` to a new neighbour gives `sendmsg: No buffer space available`, while existing entries keep working and nothing is logged. A bench script that leaves thousands of entries behind breaks the next test's reachability. **Removing an IP secondary flushes that VLAN's WHOLE neighbour table**, real hosts included. The DUT also never learns from gratuitous ARP; to fill the table, make it resolve (routed traffic plus a responder). |
-| **`no interface vlanN` is refused** (`% Removal of interface not allowed`, 2026-09-24) | Remove the SVI's addresses, then `no vlan N` in `vlan database`. A teardown script that stops on `%` halts at that line and leaves the rest of the test config live. |
-| **CPU-path evidence = `show platform counter sdma`, compared like for like** (2026-09-24, T28126–28129) | Background CPU traffic is ~60 pps per member, so an absolute delta proves nothing. Send the SAME frames with the feature off vs on and compare the member's RX/TX packet counters: +621/+625 for 600 frames showed CPU forwarding. `auth guest-vlan hw-forwarding` is OFF by default, so guest-VLAN traffic is CPU-forwarded. |
-| **Several daemons are service-gated, and the gate is silent until you ask** (measured 2026-09-24, `awplus_main-20260923-20`) | `show bfd peer` says `% BFD protocol daemon is not running` until `service bfd`; `ipv6 multicast-routing` needs `service pim6` first. The show command is `show bfd peer`, NOT `show bfd session` (not an AW+ command). A 09-22 verdict was built on skipping both. `no service pim6`/`ospf6` answer "save and restart", so the daemon lingers until a reboot; `no service bfd` drops the console from config to exec, so the next line of a scripted block is sent in exec mode. |
-| **WRR is a scheduler-set on the IE520, not interface `wrr-queue weight`** (2026-09-24, T13553) | `mls qos scheduler-set N wrr-queue group G weight <6-255> queues Q` (global), then `mls qos scheduler-set N` on the egress port. The interface `wrr-queue weight … queues` of the wiki's x230 page is `% Invalid input`, and so is `show mls qos scheduler-set N`; read `show mls qos interface <port>` ("Scheduler-set: N"). |
-| **Queue tests need TAGGED ingress: untagged traffic ignores port default CoS, and remote-member untagged traffic lands in queue 0** (observed 2026-09-24, T13549; possible defect, not a mechanic to rely on) | Read `show mls qos interface <egress> queue-counters` (clear first). It shows per queue where a stream actually went, and it is the only way the anomaly was seen. Tagged PCP follows `show mls qos maps cos-queue` from any member. |
-| **Filters and loop-protection go on the aggregator, not its members** (2026-09-24) | `ipv6 traffic-filter` on a static-channel member: `% Cannot attach ACL to an interface that is a member of a static-channel-group. Try … "sa" interface`. Loop-protection is refused on members too. A later hardware-ACL rule without a sequence number is appended AFTER an existing `permit any any` and never matches; rebuild the list. |
-| **MDI/MDI-X polarity is UNSUPPORTED on this platform — every front port is an SFP cage** (bench owner's ruling, 2026-09-29, T33234; measured: a linked AT-SPTXa/SPTXc copper SFP reads `current polarity auto` forever while the x230's RJ45 opposite resolves `mdi`/`mdix`) | The AW+ `polarity` page: applies to copper 10/100/1000BASE-T switch ports, not fibre ports — and for MDI/MDI-X a cage is a fibre port whatever it holds. Any case asserting a DUT-side resolved mdi/mdix role is UNSUPPORTED here, never a FAIL. **Scope: polarity only.** A copper pluggable keeps its copper identity for speed, duplex and media discovery (T33235 etc.); do not generalise this row. |
-| **`polarity` is refused on BOTH an aggregator member AND the aggregator itself** (bench owner, by hand, 2026-09-29, `awplus_main-20260923-20`) | `interface port1.0.2` → `polarity mdix` → `% Cannot configure aggregator member.`; `interface sa2` → `polarity mdix` → `% L2/L3 mode cannot be explicitly configured on aggregator interface sa2`. So unlike ACLs and loop-protection (previous row), a port-physical setting has NO home while the port is in a channel-group: `no static-channel-group` on the member first, set it, re-add afterwards. On tb470 every stack↔partner link is a LAG member, so any polarity/speed/duplex case frees its link first (T33234 recipe: both sa2 legs out, each VLAN-isolated since STP is off) and restores it after. |
-| **Modbus/TCP on the IE520 serves Mapping Version 5, addressed per stack member** (measured 2026-09-29, `awplus_main-20260923-20`, T22650–22655) | `scada modbus tcp server` (+ `access read-write` for writes); unit id = stack member, unit 0 = the system block and the master's per-member block. AWPTCM case texts carrying Version-1 addresses (0x3600…) answer *illegal data address*. Alarm entries are 6 words (type, config, 3 reserved, status at +5); the alarm-config bitmap is MSB-first (LED = 0x8000) and a write of an unmapped bit is acknowledged and does nothing. No PoE on the IE520-28GSX, so every PoE register is illegal-address. The system alarm count (0x0049) also counts a **provisioned-but-absent** member (`switch 2 provision` → +31) — T22650 FAIL. A state write to an aggregator-member port is applied but answered exception 4. Evidence and register map: `IE520/modbus-2026-09-29/README.md`. |
-| **GVRP works between two IE520s, but late VLANs are not announced** (observed 2026-09-29, T38409, O-1; cause not established) | `gvrp enable` + `gvrp dynamic-vlan-creation` globally, `gvrp` on a trunk port. Both directions learned DYNAMIC VLANs over the stack↔SA link. A VLAN created, or getting its first live member, after GVRP was already running was not announced within 30 s (three times, LeaveAll 10 s) until `no gvrp` / `gvrp` on the port; a VLAN that lost its last member stayed announced. Bounce the port's `gvrp` before reading results. `IE520/vlan-2026-09-29/38409.log`. |
-| **`fast-block` IS clearable** (2026-09-24, T16452; corrects the 09-22 "sticky" reading) | `port-disable` is refused while fast-block is on. `no loop-protection loop-detect` then `loop-protection loop-detect ldf-interval 1` (no keyword) clears it; restore the baseline with `… fast-block`. |
-| **A master reload drops the CLI session on EVERY backup member's console** (2026-09-24, 38435) | A backup console's session is remote to the master ("Read from remote host node-3: Software caused connection abort"), so after `reload stack-member <master>` the console returns to `IE520-stk-N login:`. A script polling there types its commands into the login prompt. Re-login before the next command. With equal priorities the new master was the lowest MAC among the survivors (3→4→3, observed twice). |
+- **No file for the DUT's family yet** → say so in the brief (§9 c) and work from the general
+  traps below and in §1, §3–§7. Start the file the first time you measure something that would
+  have cost the next session time.
+- **A partner unit of another family** (an x230, an AR4050S) has no file of its own unless
+  someone has measured one; its quirks seen so far are in the session handovers.
+
+What applies on **any** AW+ bench, whatever the product (measured on tb470, 2026-09-09/11):
+
+- **Map host NIC → switch port by shutting the port and watching
+  `/sys/class/net/ethN/carrier`.** Definitive even when the switch reads `notconnect`, and
+  non-destructive. It disproved a cabling assumption twice in under a minute each.
+- **Or without touching a port:** `ping -c1 -I ethN <any address in its subnet>` on the box forces
+  one ARP broadcast out that NIC; then `show mac address-table | include <that NIC's MAC>` on
+  every switch. The switch that learned it on a *physical* port (not a trunk or `saN`) is the
+  cabled one; the others show the trunk it arrived through. (Host-side LLDP capture with
+  `tcpdump` needs root and returned nothing unprivileged.)
+- **Absence from `ck.db`'s CLI reference means UNKNOWN, not unsupported.** Verify on the device.
+- **A dead SFP cage can still read the module's EEPROM**: `show system pluggable` lists it and
+  the port never links. Swap the cable at the **switch** end; if the fault stays with the port,
+  route around the cage rather than debug it.
 
 ---
 
@@ -464,16 +438,11 @@ like a dead or odd unit (u5 was declared "dead" for an hour on 2026-09-09, until
 *"how is u5 dead"*). `login()` does not drain it: send raw `end` / `disable` / `enable` before the
 first command, or use `do show …`.
 
-**IE520 Boot Menu keypresses differ from the CLI's.** Menu options and Y/N take a **bare
-keypress** (a trailing `\r` answers the NEXT prompt); only file selection takes Enter. But AW+ CLI
-`(y/n)` confirmations want `y\r` — a bare `y` left `reload` unanswered, silently. Stop ticking
-`Ctrl+B` the moment the menu appears (continuing re-prints the menu forever, so a wait-for-quiet
-read loop never settles and the unit is left parked at the bootloader, offline to the whole
-shared bench), and always drive `0`/`0`/`9` out in a `finally:` — **unconditionally**, never
-contingent on some other recovery path existing. Cancelling with `0` persists nothing: the
-bootloader only writes on `Saving settings... Complete`, after a *completed* file selection.
-Verify recovery by re-reading `show boot` against the pre-test capture. (The bench owner caught a script
-parked in this menu on tb470 u5, 2026-08-10.)
+**AW+ CLI `(y/n)` confirmations want `y\r`** — a bare `y` left `reload` unanswered, silently.
+**A bootloader menu is a different animal:** its keys, its interrupt and its exit sequence are
+per product, so read the platform file before driving one (IE520: `platforms/IE520.md` §2 — bare
+keypresses, stop the interrupt key as soon as the menu appears, exit in a `finally:`). A unit
+left parked in a bootloader is offline to the whole shared bench.
 
 ---
 
@@ -633,13 +602,13 @@ is not a bench-health signal. What matters after a rejoin is that both members r
 The measure of a finished run is that the next person can start one. Verify and record final state.
 
 - **Leave the boot source the next reboot will actually use in a good state** — which source that
-  is (flash `.rel` named by `show boot`, or `/tftproot/IE520-tb470.rel` on tb470 under netboot) is
-  in bench-state.md's "boot image" column (§1). Under flash boot confirm `show boot` reads `(file exists)`; under
-  netboot leave the served file holding the intended build.
-- **Watch free flash.** 106.3 MB total per member; two 41 MB `.rel` files leave ~20–26 MB — **not
-  enough for another release** (measured 2026-09-02; current figures are a `dir` away). Clear large
-  leftovers; a stray 41 MB `.rel` has filled a unit's flash and caused a silent failure. `dir`
-  reads the master's flash only (`dir stack-member N` is rejected).
+  is (the flash `.rel` named by `show boot`, or the file the box serves under netboot) is in
+  bench-state.md's "boot image" column (§1). Under flash boot confirm `show boot` reads
+  `(file exists)`; under netboot leave the served file holding the intended build.
+- **Watch free flash.** A stray release left in flash has filled a unit and caused a silent
+  failure. Clear large leftovers, and check `dir` before staging another release. The product's
+  flash size and `dir` quirks are in its platform file (IE520: two releases leave no room for a
+  third).
 - **A case that destroys state must restore it in a `finally:` inside `main()`, not in
   `tear_down()`** — `tear_down()` does not run when `main()` raises, which once caused a
   five-case cascade.
@@ -697,7 +666,8 @@ Dense and skimmable, with clickable relative paths.
   is currently master**, and on a netbooting bench whether the TFTP boot path is up. From §1
   lookups, not from this file.
 - **(b) What today's run needs first**, if anything, with its time cost.
-- **(c) Relevant platform limits** (§2) that bear on the work in scope, so an expected
+- **(c) Relevant platform limits** from `platforms/<FAMILY>.md` (§2), or "no platform file
+  for <FAMILY> yet", that bear on the work in scope, so an expected
   unsupported result is never read as a failure.
 - **(d) Today's task** — only if the user has stated one. Otherwise say "awaiting direction" and
   do **not** invent an agenda.

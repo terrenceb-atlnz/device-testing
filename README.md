@@ -55,6 +55,7 @@ memories, or none.
 | --- | --- |
 | [STANDING-ORDERS.md](STANDING-ORDERS.md) | The standing answers for campaigns: what the tester may do to devices, the triage report shape, and what always stays the Test Engineer's. |
 | [logged-output.md](logged-output.md) | Every logging rule: verdicts, working logs, the results list, the final log template, `/create-logs`. |
+| [platforms/](platforms/README.md) | One file of platform facts per product family, e.g. `IE520.md`: hardware limits, boot traps, CLI differences. |
 | [tools/](tools/README.md) | Reusable helpers: console drivers, CLI answerers, traffic senders and counters, protocol emulators. **Look here before writing a script.** |
 | [TESTBOX-ACCESS.md](TESTBOX-ACCESS.md) | SSH to a testbox, driving its consoles, launching framework runs. |
 | `bench-setup/` | `bench_probe.py` (the one bench-state tool), `default-boxes`, and per box `<TB>/`: the generated `bench-state.md`, `<TB>.static`, captures and backups. tb470 keeps the flat legacy files at the top of `bench-setup/`. |
@@ -74,6 +75,7 @@ memories, or none.
   box's `bench-state.md`. Never hand-edit it or the deployed `.setup`.
 - **Write only inside the repo.** Scratch goes in the session scratchpad or the box's
   `/tmp/<scratch>/`. Don't leave stray scripts in the lab tree.
-- **Product facts are per product.** orient-dt §2 holds the platform traps measured so far,
-  currently for IE520. Add your product's as you measure them, dated and marked with the box
-  they were measured on.
+- **Product facts are per product.** `/orient-dt` holds what is true of any AW+ product. One
+  product family's limits and boot traps live in `platforms/<FAMILY>.md`; there is one today,
+  [platforms/IE520.md](platforms/IE520.md). Start your product's file the first time you measure
+  something worth keeping ([platforms/README.md](platforms/README.md)).

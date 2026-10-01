@@ -500,7 +500,7 @@ SSH_AUTH_SOCK=$sock ssh tb105 '
   `Provisioned`, 26 ports `err-disable`), both causes and their opposite fixes, the recovery
   sequence, the ⛔ on `no stack <id> enable`, and the fact that a rejoin does not re-elect.
   Product facts from it (media-blind CLI, "absence from the docs means UNKNOWN") are in
-  orient §2.
+  `platforms/IE520.md` and orient §2.
 - **§4b, tb470 host networking** → **`TB470-HOST-NETWORKING.md`**. It was never about access.
 
 ## 5. Quick reference
@@ -520,6 +520,7 @@ SSH_AUTH_SOCK=$sock ssh tb105 '
 | Read a framework log | `tr -d '\000' < x.log \| grep -a …` (CR line endings + embedded NULs) |
 
 | Diagnose or recover a split stack | orient §6 |
-| IE520 platform limit / framework trap / which driver | orient §2, §3, §4 |
+| Product platform limit (e.g. IE520) | `platforms/<FAMILY>.md` |
+| Framework trap / which driver | orient §3, §4 |
 | tb470 DHCP, routing, no-NAT, packet capture | `TB470-HOST-NETWORKING.md` |
 | What is cabled to what, PDU outlets, loopback plugs | `bench-state.md` (source of truth) |

@@ -21,7 +21,8 @@ an `after-action-17688.md` path broken in three files simultaneously.
 | swi_ name per SERIAL, PDU IP and outlets — hand-entered once | `claude/device-testing/bench-setup/tb470.static` |
 | Device configuration (addressing, VLANs, what is shut) | the devices' own startup-configs and the recorded `.cfg` files; the probe saves each `show running-config` under `bench-setup/captures/<stamp>/` for a plain `diff` |
 | **Open product defects found on this bench** | the campaign's issue log (`IE520/CAMPAIGN-QUEUE-<date>.md`) and the after-action file holding the evidence, e.g. `IE520/stack-tests/resiliency-link/after-action-17688.md` |
-| IE520 platform limits, framework traps, **which console driver to use**, split-stack diagnosis and recovery, bench hygiene | `.claude/skills/orient-dt/SKILL.md` (run `/orient-dt`) |
+| IE520 platform limits | `platforms/IE520.md` (moved out of orient-dt 2026-10-02) |
+| Framework traps, **which console driver to use**, split-stack diagnosis and recovery, bench hygiene | `.claude/skills/orient-dt/SKILL.md` (run `/orient-dt`) |
 | SSH auth from this host, which console is which unit, launching a framework or legacy run | `TESTBOX-ACCESS.md` |
 | tb470 host DHCP, routing, no-NAT, packet capture | `TB470-HOST-NETWORKING.md` |
 

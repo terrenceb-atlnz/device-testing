@@ -76,7 +76,8 @@ away.
      start `claude`, then re-run `/test-mode` with the same arguments. End this invocation with
      nothing armed.
 4. **Read for the box, not from memory.**
-   - `/orient-dt` §0–§4 and §10 apply to any box. Its §2–§4 traps are per product.
+   - `/orient-dt` §0–§4 and §10 apply to any box and any AW+ product. The DUT family's own traps
+     are in `platforms/<FAMILY>.md` (orient-dt §2); with none, say so in the triage report.
    - The facts marked "tb470" in it (NIC names, the boot-server role, `/nfsHome`, the
      `10.38.215.0/24` return path) apply only there. On another box, ask the Test Engineer rather
      than assume them.

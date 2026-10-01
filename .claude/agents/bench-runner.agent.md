@@ -76,7 +76,8 @@ dispatch prompt names:
 
 ## Read first, in this order — copy no facts out of them
 
-1. `.claude/skills/orient-dt/SKILL.md` §0 (where everything lives) and §2–§4 (platform, driver
+1. `platforms/<FAMILY>.md` for the DUT's family (if one exists), and
+   `.claude/skills/orient-dt/SKILL.md` §0 (where everything lives) and §2–§4 (platform, driver
    and framework traps that have each cost a session). Facts there marked "tb470" (NIC names,
    boot server, `/nfsHome`, its return path) apply only when `box: tb470`.
 2. `STANDING-ORDERS.md` (repo root) — the standing answers: device-state authority, the triage
