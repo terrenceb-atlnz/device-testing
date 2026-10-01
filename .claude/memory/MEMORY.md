@@ -20,7 +20,7 @@
 - [IE520 bootloader console driving](ie520-bootloader-console-driving.md) — POINTER only: mechanics live in orient-dt skill §3; the worked example of a bench fact copied into a mechanics memory
 - [tb470 IE520s flash-boot — reboots OK](tb470-ie520-flash-boot-reboots-ok.md) — 2026-09-11: all IE520s default-boot from flash .rel so `reload` is safe
 - [Run attribution: 5700 campaign](run-attribution-5700-campaign.md) — only the 2026-08-07/08 run is bidhanc's; everything from 2026-08-10 is OURS; TestCases belong to the suite
-- [i2c stress tooling](i2c-stress-tooling.md) — claude/device-testing/IE520/i2c-stress/ = validated IE520 i2c stress scripts; smoke-clean tb470 2026-08-26; the full 300 run not yet fired
+- [i2c stress tooling](i2c-stress-tooling.md) — tools/i2c_stress.py + i2c_stress_fw.py (moved 2026-10-02) = validated IE520 i2c stress scripts; smoke-clean tb470 2026-08-26; the full 300 run not yet fired
 - [IE520 silent-reboot watch 2026-09-02](ie520-silent-reboot-watch-2026-09-02.md) — DEFERRED to a weekend run; caught member 1's silent reboot; 3 harness defects to fix first; only console.py survives
 - [IE520 DoS test method](ie520-dos-test-method.md) — AWPTCM DoS suite on tb470: attacks must TRANSIT the switch; batch sendp (fastdos.py); disarm `no dos <type>`; method in DOS-METHOD.md
 - [Prefer a pragmatic fix over infra debugging](prefer-pragmatic-fix-over-infra-debugging.md) — when incidental infra breaks mid-task, take the deterministic fix (static IP, skip); don't rabbit-hole

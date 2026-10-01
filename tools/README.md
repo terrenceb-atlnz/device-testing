@@ -25,8 +25,8 @@ adding one are in [../logged-output.md](../logged-output.md) §2:
 - **Requirements:** Python 3.7 or later on Linux. Each entry names anything else it needs
   (pyserial, scapy, tcpreplay, pymodbus). "root" means run it with `sudo`.
 
-**Status.** Every tool below was moved here and generalised on 2026-10-02 from tb470/IE520
-campaign scripts. Bench facts became arguments and nothing else in its behaviour changed. **None
+**Status.** Every tool below, apart from the two i2c stress tools (see their entries), was moved
+here and generalised on 2026-10-02 from tb470/IE520 campaign scripts. Bench facts became arguments and nothing else in its behaviour changed. **None
 has been re-run on hardware since.** The first run that uses a tool should change its status to
 `verified <date> on <box>/<product>`.
 
@@ -203,6 +203,41 @@ booting). Nothing is saved.
   - The menu strings and option numbers are the IE520 Boot Menu's.
   - **Check on hardware:** it sends each key with a trailing CR. orient-dt §3 says this menu takes bare keypresses and that a CR answers the next prompt.
 - **Status:** generalised 2026-10-02, not re-verified on hardware
+
+## Product-specific stress
+
+### `i2c_stress.py`
+**IE520 only.** It interleaves the two i2c-taxing commands, `show platform port` and `show system
+pluggable diagnostics`, N times each, and watches for the i2c lock and watchdog-reset signature.
+It stops at the first lock. It never power-cycles: the IE520 watchdog self-resets about 42 s
+after a lock, and the tool waits that out passively. It sends read-only `show` commands only.
+- **Run:** `setsid nohup ./i2c_stress.py /dev/uN [-n 300] [--baud 115200] [--user U] [--password P] > i2c-stress.stdout 2>&1 < /dev/null &`, from a fresh dated directory, because the logs land in the current directory
+- **Where:** testbox; **needs:** pyserial
+- **Imports:** none (it has its own console code)
+- **Detection is IE520-specific:**
+  - the kernel printk `i2c i2c-0: mv64xxx: I2C bus locked`, which appears only on the unit's own console, so drive that console;
+  - a command that never returns a prompt;
+  - a boot banner.
+- **Limits:**
+  - It expects a standalone unit, and warns if `show stack` disagrees.
+  - On a stacked pair `show platform port` takes about 36 s per pass, so 300 pairs take about 3.1 h.
+- **Exit codes:**
+  - 0: clean;
+  - 1: lock or reset detected (the evidence log has the iteration, the command in flight, the epoch and the reboot history);
+  - 2: aborted or wedged.
+- **Status:** smoke-tested clean on tb470 2026-08-26 (evidence `IE520/i2c-stress/runs/2026-08-26-tb470-smoke/`); moved here 2026-10-02 unchanged
+
+### `i2c_stress_fw.py`
+The same stress loop as `i2c_stress.py`, as a thin wrapper over the framework's
+`ATSwitch.Switch(devicePath)`, with no `.setup`.
+- **Run:** `PYTHONPATH=/home/st-art setsid nohup python3 ./i2c_stress_fw.py /dev/uN [-n 300] > stdout.log 2>&1 < /dev/null &`
+- **Where:** testbox; **needs:** the AT framework at `/home/st-art/framework` (read-only)
+- **Imports:** the framework's `ATSwitch`
+- **Limits:**
+  - IE520 only, as above.
+  - It uses the framework's default baud only.
+  - It drops an extra `swi_noname_N.log` at construction, which is cosmetic.
+- **Status:** smoke-tested clean on tb470 2026-08-26; moved here 2026-10-02 unchanged
 
 ## Config and transcript analysis
 
