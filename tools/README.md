@@ -26,9 +26,10 @@ adding one are in [../logged-output.md](../logged-output.md) §2:
   (pyserial, scapy, tcpreplay, pymodbus). "root" means run it with `sudo`.
 
 **Status.** Every tool below, apart from the two i2c stress tools (see their entries), was moved
-here and generalised on 2026-10-02 from tb470/IE520 campaign scripts. Bench facts became arguments and nothing else in its behaviour changed. **None
-has been re-run on hardware since.** The first run that uses a tool should change its status to
-`verified <date> on <box>/<product>`.
+here and generalised on 2026-10-02 from tb470/IE520 campaign scripts. Bench facts became arguments and nothing else in its behaviour changed. The
+read-only console tools and the offline pcap tools were re-run on tb470 the same day. **A tool
+whose status still says "not re-verified on hardware" has not been run since it changed.** The
+first run that uses one should change its status to `verified <date> on <box>/<product>`.
 
 ## Console driving
 
@@ -44,7 +45,7 @@ on; this one does not (orient-dt §3).
   - The prompt regex expects AW+ `host#` / `host(mode)#`.
   - `stty -hupcl` is an IE520 DTR/BREAK workaround and is harmless elsewhere.
   - It raises at a forced password change rather than guessing.
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified 2026-10-02 on tb470, IE520 standalone (u3), read-only (through ckcon, cfg, qmark, poll, listen, witness_log); x230 at 9600 via ckcon
 
 ### `awlogin.py`
 Shared AW+ login and expect helpers for the console drivers. It waits for prompts, never for a
@@ -53,7 +54,7 @@ quiet gap, and refuses the forced password-change dialog.
 - **Where:** testbox; **needs:** pyserial
 - **Imports:** console
 - **Limits:** AW+ `login:` / `Password:` / `#` / `>` prompts only
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified 2026-10-02 on tb470, IE520 standalone (u3), read-only (through cfg, poll)
 
 ### `ckcon.py`
 Runs a list of CLI commands on one console and prints each with its output. With
@@ -64,7 +65,7 @@ Runs a list of CLI commands on one console and prints each with its output. With
 - **Limits:**
   - It does not answer (y/n) prompts; use `ckyn.py` or `cfg.py` for those.
   - It is slow on a console flooded by `terminal monitor`; use `cfg.py` there.
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified 2026-10-02 on tb470, IE520 standalone (u3), read-only; also x230-10GP (u0) at 9600
 
 ### `ckyn.py`
 Like `ckcon.py --stop-on-error`, but it answers expected (y/n) confirmations:
@@ -95,7 +96,7 @@ the console at exec with `terminal no monitor`.
   - 5: no prompt within 90 s;
   - 6: an expected (y/n) did not appear;
   - 7: no privileged prompt.
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified 2026-10-02 on tb470, IE520 standalone (u3), read-only (`show clock`; the YN: path not exercised)
 
 ### `qmark.py`
 Read-only CLI help probe. It types `PREFIX ?` with no CR, prints the completions offered, then
@@ -108,7 +109,7 @@ clears the line with Ctrl-U. A self-test first proves that nothing gets executed
 - **Limits:**
   - It relies on AW+ Ctrl-U line-kill; the self-test aborts with exit 3 if that fails.
   - `--mode` commands are executed normally, to reach the mode being probed.
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified 2026-10-02 on tb470, IE520 standalone (u3), read-only (self-test passed; line left clean, checked with peek)
 
 ### `peek.py`
 Pre-run console check. It sends one bare CR and reports the last line: `login:`, `>`, `#`, a
@@ -118,7 +119,7 @@ root shell before a run.
 - **Where:** testbox; **needs:** pyserial, `stty`
 - **Imports:** none
 - **Limits:** it sends one CR, so it is not strictly passive
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified 2026-10-02 on tb470: IE520 (u3) and x230 (u0, 9600)
 
 ### `poll.py`
 Runs commands every `interval_s` for `duration_s`, stamped with epoch times. It logs in again
@@ -127,7 +128,7 @@ when the session drops, for example when the master reloads, and touches `donefi
 - **Where:** testbox; **needs:** pyserial
 - **Imports:** console, awlogin
 - **Limits:** none known
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified 2026-10-02 on tb470, IE520 standalone (u3), read-only (3 samples in 15 s; the first interval includes the login)
 
 ### `listen.py`
 Passive console recorder. It prints every line the console emits with an epoch stamp for
@@ -136,7 +137,7 @@ Passive console recorder. It prints every line the console emits with an epoch s
 - **Where:** testbox; **needs:** pyserial
 - **Imports:** console
 - **Limits:** it does not log in, so it records only what the console prints anyway (boot output, an existing `terminal monitor` session)
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified 2026-10-02 on tb470, IE520 standalone (u3), read-only
 
 ### `witness_log.py`
 Passive witness logger for a peer unit during a reproducer. It logs in once with `terminal
@@ -145,7 +146,7 @@ monitor` on, then only reads, stamping each line with the testbox's local time.
 - **Where:** testbox; **needs:** pyserial
 - **Imports:** console
 - **Limits:** the timezone and UTC offset in its header are read once, at start
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified 2026-10-02 on tb470, IE520 standalone (u3), read-only (header computed NZDT = UTC+13:00; clean detach on SIGINT; leaves `terminal monitor` ON, so send `terminal no monitor` afterwards)
 
 ## Reload, flash and boot menu
 
@@ -248,7 +249,7 @@ pre-case versus post-case teardown check (STANDING-ORDERS §1).
 - **Where:** anywhere; **needs:** nothing beyond Python
 - **Imports:** none
 - **Limits:** it needs ckcon-style `HH:MM:SS >>> cmd` headers, and crashes if a file has no running-config
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified 2026-10-02 on tb470 (two real IE520 captures, identical -> no output)
 
 ## Traffic, frames and protocol emulators
 
@@ -315,7 +316,7 @@ Unmarked frames are listed separately. It is the receiving side of `vsend.py`.
 - **Where:** anywhere; **needs:** scapy
 - **Imports:** none
 - **Limits:** none known
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified 2026-10-02 on tb470 (scapy 2.6.1; unmarked frames counted)
 
 ### `mkpcap.py`
 Writes a pcap of routed UDP frames, one per destination address, or all to one address with
@@ -324,7 +325,7 @@ Writes a pcap of routed UDP frames, one per destination address, or all to one a
 - **Where:** anywhere; **needs:** scapy
 - **Imports:** none
 - **Limits:** UDP only; `frame_len` excludes the FCS
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified 2026-10-02 on tb470 (v4 and v6 pcaps, scapy 2.6.1)
 
 ### `mkmc.py`
 Writes a pcap of sequence-numbered IPv4 multicast UDP frames from a fake source to a group.
@@ -332,7 +333,7 @@ Writes a pcap of sequence-numbered IPv4 multicast UDP frames from a fake source 
 - **Where:** anywhere; **needs:** scapy
 - **Imports:** none
 - **Limits:** IPv4 only
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified 2026-10-02 on tb470 (scapy 2.6.1)
 
 ### `igmp.py`
 Sends IGMPv2 joins (Membership Reports) or leaves from a fake receiver host.
@@ -379,7 +380,7 @@ Prints every Router Advertisement in a pcap, with its Prefix Information options
 - **Where:** anywhere; **needs:** scapy
 - **Imports:** none
 - **Limits:** none known
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified 2026-10-02 on tb470 (scapy 2.6.1; a pcap with no RAs)
 
 ### `lldpmed_phone.py`
 Emulates an LLDP-MED Class III IP phone. It sends LLDP-MED and decodes the switch's Network
