@@ -38,7 +38,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from console import Console, ConsoleError
+from console import Console, ConsoleError, PROMPT_ANYWHERE_RE
 
 # 30 min ceiling (IE520 SPIFlash, measured); returns as soon as the prompt is back.
 # Default for --timeout.
@@ -126,15 +126,23 @@ def main():
         log('ABORT: device refused the copy: {}'.format(err.group(0).strip()))
         c.close()
         return 1
-    if CONFIRM_RE.search(early.rstrip()):
+    pending = bool(CONFIRM_RE.search(early.rstrip()))
+    if pending:
         log('confirmation prompt pending -> sending "y" + CR')
         c.s.write(b'y\r')
 
-    log('waiting for the write (up to {:.0f} s; IE520 SPIFlash: ~12 min of silence '
-        'per ~41 MB)...'.format(a.timeout))
-    start = time.time()
-    out = c.read_until_quiet(quiet=5.0, timeout=a.timeout, need_prompt=True)
-    log('copy returned after {:.0f} s'.format(time.time() - start))
+    if not pending and PROMPT_ANYWHERE_RE.search(early.split('Copying', 1)[-1]):
+        # A small file finishes inside the first read: its prompt has already come back,
+        # so waiting for another would sit out the whole timeout (seen 2026-10-02 with a
+        # 1.6 KB file).  The dir check below is still the proof.
+        log('copy finished within the first read')
+        out = early
+    else:
+        log('waiting for the write (up to {:.0f} s; IE520 SPIFlash: ~12 min of silence '
+            'per ~41 MB)...'.format(a.timeout))
+        start = time.time()
+        out = c.read_until_quiet(quiet=5.0, timeout=a.timeout, need_prompt=True)
+        log('copy returned after {:.0f} s'.format(time.time() - start))
     tail = '\n'.join(out.strip().splitlines()[-6:])
     log('tail:\n{}'.format(tail))
 

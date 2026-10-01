@@ -81,7 +81,7 @@ Like `ckcon.py --stop-on-error`, but it answers expected (y/n) confirmations:
   - 4: no prompt after `y`;
   - 5: no prompt within 60 s;
   - 6: an expected (y/n) did not appear.
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified 2026-10-02 on tb470 IE520 (u3): `YN:delete flash:/<file>` answered the real (y/n)[n] prompt
 
 ### `cfg.py`
 Config and show driver for chatty consoles. Each command completes on the prompt after its echo,
@@ -179,7 +179,7 @@ size. The source can be another stack member's flash (`<host>-<id>/flash:/`).
 - **Limits:**
   - It refuses if the destination already exists.
   - The 1800 s timeout fits IE520 SPIFlash, where the console is silent for about 12 min per 41 MB.
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified 2026-10-02 on tb470 IE520 (u3), a 1.6 KB file; fixed that day: a copy that finishes inside the first read used to wait out the whole timeout
 
 ### `tftp_copy.py`
 TFTPs a file into flash (`copy tftp://<server>/<file> flash:/<dest>`), then checks with `dir`
@@ -192,7 +192,7 @@ that it landed.
   - `dest` can be given only after `expected_bytes`.
   - A size mismatch is reported, not failed.
   - The timeout is sized for IE520.
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** generalised 2026-10-02; the same early-completion fix as flash_copy applied but NOT re-verified on hardware (needs a file in the box's TFTP root)
 
 ### `bootmenu_escape.py`
 Backs a console out of the bootloader Boot Menu with `0` (cancel/back) and `9` (quit and continue
