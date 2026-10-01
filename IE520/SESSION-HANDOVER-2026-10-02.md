@@ -1,4 +1,4 @@
-# Session handover — 2026-10-02 (wrapped ~09:00 NZDT)
+# Session handover — 2026-10-02 (wrapped ~09:00 NZDT; shareable-repo session re-wrapped ~10:30)
 
 ## Session facts
 Test Engineer: terrenceb@terrenceb-dl
@@ -7,6 +7,152 @@ Consoles: u0,u1,u2,u3,u4,u5 (u6 absent)
 PDU: 10.36.150.14; outlets per bench-setup/tb470.static
 Constraints: none
 
+
+## Shareable-repo session, wrapped ~10:30 NZDT. Its own section; the side mission below is a different session
+
+### Session facts
+Test Engineer: terrenceb@terrenceb-dl
+Testbox: tb470
+Consoles: u0, u3 (driven); u5 (read-only, 09:41); precheck over u0–u5
+PDU: none used
+Constraints: AI writes only in the three repos; Terrence pushes; only this session's consoles,
+precheck first; no stray .py in the lab tree; framework and ck.db read-only; never hand-edit
+bench-state.md or the deployed .setup; root on the box through the Test Engineer (`sudo -n` for
+the traffic senders was approved: "Traffic senders (root)"); console transcripts stay in the
+box's /tmp (u3's hold a password hash)
+
+### TL;DR
+
+- **The repo is now testbox- and product-agnostic, and logging changed.** The rules are in
+  [logged-output.md](../logged-output.md). The tester writes `work/run<N>.log` plus one `.cfg` per
+  device and sends `RESULT` lines; the sentinel keeps a `## Results` table. The final
+  `<id><suffix>.log` is made ONLY by `/create-logs`, on request. Helpers are in [tools/](../tools/),
+  product facts in [platforms/IE520.md](../platforms/IE520.md), and the default box is in
+  `bench-setup/default-boxes`.
+- **None of the new logging flow has been run end to end yet.** That is next step 1.
+- **Tool verification on tb470:** 25 of 33 tools are now verified (6 need DUT feature config; the 2 i2c tools are unchanged since their 08-26 smoke test); statuses are in
+  [tools/README.md](../tools/README.md).
+- **One dangerous bug was found and fixed** (`2df1fc0`). The old `bootmenu_escape.py` sent `9` from
+  any Boot Menu screen. In `Select device`, `9` saves "Boot from default", which would undo the
+  units' flash-boot default.
+- **Bench, as far as this session can see:**
+  - u0 and u3: exec prompt, monitor off, running-config = startup-config, boot pointers valid.
+  - u2, u4, u5: held by the Test Engineer's minicom, not read.
+  - **bench-state.md NOT regenerated** (stamp `2026-10-01T195349Z`), because the probe needs those
+    consoles.
+- **eth1 and eth3 (to stack member 3) had no carrier at 10:24**, after this session's last
+  traffic test at 09:42. Detail under Findings.
+
+### What was accomplished (commits, all by this session unless marked)
+
+| commit | what |
+| --- | --- |
+| `7b96295` | logged-output.md: logging rules moved out of STANDING-ORDERS §2; template from 38472.log (structure) + 30142.log (per-step proof, topology) |
+| `6209742`, `33139b0` | tools/: one repo-root home, duplicates deleted, renames (ck15lib→awlogin, ckyn3→ckyn, flows→l2flows, ra→ra_decode, phone→lldpmed_phone, recover_u5→bootmenu_escape); i2c stress tooling moved in |
+| `6b48b5d`, `4c9ec2e`, `ad0e4be` | `/create-logs` skill; test-mode Results table and the closing line; bench-runner working log + `.cfg` + `RESULT`, never the final log |
+| `1b5fa6a`, `a591943`, `1bda08b` | testbox-agnostic docs; `default-boxes` read by bench_probe, sentinel.sh and orient-dt; README for new engineers; wiki rewritten |
+| `e37c8b4`, `788a9fa` | `platforms/IE520.md` (product facts out of orient-dt); a leftover bench fact removed |
+| `877271c`, `3b10dbb`, `2df1fc0`, `7bdf2b7` | hardware verification of the tools; flash_copy/tftp_copy small-file fix; Boot Menu escape rewrite |
+| `616b828`, `6617d6c`, `18423ec` | **not this session**: the rollback-image side mission and the terminal-monitor fix |
+
+### Results: tool verification on tb470 (all clean runs)
+
+| tool | console / path | result |
+| --- | --- | --- |
+| peek, ckcon, rcdiff, qmark, cfg, poll, listen, witness_log, ckyn | u3, u0 | pass (`877271c`) |
+| mkpcap, mkmc, vcount, ra_decode | host | pass (scapy 2.6.1) |
+| flash_copy | u3 | **hung 600 s on a 1.6 KB file** (the prompt came back inside the first read; an old bug). Fixed in `3b10dbb`; then 8 s, +0 bytes |
+| ckreload | u3 | reboot question only, `y`; login after 189 s; running-config unchanged |
+| reloadc `reload` | u3 | `y` 09:30:14; login banner after 187 s; running-config unchanged |
+| bootmenu_escape (rewritten) | u3, parked in `Select device` | CR (re-prints the menu), `0`, `9`; login after 188 s; no `Saving settings`; `show boot` and running-config unchanged |
+| vsend → vcount | eth1 → stack VLAN 1 → eth3 | 10 × ip10 + 10 × ipv6, all 20 counted |
+| l2flows → flowstat, loopwin | eth1 ↔ eth3, 10 s, 20 pps per flow | 4 × 200 frames, 0 lost, 0 dups, median latency 0.37 ms; loopwin 0 windows |
+| linerate | eth1 → eth3, 10 Mbps, 5 s | 4178 sent / 4178 received, 0 kernel drops |
+
+**u3's reboot history:** the entries at 2026-10-01 20:26, 20:31 and 20:36 UTC (09:26–09:36 NZDT)
+are this session's three reloads, all `Expected CLI(user request)`. The side-mission section
+below calls the 09:36 reload "someone else's ckreload.py, PID 393877"; that was this session.
+The `Unexpected` entries before 19:40 UTC are not this session's.
+
+**Final logs:** this session ran no campaign cases, so there is nothing for `/create-logs`.
+
+### Findings
+
+**Measured:**
+- The IE520 Boot Menu prompt `Enter selection ==> ` ends in `>`. In `Select device`, `9` is a
+  saving selection. On the main menu, `0` is Restart. A bare CR at a menu re-prints it.
+  Recorded in `platforms/IE520.md` §2.
+- `flash_copy`/`tftp_copy`: a copy that finishes inside the first read used to wait out the whole
+  timeout.
+
+**Observed, cause inferred:**
+- tb470 eth1 and eth3 went down together at 10:06:30, up at 10:09:39–48 (eth3 first at 2500,
+  then 1000), and down together again at 10:21:27. Still down at 10:24 (from tb470's kernel log).
+- Both go to stack member 3 (port3.0.10, port3.0.9). Inferred: member 3 was restarting during the
+  Test Engineer's rollback work. Not confirmed, because u5 is held by their minicom.
+- Proof would be `show reboot history` and `show stack` on u5.
+
+### OPEN
+
+1. Are eth1/eth3 back up, and did stack member 3 rejoin? Read `cat /sys/class/net/eth{1,3}/carrier`
+   and `show stack` once the minicoms on u2/u4/u5 are closed.
+2. bench-state.md is not regenerated. The next probe will also show the side mission's
+   `coro-IE520-tb470.rel` boot image (expected, not drift).
+3. Not verified yet:
+   - `mb`, `igmp`, `nsresp`, `dhc6`, `rs`, `lldpmed_phone`: each needs DUT feature config;
+   - `loopwin` against a real loop;
+   - `linerate --rate top`;
+   - the i2c tools (unchanged; the full 300 run is still deferred);
+   - minor: `vsend.py --help` exits 2.
+
+### Next steps, in order
+
+1. **Trial the new logging flow:** `/test-mode` with one or two quick cases, then `/create-logs`
+   on the queue. Check the RESULT lines, the Results table, the closing line, the final log
+   against logged-output.md §4, the `.cfg` files, and the `git rm` of `work/`.
+2. Probe the bench (`bench_probe.py --box tb470 run --consoles u0,u1,u2,u3,u4,u5`) when no one
+   holds a console.
+3. Verify the six feature tools inside the campaign cases that need them.
+
+### Recipes (the session scratch is gone; these are complete)
+
+```bash
+sock=/run/user/$(id -u)/keyring/ssh; S="ssh -o BatchMode=yes tb470"
+scp -r tools tb470:/tmp/cktools/            # then run from /tmp/cktools/tools
+# reload tools (u3 = standalone, 115200)
+SSH_AUTH_SOCK=$sock $S 'cd /tmp/cktools/tools && python3 ckcon.py /dev/u3 115200 /tmp/cktools/console-u3.log "show running-config" > /tmp/cktools/rc-before.txt'
+SSH_AUTH_SOCK=$sock $S 'cd /tmp/cktools/tools && python3 ckreload.py /dev/u3 115200 /tmp/cktools/console-u3.log 900'
+SSH_AUTH_SOCK=$sock $S 'cd /tmp/cktools/tools && python3 reloadc.py /dev/u3 115200 /tmp/cktools/console-u3.log 300 /tmp/cktools/reloadc.done reload'
+#   after each: ckcon "show boot" "show running-config" > rc-after.txt; rcdiff.py rc-before.txt rc-after.txt  (empty = unchanged)
+#   ckcon's STDOUT is what rcdiff reads; its 3rd argument is the raw transcript
+# traffic, eth1 and eth3 both on stack VLAN 1 untagged; unicast to eth3's MAC so nothing floods
+SSH_AUTH_SOCK=$sock $S 'cd /tmp/cktools/tools && sudo -n python3 vsend.py eth1 10 ip10 --src <eth1 MAC> --dst <eth3 MAC>'   # capture: sudo tcpdump -i eth3 -U -w vs.pcap; vcount.py vs.pcap
+SSH_AUTH_SOCK=$sock $S 'cd /tmp/cktools/tools && sudo -n python3 l2flows.py 10 20 /tmp/cktools/flows eth1 eth3 && python3 flowstat.py /tmp/cktools/flows eth1 eth3 && python3 loopwin.py /tmp/cktools/flows eth1 eth3'
+SSH_AUTH_SOCK=$sock $S 'cd /tmp/cktools/tools && sudo -n python3 linerate.py --tx eth1 --dst-mac <eth3 MAC> --rx eth3 --rate 10 --secs 5'
+```
+
+**Parking an IE520 in the Boot Menu to test an escape.** No repo tool does this; it was session
+scratch.
+1. Log in with `console.Console` (it applies `stty -hupcl`).
+2. Send `reload`. Answer a save question `n\r` and the reboot question `y\r`.
+3. Wait for `Press <Ctrl+B>`, then send `\x02` every 0.1 s **until `Boot Menu` or `Enter selection`
+   appears, then stop**.
+4. Read 4 s, then send a bare `2` to enter `Select device`.
+
+Recover with `tools/bootmenu_escape.py /dev/uN` (it sends CR, then a bare `0`, then a bare `9`).
+By hand: a bare `0` in a submenu, a bare `9` on the main menu, `0` + Enter in a file list.
+
+### Pointers
+
+- [logged-output.md](../logged-output.md), [.claude/skills/create-logs/SKILL.md](../.claude/skills/create-logs/SKILL.md),
+  [tools/README.md](../tools/README.md), [platforms/IE520.md](../platforms/IE520.md),
+  [README.md](../README.md)
+- Memories touched: `log-is-the-deliverable`, `i2c-stress-tooling`,
+  `product-dirs-archive-to-old-test-runs` (new), `ie520-bootloader-console-driving` (pointer moved
+  to platforms/IE520.md §2), `sentinel-kit-in-orient-dt`, `sentinel-session-keeps-long-runs-moving`,
+  `tb470-topology-and-setup`, `ie520-silent-reboot-watch-2026-09-02`
+
+---
 
 ## Side mission ~09:30–09:55 NZDT — rollback image staged on the stack. READ THIS FIRST
 
