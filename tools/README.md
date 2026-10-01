@@ -278,7 +278,7 @@ on the others. It uses tcpreplay and tcpdump.
   - About 984 Mbps of frame bytes measured on 1G NICs.
   - IPv4/UDP only.
   - The pcap is a temporary file unless `--pcap` is given.
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified on tb470 2026-10-02 at `--rate 10 --secs 5`: 4178 sent (10.2 Mbps on the wire), 4178 received on eth3, 0 kernel drops. Line rate itself not re-run
 
 ### `l2flows.py`
 Runs four sequence-numbered L2 flows between two host NICs, through the DUT, and records every
@@ -291,7 +291,7 @@ across a failover or a ring switch-over.
   - Exactly two NICs.
   - The flow tags come from the last character of each NIC name, or A/B if those match.
   - Pacing is Python sleep.
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified on tb470 2026-10-02: 10 s, 20 pps per flow, eth1 <-> eth3 through the stack; 4 x 200 frames, 0 lost
 
 ### `flowstat.py`
 For an `l2flows.py` run, reports per flow:
@@ -304,7 +304,7 @@ For an `l2flows.py` run, reports per flow:
 - **Limits:**
   - Give it the same `nicA` and `nicB` as the run.
   - Single lost frames are counted but not listed. That was fixed 2026-10-02 to match the documentation; earlier output listed them.
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified on tb470 2026-10-02 on that `l2flows.py` run: 0 lost, 0 dups, median latency ~0.37 ms
 
 ### `loopwin.py`
 Finds windows of loop evidence in an `l2flows.py` run: duplicates, and frames echoed back to
@@ -313,7 +313,7 @@ their sender. Windows are clustered with a 1 s gap.
 - **Where:** anywhere; **needs:** nothing beyond Python
 - **Imports:** l2flows
 - **Limits:** give it the same `nicA` and `nicB` as the run
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** ran on tb470 2026-10-02 on a loop-free `l2flows.py` run: 0 windows, as expected. Not yet run against a real loop
 
 ### `vsend.py`
 Sends a burst of `CKVLAN`-marked frames of one kind: IPv4, IPv6, IPX, another EtherType, or ARP.
@@ -322,7 +322,7 @@ They can be 802.1Q or QinQ tagged.
 - **Where:** testbox (root); **needs:** scapy
 - **Imports:** none
 - **Limits:** the spec's default addresses are private 192.168.x test addresses; set `--sip`/`--dip` to match the DUT's config
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified on tb470 2026-10-02: 10 x ip10 + 10 x ipv6, eth1 -> stack VLAN 1 -> eth3, all 20 counted by `vcount.py`
 
 ### `vcount.py`
 Counts captured `CKVLAN`-marked frames per burst, VLAN tags, EtherType, destination and source.
