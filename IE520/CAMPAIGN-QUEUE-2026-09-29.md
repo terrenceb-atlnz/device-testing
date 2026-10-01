@@ -59,6 +59,17 @@ or BLOCKED. Rows 2 and 4 (the T33235 partial and the unblocked re-run) are **sup
 5 FAIL / 2 UNSUPPORTED / 4 NOT TESTED (row 6). Summary table and defects:
 [SESSION-HANDOVER-2026-10-01.md](SESSION-HANDOVER-2026-10-01.md) §3–§4.
 
+## Session facts
+
+Recorded 2026-10-02 at the `/test-mode --resume` of row 6 (this queue predates the block). These are the Test Engineer's answers, word for word:
+Test Engineer: terrenceb@terrenceb-dl
+Testbox: tb470, u0–u5
+Consoles: u0,u1,u2,u3,u4,u5 (u6 absent)
+PDU: As recorded — 10.36.150.14, outlets per bench-setup/tb470.static
+Constraints: None
+Stand-down: When row 6 is done (backstop 2026-10-09 00:00)
+Bench change before resume: Test Engineer, 2026-10-02: "cable re-seated" (the stack port1.0.2 ↔ x230 port1.0.3 sa2 leg that was down at the 2026-10-01 wraps)
+
 ## Queue
 
 | # | case(s) | group dir | state | note |
