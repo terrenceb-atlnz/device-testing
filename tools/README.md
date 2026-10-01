@@ -178,6 +178,10 @@ size. The source can be another stack member's flash (`<host>-<id>/flash:/`).
 - **Imports:** console
 - **Limits:**
   - It refuses if the destination already exists.
+  - **Pull only:** the destination is always the local unit's `flash:/`. A push to another member
+    (`IE520-stk-1/flash:/…`) is not supported, and on IE520 a large push fails anyway: `nfs: server
+    192.168.255.N not responding` → `% Input/Output error due to external media removal` (re-hit
+    2026-10-02, 41 MB to member 1; memory `ie520-4stack-flashprep`).
   - The 1800 s timeout fits IE520 SPIFlash, where the console is silent for about 12 min per 41 MB.
 - **Status:** verified 2026-10-02 on tb470 IE520 (u3), a 1.6 KB file; fixed that day: a copy that finishes inside the first read used to wait out the whole timeout
 
@@ -192,7 +196,7 @@ that it landed.
   - `dest` can be given only after `expected_bytes`.
   - A size mismatch is reported, not failed.
   - The timeout is sized for IE520.
-- **Status:** generalised 2026-10-02; the same early-completion fix as flash_copy applied but NOT re-verified on hardware (needs a file in the box's TFTP root)
+- **Status:** verified 2026-10-02 on tb470 IE520 stack master (u5), 41,104,007 bytes in 265 s, delta +0
 
 ### `bootmenu_escape.py`
 Backs a console out of the bootloader Boot Menu with `0` (cancel/back) and `9` (quit and continue
