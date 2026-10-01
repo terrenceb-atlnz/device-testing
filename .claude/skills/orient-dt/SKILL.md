@@ -37,8 +37,9 @@ refers to these by NAME**; when something moves, fix this table and nothing else
 | **`<TB>.setup.current`** | beside `<TB>.static` | local copy of the deployed `/home/st-art/st-art/configs/<TB>.setup`, refreshed by `apply`; read by Test-cases' `pt_preflight.py` so no ssh is needed |
 | **campaign queues** | `<TB>/<FAMILY>/CAMPAIGN-QUEUE-<YYYY-MM-DDTHHMM>.md` (from 2026-10-01; tb470 before that: `IE520/CAMPAIGN-QUEUE-<date>.md`) | the resume point; its **Session facts** block names the Test Engineer, box, consoles, PDU and constraints (§0b reads it) |
 | **session handovers** | `<TB>/<FAMILY>/SESSION-HANDOVER-<YYYY-MM-DD>.md`; a session with no bench: `handovers/SESSION-HANDOVER-<YYYY-MM-DD>-<user>.md`; tb470 before 2026-10-01: `IE520/SESSION-HANDOVER-<date>.md` | latest first; `/wrap-dt` writes them, with a Session facts block |
-| **per-case logs** | `<TB>/<FAMILY>/<group>-<STAMP>/<case-id>.log`; tb470 before 2026-10-01: `IE520/<suite>/<case-id>.log` | e.g. `IE520/ipv4-routing/10623.log` |
-| **console.py** (the maintained driver) | `IE520/stack-tests/2026-09-02-driver-test/console.py` | older copies sit in other run dirs; copy this one to the box's `/tmp/ckorient/` and import from there (paths under the NFS home have moved mid-session before) |
+| **per-case logs** | `<TB>/<FAMILY>/<group>-<STAMP>/<id>/`: the final `<id><suffix>.log` and one `<dev>.cfg` per device; before 2026-10-02 flat: `<TB>/<FAMILY>/<group>-<STAMP>/<case-id>.log`, tb470 before 2026-10-01 `IE520/<suite>/<case-id>.log` | every rule is in **logged-output.md** |
+| **logged-output.md** (added 2026-10-02) | `logged-output.md` (repo root) | verdicts, the tester's working logs, the `RESULT` line, the results list, the final log template, `/create-logs`. The one home for logging rules |
+| **tools/** (added 2026-10-02) | `tools/` (repo root), catalogue `tools/README.md` | every reusable helper, including **console.py** (the maintained driver). Copy the whole directory to the box's `/tmp/<campaign>/` and run from there; the tools import each other from their own directory. Look here before writing a helper (logged-output.md §2) |
 | **memories** | `.claude/memory/` in this repo | index `MEMORY.md`; Test-cases symlinks to ours |
 | **skills** | `.claude/skills/orient-dt`, `.claude/skills/wrap-dt`, `.claude/skills/test-mode` | renamed from `orient-ie520`/`wrap-ie520` on 2026-09-11 |
 | **framework** | `framework -> /home/st-art/framework` | READ-ONLY; not ours |
@@ -49,7 +50,7 @@ refers to these by NAME**; when something moves, fix this table and nothing else
 | **fw_async_test.py / fw_async_chatter.py** | `claude/Test-cases/ask-ck/functions/test-composer/` ¹ | the §3 chatter regression |
 | **working style** | `claude/Test-cases/CLAUDE.md` §"How we work" ¹ | |
 | **sentinel kit** (added 2026-09-28) | `.claude/skills/orient-dt/sentinel/` | `sentinel.sh` (the Monitor watcher; `BOX=<TB>`), `SENTINEL-BRIEF.template.md`, `cron-trigger.template.md`; how to use them is §10 |
-| **STANDING-ORDERS.md** (added 2026-09-28) | `STANDING-ORDERS.md` (repo root) | the standing answers for campaigns: device-state authority, the log NAME carries the verdict, the triage report shape, what stays the Test Engineer's. Read at every orient and before every run |
+| **STANDING-ORDERS.md** (added 2026-09-28) | `STANDING-ORDERS.md` (repo root) | the standing answers for campaigns: device-state authority, the triage report shape, what stays the Test Engineer's (logging rules moved to logged-output.md, 2026-10-02). Read at every orient and before every run |
 | **test-mode skill** (added 2026-09-28) | `.claude/skills/test-mode/SKILL.md` | `/test-mode <cases>` / `--resume`: the ONE-SESSION campaign bundle. It asks for the box and its facts, and §10 shape A applies |
 
 **bench_probe.py.** Run it ON the box, with `--box <TB>` and the session's consoles:
@@ -354,10 +355,10 @@ boundary below before a campaign that needs `terminal monitor`. Do not write a *
 |---|---|
 | Bench state | **`bench_probe.py run`** (§0) — its own pyserial sweep of every console at once, ~15–40 s |
 | Media, anything a generated test will also meet; any run with a **quiet** console | **framework driver** — flawless in this mode: 24/24 commands at 0.41 s (measured 2026-09-02 with the since-deleted Test-cases framework-driver probe; the shape is below) |
-| Anything needing **`terminal monitor` ON** — witness logging, wedge reproducers, long campaigns that must capture the device's own log stream; and any ad-hoc driving from tb470 itself | **`console.py`** (§0 — the `2026-09-02-driver-test` copy is the maintained one) — the framework **times out on ~17% of commands** in this mode |
+| Anything needing **`terminal monitor` ON** — witness logging, wedge reproducers, long campaigns that must capture the device's own log stream; and any ad-hoc driving from the testbox itself | **`tools/console.py`** (§0), or the `tools/` helpers built on it (`ckcon`, `ckyn`, `cfg`) — the framework **times out on ~17% of commands** in this mode |
 
 There is no maintained framework-driver tool since 2026-09-23 (the Test-cases probe was deleted; the
-copies in `IE520/stack-tests/bench-probe-*/` are older revisions kept as those campaigns' evidence,
+older `IE520/stack-tests/bench-probe-*/` copies were deleted 2026-10-02 and are in git history,
 and today's `bench_probe.py` drives pyserial, not the framework). The shape that works:
 
 ```python
@@ -428,9 +429,9 @@ confirm the generator is actually contributing before believing either verdict.
 Regression test: **fw_async_test.py** + **fw_async_chatter.py** (§0). Re-run it after a framework
 upgrade; this table is what it defends.
 
-⇒ **`rc.py` / `rc9600.py` / `probe.py` remain superseded** for ordinary reads — use
-`bench_probe.py`. But **`console.py` itself is not retired.** Note also `rc.py`'s `login()` can
-abort on a healthy device: it returns from the post-password read after 1.2 s of quiet, before the
+⇒ **`rc.py` / `rc9600.py` / `probe.py` were superseded and deleted 2026-10-02** (git history) — use
+`bench_probe.py` for bench reads and `tools/ckcon.py` for ad-hoc commands. But **`console.py` itself
+is not retired.** The lesson of `rc.py` stands: its `login()` could abort on a healthy device: it returns from the post-password read after 1.2 s of quiet, before the
 prompt prints, then sends a redundant `enable` and gives up, reporting `no privileged prompt` —
 which reads exactly like dead hardware.
 

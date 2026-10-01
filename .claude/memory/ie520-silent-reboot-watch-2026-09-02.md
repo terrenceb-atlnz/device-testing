@@ -65,8 +65,8 @@ Not implicated: the reboot followed a `show log permanent`, but u4 polled that s
 **The watcher script is gone** — nothing in the lab tree or repo references `rearm_ok`,
 `REBOOT_MARKER` or `liveness_ok`; it was written to a session scratchpad ([[no-stray-scripts]])
 and went with it. Only its driver survives: `console.py`, **md5
-af8505812378a4001df3d324574301c9**, in five copies (e.g.
-`device-testing/IE520/stack-tests/2026-09-02-driver-test/console.py`). There is **no
+af8505812378a4001df3d324574301c9** as it was then; since 2026-10-02 it is the one copy at
+`device-testing/tools/console.py`, generalised for any testbox that day. There is **no
 after-action** for the run. `console.py`'s `cmd_fast` is the right driver here — the framework
 driver times out under `terminal monitor` (orient-dt §3). A re-run therefore means
 **rewriting the watcher**; if it is worth running twice it belongs in the repo, not a scratchpad.
