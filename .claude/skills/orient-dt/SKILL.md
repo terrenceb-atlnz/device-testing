@@ -700,11 +700,9 @@ Dense and skimmable, with clickable relative paths.
   session (`ListAgents`: a peer in this repo root the user has named). If neither, say one is
   needed before the first case (§10, mandatory since 2026-09-28).
 
-Then wait. **Deliverables:** for an individual lab test case the per-case `<case-id>.log` **is**
-the deliverable — do not write an after-action for every case. For a whole **campaign**, the
-convention is `after-action-<suite>.md` in that run's directory, written **from that run's own
-logs**: headline counts, a full per-case verdict table with a prior-bench comparison column, each
-failure classified *product / tooling / unmeasured*, bench state left behind, and caveats.
+Then wait. **Deliverables** are defined in **logged-output.md** (§0). In short: one final `.log`
+and the `.cfg` files per case, made only by `/create-logs` on the Test Engineer's request, plus
+the group README. An `after-action-<suite>.md` is written only when the Test Engineer asks for one.
 
 ---
 

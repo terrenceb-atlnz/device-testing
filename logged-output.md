@@ -114,13 +114,21 @@ running configuration to `<id>/<dev>.cfg`:
 
 ### The tester's working log
 
-The tester writes `work/run<N>.log` **as it goes**, numbering each run of the case:
-- every command it sends, with its device prompt, and every configuration line exactly as sent;
-- the device output, and its measurements;
+The tester writes `work/run<N>.log` **as it goes**, numbering each run of the case. It must hold
+everything the §4 template needs, because `/create-logs` may use nothing else:
+- the session facts: the box, consoles, Test Engineer and constraints;
+- each device's role, model, serial, console, MAC and build;
+- the links and host NICs used;
+- every command sent with its device prompt, and every configuration line exactly as sent;
+- the device output that proves each step, verbatim, and each step's verdict;
+- the tools from `tools/` and their exact arguments;
+- the framework log path and exit code, for a framework run;
+- the before and after probe results, and the teardown diff;
 - the files it saved.
 
-It ends with a `VERDICT:` line in the §1 vocabulary, plus one line of reason. This is what
-`/create-logs` builds from, so it errs on the side of too much.
+It labels the run *clean* or *confounded — because …*, says "skipped" for any step it skipped,
+and ends with a `VERDICT:` line in the §1 vocabulary plus one line of reason. It errs on the
+side of too much.
 
 - **Commit it per case.** It is the resume point if the session dies.
 - **A re-run starts `run<N+1>.log`.** It does not overwrite the earlier run.
