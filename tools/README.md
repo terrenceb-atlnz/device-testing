@@ -265,7 +265,7 @@ The same stress loop as `i2c_stress.py`, as a thin wrapper over the framework's
 ## Config and transcript analysis
 
 ### `rcdiff.py`
-Unified diff of the first `show running-config` in two `ckcon.py` transcripts. This is the
+Unified diff of the first `show running-config` in two saved `ckcon.py` **stdouts** (not the `<transcript>` argument, which has no `HH:MM:SS >>>` headers). This is the
 pre-case versus post-case teardown check (STANDING-ORDERS §1).
 - **Run:** `rcdiff.py <before.log> <after.log>`
 - **Where:** anywhere; **needs:** nothing beyond Python
