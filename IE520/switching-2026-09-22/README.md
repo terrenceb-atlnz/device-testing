@@ -13,8 +13,8 @@
 | [6057](6057.log) | ARP Learning with full tables | **PASS + finding** (re-run 2026-09-24) — table caps at 2045; while full a NEW neighbour cannot be resolved (`No buffer space available`) |
 | [45788](45788.log) | 5005 EPSR performance test on SFP port | **UNMEASURED** — bench: no SFP fitted |
 | [45789](45789.log) | 5005 EPSR performance test on SFP+ port | **UNMEASURED** — bench: no free SFP+ |
-| [24032](24032.log) | 5706 L2 platform test | **SKIPPED** (Terrence's ruling, 2026-09-23) — **case-scope mismatch** |
-| [12067](12067.log) | Flow control operation with MDI | **SKIPPED** (Terrence's ruling, 2026-09-23) — was bench: no wire rate; tcpreplay now gives ~983 Mbps, reopen is open (queue I-19) |
+| [24032](../epsr-l2-2026-09-29/24032-fail.log) | 5706 L2 platform test | **MOVED 2026-10-02** to `../epsr-l2-2026-09-29/24032-fail.log` (re-run: FAIL, 1 unexplained TestCase of 19). The 09-22 "case-scope mismatch" reading was wrong: 5706 is a framework suite (raw-data/test_scripts/5706_Platform_L2) |
+| [12067](../epsr-l2-2026-09-29/12067-unsupported.log) | Flow control operation with MDI | **MOVED 2026-10-02** to `../epsr-l2-2026-09-29/12067-unsupported.log` (re-run: UNSUPPORTED — the IE520 refuses `flowcontrol`: "not supported on this product") |
 
 ## Bench limits vs case-scope — they need different answers
 

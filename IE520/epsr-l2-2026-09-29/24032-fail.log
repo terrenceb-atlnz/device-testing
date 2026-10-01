@@ -1,0 +1,216 @@
+TEST T24032 -- 5706 L2 platform test -- tb470 IE520 stack -- 2026-10-02 -- FAIL
+====================================================================================
+
+VERDICT: FAIL -- ONE TestCase is an unexplained failed check: TC180 (Loop Protection, action
+port-disable): with a reflected-LDF loop on port3.0.10 the port was NOT blocked 10 s in
+(`show loop-protection interface` Status "Normal") and traffic still flowed at +15 s. No harness cause
+was found (the same reflector produced blocking in TC170 and TC190 of the same run).
+Every other TestCase of the 19 either PASSED in the framework, or the DUT is PROVEN by raw console or
+traffic evidence to have done what the case asks, the framework FAIL being a harness/bench artefact:
+
+| TC | desc | run | framework | graded | proof |
+| 10 | Static MAC not overwritten by dynamic | 1 | PASS 13/0 | PASS | SW+HW tables |
+| 20 | Static MAC replaces dynamic | 1 | PASS 13/0 | PASS | SW+HW tables |
+| 30 | Dynamic MAC default ageing | 1 | PASS 12/0 | PASS | aged within 393 s |
+| 40 | Dynamic MAC custom ageing 60 s | 1 | PASS 12/0 | PASS | aged within 106 s |
+| 50 | Dynamic MAC clear | 1 | PASS 14/0 | PASS | dynamic cleared, static kept |
+| 60 | Dynamic MAC logging | 1 | FAIL 9/2 | DUT OK, harness artefact | DUT logged "MAC add 2222.2222.2222 port3.0.10 vlan1" and "MAC age-out ..."; 80-column console wrap splits the line, the suite's single-line match misses it |
+| 70 | Native VLAN forward | 3 | PASS 10/0 | PASS | (run 1 FAIL = suite deleted bench VLAN 10; run 2 FAIL = stack desync left by T12067, see below) |
+| 80 | Native VLAN discard | 1 | PASS 10/0 | PASS | |
+| 90 | QinQ double tagging | 2 | PASS 11/0 | PASS | double-tagged -> CE port inner tag only; single-tagged -> provider port both tags |
+| 100 | Trunk ingress filtering enabled | 2 | PASS 10/0 | PASS | non-allowed VLAN 20 dropped |
+| 110 | Trunk ingress filtering disabled | 3 | PASS 10/0 | PASS | (run 2 FAIL = bench baseline: "% Cannot disable ingress filtering when the loop protection action is vlan-disable"; run 3 with the baseline lifted for the TestSet) |
+| 120 | Trunking over aggregator (sa4/sa5) | 2 | PASS 10/0 | PASS | tagged 3910 sa4 -> sa5 |
+| 130 | Thrash default action/timeout | 2 | FAIL 10/1 | DUT OK, harness artefact | "Thrash-limiting: Disabled learning on port3.0.10 by 0000.0011.1111 on vlan 1" 18:56:51, "Re-enabled learning" 18:56:52 (timeout 1 s) -- wrapped at col 80 |
+| 140 | Thrash port-disable | 2 | FAIL 13/1 | DUT OK, harness artefact | "Disabled port on port3.0.10" 19:01:54, "Re-enabled port" 19:02:25 (timeout 30); framework traffic checks: blocked, then flows |
+| 150 | Thrash link-down | 2 | FAIL 13/1 | DUT OK, harness artefact | "Disabled port-link on port3.0.9" 19:08:04, "Re-enabled port-link" 19:08:34; traffic blocked then flows |
+| 160 | Thrash vlan-disable | 3 | FAIL 14/1 | DUT OK, harness artefact | "Disabled VLAN on port3.0.10 ... on vlan 3910" (wrapped); framework: VLAN 3910 blocked, VLAN 20 flows, then 3910 flows again |
+| 170 | Loop protection default (vlan-disable) | 3 | FAIL 14/1 | DUT OK, check timing | status "Normal" at the suite's fixed +10 s (LDF interval 10 s), but at +15 s VLAN 1 traffic dropped and VLAN 3910 still flowed = vlan-disable acting; timed out after 10 s |
+| 180 | Loop protection port-disable | 3 | FAIL 12/2 | **FAIL (unexplained)** | +10 s status "Normal"; +15 s "Traffic can flow from eth1 to eth3" (port not disabled) |
+| 190 | Loop protection link-down | 3 | PASS 14/0 | PASS | blocked at +10 s, traffic dropped, timed out after 60 s |
+Count: 12 framework PASS; 5 harness-wrap artefacts (60, 130-160) with the DUT proven; 1 timing (170) with
+the DUT behaviour shown by traffic; 1 unexplained FAIL (180).
+Note: the PASS "MAC Thrash was correctly timed out ... on all ports" in TC130-160 is VACUOUS (all() over
+the empty list the wrapped log produced); the time-outs above are graded from the raw log lines instead.
+
+Runs: clean except as labelled per row. Run 1 confounded (bench VLAN 10); run 2 confounded for TC70 (my
+T12067 leftover) and TC110 (bench loop-protection baseline); run 3 clean (baseline lifted once for the
+TestSet, restored once after; STANDING-ORDERS §6).
+
+TO RESOLVE TC180 (and harden TC170): re-run TC170/TC180 with a settle longer than one LDF interval
+before the status check (a further staged-copy change -> the Test Engineer's call), or by hand: same
+config, reflector on eth1, poll `show loop-protection interface port3.0.10` for 30 s.
+TO REMOVE the wrap artefacts (60, 130-160): the parser needs the console wider than 80 columns or a
+wrap-tolerant match -- a script/harness change, Test-cases' or the Test Engineer's call.
+
+Case text (ck.db AWPTCM-T24032, folder /VLAN/Project:2256 Using VLAN stacking and VLAN translation on
+the same port): 1 step -- "Run the 5706 automated test" / expected "All tests pass".
+CORRECTION of the 2026-09-22 log (was SKIPPED, "case-scope mismatch: a 5706 platform"): 5706 is a
+FRAMEWORK SUITE NUMBER, not a product. The suite is
+  claude/raw-data/test_scripts/5706_Platform_L2/test-5706.1001.py (+ library_5706.py), 19 TestCases,
+and it runs against stk_a.
+
+## Run 2 and run 3 (the re-run the Test Engineer approved, relayed: "Yes, use 3910")
+Staged copy = TC120 sa4/sa5 (approved first) + the suite's VLAN 10 -> 3910 (39 lines: every
+`vlan 10`, `vlan 10,20`, `no vlan 10[,20]`, `native/access vlan 10`, `allowed vlan add 10[,20]`,
+`outerTag=10`, `vlan_tag=10`). Log-message TEXT that says "VLAN 10" was left unchanged (cosmetic).
+  2ba740d6ae4fc5dbed864be77e4fdb92  original (raw-data)
+  2242f89fa8ff2ff058d3d113586ef194  staged (re-checked on the box before each launch)
+  a70c3837c249cb81f1cbe1f8e5d7ffd7  library_5706.py (unchanged)
+  diff: evidence/24032-rerun-vlan3910-plus-tc120.diff; md5: evidence/24032-rerun-md5.txt
+VLAN 3910 was absent from every device's running-config beforehand.
+Pre-run baseline: pre-test-configs/2026-10-02-24032-rerun/ (= probe 2026-10-01T183505Z, MATCH).
+
+Run 2: WORK tb470:/home/st-art/pytest-create/24032/run-2026-10-02T0737-rerun, PID 384159,
+  `... -v --noupdate --nodefaultcfg --include-test-cases 70 90 100 110 120 130 140 150 160 170 180 190`
+  07:37:09 -> stopped by SIGINT 08:13:10 (rc = 3) after TC150, because TC130/TC140 failed consecutively on
+  the same systematic harness error (the 80-col wrap) and TC150/TC160 use the same parser (§6).
+  Framework log copy: evidence/24032-run2-framework-test-5706.1001.log.
+  - TC70 FAIL: "Stack members have differing running-config on stk_a 120 seconds after the Test Case
+    configure method". remote-diff (evidence/24032-run2-tc70-remote-diff-flowcontrol.txt): nodes 1 and 4
+    carried `flowcontrol both` on port3.0.9, port3.0.10, port3.0.11 that node 3 (master) did not. CAUSE:
+    my T12067 attempts -- the master REFUSED `flowcontrol receive/send on` ("not supported on this
+    product") but the BACKUP members kept it. Product observation, logged in 12067-unsupported.log. The
+    framework power cycle at 07:41:48 cleared it (members boot the master's saved cfg); remote-diff
+    "identical" at 08:1x and 08:4x. TC70 re-run clean in run 3.
+  - TC110 FAIL: `switchport mode trunk ingress-filter disable` -> "% Cannot disable ingress filtering
+    when the loop protection action is vlan-disable" (bench baseline `loop-protection loop-detect
+    ldf-interval 1 fast-block`). Re-run in run 3 with the baseline lifted: PASS.
+  - SIGINT landed after TC160's configure (VLANs 3910,20; port3.0.9-10 trunk + `thrash-limiting action
+    vlan-disable timeout 30`) -- undone by its own tear_down steps; stack running-config then equal to
+    the baseline (diff rc 0).
+Run 3: WORK tb470:/home/st-art/pytest-create/24032/run-2026-10-02T0818-run3, PID 388508,
+  `--include-test-cases 70 110 160 170 180 190`, 08:18:04 -> 08:43:20 "TESTSET FINISHED (rc = 1)".
+  Before it: run-2 cfg files deleted, boot configs back to tb470-bench.cfg, then `no loop-protection
+  loop-detect` on the stack (set ONCE before the TestSet, restored ONCE after). Framework log copy:
+  evidence/24032-run3-framework-test-5706.1001.log. Raw thrash lines (runs 2+3):
+  evidence/24032-thrash-raw-wrapped-lines.txt.
+  TC170 table at +10 s:  port3.0.10 Yes / vlan1 vlan-dis Normal 7 / vlan3910 vlan-dis Normal 7
+  TC180 table at +10 s:  port3.0.10 Yes / vlan1 port-dis Normal 7 / vlan3910 port-dis Normal 7
+        then "!!FAIL: Traffic can flow from eth1 to eth3 on VLAN 10" (the suite's label; the frames were
+        untagged VLAN 1) at 08:36:45.
+  TC190 at +10 s: "PASS: port3.0.10 is in blocking state with action link-down".
+Each failed TestCase paid the accepted framework power cycle of stk_a + swi_b; the framework again
+powered OFF outlets 1/7 (uninitialised x230/4050) for both runs.
+
+## Final restore (after run 3) and checks
+- Stack: `loop-protection loop-detect ldf-interval 1 fast-block` re-applied (show running-config |
+  include loop-protection -> that line); `boot config-file flash:/tb470-bench.cfg` (synced to members 1/4);
+  run-3 files deleted on flash:, IE520-stk-1/flash:, IE520-stk-4/flash: (dir -> "No such file");
+  remote-diff all show running-config -> "Results are identical" x2.
+- SA: boot config tb470-bench.cfg; run-3 files deleted; flash holds tb470-bench.cfg + default.cfg only.
+- PDU outlets 1 and 7 ON 08:46:5x (status "11111111").
+- Probe 2026-10-01T195034Z: MATCH, Advisories none. running-config vs pre-test-configs/2026-10-02-24032-rerun/:
+  u0, u1, u2, u3 IDENTICAL (post-test-configs/2026-10-02-24032-rerun/). Boot configs all flash:/tb470-bench.cfg.
+- No process left: PIDs 375808, 384159, 388508 all exited; nothing else started.
+- Run exit codes: run 1 rc 3 (SIGINT), run 2 rc 3 (SIGINT), run 3 rc 1.
+
+==================================================================================================
+RUN 1 (06:35-07:28, original staged copy with only the TC120 patch) -- kept as recorded at the time
+==================================================================================================
+## Session facts (Test Engineer, 2026-10-02, verbatim in the queue)
+box tb470; consoles u0,u1,u2,u3,u4,u5 (u6 absent); PDU 10.36.150.14, outlets per bench-setup/tb470.static
+(swi_a 6, swi_b 8, swi_c 5, swi_d 4, swi_e 7, swi_f 1); names none given; constraints None (normal probe).
+Operator: bench-runner subagent, sentinel = parent session device-testing-67 (one-session /test-mode).
+Test Engineer's relayed answers: "Proceed with both (Recommended)"; TC120: "Use sa4/sa5 (Recommended)".
+
+## Pre-run gate
+- precheck (no console opened) u0-u5: CLEAR, exit 0 (06:19 and again 06:35).
+- probe 2026-10-01T171936Z (triage) and 2026-10-01T173500Z (pre-run, 06:35 NZDT): MATCH, exit 0,
+  Advisories none. The re-seated sa2 leg (stack port1.0.2 <-> x230 port1.0.3) is back (LLDP both ends).
+  Pre-run running-configs + show boot: pre-test-configs/2026-10-02-24032/ (u0 x230, u1 4050, u2 stack, u3 SA).
+- Boot configs: all four devices flash:/tb470-bench.cfg (file exists).
+- /nfsHome mounted; template /home/st-art/st-art/configs/tb470.setup present; PDU 10.36.150.14 pings.
+- pt_exec FRAMEWORK_RUN_FLAGS = ("--noupdate", "--nodefaultcfg") -- launched by hand anyway.
+- Preflight: pt_preflight.py reports "UN-RUNNABLE (0/4 links)" -- a FALSE NEGATIVE: it cannot resolve
+  `self.dut`-attribute bindings (same result with tabs normalised). Resolved by hand from
+  framework Setup.py: init_portlink(stk_a, tb) expands the stack's members; only swi_c has tb links,
+  so portA/ethA = port3.0.10/eth1 and portB/ethB = port3.0.9/eth3 (confirmed in the run:
+  "tb via : port3.0.10-eth1, port3.0.9-eth3"). init_swi('swi_a') returns the stack's member object
+  (no double open of /dev/u2).
+- Defaulting CLI: TestSet configure() sends only `no spanning-tree rstp enable` (already in the
+  running config). Read-only check on u5: `show platform table macaddr` prints
+  "6072  00f0.4d00.7716  1  port3.0.10 ... dyn 0", matching the suite's mac_hw_check pattern.
+
+## The staged copy (Test Engineer's TC120 answer) -- evidence/24032-tc120-sa4-sa5.diff, evidence/24032-md5.txt
+WORK = tb470:/home/st-art/pytest-create/24032/run-2026-10-02T0635 (framework logs stay there)
+  2ba740d6ae4fc5dbed864be77e4fdb92  test-5706.1001.py.orig  (raw-data original)
+  6742858601749dd86da752e335e8f4d6  test-5706.1001.py       (staged; md5 re-checked on the box)
+  a70c3837c249cb81f1cbe1f8e5d7ffd7  library_5706.py         (unchanged)
+  632,633c632,633  static-channel-group 1 / interface sa1  ->  static-channel-group 4 / interface sa4
+  637,638c637,638  static-channel-group 2 / interface sa2  ->  static-channel-group 5 / interface sa5
+Nothing else changed. (TC120 itself was never reached.)
+
+## Run
+  cd $WORK && setsid nohup sudo -n PYTHONPATH=/home/st-art python3 $WORK/test-5706.1001.py \
+      -s /home/st-art/st-art/configs/tb470.setup -v --noupdate --nodefaultcfg > run.log 2>&1 &
+started 06:35:57 NZDT, PID 375808 (sudo 375807); stopped by SIGINT (sudo kill -INT 375808) at 07:22:31,
+exited 07:22:36 "TESTSET FINISHED (rc = 3)". Framework log: $WORK/test-5706.1001.log
+(copy: evidence/24032-framework-test-5706.1001.log, NULs/CRs stripped; read with grep -a).
+Bound devices: stk_a (swi_a u2, swi_c u5, swi_d u4), swi_b (u3), tb (eth1, eth3).
+
+!! FRAMEWORK BEHAVIOUR NEW TO THIS BENCH: "======== Power down all devices that have not been
+initialized" (06:36:00) switched OFF PDU outlets 1 (x230, swi_f) and 7 (AR4050S, swi_e) for the whole
+run, because this legacy suite initialises only stk_a/swi_a/swi_b (generated scripts call
+init_all_devices, so they never hit it). Restored after the run (below). The sentinel was told at 06:3x.
+The post-failure power cycles hit only the bound units (stk_a, swi_b).
+
+## Per-TestCase results (framework "<<" lines, then what they rest on)
+| TC | desc | framework | what was measured |
+| 10 | Static MAC not overwritten by dynamic | PASS 13/0 | static 2222.2222.2222 on port3.0.10 in SW + HW table; broadcast from eth3 did not move it |
+| 20 | Static MAC replaces dynamic | PASS 13/0 | dynamic on 3.0.10 (SW+HW 'dyn'), static on 3.0.9 replaced it (SW+HW 'sta') |
+| 30 | Dynamic MAC default ageing | PASS 12/0 | aged out of SW+HW within 393 s |
+| 40 | Dynamic MAC custom ageing (60 s) | PASS 12/0 | aged out within 106 s |
+| 50 | Dynamic MAC clear | PASS 14/0 | `clear mac address-table dynamic` removed dynamic, static 4444.4444.4444 kept |
+| 60 | Dynamic MAC logging | FAIL 9/2 | HARNESS ARTEFACT, DUT behaved: see TC60 |
+| 70 | Native VLAN forward | FAIL 9/1 | the case's own check PASSED ("Untagged frames ingressing on a trunk with native VLAN were correctly switched", 07:17:12); FAIL = framework config compare: tear_down `no vlan 10` deleted the BENCH's VLAN 10 |
+| 80 | Native VLAN discard | PASS 10/0 | untagged frames on a `native vlan none` trunk discarded |
+| 90-190 | | NOT RUN | stopped |
+
+TC60 -- why it is not a DUT failure. The DUT logged BOTH events; the suite's single-line match
+(cmd_output_line_check needs 'add'/'age-out', the MAC and 'port3.0.10' on ONE line) cannot see them
+because the framework console wraps `show log` at 80 columns. Raw console (swi_a log,
+evidence/24032-tc60-show-log-wrapped-lines.txt):
+  2026 Oct 01 17:52:11 user.notice IE520-stk EXFX[710]: MAC add 2222.2222.2222 por
+  t3.0.10 vlan1
+  2026 Oct 01 17:58:53 user.notice IE520-stk EXFX[710]: MAC age-out 2222.2222.2222
+   port3.0.10 vlan1
+  -> "!!FAIL: MAC add was not logged" (06:51:41), "!!FAIL: MAC remove/age-out was not logged" (07:11:21).
+
+TC70 -- the config-compare diff (framework log 07:17:32), TestCase_tear_down.cfg vs stk_a_5706_1001.cfg:
+  vlan database:  missing "vlan 10 name data", "vlan 10,4000 state enable"
+  port3.0.2 / port4.0.2 (sa1 members, to the 4050): missing "switchport access vlan 10"
+Every remaining VLAN-10 TestCase (90, 100, 110, 120, 150-190) has the same `no vlan 10` tear_down, so
+each would FAIL the compare and pay a full power cycle. Two framework power cycles had already been paid
+(07:12:43-07:13:10 after TC60, 07:17:37-07:17:57 after TC70). Stopped at the next case boundary (TC90's
+pre-run), after TC80 had completed.
+
+Known script defect, not reached: TC130 sends `thrash-limiting timeout 1` in GLOBAL config; the AW+
+wiki (x230) gives Interface Configuration only -> expect a `%` line there.
+
+## Restore (within the test) and after-run checks
+- Console states found after the kill: u2 `IE520-stk#`, u4 `IE520-stk-4 login:`, u5 `IE520-stk login:`,
+  u3 `IE520-sa(config)#` (left by the killed run) -> `end`, exec.
+- SIGINT landed after TC90's configure: port3.0.10 had `switchport mode trunk`, `trunk allowed vlan add 10`,
+  `vlan-stacking provider-port`; port3.0.9 `access vlan 10`, `vlan-stacking customer-edge-port`.
+  Undone on u5 (TC90's own tear_down minus `no vlan 10`): port3.0.10 `no switchport vlan-stacking`,
+  `switchport mode access`; port3.0.9 `no switchport vlan-stacking`, `no switchport access vlan`.
+  `show vlan 10` -> 10 data STATIC ACTIVE sa1(u) port3.0.2(u) port4.0.2(u).
+- Boot config: stack `boot config-file flash:/tb470-bench.cfg` ("File synchronization with stack member
+  1/4 successfully completed"), SA the same. show boot: Current boot config flash:/tb470-bench.cfg
+  (file exists) on both.
+- Deleted (delete force): stack master flash stk_a_5706_1001{,_10.._90}.cfg + TestCase_tear_down.cfg;
+  IE520-stk-1/ and IE520-stk-4/ flash stk_a_5706_1001{,_10.._80}.cfg (dir afterwards: "No such file");
+  SA flash swi_b_5706_1001{,_10.._90}.cfg + TestCase_tear_down.cfg.
+  NOT this run's, left in place: IE520-stk-1/ and -4/ flash still hold stk_a_9001_33235*.cfg (34) and
+  stk_a_9001_33234*.cfg (3) from the 2026-09-28..30 runs (only the master's copies were deleted then).
+- PDU: outlets 1 and 7 switched ON 07:23:4x with the framework's own HTTP calls (status.xml / ons.cgi,
+  default creds; PduPower() itself hit the known OSError(40) on its log file in /tmp). Status first read
+  "11111121" (outlet 7 = '2', the known transitional state), then "11111111".
+- Loop-protection baseline: never touched (TC170+ not run); running-config still has
+  `loop-protection loop-detect ldf-interval 1 fast-block`.
+- Probe 2026-10-01T182729Z (07:27): MATCH. Final probe 2026-10-01T182835Z (07:28): MATCH, Advisories none.
+- running-config diff vs pre-test-configs/2026-10-02-24032/: u0, u1, u2, u3 IDENTICAL
+  (post-test-configs/2026-10-02-24032/). Boot configs: all four flash:/tb470-bench.cfg.
+- Nothing left running: PID 375808/375807 gone; no tcpdump/sender started by this case.
+- Run exit code: rc = 3 (SIGINT).
