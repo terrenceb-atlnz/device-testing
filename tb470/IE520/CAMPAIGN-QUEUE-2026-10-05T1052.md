@@ -45,6 +45,16 @@ Notes from the session (sentinel):
 - Precheck 2026-10-05 10:30: u0, u2, u3, u4, u5 free; FOUND only the u1 minicom above.
 - No PDU this session: nothing is power-cycled, by the tester or the framework.
 
+Decisions 2026-10-05 ~11:15 NZDT (after triage found the bench per the 10:28 handover update, commit
+7f0c6ff: old build `tomahawk_ie520-20260825-42` stacked as u5 = ID 1 master, u4 = ID 2; u2 standalone
+on `awplus_main-20260923-20`; no stack-to-x230 link; eth3 on stack port1.0.9, eth1 on port1.0.10):
+- Path: "Direct at eth3" — no recable; customer = eth1 on stack port1.0.10, provider = eth3 on stack port1.0.9.
+  This REPLACES the x230 observation path (option 2), which no longer exists.
+- Build: first answer "u2 standalone (new build)"; that conflicts with "Direct at eth3" (no tb470 NIC
+  reaches u2). Asked again with the bench changes it would need → **"Fall back: old-build stack"**.
+  So the DUT is the old-build stack; O-2 (measured on 20260923-20 on 09-30) is re-measured on this build,
+  and a new-build comparison stays open.
+
 ## Rules carried with the queue
 
 - Verdicts, the working log, the `RESULT` line, the results list and the final log:
@@ -61,7 +71,7 @@ Notes from the session (sentinel):
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | T27887 supplementary: (A) combined translation + outer-vlan entry, (B) `default outer-vlan`, forward + reverse each | vlan-2026-10-05T1052 | QUEUED | observe the provider side via the x230 (stack port1.0.2 → x230 → tb470 eth3); customer side = tb470 eth1 on stack port3.0.10 (moved from 3.0.13 on 2026-10-01). Group setup/restore recipe: written by the tester below before the first stage |
+| 1 | T27887 supplementary: (A) combined translation + outer-vlan entry, (B) `default outer-vlan`, forward + reverse each | vlan-2026-10-05T1052 | RUNNABLE (triage 11:01, option D) | DUT = old-build stack via u5; customer = port1.0.10 (eth1), provider = port1.0.9 (eth3), direct capture; stages S0, S1 control, SA1/SA1p, SA2, SB/SBp (triage hand-back). Triage probe MISMATCH by design (bench deliberately off-template, do NOT apply), bench-state 04f92a7 |
 
 ## Group setup and restore — vlan-2026-10-05T1052
 
@@ -75,3 +85,5 @@ Notes from the session (sentinel):
 ## Issues
 
 - I-1 (carried): SA u3 unresponsive, OPEN since the 2026-10-05 handover. Not this campaign's to fix.
+- I-2: tb470 eth2 (to SA port1.0.2) had carrier at 08:21 and has NONE at 10:56: the SA's state changed. Not investigated (u3 not this session's).
+- I-3: dispatch facts were stale (sentinel read the handover before its 10:28 update); triage caught it.
