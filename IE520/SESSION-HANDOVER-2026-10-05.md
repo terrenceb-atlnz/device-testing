@@ -1,4 +1,4 @@
-# Session handover — 2026-10-05 (stack restored from the rollback; the SA is unresponsive)
+# Session handover — 2026-10-05 (old build stacked as 2 members; u2 standalone; the SA is unresponsive)
 
 ## Session facts
 Test Engineer: terrenceb@terrenceb-dl
@@ -10,6 +10,48 @@ Constraints: none stated
 
 Continues [SESSION-HANDOVER-2026-10-02.md](SESSION-HANDOVER-2026-10-02.md): the rollback to
 `tomahawk_ie520-20260825-42` and the split it caused.
+
+## UPDATE ~10:30 NZDT — READ THIS FIRST: the OLD build is now stacked (2 members); u2 is out
+
+The ~08:20 restore below (the stack back on the new build) was **not what the Test Engineer
+wanted**: *"i wanted them on the old build, but i wanted the old build stacked"*. The old build
+takes member IDs 1–2 only, so on their answers ("u5 + u4", "Disable stacking on it", "Translated
+copy", "Default config" for u2):
+
+| console | unit | now | build | boot config |
+| --- | --- | --- | --- | --- |
+| u5 | S/N 264A23066, MAC …0740 | **stack ID 1, Active Master** (was 3) | `tomahawk_ie520-20260825-42` | `flash:/tb470-oldstack.cfg` |
+| u4 | S/N 264A23052, MAC …09c0 | **stack ID 2, Backup Member** (was 4) | `tomahawk_ie520-20260825-42` | `flash:/tb470-oldstack.cfg` |
+| u2 | S/N 264A23061, MAC …0ac0 | **standalone, stacking disabled** (`no stack 1 enable`), hostname `IE520-u2` | `awplus_main-20260923-20` | `flash:/u2-standalone.cfg` |
+| u3 | SA | still unresponsive (below) | | |
+
+- `tb470-oldstack.cfg` is `tb470-bench.cfg` translated: port3.0.x→port1.0.x and port4.0.x→port2.0.x,
+  u2's port1.0.x blocks dropped, `switch 3/4 provision` dropped, `interface sa2-3` → `sa3`.
+  `sa2` (the x230) had all its legs on u2, so **the stack has no link to the x230 now**. u2's
+  ports 1.0.2/1.0.9 still face the x230's sa2, in VLAN 1 under u2's default STP.
+- `u2-standalone.cfg` holds only: hostname `IE520-u2`, `no stack 1 enable`, `lldp run`, console
+  exec-timeout. It has no IP addresses and no aggregators.
+- The configs were delivered with `copy http://10.38.215.1:8080/<file>` from a user-space
+  `python3 -m http.server` in tb470 `/tmp/ckflash/http` (stopped afterwards). No root write.
+- Verified on the new build first (renumber reload 10:15–10:19), then on the old build (10:26):
+  - IDs 1 and 2 Ready, with no `member-ID … invalid`;
+  - no "forced" warning in the bootloader banner (`releasefile=coro-IE520-tb470.rel`);
+  - `remote-diff` identical;
+  - `sa1` (to the AR4050S, LLDP on 1.0.2/2.0.2) and the host links port1.0.9/1.0.10 running;
+  - vlan1 `10.38.215.10` and vlan10 `10.10.10.1` up.
+- Expected noise: `Not all stack ports are up`, plus VCS `Neighbor discovery has timed out on
+  link port1.0.28 / port2.0.27`. Those stack ports face u2, which now has stacking disabled.
+- **Do not `bench_probe.py apply`**: the bench is deliberately off-template.
+
+**Way back to the 1/3/4 stack on the new build** (untested; check the bootloader banner each time):
+1. On the old-build stack: `boot system flash:/IE520-tb470.rel`, then reload.
+   - Earlier today the old build's `boot system` did not reach a FORCED bootloader. The forced
+     setting is cleared now (Boot Menu 2→9), so it should be followed. If the banner still reads
+     `coro-…`, use Boot Menu 2→9 (platforms/IE520.md §2).
+2. On the new build: `stack 1 renumber 3`, `stack 2 renumber 4`,
+   `boot config-file flash:/tb470-bench.cfg`.
+3. On u2: `stack 1 enable` (remove the `no` form), `boot config-file flash:/tb470-bench.cfg`.
+4. Reload all three, then `show stack` → 1/3/4 Ready, and re-probe → MATCH.
 
 ## TL;DR — read first
 

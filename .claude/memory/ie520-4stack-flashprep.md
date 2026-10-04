@@ -20,6 +20,12 @@ logs `filesysd: VCS member-ID 3 is invalid (max is 2)` on EVERY boot, then `No n
 members found` → `Member 1 … Active Master`. The tb470 1/3/4 stack therefore split into three
 standalone masters sharing one virtual MAC. Rolling a stack back to a pre-`20260913` build needs
 IDs 1–2 (renumber first), or it splits.
+**Done 2026-10-05:** on the NEW build, `stack 3 renumber 1` and `stack 4 renumber 2` (each
+`% Warning`s: effective at reboot, boot config may be invalid). Port names follow the ID, so the
+boot config was translated (`port3.0.x`→`port1.0.x`). The third unit was kept out with
+`no stack 1 enable` in its own boot config (`Stacking hardware disabled`). The new build was
+reloaded once to prove the IDs and config, then `boot system` to the old build and reloaded.
+Handover `IE520/SESSION-HANDOVER-2026-10-05.md` has the way back.
 
 **(Historical, OLD build, 2026-09-04):** `stack 1 renumber 3|4` → `% The max stack member ID
 supported by this product is 2`; `switch 3 provision ie520-28` → `% Invalid switch value`. That is
