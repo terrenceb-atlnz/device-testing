@@ -71,11 +71,60 @@ on `awplus_main-20260923-20`; no stack-to-x230 link; eth3 on stack port1.0.9, et
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | T27887 supplementary: (A) combined translation + outer-vlan entry, (B) `default outer-vlan`, forward + reverse each | vlan-2026-10-05T1052 | RUNNABLE (triage 11:01, option D) | DUT = old-build stack via u5; customer = port1.0.10 (eth1), provider = port1.0.9 (eth3), direct capture; stages S0, S1 control, SA1/SA1p, SA2, SB/SBp (triage hand-back). Triage probe MISMATCH by design (bench deliberately off-template, do NOT apply), bench-state 04f92a7 |
+| 1 | T27887 supplementary: (A) combined translation + outer-vlan entry, (B) `default outer-vlan`, forward + reverse each | vlan-2026-10-05T1052 | RUNNING (from ~11:25, tester) | DUT = old-build stack via u5; customer = port1.0.10 (eth1), provider = port1.0.9 (eth3), direct capture; stages S0, S1 control, SA1/SA1p, SA2, SB/SBp (triage hand-back). Triage probe MISMATCH by design (bench deliberately off-template, do NOT apply), bench-state 04f92a7 |
 
 ## Group setup and restore — vlan-2026-10-05T1052
 
-(The tester writes this before the first stage.)
+Written by the tester (bench-runner), 2026-10-05 ~11:25 NZDT, before the first stage. Option D,
+Test Engineer's answer relayed 11:19: DUT = the OLD-build stack (u5 = ID 1 Active Master, u4 = ID 2,
+`tomahawk_ie520-20260825-42`), driven from **u5 only**. u0, u2, u1 and u3 are not touched. Nothing is
+power-cycled and nothing is written to startup-config. Scratch: tb470 `/tmp/ckvlan1052/` (tools copy,
+transcripts `console-u5.log`, pcaps).
+
+**Baseline (pre-group capture, u5):** `show running-config`, `show boot` (boot config
+`flash:/tb470-oldstack.cfg`), `show stack`, `show reboot history`, `show interface port1.0.9,port1.0.10
+status` → `27887/work/pre-group-u5.out`.
+
+**Setup (u5, `ckcon.py --stop-on-error`):**
+```
+configure terminal
+vlan database
+ vlan 3995 name ck-svlan
+ vlan 3997 name ck-internal
+interface port1.0.9-1.0.10
+ shutdown
+ switchport mode trunk
+ switchport trunk allowed vlan add 3995,3997
+ no shutdown
+end
+```
+Native VLAN 1 stays on both ports, so eth1/eth3 keep the lab VLAN 1. Loop risk is nil, because only
+host NICs are on these ports. Each stage adds its own lines (customer-edge-port / provider-port /
+translation entries) and removes them before the next stage.
+
+**Restore (u5, `ckcon.py --stop-on-error`), the exact recipe:**
+```
+configure terminal
+interface port1.0.9-1.0.10
+ shutdown
+ no switchport vlan translation all
+ no switchport vlan translation default
+ no switchport vlan-stacking
+ switchport mode trunk                           (only if a stage left a port in access mode)
+ switchport trunk allowed vlan remove 3995,3997
+ switchport mode access
+ no shutdown
+vlan database
+ no vlan 3995
+ no vlan 3997
+end
+```
+If a `no` form is refused because nothing is configured, skip that line; never skip the rest.
+**Verify:** `show running-config` on u5 rcdiffs EMPTY against the pre-group capture.
+`remote-diff all show running-config` shows the members identical. `show boot` still names
+`flash:/tb470-oldstack.cfg`. port1.0.9/1.0.10 are connected in VLAN 1. A re-probe shows the same
+MISMATCH set as 10:56 (off-template by design; do NOT apply).
+**If the tester dies mid-group:** run the restore block above on u5 as written, then verify.
 
 ## Results
 
