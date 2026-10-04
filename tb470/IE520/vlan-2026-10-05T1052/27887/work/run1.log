@@ -1,0 +1,382 @@
+T27887 -- Verify vlan-based QinQ interoperability with vlan translation
+SUPPLEMENTARY re-investigation, working log run 1
+tb470 IE520 stack (old build), 2026-10-05 11:20-11:49 NZDT
+================================================================================
+
+## Session facts (the Test Engineer's, word for word, from the dispatch / queue)
+- box: tb470
+- consoles: u0,u2,u4,u5  (this run used u5 only; u4 is the stack's other member, reached
+  through the stack CLI on u5; u0 and u2 were NOT touched, per the Test Engineer's answer)
+- pdu: none ("No PDU / do not power-cycle"); outlets: none; names: as in bench-setup/tb470.static
+- constraints: "Don't power-cycle the SA (u3/outlet 8 is not to be power-cycled; observe via the
+  x230 path (option 2); u1 never touched; sentinel stands down 17:30 today)"
+- Test Engineer: terrenceb@terrenceb-dl
+- Test Engineer's answers relayed by the sentinel at 11:19 (after triage): mode RUN, option D.
+  (1) Path "Direct at eth3": no recable; customer = eth1 on stack port1.0.10, provider = eth3 on
+  stack port1.0.9. This replaces the x230 path, which the triage found impossible on the measured
+  bench. (2) Build "Fall back: old-build stack": DUT = the old-build stack, driven from u5.
+  "Re-measure the O-2 form (`vlan <wire> outer-vlan <outer>`) on this build too, so both
+  behaviours sit on one build."
+- Framing (Terrence): supplementary evidence. T27887 stays UNSUPPORTED unless he decides otherwise.
+  Record the measured double-tag behaviour, and flag any O-2 repeat as an observation.
+- Sentinel: parent session (/test-mode shape A). Tester: bench-runner subagent.
+- Queue: tb470/IE520/CAMPAIGN-QUEUE-2026-10-05T1052.md, row 1. Group setup/restore recipe written
+  and committed before the first stage (commit e92e1d3).
+
+## Case
+AWPTCM-T27887. No steps in ck.db. Precondition: "vlan-based QinQ and vlan translation should not be
+used on the same port If both vlan-based QinQ and vlan translation are applied on the same port, the
+outer vlan tag will be used for translation". It tests VLAN-based QinQ, the global per-VLAN mapping
+`vlan-stacking vlan <inner> outer-vlan <outer>` ("cannot be applied per interface", T27895/T27989).
+
+This run's ask (supplementary, not the case's feature): exercise the two per-port IE520 commands that
+had never been configured or put under traffic, forward and reverse:
+ (A) `switchport vlan translation vlan <wire> vlan <vid> outer-vlan <outer>`, in both argument orders;
+ (B) `switchport vlan translation default outer-vlan <vid>`;
+plus a re-measure of the O-2 form `switchport vlan translation vlan <wire> outer-vlan <outer>`.
+The question for each: does the customer C-tag survive INSIDE the outer tag (true Q-in-Q), or is it
+dropped (O-2)?
+
+## Devices (measured; show system / show stack on u5, 11:20; probe 2026-10-04T215627Z)
+DUT stk_a = "IE520-stk", AT-IE520-28GSX, 2-member VCStack, virtual MAC 0000.cd37.0d6f
+(`stack virtual-mac`, virtual-chassis-id 3439), Operational Status "Not all stack ports are up"
+(member 1's stack ports face u2, which has stacking disabled; this is expected, per the 2026-10-05
+handover update).
+  - member 1: console u5 (/dev/u5, 115200), S/N 264A23066, MAC 84e3.2787.0740, bootloader 9.1.0,
+    prio 128. Role during the run: Backup Member (see the 11:13 reboot below).
+  - member 2: console u4 (/dev/u4, 115200), S/N 264A23052, MAC 84e3.2787.09c0, bootloader pauld,
+    prio 128. Role during the run: Active Master.
+  - Software: tomahawk_ie520-20260825-42 (file coro-IE520-tb470.rel), Build date Tue Aug 25
+    07:43:35 UTC 2026, both members (one stack image).
+  - Boot: `Current boot image : flash:/coro-IE520-tb470.rel (file exists)`, `Current boot config:
+    flash:/tb470-oldstack.cfg (file exists)`. Same before (11:20) and after (11:48).
+  - Licences: not re-read in this run.
+Not used: swi_f x230 (u0), swi_a IE520-u2 standalone (u2), u1 (AR4050S, the Test Engineer's
+minicom), u3 (SA, unresponsive).
+
+## Links and host NICs used
+  tb470 eth1  00:f0:4d:00:77:16  10.38.215.1/27  -> stk_a port1.0.10 (member 1, 1000BASE-T module,
+              a-full a-1000)   = CUSTOMER side
+  tb470 eth3  00:f0:4d:00:77:18  10.38.215.65/27 -> stk_a port1.0.9  (member 1, AT-SP10TM
+              10GBASE-TM module, a-full a-1000) = PROVIDER side
+  Proof: probe 2026-10-04T215627Z "MAC learned on a physical port" (eth1 -> port1.0.10, eth3 ->
+  port1.0.9); `show mac address-table` 1 port1.0.10 00f0.4d00.7716, 1 port1.0.9 00f0.4d00.7718.
+  Host NICs: `ethtool -k` rx-vlan-offload off, tx-vlan-offload off on eth1 and eth3, so captured
+  frames carry their 802.1Q tags as received.
+  STP is off on the stack (`no spanning-tree rstp enable`); only these two host NICs are on the test
+  ports, so there is no loop path.
+
+## Tools (from tools/, copied to tb470 /tmp/ckvlan1052/tools at 10:56; transcripts
+## /tmp/ckvlan1052/console-u5.log)
+  - ckcon.py /dev/u5 115200 /tmp/ckvlan1052/console-u5.log [--stop-on-error] CMD...  (all config/show)
+  - qmark.py (triage only, 10:59-11:00: help probe of the (A)/(B) forms, u5 and u2)
+  - peek.py, rcdiff.py, vsend.py, vcount.py, bench_probe.py
+  - work/stage.sh <name> <tx-nic> <src-mac> <dst-mac> [vsend opts]: this case's own stage script.
+    It reads `show interface port1.0.9,port1.0.10 | include Interface|input packets|output packets`
+    before and after, runs `sudo -n timeout 14 tcpdump -i ethN -Q in -U -nn -s0 -w <pcap> ether src
+    <src-mac>` on eth1 AND eth3, then `sudo -n python3 vsend.py <tx> 100 ip10 --src <src> --dst <dst>
+    --tag <name> [--outer O] [--vlan V]`, then `vcount.py` on both pcaps.
+    Forward: tx eth1, src 00:00:5e:00:53:01, dst 00:00:5e:00:53:ff (unknown unicast, flooded).
+    Reverse: tx eth3, src 00:00:5e:00:53:02, dst 00:00:5e:00:53:fe.
+    Frames: IPv4/UDP 192.168.10.1 -> .2, 4000 -> 4010, marker CKVLAN-<stage>-NNNN, 100 per burst,
+    3 ms apart. The `--vlan` is the inner/customer tag; `--outer` is the outer tag.
+  - No framework run (hand-driven case): gate items 5, 6 and 8 are not applicable.
+
+## Pre-run gates (from the TRIAGE pass, 10:55-11:01, and before the group)
+- Occupancy precheck 10:55: u0, u2, u4, u5 free; FOUND only the known u1 minicom (PID 527573),
+  outside this session's consoles.
+- Bare CR (peek.py) 10:56: u0 `x230-10GP#`, u2 `IE520-u2#`, u4 `IE520-stk#`, u5 `IE520-stk#`. No
+  parked shell or config mode.
+- /nfsHome mounted; /home/st-art/st-art/configs/tb470.setup exists.
+- Probe 2026-10-04T215627Z (10:56 NZDT): exit 1 MISMATCH, 17 items + 1 NEEDS-CHECK (eth2 carrier
+  down). The bench is deliberately off-template (2026-10-05 handover update), so it was not applied.
+  Reported to the sentinel as NEEDS TEST ENGINEER, and answered 11:19 (option D, above).
+- CLI help on this build (qmark.py, 10:59, u5, interface port1.0.20; self-test passed, nothing
+  executed):
+    IE520-stk(config-if)#switchport vlan translation vlan 2100 vlan 3997 ?        -> outer-vlan | <cr>
+    IE520-stk(config-if)#switchport vlan translation vlan 2100 vlan 3997 outer-vlan 3995 ?  -> <cr>
+    IE520-stk(config-if)#switchport vlan translation vlan 2100 outer-vlan 3995 ?  -> vlan | <cr>
+    IE520-stk(config-if)#switchport vlan translation vlan 2100 outer-vlan 3995 vlan 3997 ?  -> <cr>
+    IE520-stk(config-if)#switchport vlan translation default ?  -> drop | outer-vlan
+    IE520-stk(config-if)#switchport vlan translation default outer-vlan ?
+      <1-4094>  A single outer (configured) VLAN_ID to added
+    IE520-stk(config-if)#no switchport vlan translation ?  -> all | default | vlan
+  (u2, new build awplus_main-20260923-20, offered exactly the same.)  Evidence: tb470
+  /tmp/ckvlan1052/q-if-u5.out, q-if-u2.out.
+
+## Absence of the case's feature on this build (from today's sentinel probe, 10:31, u5, this stack,
+## tomahawk_ie520-20260825-42; transcript tb470 /tmp/ckq27887/console-u5.log)
+    IE520-stk(config)#vlan-stacking ?
+    % Unrecognized command
+    IE520-stk(config)#vlan ?
+      access-map  Configure VLAN Access Map
+      classifier  Vlan classification commands
+      database    Configure VLAN database
+      filter      Configure VLAN Access Map Filter
+    IE520-stk#show vlan ?   -> <1-4094> access-map all auto brief classifier dynamic filter internal
+                               private-vlan static   (no `stacking`)
+  => the global VLAN-based QinQ command the case tests is absent. Not re-typed in this run.
+
+## EVENT before the run: member 1 rebooted unattended
+`show reboot history` (11:20), member 1: `2026-10-04 22:13:45 Unexpected System reboot` (UTC =
+11:13:45 NZDT). Member 1 uptime 0 days 00:09:08 at 11:20; member 2 uptime 00:57:25. Roles then:
+member 2 Active Master, member 1 Backup Member (at 10:56 member 1 was the master). The tester sent
+nothing to any console between 11:01 and 11:20. The old build's unattended-reboot pattern (member 1
+also logged unattended reboots on 10-04 07:14, 10-03 13:49, 10-02 10:49/05:06/02:12 UTC, and so on).
+eth1/eth3 (member 1's ports) were connected again by 11:20. Reported to the sentinel at ~11:21.
+No further reboot during the run: reboot history at 11:47/11:48 has the same top entries
+(member 1 22:13:45 Unexpected; member 2 21:23:51 Expected).
+
+## Pre-group capture (11:20:40-11:21:06, u5) -> work/pre-group-u5.out
+  show running-config / show boot / show stack / show system / show reboot history /
+  show interface port1.0.9,port1.0.10 status / show vlan brief / remote-diff all show running-config
+    port1.0.9   connected  1  a-full a-1000  10GBASE-TM
+    port1.0.10  connected  1  a-full a-1000  1000BASE-T
+    IE520-stk#remote-diff all show running-config
+    % Comparing "show running-config" on node 2 and node 1
+    % Results are identical
+  (`show interface port1.0.9,port1.0.10 switchport` -> `% Invalid input`: a show form, after
+  nothing had been configured; not a config error.)
+
+## Group setup (11:22:09-11:22:19, u5, ckcon --stop-on-error, rc 0, no `% ` line)
+## -> work/group-setup-u5.out
+    IE520-stk#configure terminal
+    IE520-stk(config)#vlan database
+    IE520-stk(config-vlan)#vlan 3995 name ck-svlan
+    IE520-stk(config-vlan)#vlan 3997 name ck-internal
+    IE520-stk(config-vlan)#interface port1.0.9-1.0.10
+    IE520-stk(config-if)#shutdown
+    IE520-stk(config-if)#switchport mode trunk
+    IE520-stk(config-if)#switchport trunk allowed vlan add 3995,3997
+    IE520-stk(config-if)#no shutdown
+    IE520-stk(config-if)#end
+Read back 11:22:34:
+    interface port1.0.9-1.0.10
+     switchport
+     switchport mode trunk
+     switchport trunk allowed vlan add 3995,3997
+    3995    ck-svlan         STATIC  ACTIVE  port1.0.9(t) port1.0.10(t)
+    3997    ck-internal      STATIC  ACTIVE  port1.0.9(t) port1.0.10(t)
+    port1.0.9   connected  trunk a-full a-1000 10GBASE-TM
+    port1.0.10  connected  trunk a-full a-1000 1000BASE-T
+    IE520-stk#show interface switchport vlan translation
+    Interface: port1.0.9   default accept
+    Interface: port1.0.10  default accept
+Native VLAN is 1 on both trunks (the baseline access VLAN), so the lab VLAN 1 on eth1/eth3 carried on.
+Customer tag 2100 is deliberately NOT a VLAN on the DUT.
+
+stk_a.cfg saved 11:23 from `show running-config` on u5 (master's view; remote-diff identical)
+-> 27887/stk_a.cfg (and raw: work/after-setup-u5.out). This is the group reference that every stage
+teardown returns to.
+
+## Stage results (100 frames per burst every time; kernel drops 0 on every capture)
+DUT counters: port1.0.10 input +100 on every forward burst; port1.0.9 input +100 on every reverse
+burst (the output counters also carry background lab traffic). Each stage's raw output:
+work/<stage>.out; pcaps: work/pcap/27887-<stage>-eth{1,3}.pcap.
+
+| stage | DUT config under test (on top of the group setup) | sent | captured | reading |
+| --- | --- | --- | --- | --- |
+| s0f  | none (feature OFF) | eth1, C-tag 2100 | eth3 0; eth1 0 | 2100 is not a VLAN on the port: dropped (port1.0.10 input 4 -> 104) |
+| s0r  | none (feature OFF) | eth3, 3995,2100 | eth1 100 x `tags=3995,2100` | the plain trunk passes a double-tagged frame UNCHANGED |
+| s1f  | CONTROL: 1.0.10 `switchport mode access` / `access vlan 3995` / `vlan-stacking customer-edge-port`; 1.0.9 `vlan-stacking provider-port` | eth1, 2100 | eth3 100 x `tags=3995,2100` | port-based QinQ pushes 3995 and KEEPS 2100: the eth3 path shows both tags on this build |
+| s1r  | same | eth3, 3995,2100 | eth1 100 x `tags=2100` | outer popped at the customer edge |
+| sa1f | (A) 1.0.10 `switchport vlan translation vlan 2100 vlan 3997 outer-vlan 3995`; 1.0.9 plain trunk | eth1, 2100 | eth3 100 x `tags=3995` | ONE tag: the customer tag is gone and no inner 3997 either |
+| sa1r | same | eth3, 3995,3997 | eth1 100 x `tags=2100` | single 2100 out |
+| sa1r2 | same | eth3, 3995,2100 | eth1 100 x `tags=2100` | single 2100 out |
+| sa1r3 | same | eth3, 3995,3000 | eth1 100 x `tags=2100` | single 2100 out: an unrelated inner VID 3000 is NOT carried through |
+| sa1pf | (A) + 1.0.9 `switchport vlan-stacking provider-port` | eth1, 2100 | eth3 100 x `tags=3995` | still one tag |
+| sa1pr | same | eth3, 3995,3997 | eth1 100 x `tags=2100` | |
+| sa1pr3 | same | eth3, 3995,3000 | eth1 100 x `tags=2100` | inner 3000 not carried |
+| sa2f | (A) other order `switchport vlan translation vlan 2100 outer-vlan 3995 vlan 3997` (STORED as `vlan 2100 vlan 3997 outer-vlan 3995`); 1.0.9 plain trunk | eth1, 2100 | eth3 100 x `tags=3995` | identical to sa1f |
+| sa2r | same | eth3, 3995,3997 | eth1 100 x `tags=2100` | |
+| sa2r3 | same | eth3, 3995,3000 | eth1 100 x `tags=2100` | |
+| o2f  | O-2 form `switchport vlan translation vlan 2100 outer-vlan 3995` (table: wire 2100, VLAN 0, Outer 3995); 1.0.9 plain trunk | eth1, 2100 | eth3 100 x `tags=3995` | ONE tag: O-2 REPEATS on this build |
+| o2r  | same | eth3, 3995,2100 | eth1 100 x `tags=2100` | |
+| o2r3 | same | eth3, 3995,3000 | eth1 100 x `tags=2100` | inner 3000 not carried |
+| o2pf | O-2 form + 1.0.9 provider-port | eth1, 2100 | eth3 100 x `tags=3995` | one tag |
+| o2pr3 | same | eth3, 3995,3000 | eth1 100 x `tags=2100` | |
+| (B) | `switchport vlan translation default outer-vlan 3995` | -- | -- | REFUSED: `% Translation configuration of hardware failed` (STEP B below) |
+| sbf/sbf2/sbfu/sbr, sbpf/sbpr | NOT (B): these bursts ran after (B) was refused (see the slip below), with 1.0.10 a plain trunk and no translation entry on the master; 1.0.9 plain trunk (sb*) then provider-port (sbp*) | eth1 2101 / 3997 / untagged; eth3 3995,2101 | 2101: 0 (dropped); 3997: eth3 100 x `tags=3997`; untagged: eth3 100 x `tags=none`; reverse: eth1 100 x `tags=3995,2101` (both plain and provider-port) | feature-OFF readings only. No outer was pushed anywhere |
+
+### Commands and proof, stage by stage (prompt = the stack CLI on u5)
+S1 config (11:24:23-11:24:32, rc 0) -> work/s1-cfg-u5.out
+    IE520-stk(config)#interface port1.0.10
+    IE520-stk(config-if)#switchport mode access
+    IE520-stk(config-if)#switchport access vlan 3995
+    IE520-stk(config-if)#switchport vlan-stacking customer-edge-port
+    IE520-stk(config-if)#interface port1.0.9
+    IE520-stk(config-if)#switchport vlan-stacking provider-port
+    3995    ck-svlan   STATIC  ACTIVE  port1.0.9(t) port1.0.10(u)
+  s1f vcount (eth3): 100  marker=s1f  tags=3995,2100  type=0x0800 dst=00:00:5e:00:53:ff src=00:00:5e:00:53:01
+  s1r vcount (eth1): 100  marker=s1r  tags=2100       type=0x0800 dst=00:00:5e:00:53:fe src=00:00:5e:00:53:02
+  => CONTROL PASS: this observation path delivers a double-tagged frame to eth3 with both tags.
+S1 teardown (11:25:50-11:25:58, rc 0; then 11:26 re-add) -> work/s1-td-u5.out
+    port1.0.10: no switchport vlan-stacking / no switchport access vlan / switchport mode trunk
+    port1.0.9:  no switchport vlan-stacking
+    (mode trunk did not restore 1.0.10's allowed list, so: port1.0.10 `switchport trunk allowed
+    vlan add 3995,3997`.) rcdiff work/after-setup-u5.out vs work/s1-post-u5.out: EMPTY.
+
+SA1 config (11:26:43-11:26:47, rc 0) -> work/sa1-cfg-u5.out
+    IE520-stk(config)#interface port1.0.10
+    IE520-stk(config-if)#switchport vlan translation vlan 2100 vlan 3997 outer-vlan 3995
+  read back:
+    interface port1.0.10 ... switchport vlan translation vlan 2100 vlan 3997 outer-vlan 3995
+    IE520-stk#show interface switchport vlan translation
+    Interface: port1.0.10
+    VLAN on Wire            VLAN                    Outer Vlan
+    2100                    3997                    3995
+    default                 accept
+  sa1f vcount (eth3): 100  marker=sa1f  tags=3995  type=0x0800 dst=00:00:5e:00:53:ff src=00:00:5e:00:53:01
+     <-- the frame left with ONE tag (3995); type 0x0800 straight after it, so no inner tag at all
+  sa1r  (eth1): 100  marker=sa1r   tags=2100   (sent 3995,3997)
+  sa1r2 (eth1): 100  marker=sa1r2  tags=2100   (sent 3995,2100)
+  sa1r3 (eth1): 100  marker=sa1r3  tags=2100   (sent 3995,3000)
+SA1p (11:29:26, rc 0): port1.0.9 `switchport vlan-stacking provider-port` -> work/sa1p-cfg-u5.out
+  sa1pf (eth3): tags=3995 x100; sa1pr (eth1): tags=2100 x100; sa1pr3 (eth1): tags=2100 x100.
+SA1 teardown (11:31:25, rc 0) -> work/sa1-td-u5.out: port1.0.10 `no switchport vlan translation
+all`, port1.0.9 `no switchport vlan-stacking`; read back = group setup; translation tables
+"default accept" on both.
+SA2 config (11:31:32-11:31:35, rc 0) -> work/sa2-cfg-u5.out
+    IE520-stk(config-if)#switchport vlan translation vlan 2100 outer-vlan 3995 vlan 3997
+  read back: ` switchport vlan translation vlan 2100 vlan 3997 outer-vlan 3995`; table 2100 / 3997 / 3995
+  <-- both argument orders are ONE entry, stored in the vlan-first order
+  sa2f (eth3) tags=3995 x100; sa2r (eth1) tags=2100 x100; sa2r3 (eth1) tags=2100 x100.
+O-2 form (11:37:2x, rc 0) -> work/o2-cfg-u5.out
+    IE520-stk(config-if)#no switchport vlan translation all
+    IE520-stk(config-if)#switchport vlan translation vlan 2100 outer-vlan 3995
+  table: 2100 / 0 / 3995
+  o2f (eth3) tags=3995 x100; o2r (eth1) tags=2100 x100; o2r3 (eth1) tags=2100 x100.
+O-2p (11:39:00, rc 0) -> work/o2p-cfg-u5.out: + port1.0.9 provider-port.
+  o2pf (eth3) tags=3995 x100; o2pr3 (eth1) tags=2100 x100.
+
+### STEP B -- (B) `switchport vlan translation default outer-vlan <vid>`: REFUSED (11:40-11:46)
+work/sb-cfg-u5.out (11:40:19):
+    IE520-stk(config)#interface port1.0.9
+    IE520-stk(config-if)#no switchport vlan-stacking
+    IE520-stk(config-if)#interface port1.0.10
+    IE520-stk(config-if)#no switchport vlan translation all
+    IE520-stk(config-if)#switchport vlan translation default outer-vlan 3995
+    % Translation configuration of hardware failed
+Further attempts (work/sb-retry-u5.out, work/sb-m2-u5.out):
+    11:44:23  port1.0.10 (member 1 port, trunk):  default outer-vlan 3997 -> % Translation configuration of hardware failed
+    11:44:32  port1.0.9  (member 1 port, trunk):  default outer-vlan 3995 -> % Translation configuration of hardware failed
+    11:45:49  port2.0.20 (member 2 = master port, ACCESS): -> % VLAN translation only supported in trunk mode
+    11:46:11  port2.0.20 after `switchport mode trunk` / `trunk allowed vlan add 3995`:
+              default outer-vlan 3995 -> % Translation configuration of hardware failed
+  => (B) is refused on this build on a trunk port of either member, with or without a translation
+     entry on the port. It never became active on the master: `show running-config` and
+     `show interface switchport vlan translation` read `default accept` throughout.
+
+!! THE REFUSED (B) LINE LANDED ON THE BACKUP MEMBER every time (repeat of the 2026-10-02 O-1,
+   memory stack-refused-command-lands-on-backups; a different command and build):
+    IE520-stk#remote-diff all show running-config        (11:44:10, after the 11:40:24 refusal)
+    % Comparing "show running-config" on node 2 and node 1
+    -interface port1.0.9-1.0.10
+    +interface port1.0.9
+    ...
+    +interface port1.0.10
+    + switchport
+    + switchport mode trunk
+    + switchport trunk allowed vlan add 3995,3997
+    + switchport vlan translation default outer-vlan 3995
+  At 11:44:44, after the two retries, node 1 had `default outer-vlan 3995` on port1.0.9 AND
+  `default outer-vlan 3997` on port1.0.10. At 11:46:23, after the port2.0.20 retry, node 1 had
+  `+ switchport vlan translation default outer-vlan 3995` under port2.0.20.
+  (node 2 = member 2 = Active Master; node 1 = member 1 = Backup, which holds port1.0.9/1.0.10.)
+  Cleared from the master each time, verified:
+    11:45:16  IE520-stk(config)#interface port1.0.9-1.0.10 / no switchport vlan translation default
+    11:45:26  remote-diff all show running-config -> % Results are identical
+    11:46:31  port2.0.20: no switchport vlan translation default / switchport trunk allowed vlan
+              remove 3995 / switchport mode access
+    11:46:40  remote-diff all show running-config -> % Results are identical
+
+TESTER SLIP (recorded, not hidden): the 11:40 stage command ran the SB bursts (sbf, sbf2, sbfu, sbr)
+and, after adding provider-port on 1.0.9 (11:42:28, rc 0), the SBp bursts (sbpf, sbpr), WITHOUT
+gating them on the config return code. So they ran while (B) was refused on the master (and present
+only in backup member 1's running-config). They are NOT measurements of (B). They read the same as
+feature OFF: 2101 dropped, 3997 single-tagged through, untagged through on native VLAN 1, and the
+reverse 3995,2101 passed unchanged. No burst showed an outer tag pushed. So nothing suggests member
+1's stray running-config line was programmed into the hardware, but that is not proven either.
+Gated correctly from then on.
+
+## Group restore (11:46:57-11:47:54, u5) -> work/group-restore-u5.out
+    IE520-stk(config)#interface port1.0.9-1.0.10
+    IE520-stk(config-if)#shutdown
+    IE520-stk(config-if)#no switchport vlan translation all
+    IE520-stk(config-if)#no switchport vlan-stacking
+    % Vlan stacking is not enabled on this interface      <-- nothing to remove; skipped per the recipe
+    (resumed 11:47:44)
+    IE520-stk(config-if)#switchport trunk allowed vlan remove 3995,3997
+    IE520-stk(config-if)#switchport mode access
+    IE520-stk(config-if)#no shutdown
+    IE520-stk(config-if)#vlan database
+    IE520-stk(config-vlan)#no vlan 3995
+    IE520-stk(config-vlan)#no vlan 3997
+    IE520-stk(config-vlan)#end
+(The ports were shut for 42 s between the refused `no` form and the resume.)
+Verification 11:48 (work/post-group-u5.out):
+    rcdiff.py work/pre-group-u5.out work/post-group-u5.out   -> EMPTY (running-config IDENTICAL
+                                                                to the 11:20 baseline)
+    remote-diff all show running-config -> % Results are identical
+    Current boot config: flash:/tb470-oldstack.cfg (file exists)   (unchanged)
+    port1.0.9   connected  1  a-full a-1000  10GBASE-TM
+    port1.0.10  connected  1  a-full a-1000  1000BASE-T
+    show stack: 1 Ready Backup Member, 2 Ready Active Master (as at 11:20)
+    show reboot history: no new entry since 22:13:45 UTC on member 1
+Nothing was written to startup-config. Nothing was power-cycled. u0, u1, u2 and u3 were not opened
+in RUN mode (u0/u2 only by the triage peek/qmark/probe, read-only).
+No tcpdump or vsend left running (`ps -C tcpdump` empty at 11:48).
+
+## After-probe (bench_probe.py run --consoles u0,u2,u4,u5 --no-prompt, capture 2026-10-04T224833Z,
+## 11:48 NZDT) -> work/probe-after.out
+  exit 1 MISMATCH: the SAME 17 items as the 10:56 probe (swi_b/swi_e absent, stk_a = {swi_c,swi_d},
+  eth1 -> port1.0.10, eth3 -> port1.0.9 against the deployed template), + NEEDS-CHECK eth2.
+  Not applied (off-template by design). bench-state.md differences from 10:56: stack roles (member 2
+  now master, from the 11:13 reboot), and eth2 "carrier up, MAC not learned" (it was carrier DOWN at
+  10:56, and up at 08:21). eth2 faces the SA, so the SA's state changed again; not this run's doing.
+
+## Readings
+1. Combined entry (A), both argument orders (one stored entry `vlan 2100 vlan 3997 outer-vlan 3995`):
+   - Forward (customer 2100 -> provider): the frame leaves with ONE tag, the outer VID 3995. The
+     customer tag is not kept, and the inner is not translated to 3997 and kept either. The same
+     with the provider port as a plain trunk or as `vlan-stacking provider-port`. NOT Q-in-Q.
+   - Reverse (provider 3995 + any inner -> customer): the frame leaves with ONE tag, the wire VID
+     2100, whatever the inner VID was (3997, 2100 or 3000). A provider's inner tag is not delivered.
+   - The x930 page describes the combined entry as "both adds an outer-tag VID and translates the
+     inner-tag VID between the wire-VID and the internal VID", which would give 3995,3997 forward.
+     Measured: 3995 only. With the 3995/3997 reverse sent, 2100 out matches the documented reverse
+     translation, but 3000 -> 2100 shows the inner VID is not checked.
+2. O-2 form `vlan 2100 outer-vlan 3995`: forward ONE tag (3995); reverse 2100 for any inner.
+   O-2 (measured 2026-09-30 on awplus_main-20260923-20) REPEATS on tomahawk_ie520-20260825-42.
+   Behaviour (1) and (2) are indistinguishable on the wire.
+3. (B) `default outer-vlan`: refused by the hardware layer on this build
+   (`% Translation configuration of hardware failed`), on a trunk port of either member. It also
+   needs trunk mode (`% VLAN translation only supported in trunk mode` on an access port).
+4. The refused (B) line was stored on the backup member while the master refused it: a repeat of the
+   2026-10-02 O-1 (refused flowcontrol landing on backups), here with a VLAN-translation command on
+   the old build. Cleared with the `no` form on the master and verified by remote-diff.
+5. Port-based QinQ (s1, control) works on this build: 3995,2100 forward, 2100 reverse.
+
+Observations for the Test Engineer (not graded):
+- OBS-1 (O-2 repeat, possible defect / platform difference): the per-port double-tag translation
+  entries, both the O-2 form and the combined (A) form in either order, forward ONE tag and lose the
+  customer tag. In reverse they emit the wire VID single-tagged and discard the inner tag, whatever
+  its VID.
+- OBS-2: (B) `switchport vlan translation default outer-vlan` is offered by the CLI but refused by
+  the hardware on tomahawk_ie520-20260825-42. Not tried on the new build: u2 was out of scope.
+- OBS-3 (possible defect, repeat of the 10-02 O-1): a config command the stack master REFUSES is
+  stored in the backup member's running-config.
+- OBS-4: member 1 rebooted unattended at 11:13:45 NZDT, before the run.
+
+Run label: clean for S0, S1, (A) both orders and the O-2 form. (B) never became active (refused).
+The SB/SBp bursts were run ungated after the refusal (tester slip) and are feature-OFF readings only.
+Teardown proven by an EMPTY rcdiff against the pre-group baseline plus remote-diff identical.
+
+Files saved: 27887/stk_a.cfg; work/pre-group-u5.out, group-setup-u5.out, after-setup-u5.out,
+work/<stage>.out (s0f s0r s1f s1r sa1f sa1r sa1r2 sa1r3 sa1pf sa1pr sa1pr3 sa2f sa2r sa2r3 o2f o2r
+o2r3 o2pf o2pr3 sbf sbf2 sbfu sbr sbpf sbpr), the *-cfg-u5 / *-td-u5 config transcripts,
+sb-retry-u5.out, sb-clean-u5.out, sb-m2-u5.out, group-restore-u5.out, post-group-u5.out,
+probe-after.out, stage.sh, pcap/27887-<stage>-eth{1,3}.pcap. Raw console transcript: tb470
+/tmp/ckvlan1052/console-u5.log (tmpfs, not committed).
+
+VERDICT: UNSUPPORTED -- the case's global VLAN-based QinQ (`vlan-stacking vlan … outer-vlan …`) is absent on the IE520 (% Unrecognized command, this build); supplementary: per-port double-tag translation (combined entry in both orders, and the O-2 form) forwards ONE tag and drops the customer tag (O-2 repeats on tomahawk_ie520-20260825-42), and `default outer-vlan` is refused (% Translation configuration of hardware failed)

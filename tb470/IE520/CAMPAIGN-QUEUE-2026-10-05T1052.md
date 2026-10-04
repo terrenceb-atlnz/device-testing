@@ -71,7 +71,7 @@ on `awplus_main-20260923-20`; no stack-to-x230 link; eth3 on stack port1.0.9, et
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | T27887 supplementary: (A) combined translation + outer-vlan entry, (B) `default outer-vlan`, forward + reverse each | vlan-2026-10-05T1052 | RUNNING (from ~11:25, tester) | DUT = old-build stack via u5; customer = port1.0.10 (eth1), provider = port1.0.9 (eth3), direct capture; stages S0, S1 control, SA1/SA1p, SA2, SB/SBp (triage hand-back). Triage probe MISMATCH by design (bench deliberately off-template, do NOT apply), bench-state 04f92a7 |
+| 1 | T27887 supplementary: (A) combined translation + outer-vlan entry, (B) `default outer-vlan`, forward + reverse each | vlan-2026-10-05T1052 | DONE 11:49 (tester: UNSUPPORTED, supplementary recorded; work/run1.log) | DUT = old-build stack via u5; customer = port1.0.10 (eth1), provider = port1.0.9 (eth3), direct capture; stages S0, S1 control, SA1/SA1p, SA2, SB/SBp (triage hand-back). Triage probe MISMATCH by design (bench deliberately off-template, do NOT apply), bench-state 04f92a7 |
 
 ## Group setup and restore — vlan-2026-10-05T1052
 
@@ -135,4 +135,6 @@ MISMATCH set as 10:56 (off-template by design; do NOT apply).
 
 - I-1 (carried): SA u3 unresponsive, OPEN since the 2026-10-05 handover. Not this campaign's to fix.
 - I-2: tb470 eth2 (to SA port1.0.2) had carrier at 08:21 and has NONE at 10:56: the SA's state changed. Not investigated (u3 not this session's).
+- I-4: (B) `switchport vlan translation default outer-vlan` refused by the master (`% Translation configuration of hardware failed`) yet stored in backup member 1's running-config, 4 times (10-02 O-1 repeat). Cleared with the `no` form; remote-diff identical at 11:48.
+- I-5: member 1 (u5) unattended reboot 11:13:45 NZDT, master moved to member 2; eth2 carrier back UP at 11:48 (was down at 10:56).
 - I-3: dispatch facts were stale (sentinel read the handover before its 10:28 update); triage caught it.
