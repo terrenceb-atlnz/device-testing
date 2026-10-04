@@ -15,6 +15,12 @@ and Terrence rebuilt tb470 into a **single 4-member VCStack ring** (members 1-4 
 `bench-setup/bench-state.md` "Current state — 2026-09-14". So a build date genuinely can change a
 "product limit" — re-test capability on the live build, don't trust an old NEGATIVE.
 
+**Rollback signature (2026-10-05, build `tomahawk_ie520-20260825-42`):** a member with ID > 2
+logs `filesysd: VCS member-ID 3 is invalid (max is 2)` on EVERY boot, then `No neighboring
+members found` → `Member 1 … Active Master`. The tb470 1/3/4 stack therefore split into three
+standalone masters sharing one virtual MAC. Rolling a stack back to a pre-`20260913` build needs
+IDs 1–2 (renumber first), or it splits.
+
 **(Historical, OLD build, 2026-09-04):** `stack 1 renumber 3|4` → `% The max stack member ID
 supported by this product is 2`; `switch 3 provision ie520-28` → `% Invalid switch value`. That is
 what the new build fixed.

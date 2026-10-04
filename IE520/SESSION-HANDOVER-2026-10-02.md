@@ -174,8 +174,26 @@ By hand: a bare `0` in a submenu, a bare `9` on the main menu, `0` + Enter in a 
   21:22:12 UTC (10:07 and 10:22 NZDT). **This session sent no reload.** A `minicom --wrap -D
   /dev/u2` (terrenceb) was running from ~10:00 and had gone by 10:25. This is the Test Engineer's
   rollback test ("verify a fault has been repaired").
-- **Cause of the split: inferred, not established.** It is consistent with the pre-`20260913`
-  limit of member IDs 1–2 (memory `ie520-4stack-flashprep`): each unit came up as ID 1.
+- **Cause of the split: ESTABLISHED (permanent logs, read 2026-10-05).** The old build rejects
+  member IDs above 2 on every boot: u5 `filesysd: VCS member-ID 3 is invalid (max is 2)`, u4 `…
+  member-ID 4 is invalid (max is 2)`. Each unit then logs `No neighboring members found` and becomes
+  `Member 1 … Active Master`. u2's log shows that the first reload (21:07 UTC) did briefly form a
+  1/3/4 stack (21:09:16, with "booted from non-default location, SW version auto synchronization
+  cannot be supported"). The split dates from the 21:22 reload.
+- **Corosync / CMSG check (Test Engineer's ask, 2026-10-05):** the buffered and permanent logs of
+  all three units have **no `corosync` or `totem` line at all**. The only `CMSG` lines are two on
+  u2's permanent log, at 2026-10-01 19:32:50 UTC (08:32 NZDT 10-02, T24032 run 3, build
+  `20260923-20`, before the rollback):
+  `IE520-stk-1 VCS[4955]: CMSG(519).tport.host.req.tcp[192.168.255.3:9600]: Receive took 61 seconds`
+  and the same from `IE520-stk-4` (60 s). These are members 1 and 4 waiting on the master. The
+  search was verified with a positive control (`include VCS` returns 31–41 lines per unit). Since
+  21:22 UTC 10-01 the units have not been stacked, so the absence of CMSG errors since then says
+  nothing about the stack.
+- **Unexpected reboots on the old build, standalone (to 2026-10-04, UTC):**
+  - u2: 10-02 09:56, 22:12, 23:02; 10-04 11:54.
+  - u5: 10-02 02:12, 05:06, 10:49; 10-03 13:49; 10-04 07:14.
+  - u4: 10-01 23:36; 10-02 06:44, 14:54, 23:28; 10-03 06:13, 06:23; 10-04 09:40.
+  - That is 16 in about 2.5 days.
 - The "Unexpected System reboot" entries 18:15–19:40 UTC on 2026-10-01 (07:15–08:40 NZDT
   2026-10-02) are T24032's framework power cycles.
 - **Final probe SKIPPED at this wrap.** The bench is mid-test by the Test Engineer, and a probe
