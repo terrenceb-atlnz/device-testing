@@ -130,6 +130,7 @@ MISMATCH set as 10:56 (off-template by design; do NOT apply).
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
+| T27887 | Verify vlan-based QinQ interoperability with vlan translation (supplementary) | vlan-2026-10-05T1052 | UNSUPPORTED | global `vlan-stacking vlan … outer-vlan …` absent; supplementary: (A) combined entry (both orders = one entry) and the O-2 form forward ONE tag (3995) and drop the customer tag — O-2 repeats on tomahawk_ie520-20260825-42; reverse emits single 2100 for any inner VID; (B) `default outer-vlan` refused (`% Translation configuration of hardware failed`); port-based QinQ control kept both tags | 27887/work/run1.log | tester |
 
 ## Issues
 
@@ -138,3 +139,6 @@ MISMATCH set as 10:56 (off-template by design; do NOT apply).
 - I-4: (B) `switchport vlan translation default outer-vlan` refused by the master (`% Translation configuration of hardware failed`) yet stored in backup member 1's running-config, 4 times (10-02 O-1 repeat). Cleared with the `no` form; remote-diff identical at 11:48.
 - I-5: member 1 (u5) unattended reboot 11:13:45 NZDT, master moved to member 2; eth2 carrier back UP at 11:48 (was down at 10:56).
 - I-3: dispatch facts were stale (sentinel read the handover before its 10:28 update); triage caught it.
+- I-4: stack member 1 (u5) rebooted unattended at 11:13:45 NZDT (old build), before the run; roles flipped (u4 = master). No reboot during the stages (checked 11:47).
+- I-5 (OBS-3, possible defect, repeat of 10-02 O-1): `switchport vlan translation default outer-vlan` REFUSED by the master landed in the backup member's running-config every time (port1.0.9, port1.0.10, port2.0.20); cleared with the `no` form, remote-diff identical.
+- I-6 (tester slip, recorded in run1.log): the SB/SBp bursts ran ungated after (B) was refused, so they are feature-OFF readings, not measurements of (B).
