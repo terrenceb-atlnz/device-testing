@@ -135,10 +135,8 @@ MISMATCH set as 10:56 (off-template by design; do NOT apply).
 ## Issues
 
 - I-1 (carried): SA u3 unresponsive, OPEN since the 2026-10-05 handover. Not this campaign's to fix.
-- I-2: tb470 eth2 (to SA port1.0.2) had carrier at 08:21 and has NONE at 10:56: the SA's state changed. Not investigated (u3 not this session's).
-- I-4: (B) `switchport vlan translation default outer-vlan` refused by the master (`% Translation configuration of hardware failed`) yet stored in backup member 1's running-config, 4 times (10-02 O-1 repeat). Cleared with the `no` form; remote-diff identical at 11:48.
-- I-5: member 1 (u5) unattended reboot 11:13:45 NZDT, master moved to member 2; eth2 carrier back UP at 11:48 (was down at 10:56).
+- I-2: tb470 eth2 (to SA port1.0.2) had carrier at 08:21, NONE at 10:56, back UP at 11:48: the SA's state keeps changing. Not investigated (u3 not this session's).
 - I-3: dispatch facts were stale (sentinel read the handover before its 10:28 update); triage caught it.
-- I-4: stack member 1 (u5) rebooted unattended at 11:13:45 NZDT (old build), before the run; roles flipped (u4 = master). No reboot during the stages (checked 11:47).
-- I-5 (OBS-3, possible defect, repeat of 10-02 O-1): `switchport vlan translation default outer-vlan` REFUSED by the master landed in the backup member's running-config every time (port1.0.9, port1.0.10, port2.0.20); cleared with the `no` form, remote-diff identical.
+- I-4 (OBS-3, possible defect, repeat of 10-02 O-1): (B) `switchport vlan translation default outer-vlan` REFUSED by the master (`% Translation configuration of hardware failed`) yet stored in backup member 1's running-config, 4 times (port1.0.9, port1.0.10, port2.0.20). Cleared with the `no` form; remote-diff identical at 11:48.
+- I-5: member 1 (u5) rebooted unattended at 11:13:45 NZDT (old build), before the run; master moved to member 2 (u4). No reboot during the stages (checked 11:47).
 - I-6 (tester slip, recorded in run1.log): the SB/SBp bursts ran ungated after (B) was refused, so they are feature-OFF readings, not measurements of (B).
