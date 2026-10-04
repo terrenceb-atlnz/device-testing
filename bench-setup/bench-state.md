@@ -1,6 +1,6 @@
 # tb470 — bench state
 
-> **Generated 2026-10-04T192131Z by `bench_probe.py`** from `captures/2026-10-04T192131Z/` on tb470. Measured state only;
+> **Generated 2026-10-04T215627Z by `bench_probe.py`** from `captures/2026-10-04T215627Z/` on tb470. Measured state only;
 > nothing here is hand-written. Regenerate with `./bench_probe.py run` on tb470. The
 > `setup` fence at the end IS `tb470.setup`; `./bench_probe.py apply` writes it to the box.
 > Names and PDU outlets come from `tb470.static`; platform mechanics live in the orient-dt
@@ -11,32 +11,31 @@
 | console | baud | name | model | serial | hostname | stack | role | software | bootloader | boot image |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | /dev/u0 | 9600 | swi_f | x230-10GP | G26ZE80EN | x230-10GP | standalone | standalone | awplus_5.5.5_2-20260918-7 | 3.2.16 | flash:/x230-tb470.rel |
-| /dev/u2 | 115200 | swi_a | AT-IE520-28GSX | 264A23061 | IE520-stk | stk_a member 1 | Backup Member | awplus_main-20260923-20 | 9.1.0 | flash:/IE520-tb470.rel |
-| /dev/u4 | 115200 | swi_d | AT-IE520-28GSX | 264A23052 | IE520-stk | stk_a member 4 | Backup Member | awplus_main-20260923-20 | pauld | flash:/IE520-tb470.rel |
-| /dev/u5 | 115200 | swi_c | AT-IE520-28GSX | 264A23066 | IE520-stk | stk_a member 3 | Active Master | awplus_main-20260923-20 | 9.1.0 | flash:/IE520-tb470.rel |
-| /dev/u3 | — | ? | ? | ? | ? | — | unreachable | | | no_response (powered off / absent) |
+| /dev/u2 | 115200 | swi_a | AT-IE520-28GSX | 264A23061 | IE520-u2 | standalone | Active Master | awplus_main-20260923-20 | 9.1.0 | flash:/IE520-tb470.rel |
+| /dev/u4 | 115200 | swi_d | AT-IE520-28GSX | 264A23052 | IE520-stk | stk_a member 2 | Backup Member | tomahawk_ie520-20260825-42 | pauld | flash:/coro-IE520-tb470.rel |
+| /dev/u5 | 115200 | swi_c | AT-IE520-28GSX | 264A23066 | IE520-stk | stk_a member 1 | Active Master | tomahawk_ie520-20260825-42 | 9.1.0 | flash:/coro-IE520-tb470.rel |
 
-**stk_a**: Normal operation; Stack MAC 0000.cd37.0d6f; members 1=swi_a (84e3.2787.0ac0, prio 128, Backup Member), 3=swi_c (84e3.2787.0740, prio 128, Active Master), 4=swi_d (84e3.2787.09c0, prio 128, Backup Member).
+**stk_a**: Not all stack ports are up; Stack MAC 0000.cd37.0d6f; members 1=swi_c (84e3.2787.0740, prio 128, Active Master), 2=swi_d (84e3.2787.09c0, prio 128, Backup Member).
 
 ## Links
 
 | A | port | B | port | proof |
 | --- | --- | --- | --- | --- |
-| tb | eth1 (10.38.215.1/27) | swi_c | port3.0.10 | MAC learned on a physical port |
-| tb | eth3 (10.38.215.65/27) | swi_c | port3.0.9 | MAC learned on a physical port |
+| tb | eth1 (10.38.215.1/27) | swi_c | port1.0.10 | MAC learned on a physical port |
+| tb | eth3 (10.38.215.65/27) | swi_c | port1.0.9 | MAC learned on a physical port |
 | swi_a | port1.0.2 | swi_f | port1.0.3 | lldp both ends |
 | swi_a | port1.0.9 | swi_f | port1.0.4 | lldp both ends |
-| tb | eth2 (10.38.215.33/27) | — | — | carrier up, MAC not learned |
+| tb | eth2 (10.38.215.33/27) | — | — | carrier DOWN |
 
 ## Advisories
 
-- swi_c port3.0.2: neighbour 0000.cd40.0394 '' is not a device on any console read
-- swi_d port4.0.2: neighbour 0000.cd40.0394 '' is not a device on any console read
+- swi_c port1.0.2: neighbour 0000.cd40.0394 '' is not a device on any console read
+- swi_d port2.0.2: neighbour 0000.cd40.0394 '' is not a device on any console read
 
 ## tb470.setup
 
 ```setup
-### GENERATED 2026-10-04T192131Z by bench_probe.py from a console capture -- DO NOT HAND-EDIT.
+### GENERATED 2026-10-04T215627Z by bench_probe.py from a console capture -- DO NOT HAND-EDIT.
 ### Source: claude/device-testing/bench-setup/bench-state.md (regenerate with
 ### `bench_probe.py run` on tb470; `bench_probe.py apply` writes this file).
 ### Names and PDU outlets come from bench-setup/tb470.static.
@@ -60,7 +59,7 @@ swi_d = 115200
 swi_f = 9600
 
 [stack]
-stk_a = swi_a, swi_c, swi_d
+stk_a = swi_c, swi_d
 
 [configured_stackport]
 
@@ -78,18 +77,17 @@ swi_d = True
 swi_f = True
 
 [portlink]
-tb-swi_c = eth1-port3.0.10, eth3-port3.0.9
+tb-swi_c = eth1-port1.0.10, eth3-port1.0.9
 swi_a-swi_f = port1.0.2-port1.0.3, port1.0.9-port1.0.4
 ```
 
 ```nic-state
 # NIC  carrier  learned_on
-eth1 up swi_c:port3.0.10
-eth2 up -
-eth3 up swi_c:port3.0.9
+eth1 up swi_c:port1.0.10
+eth2 down -
+eth3 up swi_c:port1.0.9
 ```
 
 ```probe-meta
-capture 2026-10-04T192131Z
-unread /dev/u3 unreachable
+capture 2026-10-04T215627Z
 ```
