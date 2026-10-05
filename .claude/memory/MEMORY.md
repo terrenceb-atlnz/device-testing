@@ -32,7 +32,7 @@
 - [Shared testbox: check console occupancy first](shared-testbox-console-occupancy.md) — no-console ssh check (who, LCK..uN, ps, `sudo -n fuser -v`) before probing a shared box; `sudo minicom` holders are INVISIBLE to fuser without sudo = UNKNOWN, not free (tb105 2026-10-01); now `bench_probe.py precheck`
 - [IE520 console prints no kernel log](ie520-console-prints-no-kernel-log.md) — boot goes silent at `Starting kernel ...`
 - [Never send CLI help through a CR driver](never-send-cli-help-through-a-cr-driver.md) — `<cmd> ?` + trailing CR EXECUTES the command if `<cr>` is valid
-- [IE520 first copper port is x.0.2](ie520-first-copper-port-is-x-0-2.md) — portN.0.1 is an EMPTY SFP CAGE so "uN port1" = portN.0.2; CORRECTED: each member has THREE copper ports (.2/.9/.13)
+- [IE520 first copper port is x.0.2](ie520-first-copper-port-is-x-0-2.md) — portN.0.1 is an EMPTY SFP CAGE so "uN port1" = portN.0.2 (a copper SFP); .9/.13 look fixed copper; check `show system pluggable` before blaming a cable (2026-10-06)
 - [Rejected tool calls keep running remotely](rejected-tool-calls-keep-running-remotely.md) — a rejection stops YOUR output, not the ssh command
 - [ssh pgrep watchers self-match](ssh-pgrep-watchers-self-match.md) — `ssh tb470 'pgrep -f X'` matches its own bash -c wrapper, so the loop never exits and the notification never fires
 - [ssh PATH has no sbin](ssh-path-has-no-sbin.md) — `ssh tbNNN 'command -v foo'` misses /usr/sbin and /sbin; it proves presence, never absence. Check absolute paths, dpkg, or a listening socket
@@ -62,4 +62,4 @@
 - [Refused stack command lands on backups](stack-refused-command-lands-on-backups.md) — 2026-10-02: master refused `flowcontrol` yet backups got `flowcontrol both`; after stack work check `remote-diff all show running-config`
 - [terminal (no) monitor is exec-only](terminal-monitor-exec-only.md) — does NOT toggle; config-mode/busy-console sends caused the "Command [terminal no monitor] failed" lines; `end` first or console.py monitor_off()
 - [AW+ GUI update via Load-gui9.sh](awplus-gui-load-script.md) — `activate flash:/Load-gui9.sh` on the switch; needs temp IP + route to 10.32.18.135 via tb470 eth2; delete old .gui after
-- [IE520 image update procedure](ie520-image-update-procedure.md) — Test Engineer 2026-10-05: TFTP→master, sync, park EACH unit at Boot Menu 2→1 (Flash)→file, then 9 on all; delete old .rel after. Forced-flash banner = expected
+- [IE520 image update procedure](ie520-image-update-procedure.md) — Test Engineer 2026-10-05: TFTP→master, sync, park EACH unit at Boot Menu 2→1 (Flash)→file, then 9 on all; delete old .rel after. Forced-flash banner = expected; re-read /tftproot size+.info just before TFTP; `boot system` is config-mode

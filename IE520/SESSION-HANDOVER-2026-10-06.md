@@ -1,3 +1,87 @@
+# Session handover — 2026-10-06, re-wrap ~10:20 NZDT (the stack now runs `main-calanm`)
+
+## Session facts
+Test Engineer: terrenceb@terrenceb-dl
+Testbox: tb470
+Consoles: u2,u4,u5 (stack, now at 9600 baud); u0 read once (swi_f, 9600)
+PDU: 10.36.150.14; outlets per bench-setup/tb470.static (not used this time)
+Constraints: "dont run bench probe" (at the wrap). Stop the update at `login:`, with no post-boot verification (Test Engineer, ~10:05)
+
+## TL;DR — read first
+
+- **The stack (1/3/4) runs `main-calanm`** (build Mon Oct 5 03:22:33 UTC 2026). All Ready,
+  **member 3 (u5) Active Master**, `Normal operation`. All three units are on **bootloader 9.2.0**
+  (the Test Engineer flashed it) and their **consoles are now 9600 baud**.
+  - Each bootloader is set to **Flash + `flash:IE520-tb470.rel`** (the calanm file, 40,122,919
+    bytes, identical on all three). `show boot` names the same file `(file exists)`.
+  - `IE520-awplus_main-20261002-47.rel` is **still on all three** (the update procedure's step 6,
+    deleting the old `.rel`, was deliberately NOT run: "after it goes to login, stop").
+  - This **resolves** the earlier OPEN "calanm half-loaded, same name, different files" item: the
+    old `IE520-tb470.rel` copies were deleted on all three before the copy.
+- **🔥 bench-state.md is STALE and was NOT regenerated** (the Test Engineer said not to run the
+  probe). It still says 115200 for u2/u4/u5, build `20261002-47`, bootloaders 9.1.0/`pauld`, and
+  **tb470 eth1 → swi_c port3.0.10**. None of that is true now:
+  - baud: u2/u4/u5 = 9600 (the deployed `.setup` `[baudrates]` says 115200 → a framework run
+    would see dead consoles);
+  - eth1 is **not** on port3.0.10 (see below); eth3 has no carrier.
+- **tb470 eth1 reaches the stack** (ping 10.38.215.1 ↔ `vlan1` 10.38.215.10 both ways) via the port
+  the Test Engineer called "3.0.13", but the stack read **port3.0.13 down** at that moment, so the
+  real port is unconfirmed. The next probe will say.
+- **Other people on the bench at wrap time:** `calanm`'s minicom on **u2** (since 10:04) and the Test
+  Engineer's minicom on u0 (10:06) and u3. Not touched.
+
+## What was done (08:00 → 10:15 NZDT)
+
+1. `~/Downloads/IE520-bootloader-9.2.0.kwb` → tb470 `/tftpboot/` (sha256 `7e2d46af…e3f17f07`
+   both ends). The Test Engineer then flashed 9.2.0 onto the stack units.
+2. Freed flash (each member ~28 MB free, the image is ~40 MB): deleted `IE520-tb470.rel` on members
+   1, 3, 4 (Test Engineer's OK; on member 3 that was the 2026-10-05 calanm copy).
+3. **Port3.0.10 never worked** (Findings). The Test Engineer moved eth1's lead to a copper port.
+4. TFTP `tftp://10.38.215.1/IE520-tb470.rel` → master (then u4) `flash:/IE520-tb470.rel`, 214 s.
+   **The source had been swapped**: at 08:49 the nightly `IE520-awplus_main-20261006-51.rel`
+   (40,129,319 B) landed, at **08:53:38 root replaced it with `IE520-main-calanm.rel`**
+   (40,122,919 B, sha256 `5ff36b90…450d1`). The Test Engineer chose "calanm: sync it as-is".
+5. `configure terminal` → `boot system flash:/IE520-tb470.rel` → both members synced in 195 s → `end`.
+6. The update procedure (memory `ie520-image-update-procedure`): `reload stack-member 1` → u2 parked
+   (2 → 1 → file 2 `flash:IE520-tb470.rel`, saved); `reload stack-member 3` → u5 parked; `reload` on
+   u4 → parked; then `9` on all three → all reached `login:` (~10:01). Stopped there as asked.
+7. Wrap reads on u5 (above), then logged u5 out. u2/u4 were left at `login:` from the boot.
+
+## Findings
+
+- **Measured:** bootloader 9.2.0's Boot Menu is unchanged from 9.1.0 for the park procedure
+  (platforms/IE520.md §2), and the units' consoles run at 9600 after the change.
+- **Measured:** the AT-SPTX (2008) in port3.0.10: `show platform port` → `QSGMII to 1000BASE-X`,
+  `Fiber Auto Negotiation Enabled Incomplete`, no partner. The first module linked switch-side but
+  received nothing from eth1 (2 frames total); after the Test Engineer swapped it, no link at all.
+  **Inferred:** a module/port compatibility fault, not the cable. Not proven.
+- **Measured:** `show system pluggable` lists no module at `x.0.9`/`x.0.13`, yet RJ45 went into
+  3.0.13 → those look like fixed copper ports (memory `ie520-first-copper-port-is-x-0-2`).
+- **Measured:** no new `Unexpected` reboots today; the 20:49 / 21:00 UTC (10-05) `User Request`
+  entries are this session's reloads.
+
+## OPEN — for the Test Engineer
+
+1. **Run the probe when you're ready** (`bench_probe.py run --consoles u0-u5`), then decide on
+   `apply`: the `.setup` needs `[baudrates]` 9600 for swi_a/c/d and eth1's real port. `calanm`
+   held u2 at wrap time, so the probe needs that console free.
+2. Delete `IE520-awplus_main-20261002-47.rel` from the three members (procedure step 6)? Skipped on
+   your instruction.
+3. Which port did eth1 land in? The stack read 3.0.13 down while ping worked.
+4. Port3.0.10's AT-SPTX: replace, or drop eth1→3.0.10 from the template?
+5. The nightly `20261006-51` is no longer in `/tftproot`; whoever swapped it in knows where it went.
+6. Still open from the 06:20 wrap: the leftover `tb470-oldstack.cfg` / `u2-standalone.cfg`, and u0's
+   board identity.
+
+## Recipes
+
+- **Read a 9600 console:** tb470 `/tmp/ckflash/tools/console.py`, `console.Console(tty, log,
+  baud=9600)`; `ckyn.py <tty> 9600 <log> …` / `tftp_copy.py … --baud 9600`.
+- **Wait for a background job on tb470** by `P=$!; … ; wait $P` in the same shell, never a
+  `pgrep -f` loop (memory `ssh-pgrep-watchers-self-match` — it bit again today).
+
+---
+
 # Session handover — 2026-10-06 (wrapped ~06:20 NZDT)
 
 ## Session facts

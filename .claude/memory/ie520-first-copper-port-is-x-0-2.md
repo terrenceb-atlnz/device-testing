@@ -6,7 +6,19 @@ metadata:
   type: project
 ---
 
-Measured on tb470, 2026-09-21; **CORRECTED 2026-09-23**.
+Measured on tb470, 2026-09-21; **CORRECTED 2026-09-23**; 2026-10-06 note below.
+
+> ## 2026-10-06 — check the module before blaming a cable
+> `show system pluggable` on the stack (2026-10-06) listed modules in `x.0.2` (AT-SPTXa
+> 1000BASE-T on members 1 and 3, AT-SP10TM on 4), `3.0.10` (an old **AT-SPTX**, datecode 2008),
+> `4.0.26` (AT-SPSX) and the stackports, and **nothing at `x.0.9` / `x.0.13`**. The Test Engineer
+> plugged RJ45 straight into `3.0.13`, so `.9`/`.13` are probably FIXED copper ports (a fixed
+> port is not a pluggable) — inferred, not checked against a datasheet. `x.0.2` and `3.0.10` take
+> RJ45 only because copper SFPs are fitted, so they are a **bench fact** (`show system pluggable`).
+> Observed: tb470 eth1 into the AT-SPTX at `3.0.10` never worked — `show platform port` read
+> `hwMode QSGMII to 1000BASE-X`, `Fiber Auto Negotiation Enabled Incomplete`, partner none. The
+> module first fitted linked at the switch but passed no frames; a swapped one did not link at
+> all. Cause (old module vs port) inferred, not proven.
 
 > ## CORRECTION — I got the port COUNT wrong
 > The original version of this memory said each member has "effectively ONE usable copper

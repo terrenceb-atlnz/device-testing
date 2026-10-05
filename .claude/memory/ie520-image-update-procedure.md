@@ -30,4 +30,15 @@ IE520s before they gave this procedure.
   member logic).
 - Never leave a unit at the Boot Menu longer than the procedure needs.
 - Drive the menu with bare keys only (platforms/IE520.md §2).
+- **Step 1 — re-read the source right before the copy (2026-10-06).** `/tftproot/IE520-tb470.rel`
+  is shared and changes under you: the nightly `20261006-51` landed at 08:49 and someone swapped
+  in the `main-calanm` dev build at 08:53, between my listing and my TFTP. Read `ls -l` + the
+  `.info` immediately before `copy`, pass that size to `tftp_copy.py`, and treat a size delta as
+  "which build is this?", not as SPIFlash rounding.
+- **Step 2 — `boot system` is a GLOBAL CONFIG command:** at the exec prompt it is `% Invalid
+  input`. `configure terminal` → `boot system flash:/<file>` → wait for both
+  `File synchronization with stack member N successfully completed` lines (195 s for 40 MB on
+  2026-10-06) → `end`.
+- Step 3's member reload: `reload stack-member N` on the master (`(y/n)` → `y\r`), with the park
+  watcher already reading that member's console.
 - Related: [[ie520-4stack-flashprep]], [[read-the-transcripts-before-driving-hardware]].
