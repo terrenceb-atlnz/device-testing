@@ -62,3 +62,4 @@
 - [Refused stack command lands on backups](stack-refused-command-lands-on-backups.md) — 2026-10-02: master refused `flowcontrol` yet backups got `flowcontrol both`; after stack work check `remote-diff all show running-config`
 - [terminal (no) monitor is exec-only](terminal-monitor-exec-only.md) — does NOT toggle; config-mode/busy-console sends caused the "Command [terminal no monitor] failed" lines; `end` first or console.py monitor_off()
 - [AW+ GUI update via Load-gui9.sh](awplus-gui-load-script.md) — `activate flash:/Load-gui9.sh` on the switch; needs temp IP + route to 10.32.18.135 via tb470 eth2; delete old .gui after
+- [IE520 image update procedure](ie520-image-update-procedure.md) — Test Engineer 2026-10-05: TFTP→master, sync, park EACH unit at Boot Menu 2→1 (Flash)→file, then 9 on all; delete old .rel after. Forced-flash banner = expected
