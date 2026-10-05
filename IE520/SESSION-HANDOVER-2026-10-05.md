@@ -11,6 +11,33 @@ Constraints: none stated
 Continues [SESSION-HANDOVER-2026-10-02.md](SESSION-HANDOVER-2026-10-02.md): the rollback to
 `tomahawk_ie520-20260825-42` and the split it caused.
 
+## UPDATE ~14:45 NZDT — bench swaps, GUI updates, the pending stack reload
+
+- **u1 is no longer the AR4050S.** It was an IE560 (5.5.6-1.2), and is now an **IE360**
+  (5.5.6-1.2, `IE360-5.5.6-1.2.rel`), on `default.cfg`, with port1.0.1 cabled to tb470 eth2.
+  At boot the IE360 logged `Voltage: Input 1: Alarm asserted. Reading:0.000` (one PSU input unfed?).
+- **u0 is now an x230-28GS v2** (the Test Engineer's swap; they are updating it under minicom). Not
+  read by this session.
+- **GUI updated on both the IE560 and the IE360** to `awplus-gui-20261005_1020.gui`, saved as
+  `awplus-gui_556_99.gui`; `show http` → `GUI file in use : awplus-gui_556_99.gui`. Old GUIs
+  (`_555_38` and `_554_34`), the script and the temporary IP/route were removed afterwards. Recipe:
+  memory `awplus-gui-load-script`.
+- **Stack update to `awplus_main-20261002-47` (tb470 `/tftproot/IE520-tb470.rel`, dropped 10:54
+  today) is HALF DONE. Do not assume it is finished:**
+  - On both members the `20260923-20` copy of `IE520-tb470.rel` was deleted to make room.
+  - `flash:/IE520-awplus_main-20261002-47.rel` (40,121,127 bytes) was TFTPed to the master (u4).
+  - `boot system flash:/IE520-awplus_main-20261002-47.rel` was sent on the master at ~14:11 (the
+    tool call was rejected but ran remotely) and started the stack file sync to member 1 (u5).
+    Neither its completion nor member 1's copy has been verified.
+  - **No reload yet.** The stack runs the old build. The Test Engineer wants it run after they
+    finish the x230 v2.
+  - Next: verify `dir IE520-stk-1/flash:/IE520-awplus_main-20261002-47.rel` = 40,121,127, and
+    `show boot`. Then reload and check that the bootloader banner reads
+    `releasefile=IE520-awplus_main-20261002-47.rel`.
+- **u2** is still on `20260923-20`. `coro-…` was deleted, so 65 MB is free. The new image could not
+  be fetched (`% Network is unreachable`): u2 has no IP, and its only links go to the x230. It needs
+  a network path first.
+
 ## UPDATE ~10:30 NZDT — READ THIS FIRST: the OLD build is now stacked (2 members); u2 is out
 
 The ~08:20 restore below (the stack back on the new build) was **not what the Test Engineer
