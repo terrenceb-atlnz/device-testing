@@ -116,6 +116,12 @@ default boot source = 9 "determined by main CLI" (wrap 07:53); running-config sa
 3. u0 Boot Menu 2 → 3 (TFTP default: IPv4, 10.38.215.34, 255.255.255.224, 0.0.0.0, 10.38.215.33,
    x230-tb470.rel → `Saving settings... Complete`), plain-reload proof (forced banner + `Loading
    tftp://10.38.215.33/x230-tb470.rel`), log out. Driver `/tmp/x230/run3/blmenu23.py`.
+   **Done 08:41–08:47:** `Saving settings... Complete` 08:41:50; proof reload 08:44–08:47: `Warning: System has
+   been forced to boot from a non-standard location` → `Loading tftp://10.38.215.33/x230-tb470.rel via USB Ethernet
+   adapter...` → `Verifying release... OK` → login, `Current software : x230-tb470.rel`, show boot = baseline; logged
+   out (rc 0). Evidence `5700.2002/work/run3-group-blmenu23-3.out` (driver source `run3-group-blmenu23.py.txt`).
+
+**2002.110 launched 08:47:30** (wrapper pid 133067, test-5700.2002.py 133070).
 
 **Per TestCase:** `sudo -n setsid nohup /tmp/x230/run3/launch1.sh <set> <n>` → cd runner dir,
 `/tmp/x230/run3/test-5700.<set>.py -s default.setup -u -v <n> > run.stdout 2>&1`; markers
