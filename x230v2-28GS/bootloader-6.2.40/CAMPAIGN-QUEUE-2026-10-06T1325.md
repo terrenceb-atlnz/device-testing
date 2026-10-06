@@ -55,6 +55,21 @@ Notes from the session (sentinel), measured:
 - tb470 rebooted 2026-10-06 12:43 (uptime): `/tmp` wiped, runtime routes gone; `/nfsHome`, `/tftproot` fine.
 - Other users on tb470 at 13:00: calanm (minicom on u2 and u4), maxj. Not ours; never touch.
 
+Triage 2026-10-06 13:28–13:55 (bench-runner; sentinel-verified where marked):
+- **Release prefix:** the box framework maps board `AT-x230-28GS V2` → family `x230` (no table entry;
+  `ATSwitch.get_family_name_from_board_name`, the generic rule; no `x230v2_28GS` anywhere in the framework).
+  So every bootloader TFTP boot/recovery asks for `/tftpboot/x230-tb470.rel` (absent); configure's flash
+  download uses `x230v2_28GS-tb470.rel` (present). OPEN — Test Engineer's decision.
+- **`/tftproot` is tmpfs** (sentinel `df`, 14:0x): the 12:43 reboot wiped it; it now holds only
+  IE520-tb470.rel + x230v2_28GS-tb470.rel (12:46/12:49; .info says -52).
+- **6.2.40 TFTP prompt** (menu 1 → Select device 3, read 13:50): `Note: TFTP downloads will be performed via
+  the USB Ethernet adapter.` → `Enter IP version [4|6]`. No port/interface prompt → the hub/eth0 setup
+  as written is right. Cancelled (Ctrl-C, 0, 9); nothing saved deliberately.
+- **Forced-boot banner** on that boot: `Warning: System has been forced to boot from a non-standard
+  location` … `Reading flash:x230v2_28GS-tb470.rel`. Pre-existing or not is unknown. OPEN — a saved
+  Flash+file default ignores `boot system`, which 2001's configure relies on.
+- **Licence:** run will `license ACCESS` (unit has Base only): *"Yes, allow ACCESS"* (Test Engineer, ~14:00).
+
 ## Expected, not 6.2.40 findings (decided before launch)
 
 - **SD card cases** (Feb 2002 .1/.21 + card: cases): no slot → UNSUPPORTED.
