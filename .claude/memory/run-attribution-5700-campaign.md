@@ -12,7 +12,7 @@ When discussing the `test-5700.200x` work, keep the attribution clean:
 
 - **bidhanc's run** = the FIRST campaign only, `2026-08-07/08` on tb504 (the logs Terrence inherited).
   Call it "the baseline" or "the 2026-08-07 run".
-- **our runs** = everything from `2026-08-10` onward, in `copilot/run-20260810/`.
+- **our runs** = everything from `2026-08-10` onward, in `IE520/automated-bootloader/run-2026081*/` (path corrected 2026-10-06 — was `copilot/`).
 - **The TestCases themselves are neither.** They belong to the suite. "2002.70" is never
   "bidhanc's case 70" — say "case 70 in the baseline" vs "case 70 in our run".
 

@@ -1,0 +1,1424 @@
+import os
+import random
+import socket
+import sys
+import time
+
+from enum import Enum
+
+from framework.ATDrivers.ATBootLoader import (
+    AWP_TFTP_Bootloader_Settings,
+    enter_bootrom,
+    enter_bootrom_with_retry,
+    KEYWORD_ENTER_BOOTROM,
+    KEYWORD_ENTER_SELECTION,
+    KEYWORD_ERASING_FLASH,
+    perform_one_off_boot_from_alternate_source,
+    set_swi_boot_from_tftp
+)
+
+from framework.ATLibrary.ATTools import (
+    download_file_from_tftp,
+    get_release_file_name_prefix, 
+    watch_consoles_for_bootup
+)
+
+TFTP_SERVER_PATH = '/tftpboot'
+
+"""
+This library provides functions for testing the bootloader on an AW+ device.
+It tests boot and security settings through TFTP, serial console, etc.
+
+**Functionalities:**
+
+* Boot:
+    * Check current and backup boot images.
+    * Configure boot settings.
+    * Boot from TFTP server.
+    * Create flash boot images.
+* Security:
+    * Reset boot security level.
+    * Manage boot security password.
+    * Set boot security level.
+
+See individual function docstrings for details.
+"""
+KEYWORD_SECURITY_MENU       = 'Security Settings menu'
+
+### Bootrom prompt
+KEYWORD_BOOTROM             = 'Boot Menu:'
+
+KEYWORD_VERIFYING_RELEASE = 'Verifying release'
+KEYWORD_BOOTING = 'Booting...'
+KEYWORD_DONE = 'done!'
+KEYWORDS_BOOTING = [KEYWORD_VERIFYING_RELEASE, KEYWORD_DONE]
+KEYWORDS_BOOTED = [KEYWORD_DONE, 'network.configured', 'Configuration update completed']
+
+LICENSE_STRING = "Features included             : ACCESS"
+
+WAIT_TIME_BOOTLOADER = 120
+WAIT_TIME_ERASE = 1200
+WAIT_TIME_REBOOT = 600
+
+
+
+class BootSource(Enum):
+    TFTP = 1
+    FLASH = 2
+    USB = 3
+    SDCARD = 4
+    Both = 10
+    CLI = 5
+    NoStorage = 6
+    
+class State(Enum):
+	AWP = 1
+	Bootmenu = 2
+	Downlevel = 3
+	Diagnosticmenu = 4
+	Diagnosticmenu2 = 5
+	Uboot = 6
+	Unknown = 7
+
+
+def get_wrong_platform(self, dut, prefix):
+    filenames = ['afa-5.5.3-2.1', 
+                 'AR1050V-5.5.3-2.1',
+                 'IE210-5.5.3-2.1',
+                 'IE220-5.5.3-2.1', 
+                 'IE340-5.5.3-2.1',
+                 'IE360-5.5.3-2.1', 
+                 'IE560-5.5.3-2.1', 
+                 'SBx81CFC960-5.5.3-2.1', 
+                 'soft64-5.5.3-2.1', 
+                 'TQ6702GEN2R-5.5.3-2.1',
+                 'TQ7403R-5.5.3-2.1', 
+                 'x220-5.5.3-2.1',
+                 'x240-5.5.3-2.1',
+                 'x250-5.5.3-2.1', 
+                 'x330-5.5.3-2.1', 
+                 'x540-5.5.3-2.1',
+                 'x550-5.5.3-2.1', 
+                 'x650-5.5.3-2.1',
+                 'x930-5.5.3-2.1', 
+                 'XS900-5.5.3-2.1']
+    filenames = [f'{filename}{self.SUFFIX}' for filename in filenames]
+    prefix_index = next((i for i, filename in enumerate(filenames) if prefix in filename), -1)
+    if prefix_index != -1:
+        filenames.pop(prefix_index)
+    self.incorrectfilename = filenames[random.choice(range(len(filenames)))]
+
+
+def get_all_misc(self, refresh=False):
+    """
+    Retrieves all necessary network and configuration information for automated miscellaneous testing, 
+    assuming the device under test (DUT) is currently in CLI mode.
+
+    This function gathers details like:
+
+    * Release filename prefix of the DUT
+    * Generated TFTP and copy filenames
+    * IP addresses and subnet mask of the tb Ethernet port assigned to the DUT
+    * DUT port number
+    * A "wrong platform" filename for testing purposes
+
+    Returns:
+        None (all information is stored directly in the provided `dut` object)
+
+    Raises:
+        RuntimeError: If any errors occur while retrieving information.
+    """
+    if hasattr(self, 'testSet'):
+        testSet = self.testSet
+    else:
+        testSet = self
+
+    dut = testSet.dut
+    setup = testSet.setup
+
+    if refresh or not hasattr(testSet, 'defaultBootloaderSettings'):
+        # Get device name and build filenames
+        self.log("Retrieving device information...")
+        dut.get_sys_info()
+
+        testSet.SUFFIX = dut.buildNameSuffix
+        testSet.MAIN_RELEASE = f'mainrelease{testSet.SUFFIX}'
+        testSet.BACKUP_RELEASE = f'backuprelease{testSet.SUFFIX}'
+
+        release_filename_prefix = get_release_file_name_prefix(self, dut)
+        testSet.tftpfilename = f"{release_filename_prefix}-{socket.gethostname()}{testSet.SUFFIX}"
+        testSet.filenamecopy = f"{release_filename_prefix}-copy-{socket.gethostname()}{testSet.SUFFIX}"
+
+        dut.mode(']#')
+        output = dut.cmd('ps | grep rtc')
+        if 'rtccludge' in output:
+            dut.hasRealTimeClock = False
+        else:
+            dut.hasRealTimeClock = True
+
+        # Assign temporary testbox port and extract details
+        try:
+            (tb_eth_a, dut_port_a) = setup.get_temporary_testbox_portlink(self.tb, dut)
+        except Exception as e:
+            raise RuntimeError(f"Error retrieving temporary testbox port: {e}")
+        else:
+            if tb_eth_a is None or dut_port_a is None:
+                tb_eth_a = testSet.tb.ethA
+                dut_port_a = dut.portA
+
+        testSet.ipTFTP = tb_eth_a.ipv4addr
+        testSet.subnetmask = tb_eth_a.ipv4subnetMask
+        testSet.dut_port_a = dut_port_a
+        testSet.tb_eth_a = tb_eth_a
+        if dut_port_a.name.startswith('port'):
+            testSet.port = dut_port_a.name[-1]
+        else:
+            testSet.port = dut_port_a.name
+        testSet.ipDevice = tb_eth_a.get_ipv4_addr(2 + int(dut.ttyNumber))
+
+        # Find a random "wrong" platform filename
+        get_wrong_platform(testSet, dut, release_filename_prefix)
+        
+        dut.tftpfilename = testSet.tftpfilename
+        dut.filenamecopy = testSet.filenamecopy
+        dut.incorrectfilename = testSet.incorrectfilename
+        dut.ipTFTP = testSet.ipTFTP
+        dut.ipDevice = testSet.ipDevice
+        dut.subnetmask = testSet.subnetmask
+        dut.port = testSet.port
+        dut.tftp = True
+        dut.version = dut.bootVer[0]
+        testSet.eth = tb_eth_a.name
+
+        self.log(['', '-'*80, 'Collected network details:', '-'*80])
+        self.log(f'\ttftp boot switch interface   : {testSet.dut_port_a}')
+        self.log(f'\ttftp boot tb interface       : {testSet.tb_eth_a}')
+        self.log(f'\tpost-bootup switch interface : {dut.portA}')
+        self.log(f'\tpost-bootup tb interface     : {testSet.tb.ethA}')
+        self.log(f"\ttftpfilename: {testSet.tftpfilename}")
+        self.log(f"\tfilenamecopy: {testSet.filenamecopy}")
+        self.log(f"\twrong filename: {testSet.incorrectfilename}")
+        self.log(f"\tipTFTP    : {testSet.ipTFTP}")
+        self.log(f"\tipDevice  : {testSet.ipDevice}")
+        self.log(f"\tsubnetmask: {testSet.subnetmask}")
+        self.log(f"\tport: {testSet.port}")
+        self.log(f"\tversion: {dut.version}")
+        self.log(f"\thas realtime clock: {dut.hasRealTimeClock}")
+        self.log('')
+        self.log(f"\tMAIN_RELEASE:  {testSet.MAIN_RELEASE}")
+        self.log(f"\tBACKUP_RELEASE: {testSet.BACKUP_RELEASE}")
+        self.log('')
+
+        testSet.defaultBootloaderSettings = \
+            AWP_TFTP_Bootloader_Settings(interface=testSet.port, \
+                                         ipVersion=4, \
+                                         ipAddress=testSet.ipDevice, \
+                                         subnetMask=testSet.subnetmask, \
+                                         gatewayIp='0.0.0.0', \
+                                         tftpServerIp=testSet.ipTFTP, \
+                                         fileName=testSet.tftpfilename)
+
+
+def get_default_bootloader_settings_copy(self):
+    if hasattr(self, 'testSet'):
+        ts = self.testSet
+    else:
+        ts = self
+    bootloaderSettings = copy.deepcopy(ts.defaultBootloaderSettings) if hasattr(ts, 'defaultBootloaderSettings') else None
+    return bootloaderSettings
+
+
+def copy_tftp_server_file(self, sourceFile, destinationFile):
+    tb = self.tb
+    tb.cmd(f'sudo cp {os.path.join(TFTP_SERVER_PATH, sourceFile)} {os.path.join(TFTP_SERVER_PATH, destinationFile)}')
+
+
+def checkCurrentBootImage(self, dut, expected=None):
+    if expected == None:
+        expected = "Not set"
+    dut.mode('#')
+    output = dut.cmd('show boot')
+    line = [line for line in output.splitlines() if 'Current boot image' in line][0].split(': ')[-1]
+    if expected in line:
+        self.passed(f'Current boot image is correct, {expected}')
+    else:
+        self.log(output)
+        self.failed(f"Current boot image is incorrect, should be {expected}")
+
+
+def checkBackupBootImage(self, dut, expected=None):
+    if expected == None:
+        expected = "Not set"
+    dut.mode('#')
+    output = dut.cmd('show boot')
+    line = [line for line in output.splitlines() if 'Backup  boot image' in line][0].split(': ')[-1]
+    if expected in line:
+        self.passed(f"Backup boot image is correct, {expected}")
+    else:
+        self.log(output)
+        self.failed(f"Backup boot image is incorrect, should be {expected}")
+
+
+def disableStacking(dut):
+    dut.mode('#')
+    out = dut.cmd('show stack')
+    stackId = '1'
+    stacked = True
+    if 'stacking commands are not allowed' in out:
+        out = dut.cmd('show card')
+    if 'Invalid input detected' not in out:
+        masterLine = [line for line in out.splitlines() if any(activeMasterStr in line for activeMasterStr in ['Online (Active)', 'Active Master'])]
+        if masterLine:
+            stackId = masterLine[0].strip().split()[0]
+    else:
+        stacked = False
+    if stacked:
+        dut.mode(')#')
+        dut.cmd(f'no stack {stackId} enable')
+
+
+def checkSuccessfulOperation(self, dut, command=None, expected=None):
+    successful = False
+    if command != None:
+        if expected == None:
+            expected = "Successful operation"
+        output = dut.cmd(command)
+        if expected in output:
+            self.passed(f"command '{command}' issued and output '{expected}' seen")
+            successful = True
+        else:
+            self.failed(f"command '{command}' issued and output '{expected}' not seen:")
+            log_device_output(self, output)
+    return successful
+
+
+def checkExpectedError(self, dut, command, expectedError):
+    successful = False
+    output = dut.cmd(command)
+    if expectedError in output:
+        self.passed(f"command '{command}' rejected with expected message '{expectedError}'")
+        successful = True
+    elif '%' in output:
+        self.failed(f"command '{command}' rejected but expected error not seen - '{expectedError}'")
+    else:
+        self.failed(f"command '{command}' was not rejected, expected '{expectedError}'")
+    if not successful:
+        log_device_output(self, output)
+    return successful
+                
+
+def checkDefaultBootConfig(self, dut, expected=None):
+    if expected == None:
+        expected = "Not set"
+    dut.mode('#')
+    output = dut.cmd('show boot')
+    line = [line for line in output.splitlines() if 'Default boot config' in line][0].split(': ')[-1]
+    if expected in line:
+        self.passed(f"Default boot config is correct, {expected}")
+    else:
+        self.log(output)
+        self.failed(f"Default boot config is incorrect, should be {expected}")
+
+
+def checkCurrentBootConfig(self, dut, expected=None):
+    if expected == None:
+        expected = "Not set"
+    dut.mode('#')
+    output = dut.cmd('show boot')
+    line=[ line for line in output.splitlines() if 'Current boot config' in line][0].split(': ')[-1]
+    if expected in line:
+        self.passed(f"Current boot config is correct, {expected}")
+    else:
+        self.log(output)
+        self.failed(f"Current boot config is incorrect, should be {expected}")
+
+
+def checkShowBoot(self, dut, release, source=None):
+    release_lower = release.lower()
+    matched = False
+
+    dut.mode('#')
+    output = dut.cmd('show boot')
+
+    for line in output.splitlines():
+        if 'Current software' in line:
+            version = line.split()[-1]
+            version_lower = version.lower()
+            if version_lower == release_lower:
+                self.passed(f"Current software is {release}")
+                matched = True
+            else:
+                self.failed(f'Current software is {version}, expected {release}')
+
+    return matched
+
+
+def checkBootFailed(self, dut, strList):
+    out = dut.send('9', strList=strList, waitTime=WAIT_TIME_REBOOT)
+    if 'Please recover the system' in out or 'There is no primary release' in out or 'Error: Preferred release:' in out or 'Error loading' in out or 'restarting..' in out:
+        self.passed("device is not booting")
+    else:
+        self.log(out)
+        self.failed("device is booting")
+
+
+def setBootDefaultSecure(self, dut, password):
+    output = dut.send('2', strList=["Please enter password"])
+    if "Authentication required" in output:
+        dut.send(f"{password}\n", strList=["Select device:"])
+        #need to boot from default
+        output = dut.send('3', strList=["Enter IP version", "Enter physical download port"], waitTime=WAIT_TIME_BOOTLOADER)
+    _boot_from_tftp(self, dut, output, self.tftpfilename)
+
+
+def recovery(self, dut):
+    enter_bootrom_with_retry(self, dut)
+    clear_bootloader_buffer(dut)
+    dut.send('2', strList=['Return to previous menu'])
+    output = dut.send('3', strList=['Enter physical download port', 'Enter IP version'])
+    _boot_from_tftp(self, dut, output, self.tftpfilename)
+
+
+def getState(self, dut, logging=False):
+    out = dut.cmd('')
+    if logging:
+        self.log(out)
+    if "Enter selection" in out:
+        if "Return to previous menu" in out:
+            return State.Downlevel
+        elif "1 Diagnostics Menu" in out:
+            return State.Diagnosticmenu
+        elif "2 Diagnostics Menu" in out:
+            return State.Diagnosticmenu2
+        return State.Bootmenu
+    elif "u-boot>" in out or "arc>" in out:
+        return State.Uboot #probably
+
+    return State.AWP
+
+
+def enterAWP(self, dut):
+    state = getState(self, dut)
+    performRecovery = True
+    bootupKeywords = ['Verifying release... OK', 'Booting', 'Allied Telesis Inc.', 'Initializing']
+    output = ''
+    if state == State.Bootmenu:
+        self.log("Device will now boot")
+        try:
+            output = dut.send('9', strList=bootupKeywords)
+        except Exception as e:
+            self.failed('Device appears to have failed to boot')
+        else:
+            outputDict = watch_consoles_for_bootup(dut, self, watchForLoginPrompt=True)
+            output += outputDict[dut]
+    elif state == State.Downlevel:
+        dut.cmd('0')
+        self.log("Device will now boot")
+        try:
+            output = dut.send('9', strList=bootupKeywords)
+        except Exception as e:
+            self.failed('Device appears to have failed to boot')
+        else:
+            outputDict = watch_consoles_for_bootup(dut, self, watchForLoginPrompt=True)
+            output += outputDict[dut]
+    elif state == State.AWP:
+        self.log("INFO : device was not booted, perform recovery anyway")
+
+    if state != State.AWP:
+        if any(bootupKeyword in output for bootupKeyword in bootupKeywords):
+            performRecovery = False
+        else:
+            self.failed("Device was not booted")
+            self.log(output)
+            self.log('')
+
+    if performRecovery:
+        perform_one_off_boot_from_alternate_source(self, dut, self.tftpfilename)
+
+
+def restore_boot_from_tftp(self, dut, login=True):
+    dut.off()
+    set_swi_boot_from_tftp(self, dut, postLogin=login, settingsDict=self.defaultBootloaderSettings)
+
+
+def boot_from_tftp(self, dut, filename):
+    """
+    Boots the DUT from TFTP using the provided filename and expects the specified keywords in the DUT's output.
+    Must be in AW+ otherwise use _boot_from_tftp if in boot menu.
+
+    Args:
+        dut: The DUT object representing the device to be booted.
+        filename: The filename of the image to download from the TFTP server.
+        keywords: A list of keywords expected in the DUT's output.
+
+    Returns:
+        True if the DUT successfully booted from TFTP, False otherwise.
+    """
+
+    boot_successful = False
+    retries = 5
+    header = ['-' * 40, dut.name, '-' * 40]
+    responses = []
+
+    failed_function = self.failed if hasattr(self, 'failed') else self.log
+
+    self.log(f'Setting {dut.name} to boot from TFTP')
+
+    while retries >= 0 and not boot_successful:
+        retries -= 1
+        responses.clear()
+        responses.append(header)
+
+        # Wait for boot and enter menu
+        output, keywords, turnSwiOnThread = enter_bootrom(self, dut, firstAttempt=(retries == 1), previousResponses=responses)
+        if output is None:
+            failed_function('DUT failed to boot')
+            return False
+
+        responses.append(output)
+        self.log('Entered boot menu')
+
+        ###   Send:  2. Change the default boot source (for advanced users)
+        keywords = ['Boot from default']
+        output = dut.send('2', strList=keywords, waitTime=WAIT_TIME_BOOTLOADER, interval=0.05)
+        responses.append(output)
+        if any(keyword in output for keyword in keywords):
+            
+            ###   Send:  3. TFTP (tftp://)
+            keywords = ['Enter physical download port', 'Please enter an ethernet interface to download from', 'Enter IP version', 'Run DHCP to populate default']
+            output = dut.send('3', strList=keywords, waitTime=WAIT_TIME_BOOTLOADER, interval=0.05)
+            responses.append(output)
+
+        # Boot DUT from TFTP
+        boot_successful = _boot_from_tftp(self, dut, output, filename)
+
+    if not boot_successful:
+        failed_function('Failed to boot DUT from TFTP')
+        self.log(responses)
+
+    return boot_successful
+
+
+def _boot_from_tftp(self, dut, output, filename):
+    """
+    Configures TFTP parameters, and reboots the DUT.
+
+    Args:
+        dut: The DUT object representing the device to be booted.
+        output: The current output of the DUT.
+        filename: The filename of the image to download from the TFTP server.
+
+    Returns:
+        True if the DUT successfully booted from TFTP, False otherwise.
+    """
+    bootSet = False
+
+    if 'Run DHCP to populate default' in output:
+        ###   Run DHCP to populate defaults ........ [N]:
+        keywords = ['Enter physical download port',' Please enter an ethernet interface to download from', 'Enter IP version']
+        output = dut.send('\n', strList=keywords, waitTime=WAIT_TIME_BOOTLOADER, interval=0.05)
+        
+    if 'Please enter an ethernet interface to download from' in output:
+        ###   Enter ethernet port ........ [1]:
+        keywords = ['Enter physical download port', 'Enter IP version']
+        output = dut.send(self.port + '\n', strList=keywords, waitTime=WAIT_TIME_BOOTLOADER, interval=0.05)
+
+    if 'Enter physical download port' in output:
+        ###   Enter physical download port (1-4)... [1]:
+        keywords = ['Enter IP version']
+        output = dut.send(self.port +'\n', strList=keywords, waitTime=WAIT_TIME_BOOTLOADER, interval=0.05)
+
+    if 'Enter IP version'in output:
+        ###   Enter IP version [4|6]................ [4]:
+        keywords = ['Enter IP address for this device']
+        output = dut.send('4\n', strList=keywords, waitTime=WAIT_TIME_BOOTLOADER, interval=0.05)
+        
+    if 'Enter IP address for this device' in output:
+        ###   Enter IP address for this device ..... [10.37.21.2]:
+        keywords = ['Enter subnet mask']
+        output = dut.send(str(self.ipDevice) + '\n', strList=keywords, waitTime=WAIT_TIME_BOOTLOADER, interval=0.05)
+        
+    if 'Enter subnet mask' in output:
+        ###   Enter subnet mask .................... [255.255.255.224]:
+        keywords = ['Enter gateway IP']
+        output = dut.send(str(self.subnetmask) + '\n', strList=keywords, waitTime=WAIT_TIME_BOOTLOADER, interval=0.05)
+
+    if 'Enter gateway IP' in output:
+        ###   Enter gateway IP ..................... [0.0.0.0]:
+        keywords = ['Enter TFTP server IP']
+        output = dut.send('0.0.0.0\n', strList=keywords, waitTime=WAIT_TIME_BOOTLOADER, interval=0.05)
+        
+    if 'Enter TFTP server IP' in output:
+        ###   Enter TFTP server IP ................. [10.37.97.33]:
+        keywords = ['Enter filename']
+        output = dut.send(str(self.ipTFTP) + '\n', strList=keywords, waitTime=WAIT_TIME_BOOTLOADER, interval=0.05)
+        
+    if 'Enter filename' in output:
+        ###   Enter filename ....................... [x930-tb21.rel]:
+        keywords = ['Quit and continue booting']
+        output = dut.send(str(filename) + '\n' , strList=keywords, waitTime=WAIT_TIME_BOOTLOADER, interval=0.05)
+        bootSet = True
+    
+    if 'Quit and continue booting' in output:
+        ### Continue rebooting
+        keywords = ['Loading', 'Downloading', 'Verifying release', 'Booting', 'Initializing']
+        output = dut.send('0', strList=keywords, waitTime=WAIT_TIME_REBOOT, interval=0.05)
+
+    # Check if TFTP boot was successful
+    return bootSet
+
+
+def createFlashBootImages(self, dut, filenames=None):
+    """
+    Downloads and creates flash boot images for the DUT.
+
+    Args:
+        dut: The DUT object representing the device under test.
+        filenames: A list of specific filenames to download from TFTP.
+    """
+    if filenames and not type(filenames) is list:
+        filenames = [filenames]
+
+    if filenames:
+        # suffix = dut.buildNamePrefix
+        dut.mode('#')
+        output = dut.cmd(f'dir *{self.SUFFIX}')
+
+        # Extract filenames from the output
+        existing_files = [line.split()[-1] for line in output.splitlines() if line.split()]
+        # Download missing release files
+        for filename in filenames:
+            # Check if the current filename is not present
+            if filename not in existing_files:
+                download_file_from_tftp(self, dut, localFileName=filename)
+
+        # Print list of flash images
+        dut.mode('#')
+        output = dut.cmd(f'dir *{self.SUFFIX}')
+        self.log(output)
+
+
+def resetBootSecurityLevel(self, dut):
+    """
+    Assumes the bootloader security menu has been accessed.
+    """
+
+    set_ok = False
+    
+    # Set security level
+    self.log(['', "Select the '1. Set security Level to 1 (None)' option"])
+    output = dut.send('1', strList=["Press Y to proceed, or any other key to return to the previous menu"])
+    
+    if "reset the security level to One" in output:
+        output = dut.send('y', strList=[KEYWORD_ERASING_FLASH, 'Security Settings menu'], waitTime=30, interval=0.05)
+        if KEYWORD_ERASING_FLASH in output:
+            self.passed('Device is erasing flash after resetting security level')
+            self.log('Waiting for reboot...')
+        else:
+            self.failed('Device does not appear to be erasing flash after resetting security level')
+            self.log('Unsure what state the DUT will be in now, attempt to enter boot menu')
+
+        keyWords = [KEYWORD_ENTER_BOOTROM, 'Security Settings menu', 'Verifying release... OK', 'Booting', 'Allied Telesis Inc.', 'Initializing']
+        output = dut.send('', strList=keyWords, waitTime=WAIT_TIME_ERASE, interval=0.05)
+        sawKeywords = [x for x in keyWords if x in output]
+        if sawKeywords:
+            self.log(f'Saw "{", ".join(map(str, sawKeywords))}" in response, enter bootrom')
+        enter_bootrom_with_retry(self, dut, maxAttempts=10)
+        clear_bootloader_buffer(dut)
+        output = dut.send('\n', strList=[KEYWORD_ENTER_SELECTION])            
+        if KEYWORD_ENTER_SELECTION in output:
+            self.log("Entered boot menu")
+            output = dut.send('s', strList=[KEYWORD_SECURITY_MENU])
+            
+            if "The security Level is currently set to 1 (None)" in output:
+                self.passed("Security Level 1 set")
+                set_ok = True
+                # Reboot and setup the Boot System
+                dut.send('0', strList=['Quit and continue booting'])
+                dut.send('2', strList=['Select device:'])
+                output = dut.send('3', strList=['Enter IP version', 'Enter physical download'], waitTime=20, interval=0.05)
+                _boot_from_tftp(self, dut, output, self.tftpfilename)
+                dut.send('', strList=['login:'], waitTime=WAIT_TIME_ERASE, interval=0.05)
+                createFlashBootImages(self, dut, [self.MAIN_RELEASE, self.BACKUP_RELEASE])
+                dut.mode(')#')
+                dut.cmd(f'boot system {self.MAIN_RELEASE}')
+                dut.cmd(f'boot system backup {self.BACKUP_RELEASE}')
+                dut.mode('#')
+                output = dut.cmd("sho boot")
+                self.log(output)
+                
+                # Return to the Security Settings Menu
+                self.log("Return to the Security Settings Menu")
+                enter_bootrom_with_retry(self, dut)
+                clear_bootloader_buffer(dut)
+                output = dut.send('S', strList=[KEYWORD_ENTER_SELECTION])
+                
+                if KEYWORD_SECURITY_MENU in output:
+                    self.passed("Security Settings Menu accessed")
+                else:
+                    self.log(output)
+                    self.failed("Security Settings Menu not accessed")
+            else:
+                self.log(output)
+                self.failed("Security Level 1 not set")
+        else:
+            self.log(output)
+            self.log("boot menu not entered")
+    else:
+        self.log(output)
+        self.failed("Unexpected security level, expecting 1")
+
+    return set_ok
+
+
+def selectSecurityLevelAbort(self, dut, level):
+    """
+    Assumes the bootloader security menu has been accessed.
+    Assumes the current security level is 1 (None).
+    """
+    set_ok = False
+    
+    # Check security level
+    if level == 2:
+        str_level = '2'
+        str_menu_text = "2 (Password Protected)"
+        str_conf = "two(2)"
+        str_menu_option = '1'
+    elif level == 3:
+        str_level = '3'
+        str_menu_text = "3 (Locked Down)"
+        str_conf = "three(3)"
+        str_menu_option = '2'
+    else:
+        self.failed(f"Unexpected security level {level} - can only be 2 or 3")
+        return set_ok
+    
+    # Change security level then abort
+    self.log(['', f"Select the 'Set security Level to {str_menu_text}' option and input 'n' to abort the setting"])
+    output = dut.send(str_menu_option, strList=["Press Y to proceed, or any other key to return to the previous menu"])
+    
+    if str_conf in output:
+        output = dut.cmd('n')
+        
+        if "The security Level is currently set to 1 (None)" in output:
+            self.log(f"Security Level {str_level} setting aborted")
+            set_ok = True
+        else:
+            self.failed(f"Security Level {str_level} setting not aborted - aborting test as the device is in an unknown state")
+            # ABORT TEST SET
+            sys.exit()
+    else:
+        self.log(output)
+        self.failed(f"Security Settings Menu option, 'Set security Level to {str_menu_text}', not accessed")
+    
+    return set_ok
+
+
+def selectSecurityLevelPWMismatch(self, dut, level, str_password):
+    """
+    Assumes the bootloader security menu has been accessed.
+    Assumes the current security level is 1 (None).
+    """
+    set_ok = False
+    
+    # Check security level
+    if level == 2:
+        str_level = '2'
+        str_menu_text = "2 (Password Protected)"
+        str_conf = "two(2)"
+        str_menu_option = '1'
+    elif level == 3:
+        str_level = '3'
+        str_menu_text = "3 (Locked Down)"
+        str_conf = "three(3)"
+        str_menu_option = '2'
+    else:
+        self.failed(f"Unexpected security level {level} - can only be 2 or 3")
+        return set_ok
+    
+    # Set security level - password mismatch
+    self.log(['', f"Select the 'Set security Level to {str_menu_text}' option"])
+    output = dut.send(str_menu_option, strList=["Press Y to proceed, or any other key to return to the previous menu"])
+    
+    if str_conf in output:
+        dut.send('y', strList=["Enter new password"])
+        dut.cmd(str_password)
+        # Enter a blank password as retype to ensure a mismatch
+        output = dut.send("\n", strList=[KEYWORD_SECURITY_MENU])
+        
+        if "Error: Passwords mismatch" in output:
+            self.passed(f"Security Level {str_level} password mismatch detected")
+            set_ok = True
+        else:
+            self.failed(f"Security Level {str_level} password mismatch not detected")
+    else:
+        self.log(output)
+        self.failed(f"Security Settings Menu option, 'Set security Level to {str_menu_text}', not accessed")
+    
+    return set_ok
+
+
+def setSecurityLevel(self, dut, level, str_password):
+    """
+    Assumes the bootloader security menu has been accessed.
+    Assumes the security level is different from that being set.
+    Assumes the parameter str_password is set correctly to the current password when already secure.
+    """
+    set_ok = False
+    
+    # Check security level
+    if level == 2:
+        str_level = '2'
+        str_menu_text = "2 (Password Protected)"
+        str_conf = "two(2)"
+        str_menu_option = '1'
+    elif level == 3:
+        str_level = '3'
+        str_menu_text = "3 (Locked Down)"
+        str_conf = "three(3)"
+        str_menu_option = '2'
+    else:
+        self.failed(f"Unexpected security level {level} - can only be 2 or 3")
+        return set_ok
+    
+    # There is a known problem where longer strings (>15 chars) can get truncated or corrupt
+    # when pasted to the buffer. This was seen as an issue on the x908Gen but potentially could
+    # be seen on any platform depending on the size of the FIFO queue buffer size.
+    #
+    # The input string will be split if greater than 10 chars in length
+    _n = 10
+    pwChunks = [str_password[i:i+_n] for i in range(0, len(str_password), _n)]
+    # Set security level
+    self.log(['', f"Select the 'Set security Level to {str_menu_text}' option"])
+    output = dut.send(str_menu_option, strList=["Press Y to proceed, or any other key to return to the previous menu"])
+
+    if str_conf in output:
+        dut.send('y', strList=["Enter new password", "Please enter password:"])
+
+        if "Authentication required" not in output:
+            for pwChunk in pwChunks:
+                output = dut.send(f"{pwChunk}", strList=[], waitTime=5)
+            output = dut.send("\n", strList=['Retype new password'], waitTime=20)
+            for pwChunk in pwChunks:
+                output = dut.send(f"{pwChunk}", strList=[], waitTime=5)
+            output = dut.send("\n", strList=['Password Successfully updated'], waitTime=20)
+        else:
+            self.failed('Error: Authentication required')
+
+        if f"The security Level is currently set to {str_menu_text}" in output:
+            self.passed(f"Security Level {str_level} set")
+            set_ok = True
+        else:
+            self.failed(f"Security Level {str_level} not set")
+    else:
+        self.log(output)
+        self.failed(f"Security Settings Menu option, 'Set security Level to {str_menu_text}', not accessed")
+
+    return set_ok
+
+
+def setSecurityLevelError(self, dut, level, str_password):
+    """
+    Assumes the bootloader security menu has been accessed.
+    Assumes current security level is 1 (None).
+    Assumes the password provided is invalid, either too long (>23) or too short (<6).
+    """
+    set_ok = False
+
+    if self.is_running:
+        testcase = self.testcase
+        # Check security level
+        if level == 2:
+            str_level = '2'
+            str_menu_text = "2 (Password Protected)"
+            str_conf = "two(2)"
+            str_menu_option = '1'
+        elif level == 3:
+            str_level = '3'
+            str_menu_text = "3 (Locked Down)"
+            str_conf = "three(3)"
+            str_menu_option = '2'
+        else:
+            self.failed(f"Unexpected security level {level} - can only be 2 or 3")
+            return set_ok
+
+        # Set security level
+        self.log(['', f"Select the 'Set security Level to {str_menu_text}' option"])
+        output = dut.send(str_menu_option, strList=["Press Y to proceed, or any other key to return to the previous menu"])
+
+        if str_conf in output:
+            dut.send('y', strList=["Enter new password"])
+            output = dut.send("%s\n" % str_password, strList=["Error: Maximum password length is 23", "Error: Minimum password length is 6"])
+
+            if f"The security Level is currently set to {str_menu_text}" in output:
+                self.log(f"Security Level {str_level} set")
+                set_ok = True
+            else:
+                self.failed(f"Security Level {str_level} not set")
+        else:
+            self.log(output)
+            self.failed(f"Security Settings Menu option, 'Set security Level to {str_menu_text}', not accessed")
+
+    return set_ok
+
+
+def checkSecurityLevel(self, dut, level):
+    """
+    Assumes the bootloader security menu has been accessed.
+    """
+    set_ok = False
+    
+    # Check security level
+    if level == 2:
+        str_level = '2'
+        str_menu_text = "2 (Password Protected)"
+        str_conf = "two(2)"
+        str_menu_option = '1'
+    elif level == 3:
+        str_level = '3'
+        str_menu_text = "3 (Locked Down)"
+        str_conf = "three(3)"
+        str_menu_option = '2'
+    elif level == 1:
+        str_level = '1'
+        str_menu_text = "1 (None)"
+        str_conf = "reset the security level to One"
+        str_menu_option = '1'
+    else:
+        self.failed(f"Unexpected security level {level} - can only be 1, 2, or 3")
+        return set_ok
+    
+    # Go to boot menu
+    enter_bootrom_with_retry(self, dut)
+    clear_bootloader_buffer(dut)
+    
+    # Select option, 'S. Security Level'
+    self.log(['', "Select option, 'S. Security Level', and check that the Security Settings Menu is accessed"])
+    output = dut.send('S', strList=[KEYWORD_ENTER_SELECTION])
+    output = dut.cmd('')
+    if KEYWORD_SECURITY_MENU in output:
+        self.passed("Security Settings Menu accessed")
+        
+        # Check what security level is currently set
+        if f"currently set to {str_level}" not in output:
+            self.log(output)
+            self.failed(f"Security level not set to {str_menu_text} as expected")
+        else:
+            self.passed(f"Security level is set to {str_menu_text} as expected")
+            set_ok = True
+    else:
+        self.log(output)
+        self.failed("Security Settings Menu not accessed")
+
+    return set_ok
+
+
+def resetSecurityLevelPW(self, dut, newpassword, oldpassword=""):
+    """
+    Assumes the bootloader security menu has been accessed
+    Assumes current security level is NOT 1 (None)
+    """
+    setok = False
+    # check that a security level has been set
+    output = dut.cmd("")
+    if "currently set to 1 (None)" not in output:
+        if "currently set to 2 (Password Protected)" in output:
+            menuoption = '3'
+        elif "currently set to 3 (Locked Down)" in output:
+            menuoption = '2'
+        else:
+            menuoption = ''
+        #
+        # There is a known problem where longer strings (>15 chars) can get truncated or corrupt
+        # when pasted to the buffer. This was seen as an issue on the x908Gen2 but potentially could
+        # be seen on any platform depending on the size of the FIFO queue buffer size.
+        #
+        # The input string will be split if greater than 10 chars in length
+        #
+        _n = 10
+        newPwChunks = [newpassword[i:i+_n] for i in range(0, len(newpassword), _n)]
+        oldPwChunks = [oldpassword[i:i+_n] for i in range(0, len(oldpassword), _n)]
+        # Reset security level
+        self.log(['', "Select the 'Change Password' option"])
+        output = dut.send(menuoption, strList=["Please enter password:", "Enter new password:"])
+        if "Authentication required" in output:
+            for pwChunk in oldPwChunks:
+                output = dut.send(f"{pwChunk}",strList = [], waitTime=5)
+            output = dut.send("\n", strList=["Enter new password:"], waitTime=20)
+        if "Enter new password" in output:
+            for pwChunk in newPwChunks:
+                output = dut.send(f"{pwChunk}",strList = [], waitTime=5)
+            output = dut.send("\n", strList=[], waitTime=20)
+            for pwChunk in newPwChunks:
+                output = dut.send(f"{pwChunk}",strList = [], waitTime=5)
+            output = dut.send("\n", strList=[KEYWORD_SECURITY_MENU], waitTime=20)
+            if "Password successfully updated" in output:
+                self.passed("Password reset")
+                setok = True
+            else:
+                self.failed("Password not reset")
+        else:
+            self.log(output)
+            self.failed("Security Settings Menu option, new password not requested")
+    else:
+        self.log(output)
+        self.failed("Security level not set, cannot access 'Change Password' option")
+    return setok
+
+
+def changePasswordError(self, dut, oldpassword, newpassword):
+    """
+    Assumes the bootloader security menu has been accessed
+    Assumes current security level is NOT 1 (None)
+    Assumes the password is invalid and will be rejected
+    """
+    setok = False
+    # check that a security level has been set
+    output = dut.cmd("")
+    if "currently set to 1 (None)" not in output:
+        # Check the length of the password.
+        #
+        # There is a known problem where longer strings (>15 chars) can get truncated or corrupt
+        # when pasted to the buffer. This was seen as an issue on the x908Gen2 but potentially could
+        # be seen on any platform depending on the size of the FIFO queue buffer size.
+        #
+        # The input string will be split if greater than 10 chars in length
+        #
+        _n = 10
+        newPwChunks = [newpassword[i:i+_n] for i in range(0, len(newpassword), _n)]
+        oldPwChunks = [oldpassword[i:i+_n] for i in range(0, len(oldpassword), _n)]
+        # Reset password
+        self.log(['', "Select the 'Change Password' option"])
+        output = dut.send('3', strList=["Please enter password:"])
+        if "Authentication required" in output:
+            for pwChunk in oldPwChunks:
+                output = dut.send(f"{pwChunk}",strList = [], waitTime=5)
+            output = dut.send("\n", strList=["Enter new password:"], waitTime=20)
+            if "Enter new password" in output:
+                invalidlist = ["Error: Maximum password length is 23", "Error: Minimum password length is 6"]
+                for pwChunk in newPwChunks:
+                    output = dut.send(f"{pwChunk}",strList = [], waitTime=5)
+                output = dut.send("\n", strList=[KEYWORD_ENTER_SELECTION], waitTime=20)
+                if "Error: Maximum password length is 23" in output or "Error: Minimum password length is 6" in output:
+                    self.log("Password rejected")
+                    self.passed("Password rejected")
+                    setok = False
+                else:
+                    self.log("Password not rejected")
+                    self.failed("Password not rejected")
+            else:
+                self.log(output)
+                self.log("Security Settings Menu option, new password not requested")
+                self.failed("Security Settings Menu option, new password not requested")
+        else:
+            self.log(output)
+            self.log("Security Settings Menu option, authentication not requested")
+            self.failed("Security Settings Menu option, authentication not requested")
+    else:
+        self.log(output)
+        self.log("Security level not set, cannot access 'Change Password' option")
+        self.failed("Security level not set, cannot access 'Change Password' option")
+    return setok
+
+
+def runRestoreFactorySettings(self, dut, password=""):
+    output = dut.cmd('')
+    if 'Security Settings menu' in output:
+        dut.send('0', strList=[KEYWORD_BOOTROM])
+    self.log(['', 'Restore the bootloader factory setting to check that it does not clear the security setting'])
+    self.log("Select the menu option, '7. Restore Bootloader factory settings', should ask for confirmation")
+    output = dut.send('7', strList=["WARNING"])
+    if "Are you sure?" in output:
+        self.passed("Confirmation message seen for option, '7. Restore Bootloader factory settings'")
+        self.log(['', 'Input confirmation to restore bootloader factory settings'])
+        
+        output = dut.send('y', strList= [KEYWORD_ENTER_BOOTROM], waitTime=WAIT_TIME_BOOTLOADER)
+        expectedMsg = 'Restoring default settings... Complete'
+        if expectedMsg not in output:
+            self.failed(f'Did not see expected "{expectedMsg}":')
+            log_device_output(output)
+        elif KEYWORD_ENTER_BOOTROM not in output:
+            self.failed(f'Did not see reboot after restore, expected "{KEYWORD_ENTER_BOOTROM}"')
+            log_device_output(output)
+        else:
+            self.passed(f'Saw "{expectedMsg}" and DUT rebooted after')
+    else:
+        self.log(output)
+        self.failed("No confirmation message for option, '7. Restore Bootloader factory settings'")
+    output = dut.send('', strList= [KEYWORD_ENTER_BOOTROM], waitTime=60)
+    enter_bootrom_with_retry(self, dut, maxAttempts=10)
+
+
+def selectBootMenuOptionIncorrectPW(self, dut, option):
+    """
+    Assumes a security level has been set.
+    """
+    set_ok = False
+    # check security level
+    if option == 1:
+        str_option = "1"
+        str_menu_item = "1. Perform one-off boot from alternate source"
+    elif option == 2:
+        str_option = "2"
+        str_menu_item = "2. Change the default boot source (for advanced users)"
+    elif option == 3:
+        str_option = "3"
+        str_menu_item = "3. Update Bootloader"
+    elif option == 5:
+        str_option = "5"
+        str_menu_item = "5. Special boot options"
+    else:
+        self.failed(f"Unexpected menu option {option} - can only be 1,2,3 or 5")
+        return set_ok
+
+    self.log(['', f'Check password required to access Boot Menu option, "{str_menu_item}" and provide an incorrect password'])
+    if not enter_bootrom_with_retry(self, dut, maxAttempts=10):
+        self.failed("Problem occurred entering bootloader, unable to determine what state the DUT is in")
+    clear_bootloader_buffer(dut)
+
+    # Incorrect password
+    self.log(f"Select the '{str_menu_item}' option, should request a password - input incorrect password")
+    output = dut.send(str_option, strList=["Please enter password"])
+    if "Authentication required" in output:
+        self.log("Enter incorrect password ( a blank line ), should return to Boot Menu")
+        # Input blank to ensure an invalid password
+        output = dut.send("\n", strList=[KEYWORD_BOOTROM], waitTime=20)
+        if "Incorrect password" in output:
+            self.passed("Incorrect password message detected")
+        else:
+            self.failed("Incorrect password message not detected")
+    else:
+        self.log(output)
+        self.failed(f"Boot Menu option, '{str_menu_item}', not secure")
+    return set_ok
+
+
+def selectBootMenuOptionCorrectPW(self, dut, option, strpassword):
+    """
+    Assumes a security level has been set
+    Assumes the password will be valid if waititme < 60 seconds
+    """
+    setok = False
+    # check security level
+    if option == 1:
+        stroption = "1"
+        strmenuitem = "1. Perform one-off boot from alternate source"
+        strmenuconf = KEYWORD_ENTER_SELECTION
+        strconf = "Select device"
+    elif option == 2:
+        stroption = "2"
+        strmenuitem = "2. Change the default boot source (for advanced users)"
+        strmenuconf = KEYWORD_ENTER_SELECTION
+        strconf = "Select device"
+    elif option == 3:
+        stroption = "3"
+        strmenuitem = "3. Update Bootloader"
+        strmenuconf = "Continue? (Y/N)"
+        strconf = "WARNING!"
+    elif option == 5:
+        stroption = "5"
+        strmenuitem = "5. Special boot options"
+        strmenuconf = KEYWORD_ENTER_SELECTION
+        strconf = "Special boot options menu"
+    else:
+        self.failed(f"Unexpected menu option {option} - can only be 1,2,3 or 5")
+        return setok
+    #
+    # Check the length of the password.
+    #
+    # There is a known problem where longer strings (>15 chars) can get truncated or corrupt
+    # when pasted to the buffer.  This was seen as an issue on the x908Gen2 but potentially could
+    # be seen on any platform depending on the size of the FIFO queue buffer size.
+    #
+    # The input string will be split if greater than 10 chars in length
+    #
+    _n = 10
+    pwChunks = [strpassword[i:i+_n] for i in range(0, len(strpassword), _n)]
+    self.log(['', f'Check password required to access Boot Menu option, "{strmenuitem}" and provide the correct password'])
+    if not enter_bootrom_with_retry(self, dut, maxAttempts=10):
+        self.failed("Problem occurred entering bootloader, unable to determine what state the DUT is in")
+    clear_bootloader_buffer(dut)
+    # Select the menu option and provide a correct password
+    self.log(f"Check password required to access Boot Menu option, '{strmenuitem}'")
+    output = dut.send(stroption,strList = ["Please enter password"])
+    if "Authentication required" in output:
+        self.log(['', "Enter Correct password"])
+        # Input correct password
+        for pwChunk in pwChunks:
+            output = dut.send(f"{pwChunk}",strList = [], waitTime=5)
+        output = dut.send("\n", strList=[strconf], waitTime=20)
+        if 'Incorrect password' not in output:
+            self.passed("Correct password detected")
+            # return to boot menu
+            if option == 3:
+                # have to abort out of updating the bootloader version
+                self.log("Abort out of updating the Bootloader version")
+                output = dut.send('n',strList = [KEYWORD_BOOTROM])
+            else:
+                self.log(['', "Select the '0. Return to previous menu' option"])
+                output = dut.send('0',strList = [KEYWORD_BOOTROM])
+            # check returned to Boot Menu
+            if KEYWORD_BOOTROM in output:
+                self.passed("Returned to Boot Menu")
+                setok = True
+            else:
+                self.failed("Did not returned to Boot Menu")
+        else:
+            self.failed("Correct password not detected")
+            self.log(output)
+            # check to see what state the menu is in by sending a CR
+            output = dut.cmd("")
+            self.log(output)
+    else:
+        self.failed(f"Boot Menu option, '{strmenuitem}', not secure")
+        self.log(output)
+    return setok
+
+
+def selectBootMenuOptionPWTimeout(self, dut, option, strpassword, waitTime, perchar=False):
+    setok = False
+    if option == 1:
+        stroption = "1"
+        strmenuitem = "1. Perform one-off boot from alternate source"
+        strmenuconf = KEYWORD_ENTER_SELECTION
+        strconf = ["Select device"]
+    elif option == 2:
+        stroption = "2"
+        strmenuitem = "2. Change the default boot source (for advanced users)"
+        strmenuconf = KEYWORD_ENTER_SELECTION
+        strconf = ["Select device"]
+    elif option == 3:
+        stroption = "3"
+        strmenuitem = "3. Update Bootloader"
+        strmenuconf = "Continue? (Y/N)"
+        strconf = ["WARNING!"]
+    elif option == 5:
+        stroption = "5"
+        strmenuitem = "5. Special boot options"
+        strmenuconf = KEYWORD_ENTER_SELECTION
+        strconf = ["Special boot options menu"]
+    else:
+        self.failed(f"Unexpected menu option {option} - can only be 1,2,3 or 5")
+        return setok
+    validentry = (waitTime < 60)
+    if validentry:
+        strlog = "should be a valid password entry"
+        strreturn = "\n"
+    else:
+        strlog = "will exceed timeout and reboot the device"
+        strconf = [
+            "Warning:",
+            "Verifying release...",
+            "Booting...",
+            "Starting base/first...",
+            "Mounting virtual filesystems...",
+            "Starting base",
+            "Starting hardware",
+            "Starting network",
+            "Initializing HA processes:",
+            "Received event network.initialized",
+            "Received event network.activated",
+            "Received event network.configured",
+            "awplus login:",
+        ]
+        strmenuconf = "awplus login:"
+        strreturn = ""
+
+    enter_bootrom_with_retry(self, dut)
+    clear_bootloader_buffer(dut)
+    self.log(f"Check password required to access Boot Menu option, {strmenuitem}")
+    output = dut.send(stroption, strList=["Please enter password"])
+    if "Authentication required" in output:
+        if perchar:
+            passwordlist = list(strpassword)
+            self.log(f"Enter each character of the password with a {waitTime} second wait time between each, {strlog}")
+        else:
+            passwordlist = [strpassword]
+            self.log(f"Enter password with a {waitTime} second wait before a Return, {strlog}")
+        passwordcheck = ""
+        if len(strpassword) == 0:
+            time.sleep(waitTime)
+        else:
+            for strentry in passwordlist:
+                addstr = "*" * len(strentry)
+                passwordcheck = passwordcheck + addstr
+                dut.send(f"{strentry}", strList=["*"])
+                time.sleep(waitTime)
+        output = dut.send(strreturn, strList=strconf)
+        if validentry:
+            if strmenuconf in output:
+                self.passed("Correct password detected")
+                if option == 3:
+                    self.log("Abort out of updating the Bootloader version")
+                    output = dut.send("n", strList=[KEYWORD_BOOTROM])
+                else:
+                    self.log(['', "Select the '0. Return to previous menu' option"])
+                    output = dut.send("0", strList=[KEYWORD_BOOTROM])
+                if KEYWORD_BOOTROM in output:
+                    self.passed("Returned to Boot Menu")
+                    setok = True
+                else:
+                    self.passed("Did not return to Boot Menu")
+            else:
+                self.failed("Correct password not detected")
+        else:
+            dut.mode("#")
+            output = dut.cmd("show boot")
+            if "Boot Security Level:" in output:
+                self.passed("Device has rebooted")
+                setok = True
+            else:
+                self.failed("Device has not rebooted")
+                self.log(output)
+            self.log("Return to the Boot Menu")
+            enter_bootrom_with_retry(self, dut)
+            clear_bootloader_buffer(dut)
+    else:
+        self.log(output)
+        self.failed(f"Boot Menu option, '{strmenuitem}', not secure")
+    return setok
+
+
+def selectBootMenuOptionNoPW(self, dut, option):
+    setok = False
+    if option == 4:
+        stroption = "4"
+        strmenuitem = "4. Adjust the console baud rate"
+        strconf = "Select baud rate"
+        strmenuconf = KEYWORD_ENTER_SELECTION
+    elif option == 6:
+        stroption = "6"
+        strmenuitem = "6. System information"
+        strconf = "System information"
+        strmenuconf = "Press any key to continue..."
+    elif option == 7:
+        stroption = "7"
+        strmenuitem = "7. Restore Bootloader factory settings"
+        strconf = "WARNING"
+        strmenuconf = "Are you sure?"
+    else:
+        self.failed(f"Unexpected menu option {option} - can only be 4,6 or 7")
+        return setok
+
+    self.log(['', f"Check no password is required to access Boot Menu option, '{strmenuitem}'"])
+
+    if not enter_bootrom_with_retry(self, dut, maxAttempts=10):
+        self.failed("Problem occurred entering bootloader, unable to determine what state the DUT is in")
+        return setok
+    clear_bootloader_buffer(dut)
+
+    self.log(f"Select the '{strmenuitem}' option, should not request a password")
+    output = dut.send(stroption, strList=[strmenuconf])
+    if strconf in output:
+        if option == 7:
+            self.log("Abort out of restore to factory settings")
+            output = dut.send("n", strList=[KEYWORD_BOOTROM])
+        elif option == 6:
+            self.log("Press any key to return to the Boot Menu")
+            output = dut.send("\n", strList=[KEYWORD_BOOTROM])
+        else:
+            self.log("Select option, '0. Return to previous menu', to return to the Boot Menu")
+            output = dut.send("0", strList=[KEYWORD_BOOTROM])
+        if KEYWORD_BOOTROM in output:
+            self.passed("Returned from selectBootMenuOptionNoPW to Boot Menu")
+            setok = True
+        else:
+            self.passed("Did not return from selectBootMenuOptionNoPW to Boot Menu")
+    else:
+        self.log(output)
+        self.failed(f"Boot Menu option, '{strmenuitem}', not secure")
+    return setok
+
+
+def checkLicenseACCESS(self, dut, mustpass=False):
+    # Check for Start-Shell license
+    dut.mode("#")
+    output = dut.cmd("sho lic")
+    found = LICENSE_STRING in output
+
+    if not found and mustpass:
+        self.failed("Start-Shell license not installed - installing")
+        self.log(output)
+        try:
+            self.update_feature_licenses(swiList=[self.device])
+            dut.mode("#")
+            output = dut.cmd("sho lic")
+            found = LICENSE_STRING in output
+        except Exception as e:
+            self.failed(f"License installation failed: {e}")
+
+    if found:
+        self.passed("Start-Shell license installed")
+    else:
+        self.log("Start-Shell license not installed")
+
+    log_device_output(self, output)
+
+    return found
+
+
+def log_device_output(self, output):
+    if output is not None:
+        self.log([f'   {line}' for line in output.splitlines()])
+    else:
+        self.log(output)
+    self.log('')
+
+
+def parseErasingFlashLine(line):
+    complete = False
+    if '==]' in str(line):
+        complete = True
+    
+    if not complete:
+        whitespace = line.split('[')[1]
+        whitespace = whitespace.split(']')[0]
+        eq = line.split('=', maxsplit=1)[1]
+        eq = f'={eq}'
+        eqLine = ''
+        for c in eq:
+            if c == "=":
+                eqLine = f'{eqLine}='
+            else:
+                break
+        complete = len(eqLine) == len(whitespace)
+    return complete
+
+
+def clear_bootloader_buffer(dut, strList=None, timeOut=5):
+    if strList is None:
+        strList = ['>', 'Press any key to continue']
+    
+    dut.read(timeOut, untilStrList=strList)
+    if dut.console.readThread:
+        while not dut.console.readThread.has_finished():
+            time.sleep(1)
+
+
+def fill_flash_with_release_files(self, dut):
+    self.log(['', '-'*60, 'Fill flash with release files'])
+    dut.mode('#')
+    copiedReleaseList = []
+    copyCount = 0
+    flashFull = False
+    while not flashFull:
+        newFileName = f'release_copy_{copyCount}{self.SUFFIX}'
+        output = dut.cmd(f'copy {self.MAIN_RELEASE} {newFileName}')
+        if '%' in output:
+            dut.cmd(f'delete force {newFileName}')
+            if 'Destination file system out of space' in output:
+                flashFull = True
+            else:
+                break
+        else:
+            self.log(f'... {newFileName}')
+            copiedReleaseList.append(newFileName)
+            copyCount += 1
+    
+    if not flashFull:
+        self.failed('Some unexpected failure occurred when attempting to fill flash with release files:')
+        log_device_output(self, output)
+
+    self.log(f'Made {len(copiedReleaseList)} release file copies')
+
+    return copiedReleaseList

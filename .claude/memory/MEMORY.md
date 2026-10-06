@@ -63,3 +63,6 @@
 - [terminal (no) monitor is exec-only](terminal-monitor-exec-only.md) — does NOT toggle; config-mode/busy-console sends caused the "Command [terminal no monitor] failed" lines; `end` first or console.py monitor_off()
 - [AW+ GUI update via Load-gui9.sh](awplus-gui-load-script.md) — `activate flash:/Load-gui9.sh` on the switch; needs temp IP + route to 10.32.18.135 via tb470 eth2; delete old .gui after
 - [IE520 image update procedure](ie520-image-update-procedure.md) — Test Engineer 2026-10-05: TFTP→master, sync, park EACH unit at Boot Menu 2→1 (Flash)→file, then 9 on all; delete old .rel after. Forced-flash banner = expected; re-read /tftproot size+.info just before TFTP; `boot system` is config-mode
+- [Ignore the Microsoft Learn connector](ignore-microsoft-learn-connector.md) — Terrence 2026-10-06: never report its "needs auth" notice; use WebFetch/WebSearch if MS docs are ever needed
+- [Testbox stale ARP after a recable](tb-host-stale-arp-after-recable.md) — 2026-10-06 eth2→x230: the box ARP-cached the OLD unit's MAC so pings failed; `ip neigh show dev ethN` first; wait for FAILED→re-ARP or root `ip neigh flush`
+- [Files to a unit: device-side copy tftp](file-to-unit-via-device-copy-tftp.md) — Terrence 2026-10-06: put it in the box's /tftproot, then on the unit `copy tftp://<box IP in its subnet>/<file> flash:/<name>`; no helper hunting

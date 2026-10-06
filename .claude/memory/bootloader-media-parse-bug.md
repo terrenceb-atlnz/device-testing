@@ -9,9 +9,9 @@ metadata:
 ---
 
 RCA of the 2026-08-07/08 `test-5700.200x` campaign on tb504 (IE520), plus the 2026-08-10 fix-and-
-rerun. **No product defects found.** Fixes live in `copilot/` (staging) and `copilot/run-20260810/`.
+rerun. **No product defects found.** Fixes live in `IE520/automated-bootloader/` (staging; this repo) and its `run-20260810/` (path corrected 2026-10-06 — was `copilot/`).
 
-**Run from `copilot/run-20260810/` via `launch.sh`, never from `copilot/`** — the framework writes
+**Run from a dated run dir (e.g. `IE520/automated-bootloader/run-20260810/`), never from the staging dir; as root** (`launch.sh` is no longer in that dir, 2026-10-06) — the framework writes
 its logs into CWD and OVERWRITES them, which would destroy bidhanc's campaign logs (the evidence
 base). His run dir was renamed to `/home/bidhanc/5700_bootloader_x220` on 2026-08-10; he is active.
 
