@@ -189,7 +189,7 @@ reload, prove, `exit`.
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | 5700.2001–2005 (65 TestCases, one `runTestSuite.py` process) | x230v2-28GS/bootloader-6.2.40/5700_x230v2-28GS_6.2.40 | run 1 STOPPED 14:58 (2002 systematic: suite needs the TFTP default boot source); run 2 RUNNING (whole suite, `5700_x230v2-28GS_6.2.40_run2/`, TFTP default) | ~19 h by the Feb timings (2001 31 m, 2002 5 h 24 m, 2003 2 h 45 m, 2004 25 m, 2005 10 h 20 m) |
+| 1 | 5700.2001–2005 (65 TestCases, one `runTestSuite.py` process) | x230v2-28GS/bootloader-6.2.40/5700_x230v2-28GS_6.2.40 | DONE 20:58 (run 2: suite rc 1; u0 restored to the run-2 baseline 21:07, logged out; RESULT lines sent for 2001–2005) | ~19 h by the Feb timings (2001 31 m, 2002 5 h 24 m, 2003 2 h 45 m, 2004 25 m, 2005 10 h 20 m) |
 
 ## Results
 
