@@ -69,6 +69,12 @@ Triage 2026-10-06 13:28–13:55 (bench-runner; sentinel-verified where marked):
   location` … `Reading flash:x230v2_28GS-tb470.rel`. Pre-existing or not is unknown. OPEN — a saved
   Flash+file default ignores `boot system`, which 2001's configure relies on.
 - **Decisions ~14:05 (Test Engineer):** forced-boot banner → *"Restore default (2 → 9)"*; x230-tb470.rel → *"Symlink, I approve"* (`sudo ln -s x230v2_28GS-tb470.rel /tftproot/x230-tb470.rel`, proven with a tftp get; tmpfs, re-create after any tb470 reboot).
+- **Re-triage 14:06 (bench-runner):** RUNNABLE 1/1. Bootloader default restored (menu 2 → 9 "Boot from
+  default (determined by main CLI)", `Saving settings... Complete`; plain-reload proof: no forced banner,
+  `Loading flash:x230v2_28GS-tb470.rel`). Symlink `/tftproot/x230-tb470.rel -> x230v2_28GS-tb470.rel`
+  (root, relative), proven by curl tftp: 36,553,967 B, sha256 a22982fc…0b1bbd = source. **Re-create it after any tb470 reboot.**
+- **Launch decision ~14:10 (Test Engineer):** *"Prove TFTP, then launch"* — one one-off TFTP boot via the USB
+  adapter first (Boot Menu 1 → 3, saves nothing); launch only if it reaches login.
 - **Licence:** run will `license ACCESS` (unit has Base only): *"Yes, allow ACCESS"* (Test Engineer, ~14:00).
 
 ## Expected, not 6.2.40 findings (decided before launch)
@@ -101,7 +107,7 @@ Triage 2026-10-06 13:28–13:55 (bench-runner; sentinel-verified where marked):
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | 5700.2001–2005 (65 TestCases, one `runTestSuite.py` process) | x230v2-28GS/bootloader-6.2.40/5700_x230v2-28GS_6.2.40 | TRIAGE | ~19 h by the Feb timings (2001 31 m, 2002 5 h 24 m, 2003 2 h 45 m, 2004 25 m, 2005 10 h 20 m) |
+| 1 | 5700.2001–2005 (65 TestCases, one `runTestSuite.py` process) | x230v2-28GS/bootloader-6.2.40/5700_x230v2-28GS_6.2.40 | RUNNING (dispatched ~14:10; TFTP-boot proof first) | ~19 h by the Feb timings (2001 31 m, 2002 5 h 24 m, 2003 2 h 45 m, 2004 25 m, 2005 10 h 20 m) |
 
 ## Results
 
