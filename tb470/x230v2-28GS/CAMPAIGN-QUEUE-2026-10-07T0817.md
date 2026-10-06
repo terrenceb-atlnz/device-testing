@@ -87,11 +87,60 @@ Decisions 2026-10-07 ~08:45 (Test Engineer, answers to the triage):
   `default.cfg` between rows if the erase removed them (the 10-06 queue's "Run 2 baseline /
   restore recipe"; **never delete the current boot config**).
 
+## Row 1 — group setup and restore recipe (bench-runner, 2026-10-07 08:42, before any device change)
+
+**Gates 08:38–08:41 (read-only):** precheck `--consoles u0` exit 5 = calanm's minicom on u2/u4/u5 only
+(Test Engineer: "Proceed on u0 only"); `/dev/u0` free, `sudo fuser` no holder; peek: `awplus login:`.
+Read-only probe (`--out /tmp/x230/run3/bench-state-u0-pre.md`, capture 2026-10-06T193902Z) exit 1
+MISMATCH = the swi_a/swi_f naming + hub lines only (as 10-06); NEEDS-CHECK eth3 (read-only, no ping);
+device row: AT-x230-28GS V2, A10783G262900002, 9600, awplus_main-20261006-52, bootloader 6.2.40,
+boot image flash:/x230v2_28GS-tb470.rel. tb470 up 19:54 (no reboot), `/nfsHome` mounted,
+`/tftproot/x230-tb470.rel -> x230v2_28GS-tb470.rel` resolves (36,553,967 B, .info -52). Framework
+`/home/st-art/framework` HEAD 89900a6. pt_preflight on default.setup: 2002/2003/2005 RUNNABLE.
+Single-TestCase CLI confirmed in ATTestSet.py 1528–1589/1749: positional `<n>` matched against
+`testCaseNum` (int from `TestCase_<n>`).
+
+**u0 baseline 08:39 (ckcon; evidence `x230v2-28GS/bootloader-6.2.40/5700.2002/work/run3-group-baseline-pre.txt`):**
+boot image `flash:/x230v2_28GS-tb470.rel` (file exists), backup Not set, boot config
+`flash:/default.cfg` (file exists), Boot Security Level none; flash = `default.cfg` (512 B) +
+`x230v2_28GS-tb470.rel` (36,553,967 B) + `log/`; licences **Base License + ACCESS**; bootloader
+default boot source = 9 "determined by main CLI" (wrap 07:53); running-config saved as
+`5700.2002/work/run3-u0-prerun-running-config.txt` (manager/friend, near-factory).
+
+**Group setup (once, before 2002.110):**
+1. tb470 `/tmp/x230/run3/` (tmpfs): pristine `test-5700.2002/2003/2005.py` + `runTestSuite.py`
+   (md5s = the queue's), `library_5700.py` patched with `library_5700.diff` (md5 7d357e1d…),
+   `framework -> /home/st-art/framework`, `tools/` copy. Done 08:38.
+2. Runner dirs `x230v2-28GS/bootloader-6.2.40/5700_x230v2-28GS_6.2.40_run3/<TestCase>/` × 8, each with
+   `default.setup` (md5 71e33a5c…, = run2's). Done 08:39.
+3. u0 Boot Menu 2 → 3 (TFTP default: IPv4, 10.38.215.34, 255.255.255.224, 0.0.0.0, 10.38.215.33,
+   x230-tb470.rel → `Saving settings... Complete`), plain-reload proof (forced banner + `Loading
+   tftp://10.38.215.33/x230-tb470.rel`), log out. Driver `/tmp/x230/run3/blmenu23.py`.
+
+**Per TestCase:** `sudo -n setsid nohup /tmp/x230/run3/launch1.sh <set> <n>` → cd runner dir,
+`/tmp/x230/run3/test-5700.<set>.py -s default.setup -u -v <n> > run.stdout 2>&1`; markers
+`/tmp/x230/run3/<set>.<n>/{start,rc,done}`. Between rows, if the case erased u0: the 10-06 queue's
+"Run 2 baseline / restore recipe" (release back over port1.0.1 with temporary vlan1 10.38.215.74/27,
+`boot system`, keep/recreate `default.cfg` as boot config — **never delete the current boot config** —
+security level none, manager/friend).
+
+**Group restore (once, after 2005.8), or by a fresh tester if this one dies:**
+1. Let any in-flight test-5700 process / PDU cycle finish (or stop it by PID, root); outlet 1 ON.
+2. u0 console: back out of any Boot Menu (submenu `0`, main `9`); if Boot Security Level ≠ none,
+   Boot Menu `S` → `1` (level 1, erases flash) and then the between-rows restore above.
+3. AW+: the between-rows restore; delete leftover `mainrelease.rel`/`backuprelease.rel`/`copy*`/
+   `swi_a_5700_*.cfg`/`TestCase_*.cfg`; `show boot` = the baseline above.
+4. Licences: remove every licence the suite added so `show license` = Base License + ACCESS
+   (Test Engineer: "Allow ALL, remove after"); record `show license` after.
+5. Boot Menu 2 → 9 ("Boot from default (determined by main CLI)"), plain-reload proof
+   (`Loading flash:x230v2_28GS-tb470.rel`, no forced banner); `exit` (log out).
+6. precheck CLEAR for u0; read-only u0 probe to `/tmp` only. Leave `/tftproot` as found.
+
 ## Queue
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | 5700.2002.110, 5700.2003.10, 5700.2005.3, 5700.2005.4, 5700.2005.5, 5700.2005.6, 5700.2005.7, 5700.2005.8 (one invocation each, in this order) | x230v2-28GS/bootloader-6.2.40 (case folders 5700.2002 / 5700.2003 / 5700.2005; runner dirs 5700_x230v2-28GS_6.2.40_run3/<TestCase>/) | QUEUED | 2005.3–.8 were ~9 h of Feb's 10 h 20 m TestSet; 2005.5 is the longest (225 checks in Feb) |
+| 1 | 5700.2002.110, 5700.2003.10, 5700.2005.3, 5700.2005.4, 5700.2005.5, 5700.2005.6, 5700.2005.7, 5700.2005.8 (one invocation each, in this order) | x230v2-28GS/bootloader-6.2.40 (case folders 5700.2002 / 5700.2003 / 5700.2005; runner dirs 5700_x230v2-28GS_6.2.40_run3/<TestCase>/) | IN PROGRESS (bench-runner, from 08:38; group setup recorded above) | 2005.3–.8 were ~9 h of Feb's 10 h 20 m TestSet; 2005.5 is the longest (225 checks in Feb) |
 
 ## Results
 
