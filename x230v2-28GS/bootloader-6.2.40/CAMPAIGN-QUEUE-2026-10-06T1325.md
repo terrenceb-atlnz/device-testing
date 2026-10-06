@@ -104,11 +104,46 @@ Triage 2026-10-06 13:28–13:55 (bench-runner; sentinel-verified where marked):
 - Framework logs stay where the runner writes them (the runner dir); never re-run in the same dir
   without moving the previous run's logs aside first (the framework overwrites).
 
+## Row #1 — bench setup and restore recipe (bench-runner, 2026-10-06 14:19, before launch)
+
+**Step 0 PASSED (14:12–14:18):** one-off TFTP boot on u0 (Boot Menu 1 → 3; prompts verbatim:
+`Enter IP version [4|6].................. [4]:` → 4; `Enter IP address for this device........ [10.38.215.40]:`
+→ 10.38.215.34; `Enter subnet mask....................... [255.255.255.224]:` → same; `Enter gateway IP........................ [0.0.0.0]:`
+→ 0.0.0.0; `Enter TFTP server IP.................... [10.38.215.33]:` → same; `Enter filename.......................... [x230v2_28GS-tb470.rel]:`
+→ x230-tb470.rel) → `Loading tftp://10.38.215.33/x230-tb470.rel via USB Ethernet adapter...` → `Verifying release... OK`
+→ login, `Current software : x230-tb470.rel`, `awplus_main-20261006-52`. eth2 carrier 14:12:53–14:13:12, tx 37.7 MB.
+Plain reload → `Loading flash:x230v2_28GS-tb470.rel...`, no forced banner, -51. Logged out. Evidence: `5700.2001/work/step0-*`.
+
+**Bench setup for the group (set once, by the Test Engineer/triage; nothing changed by the tester):**
+u0 x230v2-28GS S/N A10783G262900002, 9600, PDU 10.36.150.14 outlet 1; tb470 eth3 ↔ port1.0.1; tb470 eth2 ↔ USB
+Ethernet adapter on the hub (USB stick on the same hub); `/tftproot/x230-tb470.rel -> x230v2_28GS-tb470.rel` (root, tmpfs).
+Pre-run baseline (`5700.2001/work/u0-prerun-*`): boot image `flash:/x230v2_28GS-tb470.rel`, boot config
+`flash:/default.cfg` (near-factory running-config), bootloader default boot source = 9 "Boot from default (determined
+by main CLI)", Boot Security Level none, licence Base only; flash holds `x230-2.rel` + `x230v2_28GS-tb470.rel`.
+
+**Launch:** `sudo -n setsid nohup /tmp/x230/launch_suite.sh` → in the runner dir, as root,
+`./runTestSuite.py -s default.setup -u -v > runTestSuite.stdout 2>&1 < /dev/null`; start/end/rc in
+`/tmp/x230/run1/suite.{start,rc}`, done-marker `/tmp/x230/run1/suite.done` (tb470 tmpfs).
+
+**Restore recipe (if the tester dies mid-group; u0 and outlet 1 only):**
+1. Let any in-flight runTestSuite / PDU cycle finish, or stop it by PID (`ps -o user,lstart,cmd -p <pid>`; it is root).
+   Outlet 1 must end ON.
+2. u0 console (9600): if parked in the Boot Menu, back out (submenu `0`, main `9`); if the bootloader security level was
+   raised (2005), Boot Menu `S` back to level none, as the suite's own tear_down does.
+3. Bootloader: Boot Menu `2` → `9` ("Boot from default (determined by main CLI)") if a saved default source shows the
+   forced-boot banner.
+4. AW+: `boot system flash:/x230v2_28GS-tb470.rel` (copy it back from `tftp://10.38.215.65/x230v2_28GS-tb470.rel`
+   over port1.0.1 if 2003.11/2005 erased it), `no boot system backup`, delete the suite's leftover `*.rel`/`*.cfg`
+   (mainrelease/backuprelease/copy*, `swi_a_5700_*.cfg`, `TestCase_*.cfg`) but keep `x230-2.rel` on flash, write the
+   pre-run running-config (`5700.2001/work/u0-prerun-running-config.txt`) back as `flash:/default.cfg` (the
+   framework regenerates default.cfg with hostname `swi_a_5700_<set>` + every port shut), `boot config-file flash:/default.cfg`, reload.
+5. Prove: `show boot` = the baseline above, no forced banner, then `exit`. The ACCESS licence stays (Test Engineer allowed it).
+
 ## Queue
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | 5700.2001–2005 (65 TestCases, one `runTestSuite.py` process) | x230v2-28GS/bootloader-6.2.40/5700_x230v2-28GS_6.2.40 | RUNNING (dispatched ~14:10; TFTP-boot proof first) | ~19 h by the Feb timings (2001 31 m, 2002 5 h 24 m, 2003 2 h 45 m, 2004 25 m, 2005 10 h 20 m) |
+| 1 | 5700.2001–2005 (65 TestCases, one `runTestSuite.py` process) | x230v2-28GS/bootloader-6.2.40/5700_x230v2-28GS_6.2.40 | RUNNING (step 0 TFTP proof PASSED 14:18; suite launched ~14:20) | ~19 h by the Feb timings (2001 31 m, 2002 5 h 24 m, 2003 2 h 45 m, 2004 25 m, 2005 10 h 20 m) |
 
 ## Results
 
