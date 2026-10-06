@@ -198,6 +198,7 @@ reload, prove, `exit`.
 | 5700.2001 | Boot System CLI rules (11 TestCases) | bootloader-6.2.40 | PASS | run 2 (TFTP default boot, Feb conditions): 11/11 PASS, rc=0, 20 m, identical to the Feb x230v2 control; run 1 (flash default) also 11/11 PASS | 5700.2001/work/run2.log | tester |
 | 5700.2002 | default/one-off boot, filenames, foreign release, bootloader version (26 TestCases) | bootloader-6.2.40 | PARTIAL | run 2: 18 PASS / 7 UNSUPPORTED (SD, no slot) / 1 FAIL = 2002.110 pristine NameError (library_5700.py:227, same in Feb, pre-registered); USB variants (unsupported in Feb) all PASS; 2002.120 booted 2 of 3 releases (third .rel doesn't fit flash, pre-registered); no 6.2.40 divergence from Feb. Run 1 PARTIAL (stopped, flash default) superseded | 5700.2002/work/run2.log | tester |
 | 5700.2003 | stage-1/2 diagnostics menus (15 TestCases) | bootloader-6.2.40 | PARTIAL | run 2: 11 PASS / 2 UNSUPPORTED (NVS, SD); 2003.11 Erase FLASH PASSED on the device but the framework FAILed the case at its post-erase boot-config reset (`% flash:/swi_a_5700_2003.cfg does not exist`) and ATTestSet skipped 2003.10 — framework commit c1e7679 (2026-09-17, absent from Feb's d4c21f7) moved that reset under doTear; not 6.2.40 | 5700.2003/work/run2.log | tester |
+| 5700.2004 | U-Boot access; date reset/set (2 TestCases) | bootloader-6.2.40 | PASS | run 2: 2/2 PASS, rc=0, 17 m (framework 89900a6); assertion counts identical to the Feb control | 5700.2004/work/run2.log | tester |
 
 ## Issues
 
