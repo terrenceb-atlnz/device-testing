@@ -66,3 +66,4 @@
 - [Ignore the Microsoft Learn connector](ignore-microsoft-learn-connector.md) — Terrence 2026-10-06: never report its "needs auth" notice; use WebFetch/WebSearch if MS docs are ever needed
 - [Testbox stale ARP after a recable](tb-host-stale-arp-after-recable.md) — 2026-10-06 eth2→x230: the box ARP-cached the OLD unit's MAC so pings failed; `ip neigh show dev ethN` first; wait for FAILED→re-ARP or root `ip neigh flush`
 - [Files to a unit: device-side copy tftp](file-to-unit-via-device-copy-tftp.md) — Terrence 2026-10-06: put it in the box's /tftproot, then on the unit `copy tftp://<box IP in its subnet>/<file> flash:/<name>`; no helper hunting
+- [/test-mode wiki page](test-mode-wiki-page.md) — wiki.atlnz.lc Ask-ck/test-mode; source = docs/WIKI-Ask-ck-test-mode.wiki, Terrence pastes it; read live with curl `&action=raw`, diff vs repo

@@ -1,11 +1,17 @@
-''How to run a list of test cases on lab hardware with Claude Code's <code>/test-mode</code> skill, and how to turn the results into the logs you attach in Zephyr. Owner: Terrence Beach. Last updated: 2 October 2026 (new per-case output, results list and <code>/create-logs</code>). Checked on that date against the <code>test-mode</code>, <code>create-logs</code>, <code>orient-dt</code> and <code>wrap-dt</code> skills, the <code>bench-runner</code> agent, <code>logged-output.md</code>, <code>STANDING-ORDERS.md</code> and <code>tools/README.md</code> in the <code>device-testing</code> repository.''
+<pre>
+cd ~/claude
+gh repo clone terrenceb-atlnz/device-testing     # or: git clone git@github.com:terrenceb-atlnz/device-testing.git
+</pre>
+''First time only: clone into <code>~/claude/</code> in your lab home, because the testboxes run the tools from <code>~/claude/device-testing/</code>. Then follow the repository's <code>README.md</code> one-time setup; its memory-link step matters.''
+
+''How to run a list of test cases on lab hardware with Claude Code's <code>/test-mode</code> skill, and how to turn the results into the logs you attach in Zephyr with <code>/create-logs</code>. Owner: Terrence Beach. Last updated: 6 October 2026. Checked on that date against the <code>test-mode</code>, <code>create-logs</code>, <code>orient-dt</code> and <code>wrap-dt</code> skills, the <code>bench-runner</code> agent, the sentinel kit, <code>bench_probe.py</code>, <code>logged-output.md</code>, <code>STANDING-ORDERS.md</code>, <code>tools/README.md</code> and <code>platforms/IE520.md</code> in the <code>device-testing</code> repository.''
 
 '''<code>/test-mode</code>''' runs a list of test cases on '''any testbox you name''' as one supervised campaign:
 * First it asks you about the box: which testbox, which consoles, the PDU, and any constraints.
 * It checks that nobody else is using those consoles.
 * It measures the bench using the facts you gave it, then works out which cases the bench can run and what blocks the rest.
-* It runs the runnable cases. For each one it keeps a working log and saves each device's config, and it gives you a running '''results list'''.
-* When the campaign is done you review the results, and then run '''<code>/create-logs</code>''' to build the final uploadable output: one <code>.log</code> plus the <code>.cfg</code> files per case.
+* It runs the cases the bench can run. For each one it keeps a working log, saves each device's config, and adds the case to a running '''results list'''.
+* When the campaign is done you review the results, and then run '''<code>/create-logs</code>''' to build the final output you upload: one <code>.log</code> plus the <code>.cfg</code> files per case.
 A watchdog (the ''sentinel'') keeps the run moving and passes messages between you and the tester while it works.
 
 It is part of the [[Ask-ck]] tooling: Ask-CK's Test Composer turns a test case into a <code>.setup</code> + script pair, and <code>/test-mode</code> is how those scripts, and the device-testing campaign cases, get run on hardware.
@@ -19,42 +25,47 @@ __TOC__
 {| class="wikitable"
 ! Question !! Answer
 |-
-| What does it do? || Takes a list of case IDs or titles, sorts them into groups, checks the bench can run each one, runs the runnable ones, and keeps a results list with one verdict per case.
+| What does it do? || Takes a list of case IDs or titles and sorts them into groups. It checks the bench can run each one, runs the cases it can, and keeps a results list with one verdict per case.
 |-
 | Which bench? || '''Any testbox you name''' at the start, on '''only the consoles you list'''. Every other console on the box is left alone.
 |-
 | How many Claude sessions? || '''One.''' The session you type into becomes the sentinel. It starts the tester as a background sub-agent (<code>bench-runner</code>), one per group of cases.
 |-
-| Will it ask me questions? || Yes, at the start: testbox, consoles, PDU, session constraints, and whether this is a multi-hour run. After triage it asks one more: proceed now, or reconfigure the bench first? After that it only asks when something is genuinely yours to decide, including any disagreement between what you said and what the bench or the records show.
+| Will it ask me questions? || Yes, at the start: testbox, consoles, PDU, session constraints, and whether this is a multi-hour run. After triage it asks one more: proceed now, or reconfigure the bench first? After that it asks only when something is genuinely yours to decide. That includes any disagreement between what you said and what the bench or the records show.
 |-
 | Will it change what I told it? || '''No.''' Your answers are recorded word for word and never overwritten. If the bench or a record disagrees with one, it asks you which is right.
 |-
-| What if someone else is on the box? || It checks ''before'' it opens any console. If anything is holding or could hold your consoles, it stops and tells you what it found. It never displaces anyone.
+| What if someone else is on the box? || It checks ''before'' it opens any console. If anything is holding your consoles, or could be, it stops and tells you what it found. It never displaces anyone.
 |-
 | Can it change device config? || Yes, within a test: config, <code>write</code>, reloads and DUT power-cycles that a case needs, on your consoles and your PDU outlets only. It then restores what it changed. Bench-level changes (recabling, applying a new <code>.setup</code>, root on the testbox, licences) stay with you.
 |-
-| Who decides the verdict? || The tester grades each case. You review the results list and can re-grade any case before the final logs are made.
+| Who decides the verdict? || The tester grades each case. You review the results list and can re-grade any case, at any time until the final logs are made.
 |-
-| When are the final logs written? || '''Only when you run <code>/create-logs</code>''', after reviewing. Nothing writes them automatically.
+| When are the final logs written? || '''Only when you run <code>/create-logs</code>''', after reviewing. Nothing writes them automatically: not <code>/test-mode</code>, not <code>/wrap-dt</code>.
 |-
 | Where does the output go? || A folder per case: <code><TB>/<FAMILY>/<group>-<STAMP>/<id>/</code> in the <code>device-testing</code> repository. See [[#Where everything is written]].
 |-
 | Does it upload anything? || '''No.''' You attach each case's <code>.log</code> and <code>.cfg</code> files to the case in Zephyr (Jira) yourself.
 |-
-| Does it push to GitHub? || No. It commits. Company permissions deny <code>git push</code> to Claude; you push.
+| Does it push to GitHub? || No. It commits. Company permissions deny <code>git push</code> to Claude every time; you push.
 |-
 | How do I resume after a crash? || <code>/test-mode --resume</code>. The queue file and per-case commits are the resume point.
 |}
 
 == Before you start ==
 
-# '''Start Claude Code in the repository root''', <code>claude/device-testing/</code> in the lab home. The harness picks which memories a session loads by its launch directory, so a session started anywhere else loads the wrong memories or none.
+# '''Start Claude Code in the repository root''', <code>claude/device-testing/</code> in the lab home. The harness picks which memories a session loads by its launch directory, so a session started anywhere else loads the wrong memories or none. First time on a new dev host: the repository's <code>README.md</code> gives the one-time setup (clone path, memory link, SSH).
 # '''Have the answers ready''' for the setup questions (next section): the testbox, your consoles, the PDU's IP and outlets, and anything special about this session.
 # '''For a run of more than an hour, start it inside <code>tmux</code>''' (see [[#Running long campaigns: use tmux]]).
-# '''SSH from the dev host needs the keyring agent.''' Tool shells do not inherit it, so the tools set <code>SSH_AUTH_SOCK=/run/user/$(id -u)/keyring/ssh</code> explicitly. You don't need to do anything unless SSH fails. <code>TESTBOX-ACCESS.md</code> has the details.
-# '''The testbox needs a Python 3.7 or newer with pyserial''' for the probe (check with <code><PY> -c 'import sys, serial; print(sys.version)'</code>). Where the default <code>python3</code> is older, the tools use a newer one (example: on tb105 <code>python3</code> is 3.6, so <code>python3.8</code> is used). If a box does not mount the NFS lab home, the probe is copied to the box's <code>/tmp/ckprobe/</code> and run from there.
-# '''The box's deployed <code>.setup</code> must be reachable''' at <code>/home/st-art/st-art/configs/<TB>.setup</code>, or the box has none yet (the tools then say "no template"). Example: after a tb470 reboot <code>/nfsHome</code> may be unmounted, and then its <code>.setup</code> looks missing even though the file is intact. Re-mounting needs root, so you do it.
-# '''Your dev host's default box (optional).''' A dev host's default box comes from <code>bench-setup/default-boxes</code>: one line per host, <code><hostname> <tbNNN></code> (hostname case-insensitive). Add your own host's line once; never edit or add another user's. With no line, there is no default: name the box, or give <code>bench_probe.py</code> <code>--box tbNNN</code> (or set <code>$BENCH_BOX</code>). <code>/test-mode</code> always asks for the box and offers the one it finds. <code>/orient-dt</code> and <code>/wrap-dt</code> take the box you name, else the last test bench run recorded under your <code>user@host</code>, else your host's <code>default-boxes</code> line, else '''SKIPPED''' (no box touched).
+# '''SSH from the dev host needs the keyring agent.''' Tool shells do not inherit it, so the tools set <code>SSH_AUTH_SOCK=/run/user/$(id -u)/keyring/ssh</code> explicitly. You don't need to do anything unless SSH fails; <code>TESTBOX-ACCESS.md</code> §0 has the details.
+# '''The testbox needs a Python 3.7 or newer with pyserial''' for the probe and the console tools (check with <code><PY> -c 'import sys, serial; print(sys.version)'</code>). Where the default <code>python3</code> is older, the tools use a newer one (example: on tb105 <code>python3</code> is 3.6, so <code>python3.8</code> is used). If a box does not mount the NFS lab home, the probe is copied to the box's <code>/tmp/ckprobe/</code> and run from there.
+# '''The box's deployed <code>.setup</code> must be reachable''' at <code>/home/st-art/st-art/configs/<TB>.setup</code>, unless the box has none yet (the tools then say "no template"). Example: after a tb470 reboot <code>/nfsHome</code> may be unmounted, and then its <code>.setup</code> looks missing even though the file is intact. Re-mounting needs root (<code>sudo mount /nfsHome</code>), so you do it.
+# '''The deployed <code>.setup</code> must describe the bench as it is now.''' A framework run binds that file. If units, cabling or console speeds have changed since the last <code>apply</code>, the probe reports MISMATCH, and every case that depends on what moved waits until you <code>apply</code>. Example, IE520 on tb470, 6 October 2026: bootloader 9.2.0 moved the stack's consoles from 115200 to 9600 baud. A <code>.setup</code> still declaring 115200 makes the consoles look dead to the framework. If you know the bench changed, run <code>/orient-dt</code> or the probe and decide on <code>apply</code> before you start a campaign.
+# '''Your dev host's default box (optional).''' A dev host's default box comes from <code>bench-setup/default-boxes</code>: one line per host, <code><hostname> <tbNNN></code> (hostname case-insensitive). Add your own host's line once; never edit or add another user's line. With no line, there is no default: name the box, or give <code>bench_probe.py</code> <code>--box tbNNN</code> (or set <code>$BENCH_BOX</code>). <code>/test-mode</code> always asks for the box and offers the one it finds. <code>/orient-dt</code> and <code>/wrap-dt</code> pick the box in this order:
+#* the box you name;
+#* else the last test bench run recorded under your <code>user@host</code>;
+#* else your host's <code>default-boxes</code> line;
+#* else '''SKIPPED''' (no box touched).
 
 == Invoking it ==
 
@@ -67,25 +78,25 @@ __TOC__
 
 With neither a list nor <code>--resume</code>, it asks for the list and stops.
 
-To see more of what the tester is doing, say so (for example "verbose") when you invoke it, or ask the sentinel at any time. See [[#Normal and verbose modes]].
+To see more of what the tester is doing, ask the sentinel to switch to verbose at any time. See [[#Normal and verbose modes]].
 
 == The setup questions ==
 
-Asked together, before any box is touched. Each one takes free text, and the sentinel offers the obvious options.
+The sentinel asks these together, before any box is touched. Each one takes free text, and the sentinel offers the obvious options.
 
 {| class="wikitable"
 ! Question !! What to give !! Why it matters
 |-
-| '''Testbox''' || <code>tbNNN</code>. It offers the box from your last recorded test bench run or your host's <code>default-boxes</code> line, if any, and always "Other". || Selects the box's files (bench state, name and PDU table, deployed <code>.setup</code>) and where the output goes.
+| '''Testbox''' || <code>tbNNN</code>. It offers the box from your last recorded test bench run or your host's <code>default-boxes</code> line, if there is one, and always "Other". It never preselects a box it did not find that way. || Selects the box's files (bench state, the table of unit names and PDU outlets, the deployed <code>.setup</code>) and where the output goes.
 |-
 | '''U interfaces''' || The <code>/dev/uN</code> consoles this session uses, and what is on each if you know (e.g. <code>u2,u4,u5 = stack; u3 = DUT2</code>) || '''Only these are ever probed or opened.''' Everything else on the box is someone else's.
 |-
-| '''PDU''' || The PDU's IP and the outlet for each console (e.g. <code>u2=6, u3=8</code>), or "no PDU / do not power-cycle" || Asked before the probe because the probe writes it into the <code>.setup</code>'s power section. With no PDU, the framework's post-failure power cycle silently does nothing; that is recorded too.
+| '''PDU''' || The PDU's IP and the outlet for each console (e.g. <code>u2=6, u3=8</code>), or "no PDU / do not power-cycle" || Asked before the probe because the probe writes it into the <code>.setup</code>'s power section. With no PDU, the framework's post-failure power cycle silently does nothing, so that answer is recorded too.
 |-
-| '''Session constraints''' || e.g. "shared box: read-only probe, log out of consoles", a time window, devices or cases not to touch, the box's lab segment, who else uses it || Constraints can tighten the standing orders, never loosen anything they mark '''always'''.
+| '''Session constraints''' || e.g. "shared box: read-only probe, log out of consoles", a time window, devices or cases not to touch, the box's lab segment (return path), who else uses it || Constraints can tighten the standing orders, never loosen anything they mark '''always'''.
 |}
 
-A '''multi-hour''' question follows if the run is long and you are in the VS Code editor; see [[#Running long campaigns: use tmux]].
+A '''multi-hour''' question follows if the run is long (more than a handful of cases, or reloads, failovers or long observation windows) and you are in the VS Code editor; see [[#Running long campaigns: use tmux]].
 
 All the answers go into a '''Session facts''' block at the top of the campaign's queue file, word for word and dated. Its first line is <code>Test Engineer: <whoami>@<hostname></code>; that is how <code>/orient-dt</code>, <code>/wrap-dt</code> and <code>/create-logs</code> later find "your last test bench run". On <code>--resume</code> the sentinel asks only for facts the queue lacks, plus a one-line "still the same?" confirmation.
 
@@ -94,7 +105,7 @@ All the answers go into a '''Session facts''' block at the top of the campaign's
 {| class="wikitable"
 ! # !! Step !! Who !! What you see
 |-
-| 1 || '''Setup questions''' || Sentinel → you || The questions above. It also reads <code>STANDING-ORDERS.md</code> (the standing answers) and, for the box's products, the platform and framework traps in <code>/orient-dt</code>.
+| 1 || '''Setup questions''' || Sentinel → you || The questions above. It also reads <code>STANDING-ORDERS.md</code> (the standing answers), <code>TESTBOX-ACCESS.md</code>, the general traps in <code>/orient-dt</code>, and the DUT family's <code>platforms/<FAMILY>.md</code>. If there is no platform file for the family, the triage report says so.
 |-
 | 2 || '''Multi-hour?''' || Sentinel → you || If yes and you are in the VS Code editor, it explains the risk and offers to stop so you can restart in <code>tmux</code>.
 |-
@@ -102,13 +113,13 @@ All the answers go into a '''Session facts''' block at the top of the campaign's
 |-
 | 4 || '''Occupancy check''' || Sentinel (read-only ssh, '''no console opened''') || '''CLEAR''': it carries on. '''FOUND''': it stops and shows you what it found. See [[#The occupancy check]].
 |-
-| 5 || '''Arm the sentinel''' || Sentinel || A one-line confirmation: armed, which mode, where the live feed file is. See [[#How the sentinel works]].
+| 5 || '''Arm the sentinel''' || Sentinel || A one-line confirmation: armed, which mode, where the live feed file is, and how to switch modes. See [[#How the sentinel works]].
 |-
-| 6 || '''Probe and triage''' || Tester (sub-agent, mode TRIAGE) || The tester repeats the occupancy check, then probes ''your'' consoles with ''your'' PDU facts. A '''USER-CONFLICT''' comes back to you as a question (see [[#When your facts and the bench disagree]]). Otherwise you get the triage report verbatim: '''N runnable / M blocked by topology (with the exact change that unblocks each) / K blocked by something else'''.
+| 6 || '''Probe and triage''' || Tester (sub-agent, mode TRIAGE) || The tester repeats the occupancy check, then probes ''your'' consoles with ''your'' PDU facts. A '''USER-CONFLICT''' comes back to you as a question (see [[#When your facts and the bench disagree]]). A MISMATCH or NEEDS-CHECK is shown to you with its diff. Otherwise you get the triage report verbatim: '''N runnable / M blocked by topology (with the exact change that unblocks each) / K blocked by something else'''.
 |-
-| 7 || '''Proceed or reconfigure?''' || You || ''Proceed'': the N run, and the blocked rows are marked BLOCKED with their reason. ''Reconfigure'': you make the change (recable, destack, apply a new <code>.setup</code>), say done, and triage re-runs with a fresh check and probe. Repeat until you say proceed.
+| 7 || '''Proceed or reconfigure?''' || You || ''Proceed'': the N run, and the blocked rows are marked BLOCKED with their reason. ''Reconfigure'': you make the change (recable, destack, <code>apply</code> a new <code>.setup</code>) and say done. Triage then runs again, with a fresh check and probe. Repeat until you say proceed.
 |-
-| 8 || '''Run''' || Tester (one sub-agent per group, mode RUN) || Per case: the <code>.cfg</code> files and working log are saved and committed, and the tester sends a <code>RESULT</code> line. The sentinel adds it to the Results table and shows you '''one line''' per case, e.g. <code>T12589 FAIL -- <reason>  (3/12: 2 PASS, 1 FAIL)</code>. Otherwise it stays quiet unless something needs you.
+| 8 || '''Run''' || Tester (one sub-agent per group, mode RUN) || For each case the tester saves and commits the <code>.cfg</code> files and working log, then sends a <code>RESULT</code> line. The sentinel adds it to the Results table and shows you '''one line''' per case, e.g. <code>T12589 FAIL -- <reason>  (3/12: 2 PASS, 1 FAIL)</code>. Otherwise it stays quiet unless something needs you.
 |-
 | 9 || '''Completion''' || Sentinel || The final results list and the blocked rows, then it ends with the line ''"please run /create-logs after reviewing the results for the final uploadable product."'' and stops. See [[#At the end of a campaign]].
 |}
@@ -144,19 +155,36 @@ The tester repeats the check immediately before every probe it runs, because tim
 == When your facts and the bench disagree ==
 
 The probe is given your session facts (<code>--pdu</code>, <code>--outlet uN=…</code>, and <code>--name uN=…</code> if you gave names) and uses them for that run.
-* A unit the box's facts file (<code><TB>.static</code>) does not list yet is '''appended''' with your facts.
+* A unit that the box's facts file (<code><TB>.static</code>) does not list yet is '''appended''' with your facts.
 * A recorded line is '''never rewritten'''.
 * When your fact and the record or the bench disagree, the probe reports a '''USER-CONFLICT''' and exits 4. For example: you said outlet 7 for u2 but the record says 6; you gave a PDU IP that differs from the recorded one; or you gave facts for a console where no device answered.
 
 The tester stops the triage and hands the conflicts back. The sentinel then asks you about each one, e.g. ''"The session says PDU outlet 7 for u2 (S/N …); the record says 6. Which is right?"''
-* '''Your session fact is right:''' with your go-ahead, that one line of the facts file is changed, with a dated note.
+* '''Your session fact is right:''' with your go-ahead, that one line of the facts file is changed, with a dated note naming you.
 * '''The record is right:''' the queue's Session facts block is corrected, and you are told so.
 
-Nothing is changed on either side without your answer. Triage then re-runs.
+Nothing is changed on either side without your answer. Triage then runs again.
+
+The other probe results:
+{| class="wikitable"
+! Exit !! Meaning !! What happens
+|-
+| 0 MATCH || The bench is the deployed <code><TB>.setup</code>. || Triage, or the run, goes ahead.
+|-
+| 1 MISMATCH || The bench is not the template. || Triage works from what the bench ''is''. You see the diff. In a run, cases that depend on what moved do not start; the rest carry on. <code>apply</code> is your call.
+|-
+| 2 NEEDS-CHECK || Something could not be verified: a NIC with no carrier, a MAC not learned, a console busy or silent. || Shown to you; yours to resolve.
+|-
+| "no template" || The box has no deployed <code>.setup</code> yet. || The generated <code>bench-state.md</code> is the only description of the box. Writing the template (<code>apply</code>) is yours.
+|}
+The tester never "fixes" the bench or a record to make a check pass. MATCH is also not the same as healthy: the probe's Advisories block can still flag problems, and the tester reads it.
 
 == Where everything is written ==
 
-Everything a campaign produces goes in the <code>device-testing</code> repository under '''<code><TB>/<FAMILY>/</code>'''. <code><STAMP></code> is a start time, local, <code>YYYY-MM-DDTHHMM</code>; <code><id></code> is the case ID without its prefix (<code>38472</code> for AWPTCM-T38472); <code><dev></code> is a device's name in the box's <code>.setup</code> (e.g. <code>stk_a</code>, <code>swi_b</code>).
+Everything a campaign produces goes in the <code>device-testing</code> repository under '''<code><TB>/<FAMILY>/</code>'''.
+* <code><STAMP></code> is the campaign's start time, local, <code>YYYY-MM-DDTHHMM</code>, shared by all its groups.
+* <code><id></code> is the case ID without its prefix (<code>38472</code> for AWPTCM-T38472).
+* <code><dev></code> is a device's name in the box's <code>.setup</code> (e.g. <code>stk_a</code>, <code>swi_b</code>).
 
 <pre>
 <TB>/<FAMILY>/CAMPAIGN-QUEUE-<STAMP>.md               the queue and the results list: the resume point
@@ -184,9 +212,9 @@ The box's own measured state lives in <code>bench-setup/</code>:
 |-
 | tb470 (the exception) || the same set kept flat in <code>bench-setup/</code>, where it always was
 |}
-The deployed template is <code>/home/st-art/st-art/configs/<TB>.setup</code> on the box. A box that has none yet reports "no template". The generated bench state is then the only description, and writing the template (<code>apply</code>) is your call.
+The deployed template is <code>/home/st-art/st-art/configs/<TB>.setup</code> on the box.
 
-'''Older campaigns stay as they are.''' Before 2 October 2026 logs were flat (<code><group>-<STAMP>/<case-id>.log</code>), and on tb470 before 1 October under <code>IE520/<group>-<date>/</code>. They are not rewritten, and <code>/create-logs</code> does not regenerate them.
+'''Older campaigns stay as they are.''' Before 2 October 2026 logs were flat (<code><group>-<STAMP>/<case-id>.log</code>), and on tb470 before 1 October they were under <code>IE520/<group>-<date>/</code>. They are not rewritten, and <code>/create-logs</code> does not regenerate them. A case re-run in a new campaign gets a new folder and a new log.
 
 == Verdicts and the results list ==
 
@@ -206,9 +234,9 @@ Every attempted case gets exactly one verdict. '''The tester grades it'''; you m
 | NOT TESTED || no folder, no log || Never attempted. The results list carries the reason.
 |}
 
-In short: a platform gap is UNSUPPORTED, a bench or script gap is PARTIAL, and a case nobody attempted is NOT TESTED. The full definitions, in the bench owner's words, are in <code>logged-output.md</code> §1.
+In short: a platform gap is UNSUPPORTED, a bench or script gap is PARTIAL, and a case nobody attempted is NOT TESTED. The old <code>-skip.log</code> is retired. The full definitions, in the bench owner's words, are in <code>logged-output.md</code> §1.
 
-'''The results list''' is the <code>## Results</code> table in the campaign's queue file, kept by the sentinel: one row per case with the columns ''case, title, group, verdict, reason, working log, graded''. ''graded'' is <code>tester</code>, or <code>Test Engineer, re-graded from <VERDICT> on <date></code>. It is what you review, and what <code>/create-logs</code> builds from.
+'''The results list''' is the <code>## Results</code> table in the campaign's queue file, kept by the sentinel. It has one row per case with the columns ''case, title, group, verdict, reason, working log, graded''. ''graded'' is <code>tester</code>, or <code>Test Engineer, re-graded from <VERDICT> on <date></code>. It is what you review, and what <code>/create-logs</code> builds from.
 
 == How the sentinel works ==
 
@@ -216,14 +244,14 @@ The sentinel is '''mandatory''' for any session that runs tests (standing order,
 * '''Rescue:''' it notices a tester that has stalled or stopped early, and gets it going again.
 * '''Channel:''' you talk to the sentinel, which is never busy with the bench, so you never wait for a tester's turn to finish. It relays your direction to the tester and the tester's questions to you.
 
-In <code>/test-mode</code> the sentinel is the session you are typing into. '''It never opens a console''': no console bytes, no config, no device login. Its only contact with the box is the read-only occupancy check, which touches no console. Two writers on one console is the classic failure, so it sends facts and the tester acts.
+In <code>/test-mode</code> the sentinel is the session you are typing into. '''It never opens a console''': no console bytes, no config, no device login. Its only contact with the box is the read-only occupancy check, which touches no console. Two writers on one console is the classic failure, so the sentinel only sends facts, and the tester does the work.
 
 === Its parts ===
 
 {| class="wikitable"
 ! Part !! What it is !! Lifetime
 |-
-| '''Watcher''' (<code>sentinel.sh</code> under a Claude Code ''Monitor'', told your testbox) || A shell loop that wakes every 30 s and makes '''one''' SSH call to the testbox, reading only the new bytes of the console transcripts and framework logs. It never opens a console. It also reads the sub-agents' transcripts and background-task output on the dev host. || A Monitor expires after 30 min. The sentinel re-arms it on every expiry. The read offsets persist, and a re-arm skips every earlier watcher's output, so nothing is missed or replayed.
+| '''Watcher''' (<code>sentinel.sh</code> under a Claude Code ''Monitor'', told your testbox) || A shell loop that wakes every 30 s and makes '''one''' SSH call to the testbox, reading only the new bytes of the console transcripts and framework logs. It never opens a console. On the dev host it also reads the sub-agents' transcripts and their background-task output. It never reads the sentinel's own transcript, which would feed its own events back to it. || A Monitor expires after 30 min. The sentinel re-arms it on every expiry. Read offsets persist, so nothing is missed or replayed across a re-arm.
 |-
 | '''Backstop''' (a 15-minute cron trigger in the session, at :10, :25, :40, :55) || A periodic check that wakes the sentinel even if the watcher has died, classifies the tester (healthy / needs you / stalled) and acts. || Lives in this session only: '''closing the session kills it'''.
 |-
@@ -231,7 +259,7 @@ In <code>/test-mode</code> the sentinel is the session you are typing into. '''I
 |-
 | '''Brief''' (filled-in template in the session scratchpad) || The sentinel's standing orders for this campaign: testbox and consoles, tester name, queue file, stand-down time, mode. || Never committed: it names live process details.
 |-
-| '''Stand-down time''' || A hard stop for the watcher (default: the end of your working day). || The watcher exits when it is reached.
+| '''Stand-down time''' || A hard stop for the watcher (default: the end of your working day; the sentinel asks if you did not say). || The watcher exits when it is reached.
 |}
 
 === Normal and verbose modes ===
@@ -239,7 +267,7 @@ In <code>/test-mode</code> the sentinel is the session you are typing into. '''I
 {| class="wikitable"
 ! Mode !! What the sentinel is shown
 |-
-| '''normal''' (default) || Every console byte sent and received, from the tester's <code>console.py</code> transcripts and the framework's per-device console logs, plus the rescue alarms.
+| '''normal''' (default) || Every console byte sent and received, plus the rescue alarms. The bytes come from the tester's <code>console.py</code> transcripts (<code>/tmp/*/console-*.log</code> on the box) and the framework's per-device console logs (<code>/home/st-art/pytest-create/*/*/{swi,stk}_*.log</code>).
 |-
 | '''verbose''' || Normal, plus the tester's narration, every command it runs and its output, its background-task output, and the framework's other logs.
 |}
@@ -251,9 +279,9 @@ In <code>/test-mode</code> the sentinel is the session you are typing into. '''I
 === How it talks to you ===
 
 * '''Healthy ticks are silent.''' The sentinel does not narrate progress.
-* '''Each finished case is one line''': the tester's <code>RESULT</code> line, checked against the working log, added to the Results table and committed. If the log and the line disagree, or the log is missing, the row is still written, with the mismatch noted, and you are told. The sentinel does not pick a side.
+* '''Each finished case is one line'''. The sentinel checks the tester's <code>RESULT</code> line against the working log, then adds it to the Results table and commits. If the log and the line disagree, or the log is missing, the row is still written, with the mismatch noted, and you are told. The sentinel does not pick a side.
 * '''You can re-grade at any time''': say e.g. "12589 is a PASS". The Results row is changed, marked as re-graded by you, committed, and confirmed in one line. The tester's working log is not edited.
-* When the tester needs you, the sentinel puts it under a bold '''NEEDS YOU:''' header, with a running list of everything still unanswered. Remote Control is disabled by company setting, so '''the session text is the only channel'''. Check back on long runs.
+* When the tester needs you, the sentinel puts it under a bold '''NEEDS YOU:''' header, with a running list of everything still unanswered. It never ends its turn leaving one unacknowledged. Remote Control is disabled by company setting, so '''the session text is the only channel'''. Check back on long runs.
 * Your answer is relayed as "Test Engineer's answer, relayed: …", and your direction ("stop after this case", "write the handover now") as "Test Engineer's instruction, relayed: …". The sentinel relays only what you said and never supplies an answer of its own.
 * A new fact mid-campaign (another console, a corrected outlet) is written into the queue's Session facts with the time, relayed, and carried by the next probe.
 * The sentinel batches its messages and adds "no reply needed". In the September 2026 campaign three of four tester stalls came straight after a sentinel message.
@@ -266,33 +294,33 @@ The tester is the '''<code>bench-runner</code>''' agent, started by the sentinel
 
 Read-only apart from the bench probe.
 * It runs the gate below, then checks every case's cabling needs against the measured topology (an offline preflight of each script).
-* It reports N runnable / M blocked by topology (each with the exact change that removes the block, stated so someone at the bench can do it without asking) / K blocked otherwise.
+* It reports N runnable / M blocked by topology / K blocked otherwise. Each topology block comes with the exact change that removes it (which port to cable to which, which device to add or move, which outlet to record, which unit to destack), stated so someone at the bench can do it without asking. A case is never "fitted" to the bench by weakening what it checks.
 * It changes no device state and runs no case.
 * '''A USER-CONFLICT stops triage''' and goes straight back to you, because names and outlets feed the <code>.setup</code> every case binds.
 * A second TRIAGE message after a recable means a fresh occupancy check and probe; it never trusts the earlier capture.
 
 === RUN ===
 
-One group of queue rows per dispatch. Before each run it passes '''the pre-run gate''':
+One group of queue rows per dispatch. '''Before the group's first case''' it writes the group's bench setup and its exact restore recipe into the queue file and commits them, so a fresh tester can restore the bench if this one dies mid-group. Before each run it passes '''the pre-run gate''':
 
 {| class="wikitable"
 ! # !! Check !! If it fails
 |-
-| 1 || '''Occupancy check''' on your consoles (<code>bench_probe.py precheck</code>, no console opened). || FOUND goes to you verbatim as <code>NEEDS TEST ENGINEER:</code>. It '''never displaces''' anyone.
+| 1 || '''Occupancy check''' on your consoles (<code>bench_probe.py precheck</code>, no console opened). || FOUND goes to you verbatim as <code>NEEDS TEST ENGINEER:</code>. It '''never displaces''' anyone. An ST-ART framework run it finds is somebody's test, not drift.
 |-
 | 2 || '''No console is parked''' in a root shell (left by a killed run) or in config mode. || Records the state in the working log, then exits it.
 |-
-| 3 || '''The box's template path resolves''' (<code>/home/st-art/st-art/configs/<TB>.setup</code> exists, or the box has no template yet; on tb470, <code>/nfsHome</code> is mounted). || Yours: root.
+| 3 || '''The box's template path resolves''' (<code>/home/st-art/st-art/configs/<TB>.setup</code> exists, or the box has no template yet; on tb470, <code>/nfsHome</code> is mounted). || Yours: it needs root.
 |-
-| 4 || '''The bench matches its template''', measured with your facts: <code>bench_probe.py --box <TB> run --consoles … --pdu … --outlet …</code>, read-only on a shared box. || MISMATCH or NEEDS-CHECK: that run does not start; the diff goes to you, and the tester carries on with cases that don't depend on what moved. USER-CONFLICT: it stops and hands you the conflicts. It never "fixes" the bench or a record to make it match.
+| 4 || '''The bench matches its template''', measured with your facts: <code>bench_probe.py --box <TB> run --consoles … --pdu … --outlet …</code>, read-only on a shared box. || MISMATCH or NEEDS-CHECK: that run does not start; the diff and the Advisories go to you, and the tester carries on with cases that don't depend on what moved. USER-CONFLICT: it stops and hands you the conflicts. It never "fixes" the bench or a record to make it match.
 |-
 | 5 || '''The <code>.setup</code> the run binds is this box's''' (or the topology pair Test Composer pre-loaded), never another box's. || Does not launch.
 |-
 | 6 || '''Offline preflight''' of the script against that <code>.setup</code> (a missing cable otherwise looks like a script defect). || The case is BLOCKED by topology.
 |-
-| 7 || '''Every device boots its baseline config''': the boot config each device reported at the pre-run capture (example: <code>flash:/tb470-bench.cfg</code> on tb470), or the one a pre-loaded topology declares. || Fixed within the test, or reported.
+| 7 || '''Every device boots its baseline config''': the boot config each device reported at the pre-run capture (example: <code>flash:/tb470-bench.cfg</code> on tb470), or the one a pre-loaded topology declares. It is checked before and after the run. || Fixed within the test, or reported.
 |-
-| 8 || Ask-CK's server run path still carries the agreed run flags. || Launch by hand instead.
+| 8 || Ask-CK's server run path still carries the agreed run flags. || Launch by hand instead. The server path runs none of these gates, so the tester still does them.
 |-
 | 9 || '''A sentinel is watching''' (the dispatch prompt says <code>sentinel: parent</code>). || Refuses to start the first case.
 |-
@@ -300,19 +328,21 @@ One group of queue rows per dispatch. Before each run it passes '''the pre-run g
 |}
 
 Then, per case:
-* '''Runs the framework script''' with <code>--noupdate --nodefaultcfg</code>, always. Without them the framework's default setup rewrites every device's boot config, strips licences, reboots everything and tries to reload firmware from the box's <code>/tftproot</code> (example: on tb470 that is a tmpfs, so the copy hangs).
+* '''Runs the framework script''' with <code>--noupdate --nodefaultcfg</code>, always. Without them the framework's default setup does four things: it rewrites every device's boot config, strips licences, reboots everything, and tries to reload firmware from the box's <code>/tftproot</code> (example: on tb470 that is a tmpfs, so the copy hangs).
 * '''Has full authority within the test''': config, <code>write</code>, boot config, <code>reload</code> / <code>reload stack-member</code>, a PDU power-cycle of a DUT, test traffic from the box's NICs, and scratch in the box's <code>/tmp</code>. That covers '''your consoles and your PDU outlets only''', within your constraints. It asks nobody. '''It restores what the case changed.'''
-* '''Saves one <code><dev>.cfg</code> per device''' the case uses, after setup and before step 1: the device's running config, with three <code>!</code> header lines naming the device, the case and run, and the box and console. '''A stack is one device with one <code>.cfg</code>''' (the master's). A re-run overwrites them.
-* '''Writes <code>work/run<N>.log</code> as it goes''': the session facts, the devices and links, every command with its prompt, the raw output that proves each step, the tools and arguments used, the before/after probe results and the teardown diff. It ends with a <code>VERDICT:</code> line. A re-run starts <code>run<N+1>.log</code>. The full list is in <code>logged-output.md</code> §2.
-* '''After the run:''' it closes every console cleanly (and logs out on a shared box), re-probes with the same facts (expects MATCH), diffs each device's running config against the pre-run capture, and stops anything it started.
+* '''Saves one <code><dev>.cfg</code> per device''' the case uses, after setup and before step 1. Each file is the device's running config, starting with three <code>!</code> header lines that name the device, the case and run, and the box and console. '''A stack is one device with one <code>.cfg</code>''' (the master's). A re-run overwrites them.
+* '''Writes <code>work/run<N>.log</code> as it goes''': the session facts, the devices and links, every command with its prompt, the raw output that proves each step, the tools and arguments used, the before/after probe results and the teardown diff. It labels the run ''clean'' or ''confounded'', and ends with a <code>VERDICT:</code> line. A re-run starts <code>run<N+1>.log</code>. The full list is in <code>logged-output.md</code> §2.
+* '''Drives consoles through <code>tools/console.py</code>''' or the tools built on it, with transcripts at the box's <code>/tmp/<run>/console-<uN>.log</code>, the path the sentinel watches. A console driven any other way is invisible to the sentinel.
+* '''After the run:''' on every console it touched it sends <code>end</code> first, then <code>terminal no monitor</code>. Both <code>terminal</code> commands work only at the exec prompt, so sent in config mode they fail. On a shared box it also logs out. It then re-probes with the same facts (expects MATCH), diffs each device's running config against the pre-run capture, and stops anything it started.
 * '''Commits the case folder''', then sends the sentinel <code>RESULT <id> <VERDICT> -- <one-line reason> -- <group>-<STAMP>/<id>/work/run<N>.log</code> and carries on.
 * '''Never writes the final log or the group README''', and never deletes <code>work/</code>. Those are <code>/create-logs</code>, on your request.
-* '''Updates its queue row''' as the state changes, and '''hands back''' when the group is done or every remaining row is BLOCKED, with verdicts, working-log paths and commit hashes. If it stops for any other reason it says exactly which row is next.
+* '''Updates its queue row''' as the state changes. It '''hands back''' when the group is done or every remaining row is BLOCKED, with verdicts, working-log paths and commit hashes. If it stops for any other reason it says exactly which row is next.
 
 '''Not the tester's to decide''' (the <code>bench-runner</code> "Not yours to decide" list; see also <code>STANDING-ORDERS.md</code> §4):
 * anything that contradicts your session facts;
 * a console outside your list, or a holder the occupancy check found;
-* licences;
+* licences (a case that needs a feature the unit lacks is UNSUPPORTED, not a licence request);
+* a box you do not own or have not been given;
 * applying a new <code>.setup</code>, or leaving the standing topology changed;
 * root on the box (keys, sshd, routes, firewall rules, mounts, device trust);
 * writes outside the three repositories;
@@ -325,7 +355,7 @@ For these it records the need in the working log, sends the sentinel one line st
 {| class="wikitable"
 ! # !! Step !! Who !! What happens
 |-
-| 1 || '''Results list''' || Sentinel || When every group is DONE or BLOCKED it shows the final results list from the queue's Results table (verdict, reason, graded-by, working log, per case), the counts by verdict (NOT TESTED included), and the BLOCKED rows with the exact change each still needs. It ends with ''"please run /create-logs after reviewing the results for the final uploadable product."'' and stops. It does '''not''' run <code>/create-logs</code> or <code>/wrap-dt</code>, and it stays armed so you can still give direction.
+| 1 || '''Results list''' || Sentinel || When every group is DONE or BLOCKED it shows the final results list from the queue's Results table (verdict, reason, graded-by and working log for each case), the counts by verdict (NOT TESTED included), and the BLOCKED rows with the exact change each still needs. It ends with ''"please run /create-logs after reviewing the results for the final uploadable product."'' and stops. It does '''not''' run <code>/create-logs</code> or <code>/wrap-dt</code>, and it stays armed so you can still give direction.
 |-
 | 2 || '''Review and re-grade''' || You || Read the list, open any working log you want to check, and re-grade anything you disagree with ("12589 is a PASS"). Re-grades are recorded in the Results table, never in the working log.
 |-
@@ -333,39 +363,87 @@ For these it records the need in the working log, sends the sentinel one line st
 |-
 | 4 || '''Attach in Zephyr''' || You || Attach each case's <code>.log</code> and <code>.cfg</code> files to the case in Zephyr (Jira). '''No tool here uploads anything.'''
 |-
-| 5 || '''<code>/wrap-dt</code>''' || You run it || Stands the sentinel down (watcher, cron, stray sweep), restores what the session changed, re-probes the bench on your consoles, writes the dated session handover with its Session facts, and commits. It never writes or edits a case log and never deletes <code>work/</code>. If you wrap before <code>/create-logs</code>, the handover says which groups still have final logs pending.
+| 5 || '''<code>/wrap-dt</code>''' || You run it || Stands the sentinel down (watcher, cron, stray sweep) and confirms no tester is still running. Restores what the session changed, ending each console with <code>end</code> then <code>terminal no monitor</code>. Re-probes the bench on your consoles, writes the dated session handover with its Session facts, and commits. It never writes or edits a case log and never deletes <code>work/</code>. If you wrap before <code>/create-logs</code>, the handover lists, per group, how many cases still hold <code>work/</code> and the <code>/create-logs</code> command to finish them.
 |}
+
+Steps 3 and 5 can come in either order and in different sessions. <code>/create-logs</code> reminds you to run <code>/wrap-dt</code> if the session has not been wrapped yet.
 
 === /create-logs ===
 
+<code>/create-logs</code> turns a reviewed campaign into the files you attach in Zephyr. It runs '''only when you ask''', never on its own and never as part of <code>/test-mode</code> or <code>/wrap-dt</code>. You can also start it by saying "create the logs" or "make the final logs".
+
 <pre>
-/create-logs                                              # this session's campaign, else your newest queue
+/create-logs                                              # this session's campaign, else your newest one
 /create-logs <TB>/<FAMILY>/CAMPAIGN-QUEUE-<STAMP>.md       # a specific campaign
-/create-logs <TB>/<FAMILY>/CAMPAIGN-QUEUE-<STAMP>.md 24032 # only some cases
+/create-logs <TB>/<FAMILY>/CAMPAIGN-QUEUE-<STAMP>.md 24032 # only some cases of it
 </pre>
 
-* '''Runs only when you ask.''' Run it in the sentinel session or any later session started in the repo root. '''It never touches a testbox''': it uses only what is committed (the queue's Results table, each case's <code>work/</code> and <code>.cfg</code> files).
-* '''It confirms once''' with the table it is about to build from (case, verdict, graded-by, working log, <code>.cfg</code> files present) and anything that does not reconcile. You answer ''Yes'', ''Re-grade first'' or ''Not yet''. It never re-grades on its own.
-* '''Per attempted case it writes <code><id><suffix>.log</code>''' from the template in <code>logged-output.md</code> §4, using the '''latest run only''': a header (Run, Bench, Tester, Graded, Case, Build, Configs), the <code>VERDICT:</code> line and its verdict block (FAIL: <code>FAIL CONDITION:</code>; PARTIAL: <code>NOT RUN:</code> and <code>UNBLOCK:</code>; UNSUPPORTED: <code>NEEDS:</code> and <code>ABSENT:</code>), a <code>CAVEAT:</code>, the TOPOLOGY AS TESTED, then one STEP block per step with its commands, raw output and verdict.
-* '''Each run stands alone.''' A final log never mentions earlier runs, other campaigns, setup detours, conversations with the sentinel, or the teardown proof. Device output is copied verbatim from the working log, and a claim it cannot source is left out and named to you instead.
-* '''It checks the <code>.cfg</code> files''': every device in the log's topology needs one. A missing one is named to you; it is never invented.
-* '''It checks the tools''': any helper the working log names that exists only in <code>work/</code> is moved into <code>tools/</code> with a README entry, and you are told.
-* '''It writes the group <code>README.md</code>''': one line (testbox, DUT, date span) and a verdict table with every case of the group, NOT TESTED included. No other prose.
-* '''It checks every final log''' (name matches verdict, header complete, verdict block present, every step graded, every named <code>.cfg</code> present, no mention of earlier runs or <code>work/</code>). '''Only then does it delete that case's <code>work/</code>.''' A case that fails a check keeps its <code>work/</code> and is listed.
-* '''It commits once per group and never pushes.''' The working files remain in git history.
-* It ends with the table of final logs, anything skipped or left out, any tool moved, the commit hashes, and ''"The logs and .cfg files under <TB>/<FAMILY>/<group>-<STAMP>/<id>/ are ready to attach in Zephyr."''
+'''Where and with what.''' Run it in the sentinel session or any later session started in the repo root. '''It never touches a testbox''': no ssh, no console, no probe. It uses only what is committed: the queue's Results table, each case's <code>work/</code> folder and its <code>.cfg</code> files. With no queue file named, it takes this session's campaign if there was one, else the newest queue whose Session facts name you (<code>user@host</code>), and says which it took.
 
-A campaign from before 2 October 2026 has no Results table; <code>/create-logs</code> says so and stops.
+'''What it does, in order:'''
+{| class="wikitable"
+! # !! Step !! Detail
+|-
+| 1 || '''Reconcile''' || Checks every Results row against the folders, never from memory. An attempted case needs a <code>work/run<N>.log</code> whose <code>VERDICT:</code> agrees with the table, unless you re-graded it. A case that already has its final log and no <code>work/</code> is done and skipped, so running it again is safe. A case with <code>work/</code> but no Results row (still running, or never reported) is left alone and listed. NOT TESTED rows need no folder.
+|-
+| 2 || '''Confirm once''' || Shows the table it is about to build from (case, verdict, graded-by, working log, <code>.cfg</code> files present) and anything that did not reconcile, then asks: ''Yes, create them'' / ''Re-grade first'' / ''Not yet''. ''Re-grade first'' takes your changes into the Results table and asks again; ''Not yet'' changes nothing. '''It never re-grades on its own'''; a verdict that looks wrong to it is named in the summary for you to decide.
+|-
+| 3 || '''Write each final log''' || <code><id><suffix>.log</code>, from the template in <code>logged-output.md</code> §4, using the '''latest run only'''. Details below the table.
+|-
+| 4 || '''Check the <code>.cfg</code> files''' || Every device in the log's topology needs its <code><dev>.cfg</code>, with its three <code>!</code> header lines. A missing one is named to you; it is never invented or reconstructed.
+|-
+| 5 || '''Check the tools''' || Any helper the working log names that exists only in <code>work/</code> is moved into <code>tools/</code> with a <code>tools/README.md</code> entry, and you are told.
+|-
+| 6 || '''Check every final log''' || The name's suffix matches the Results verdict; the header is complete and ''Graded'' matches the table; the verdict block is present; every STEP has a verdict; every <code>.cfg</code> it names exists; no mention of an earlier run, another campaign, the sentinel or <code>work/</code>. A case that fails a check keeps its <code>work/</code> and is listed.
+|-
+| 7 || '''Write the group <code>README.md</code>''' || One line (testbox, DUT, date span) and a verdict table with every case of the group, NOT TESTED included, each linked to its log. No other prose. It is rewritten in full each time, so a later run for the same group leaves it complete.
+|-
+| 8 || '''Clean up and commit''' || Deletes <code>work/</code> only for cases that passed step 6, and checks that each folder now holds exactly its one <code>.log</code> and its <code>.cfg</code> files. One commit per group, <code>create-logs: <group>-<STAMP> — <n> logs (<counts by verdict>)</code>. It never pushes. The working files stay in git history.
+|-
+| 9 || '''Report''' || The table of final logs (case, verdict, log path, <code>.cfg</code> files); anything skipped or failing a check; any claim left out for lack of a source; any tool moved; the commit hashes; and ''"The logs and .cfg files under <TB>/<FAMILY>/<group>-<STAMP>/<id>/ are ready to attach in Zephyr."''
+|}
+
+'''What a final log contains:'''
+* A header: Run, Bench, Tester, Graded, Case, Build, Configs.
+* The <code>VERDICT:</code> line, with what was proven, then the verdict block:
+** FAIL: <code>FAIL CONDITION:</code> (and <code>TRIED:</code> when there was more than one attempt);
+** PARTIAL: <code>NOT RUN:</code> and <code>UNBLOCK:</code>;
+** UNSUPPORTED: <code>NEEDS:</code> and <code>ABSENT:</code>;
+** PASS: none; each UNSUPPORTED step is shown in its own STEP.
+* A <code>CAVEAT:</code> saying what the run did not establish.
+* TOPOLOGY AS TESTED: devices, serials, consoles, links, host NICs and tools. Together with the <code>.cfg</code> files, it is enough to rebuild the case.
+* One STEP block per step: its commands with their prompts, the raw output verbatim, short notes on the lines that matter, and a closing <code>=> STEP n <VERDICT>:</code> line. STEP 0 is the baseline with the feature off, when the case changes behaviour.
+
+'''Each run stands alone.''' A final log never mentions earlier runs, other campaigns, setup detours, infrastructure findings, conversations with the sentinel, or the teardown proof; those stay in the working log and the handover. Device output is copied verbatim from the working log. A claim it cannot source from the working log is left out and named to you instead. This is why the tester's working log errs on the side of too much.
+
+'''A large campaign''' may be split: one background helper per group writes that group's logs, and <code>/create-logs</code> checks each one against step 6 before anything is deleted or committed.
+
+'''A campaign from before 2 October 2026''' has no Results table; <code>/create-logs</code> says so and stops. Those logs keep their old structure.
 
 == Helper tools ==
 
-Reusable helpers (console drivers, a CLI answerer, a config differ, reload and flash helpers, traffic senders, frame counters, protocol responders) live in the repo-root '''<code>tools/</code>''', catalogued in '''<code>tools/README.md</code>''', which also says how to run them (copy the whole directory to the box's <code>/tmp/<campaign>/</code>; console tools take <code><tty> <baud> <transcript></code> first). The rule for the tester, and for you if you write one:
+Reusable helpers live in the repo-root '''<code>tools/</code>''', catalogued in '''<code>tools/README.md</code>''' with how to run each one. They cover:
+* console drivers and a CLI answerer;
+* a CLI help probe that never executes the command;
+* pre-run console checks, pollers and passive recorders;
+* reload, flash-copy, TFTP-copy and Boot Menu escape helpers;
+* a config differ;
+* traffic senders, frame counters and pcap builders;
+* protocol responders (IGMP, IPv6 ND, DHCPv6, LLDP-MED phone, Modbus).
+
+To run them, copy the whole directory to the box's <code>/tmp/<campaign>/</code> and run from there. Console tools take <code><tty> <baud> <transcript></code> first.
+
+The rule for the tester, and for you if you write one:
 # '''Look in <code>tools/README.md</code> first.''' Use or extend what is there; do not write a second tool for the same job.
 # '''Write it generic.''' Testbox, consoles, NICs, ports, VLANs and addresses are arguments, never constants. If it only works on one platform, its README entry says so.
 # '''Commit it with its <code>tools/README.md</code> entry''', in the same commit as the case that first needed it.
 # The working log names the tool and its exact arguments, so the run can be repeated.
 
-Only a script that is genuinely one case's own (its ports and VLANs written in) stays in that case's <code>work/</code>, and <code>/create-logs</code> deletes it with the folder. As of 2 October 2026 most catalogued tools were generalised from tb470/IE520 scripts and not yet re-run on hardware; each entry carries its status.
+Only a script that is genuinely one case's own (its ports and VLANs written in) stays in that case's <code>work/</code>, and <code>/create-logs</code> deletes it with the folder.
+
+'''Status, 6 October 2026:''' most of the catalogue was re-run on tb470 (IE520, plus an x230 at 9600 baud) on 2 October after being generalised, and each entry records what was verified. Six protocol tools (<code>igmp</code>, <code>nsresp</code>, <code>dhc6</code>, <code>rs</code>, <code>lldpmed_phone</code>, <code>mb</code>) are still marked "not re-verified on hardware", and the first run that uses one updates its status. Two limits worth knowing:
+* <code>flash_copy.py</code> is pull-only: it copies into the local unit's flash. A large push to another stack member fails on IE520.
+* <code>bootmenu_escape.py</code>'s menu strings are the IE520 Boot Menu's. It reads which menu is on screen and sends only the key that backs out of it.
 
 == Recovery: what the sentinel can and cannot rescue ==
 
@@ -374,7 +452,7 @@ Only a script that is genuinely one case's own (its ports and VLANs written in) 
 |-
 | Tester ends its turn early ("Next: running T931" and then stops: the most common failure) || Completion notification || The sentinel compares the report with the queue file and the case folders, and continues the ''same'' sub-agent by name: what completed, the exact next row, "no reply needed". || Nothing.
 |-
-| Sub-agent has gone (finished, crashed, out of context) with rows left || Completion notification, or the IDLE alarm "nothing running anywhere" || A fresh RUN dispatch for the remaining rows, with the same session block. Its pre-run gate re-probes the bench first. || The case in flight, at most; the queue and per-case commits carry the rest.
+| Sub-agent has gone (finished, crashed, out of context) with rows left || Completion notification, or the IDLE alarm "nothing running anywhere" || A fresh RUN dispatch for the remaining rows, with the same session block. Its pre-run gate re-probes the bench first, and the group's restore recipe in the queue file says how to get back to a clean state. || The case in flight, at most; the queue and per-case commits carry the rest.
 |-
 | Tester waiting on something that can never fire (e.g. an SSH <code>pgrep</code> loop that matches itself; one spun for 14.6 h) || IDLE alarm after 300 s of no activity, with '''STALL SIGNATURE''' (stale wait loops on the dev host and no live job on the box) || The sentinel messages the tester with what actually completed and where to resume. || The idle time.
 |-
@@ -388,15 +466,22 @@ Only a script that is genuinely one case's own (its ports and VLANs written in) 
 |-
 | Usage window runs out mid-campaign || The cron fires after the window refreshes || Continues or re-dispatches from the first row not DONE / BLOCKED. || The wait.
 |-
-| '''The session's process dies''' (window closed, editor reload, xrdp/VPN drop takes the editor) || Nothing in-session: the sentinel, its cron and the sub-agent all die together || '''You''' start a session in the repo root and run <code>/test-mode --resume</code>. It reads the queue file and its session facts, confirms them with you, reconciles the Results table with the case folders (a committed working log with a <code>VERDICT:</code> line but no Results row gets its row), runs the occupancy check, says which row is next, re-arms and continues. || The case in flight.
+| '''The session's process dies''' (window closed, editor reload, xrdp/VPN drop takes the editor) || Nothing in-session: the sentinel, its cron and the sub-agent all die together || '''You''' start a session in the repo root and run <code>/test-mode --resume</code>. Details below the table. || The case in flight.
 |}
+
+On <code>--resume</code> after the session died, the new session:
+# reads the queue file and its session facts, and confirms them with you;
+# reconciles the Results table with the case folders: a committed working log that ends in a <code>VERDICT:</code> line but has no Results row gets its row;
+# runs the occupancy check;
+# says which row is next;
+# re-arms the sentinel and continues.
 
 The sentinel '''cannot''' fix the bench, take a bench-level decision for you, or lift a mechanical block: the no-stray-scripts hook, the auto-mode safety classifier and the company <code>git push</code> denial do not change because a message was relayed. Those come back to you to do yourself.
 
 === Running long campaigns: use tmux ===
 
 In the one-session shape the tester lives inside the session's process, so if that process dies the whole campaign stops until someone resumes it.
-* A VS Code window is exposed to editor reloads and connection drops: in September 2026 an editor-attached watcher was killed by a VPN drop.
+* A VS Code window is exposed to editor reloads and connection drops: in September 2026 a VPN drop killed an editor-attached watcher.
 * A bare terminal is not safer: closing it sends SIGHUP.
 * A terminal inside <code>tmux</code> (or <code>screen</code>) survives a closed window or a dropped connection:
 <pre>
@@ -414,7 +499,7 @@ Most testboxes are shared: ST-ART framework runs, people on minicom, and other C
 === Someone holds a console (minicom, another script, another session) ===
 * The occupancy check finds it before any console is opened, and the sentinel stops and tells you. The tester's own gate catches anything that starts later. Neither ever logs in on top of someone.
 * If a console somehow reads busy during the probe anyway, the probe skips it and reports '''NEEDS-CHECK''' rather than MATCH, so no run that needs it starts.
-* Say "shared box" in your constraints. The probe then runs read-only: logins and <code>show</code> commands only, no LLDP switch-on, and no MAC-learning pings out of the host NICs. The tester logs out of every console it opened, because the probe otherwise leaves consoles logged in as manager.
+* Say "shared box" in your constraints. The probe then runs read-only: logins and <code>show</code> commands only, no LLDP switch-on, and no MAC-learning pings out of the host NICs. (Without it, the probe switches <code>lldp run</code> on where a device has it off and leaves it on in the running config.) The tester logs out of every console it opened, because the probe otherwise leaves consoles logged in as manager.
 * On a box you do not own, ask its users before probing, even when the occupancy check is CLEAR. The check shows who has a console open ''now'', not who owns the bench.
 
 === An ST-ART framework run is in progress ===
@@ -427,36 +512,44 @@ Most testboxes are shared: ST-ART framework runs, people on minicom, and other C
 * The IDLE alarm counts '''any''' <code>python3</code> or <code>tcpdump</code> on the box as a live job, so another user's job can mask a stalled tester. Completion notifications are unaffected and remain the primary signal.
 
 === Two /test-mode sessions on the same dev host ===
-* '''Avoid it for now.''' The arming procedure kills ''every'' <code>sentinel.sh</code> process it finds on the host before arming its own, so one session's re-arm (every 30 min, and on each cron backstop that finds no watcher) kills the other session's watcher. Each would keep killing the other's.
+* '''Avoid it for now.''' The arming procedure kills ''every'' <code>sentinel.sh</code> process it finds on the host before arming its own. So one session's re-arm (every 30 min, and on each cron backstop that finds no watcher) kills the other session's watcher, and each keeps killing the other's.
 * Each session's own completion notifications still work, but stall detection and the console feed flip between them.
 
 == Notes ==
 
-* '''Standing orders apply to every Test Engineer.''' <code>STANDING-ORDERS.md</code> holds the bench owner's standing answers: device authority within a test, the triage report shape, the between-TestCase rule, and what always stays yours. Your session constraints can tighten them for a session, and a campaign's queue file can add overrides for that campaign; neither can loosen anything marked '''always'''. The logging rules moved from it to <code>logged-output.md</code> on 2 October 2026.
-* '''Time and power cycles.''' After any TestCase that ends FAIL, UNSUPPORTED or ERROR, the framework power-cycles every device the <code>.setup</code> lists (example: about 4 minutes for tb470's six units). This is accepted by design; nothing works around it. A script that fails every case at the same defaulting step is stopped instead, after two consecutive failures. Budget generously for reloads and failovers. Example, IE520: an SPI-flash write takes minutes and the unit answers nothing meanwhile; it looks crashed, but never power-cycle it then.
+* '''Standing orders apply to every Test Engineer.''' <code>STANDING-ORDERS.md</code> holds the bench owner's standing answers: device authority within a test, the triage report shape, the between-TestCase rule, and what always stays yours. Your session constraints can tighten them for a session, and a campaign's queue file can add overrides for that campaign; neither can loosen anything marked '''always'''. The logging rules are in <code>logged-output.md</code>.
+* '''Time and power cycles.''' After any TestCase that ends FAIL, UNSUPPORTED or ERROR, the framework power-cycles every device the <code>.setup</code> lists (example: about 4 minutes for tb470's six units). This is accepted by design; nothing works around it. A script that fails every case at the same defaulting step is stopped instead, after two consecutive failures. Budget generously for reloads and failovers. Example, IE520: copying a release into SPI flash takes about 12 minutes for 41 MB, and the unit answers nothing meanwhile. It looks crashed, but never power-cycle it then.
+* '''Those power cycles show up as <code>Unexpected System reboot</code>''' in every unit's <code>show reboot history</code>, one entry per failed case, all at the same minute. Match them against the run's <code>Power cycle … completed</code> lines before treating any as a real unexplained reboot. The IE520 and x230 log reboot history in UTC.
 * '''Bench setup changes once per TestSet, not between its cases.''' Cabling, aggregator changes, VLAN isolation and boot pointers are set before the TestSet and restored after it. A case that needs a different physical setup belongs in a different group.
-* '''Configs are kept tidy between unrelated cases.''' Each case's additions are removed and checked by diffing running config against the pre-case copy; that proof stays in the working log. Nothing is written to startup config unless the case requires it.
-* '''The probe is the bench's source of truth.''' The box's <code>bench-state.md</code> is generated by <code>bench_probe.py run</code> and never hand-edited. Neither is the <code>.setup</code> on the box; <code>apply</code>, your call, writes it. The names-and-outlets file (<code><TB>.static</code>) is yours: the probe only appends new units to it.
+* '''Configs are kept tidy between unrelated cases.''' Each case's additions are removed, and the removal is checked by diffing the running config against the pre-case copy; that proof stays in the working log. Nothing is written to startup config unless the case requires it.
+* '''Legacy (hand-written) suites have three extra traps''' that generated scripts do not. All three were seen with T24032 on tb470, 2 October 2026:
+** their TestSet powers '''off''' every device it did not initialise, so partner units go dark: switch the outlets back on and re-probe before the next case;
+** they hard-code test VLAN IDs and delete them in tear-down: check them against the bench's VLANs before launch, and remap a collision in the staged copy (your call), never on the bench;
+** the framework console wraps at 80 columns, so a one-line <code>show log</code> match can miss a long line: read the raw device log before grading such a step FAIL.
+* '''The probe is the bench's source of truth.''' The box's <code>bench-state.md</code> is generated by <code>bench_probe.py run</code> and never hand-edited. Neither is the <code>.setup</code> on the box: <code>apply</code> writes it, and running <code>apply</code> is your call. The names-and-outlets file (<code><TB>.static</code>) is yours: the probe only appends new units to it.
 * '''History is in git, not in the output.''' Every run of a case keeps its own <code>work/run<N>.log</code> until <code>/create-logs</code>; the final log describes the latest run only, and the <code>.cfg</code> files are the latest run's. Earlier runs and the deleted <code>work/</code> remain in git history.
 * '''Nothing is pushed.''' Every commit is reported as "committed, NOT pushed". You push.
 * '''Skill and agent changes need a new session.''' The skills and <code>bench-runner</code>'s definition are read when a session starts; an edit takes effect in the next session.
 * '''Framework run directories under <code>/tmp/ck*/</code> are not watched''' by the default sentinel feed (it watches <code>/home/st-art/pytest-create/</code>). A tester that runs there needs an extra Monitor on its <code>run.stdout</code>.
 * '''A rejected or interrupted tool call can still be running on the box''' and holding a console or changing config. Rejecting a call stops Claude reading the output, not the remote command. The tester checks <code>ps</code> and the consoles after any interrupt, before claiming nothing changed.
-* '''Never send <code><command> ?</code> with a trailing Enter''' through a console driver: if <code><cr></code> is a valid completion, the command executes.
-* '''Platform limits produce UNSUPPORTED, not FAIL.''' Triage says up front which cases they touch. Example, IE520: no SD card slot, no battery-backed RAM, no SSH/telnet (console only), and no MDI/MDI-X polarity (every front port is an SFP cage). Each product family's platform facts are in <code>platforms/&lt;FAMILY&gt;.md</code> (for example <code>platforms/IE520.md</code>), which <code>/orient-dt</code> reads.
+* '''Never send <code><command> ?</code> with a trailing Enter''' through a console driver: if <code><cr></code> is a valid completion, the command executes. <code>tools/qmark.py</code> asks for help without executing anything.
+* '''<code>terminal monitor</code> and <code>terminal no monitor</code> work only at the exec prompt''', and <code>terminal monitor</code> does not toggle. Sent in config mode they fail (<code>Command [terminal no monitor] failed</code> in the device log). The console tools handle this; a hand-driven console needs <code>end</code> first.
+* '''Platform limits produce UNSUPPORTED, not FAIL.''' Triage says up front which cases they touch. Example, IE520: no SD card slot, no battery-backed RAM, no SSH or telnet (console only), and no MDI/MDI-X polarity. Each product family's platform facts are in <code>platforms/<FAMILY>.md</code> (for example <code>platforms/IE520.md</code>), which <code>/test-mode</code>, <code>/orient-dt</code> and the tester read. A product with no file yet is worked from the general traps.
 
 == See also ==
 
 * [[Ask-ck]]: the test-case workbench that produces the scripts this runs.
 * In the <code>device-testing</code> repository:
+** <code>README.md</code>: one-time setup for a new Test Engineer.
 ** <code>.claude/skills/test-mode/SKILL.md</code>: the skill itself.
 ** <code>logged-output.md</code>: verdicts, the per-case folder, <code>.cfg</code> files, working logs, the <code>RESULT</code> line, the results list and the final log template. The one home for logging rules.
-** <code>.claude/skills/create-logs/SKILL.md</code>: building the final uploadable output.
+** <code>.claude/skills/create-logs/SKILL.md</code>: building the final output you upload.
 ** <code>.claude/agents/bench-runner.agent.md</code>: the tester and its gate.
 ** <code>tools/README.md</code>: the catalogue of reusable helpers.
 ** <code>STANDING-ORDERS.md</code>: the standing orders every Test Engineer works under.
+** <code>platforms/<FAMILY>.md</code>: each product family's limits and traps.
 ** <code>bench-setup/bench_probe.py</code>: <code>precheck</code>, <code>run</code> (with <code>--box</code> and the session-fact options), <code>apply</code>.
-** <code>.claude/skills/orient-dt/SKILL.md</code>: §0 where things live, §0b which bench, §10 and <code>.claude/skills/orient-dt/sentinel/</code> the sentinel procedure and kit.
+** <code>.claude/skills/orient-dt/SKILL.md</code>: §0 where things live, §0b which bench, §4 framework traps, §10 and <code>.claude/skills/orient-dt/sentinel/</code> the sentinel procedure and kit.
 ** <code>.claude/skills/wrap-dt/SKILL.md</code>: ending a session.
 ** <code>TESTBOX-ACCESS.md</code>: SSH access and launching framework runs.
 
