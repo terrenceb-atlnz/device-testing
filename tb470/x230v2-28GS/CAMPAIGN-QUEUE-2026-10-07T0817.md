@@ -152,7 +152,7 @@ security level none, manager/friend).
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
-| 5700.2002.110 | Test all options for one-off boot (TestCase 110) | bootloader-6.2.40 | PARTIAL | run3 confounded: configure() could not create backuprelease.rel (flash out of space, baseline .rel still on flash), so step 3 had no file; steps 1, 2, 4 PASS (step 4 past the NameError: the import-copy patch works). Re-run as run4 in progress (Test Engineer: "fix the issue in-line and re-run it") | 5700.2002/work/run3-2002.110.log | tester |
+| 5700.2002.110 | Test all options for one-off boot (TestCase 110) | bootloader-6.2.40 | PASS | run4 (replaces run3, Test Engineer's overwrite rule): 13/13, rc 0, 09:22-09:49; one-off boots of main release, backup release and a TFTP copy each booted, default reverted to TFTP after each; step 4 ran (import-copy patch); in-line fix: baseline .rel deleted from flash before launch | 5700.2002/work/run4-2002.110.log | tester |
 
 ## Issues
 
