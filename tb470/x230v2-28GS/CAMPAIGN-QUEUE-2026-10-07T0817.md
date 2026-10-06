@@ -10,6 +10,9 @@ Follow-up to [x230v2-28GS/bootloader-6.2.40/CAMPAIGN-QUEUE-2026-10-06T1325.md](.
 - Shape: *"Have the other session's sentinel kick off the sub-agent while you monitor from here"*.
   Session `device-testing-c7` dispatches the `bench-runner` subagent; session `device-testing-13`
   is the sentinel and keeps this file and the Results table.
+  **Changed 08:3x (Test Engineer: "Run it from this session"):** c7 was blocked on its own pending
+  question, so `device-testing-13` dispatches the `bench-runner` itself (one-session shape) and is its
+  sentinel. c7 dispatches nothing (countermand queued to it).
 
 **This file is the resume point.** A session that wakes up reads it top to bottom. It continues
 from the first queue row that is not DONE or BLOCKED, and updates the row as soon as its state
