@@ -196,6 +196,7 @@ reload, prove, `exit`.
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
 | 5700.2001 | Boot System CLI rules (11 TestCases) | bootloader-6.2.40 | PASS | run 2 (TFTP default boot, Feb conditions): 11/11 PASS, rc=0, 20 m, identical to the Feb x230v2 control; run 1 (flash default) also 11/11 PASS | 5700.2001/work/run2.log | tester |
+| 5700.2002 | default/one-off boot, filenames, foreign release, bootloader version (26 TestCases) | bootloader-6.2.40 | PARTIAL | run 2: 18 PASS / 7 UNSUPPORTED (SD, no slot) / 1 FAIL = 2002.110 pristine NameError (library_5700.py:227, same in Feb, pre-registered); USB variants (unsupported in Feb) all PASS; 2002.120 booted 2 of 3 releases (third .rel doesn't fit flash, pre-registered); no 6.2.40 divergence from Feb. Run 1 PARTIAL (stopped, flash default) superseded | 5700.2002/work/run2.log | tester |
 
 ## Issues
 
