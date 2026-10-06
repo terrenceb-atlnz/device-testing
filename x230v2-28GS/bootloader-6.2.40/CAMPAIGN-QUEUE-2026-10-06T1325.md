@@ -195,7 +195,7 @@ reload, prove, `exit`.
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
-| 5700.2001 | Boot System CLI rules (11 TestCases) | bootloader-6.2.40 | PASS | 11/11 PASS, rc=0, 20 m; per-case assertion counts identical to the Feb x230v2 control | 5700.2001/work/run1.log | tester |
+| 5700.2001 | Boot System CLI rules (11 TestCases) | bootloader-6.2.40 | PASS | run 2 (TFTP default boot, Feb conditions): 11/11 PASS, rc=0, 20 m, identical to the Feb x230v2 control; run 1 (flash default) also 11/11 PASS | 5700.2001/work/run2.log | tester |
 
 ## Issues
 
