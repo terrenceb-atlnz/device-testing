@@ -53,6 +53,7 @@ Notes from the session (sentinel), measured:
 - eth3 carrier up, its MAC `00f0.4d00.7718` learned on u0 port1.0.1 (1000/full). eth2 carrier down
   between boots (dongle).
 - tb470 rebooted 2026-10-06 12:43 (uptime): `/tmp` wiped, runtime routes gone; `/nfsHome`, `/tftproot` fine.
+- 14:14 u0 logged `AT-SPTX removed from port1.0.3/port1.0.4`: *"I pulled those"* (Test Engineer, 14:15). Not used by the suite.
 - Other users on tb470 at 13:00: calanm (minicom on u2 and u4), maxj. Not ours; never touch.
 
 Triage 2026-10-06 13:28–13:55 (bench-runner; sentinel-verified where marked):
