@@ -14,7 +14,7 @@
 - [AW+ CLI confirmations need Enter](awplus-cli-confirmations-need-enter.md) — CLI (y/n) wants `y\r`; only the BOOTLOADER menu takes a bare keypress; dsrdtr=True is flow control (use stty -hupcl)
 - [No stray scripts](no-stray-scripts.md) — throwaway scripts go in the SESSION SCRATCHPAD, never the lab tree; ENFORCED by ~/.claude/hooks/no-stray-py.py (Bash + Write)
 - [Read the whole function before judging](read-the-whole-function-before-judging.md) — read a function to its END; to claim a path is broken, RUN it (the PDU-401 false alarm); creds in secrets.md
-- [x230v2 5700 control corpus](x230v2-5700-control-corpus.md) — raw-data/test_scripts/5700_bootloader/ = a full x230v2 run = the control separating IE520 divergence from test rot; grep logs with -a
+- [x230v2 5700 control corpus](x230v2-5700-control-corpus.md) — Feb x230v2 run = the control vs IE520 divergence; grep -a; 2026-10-06 28GS/6.2.40 traps: TFTP default boot, c1e7679 erase skip
 - [IE520 SPIFlash goes dark](ie520-spiflash-goes-dark.md) — SPIFlash is incredibly slow (41 MB copy ≈ 12 min) and the unit answers NOTHING meanwhile — looks like a crash; wait it out
 - [IE520 TFTP boot needs a USB NIC](ie520-tftp-boot-needs-usb-nic.md) — no onboard mgmt eth; the .setup's eth0 is an ASIX USB dongle seen only by the bootloader; link is up only DURING BOOT
 - [IE520 bootloader console driving](ie520-bootloader-console-driving.md) — POINTER only: mechanics live in platforms/IE520.md §2 (state-driven escape: main-menu 0 = Restart, 9 in Select device SAVES); the worked example of a bench fact copied into a mechanics memory

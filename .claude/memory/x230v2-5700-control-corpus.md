@@ -69,3 +69,22 @@ parse (output format is **byte-identical** in shape on both: `flash:/mainrelease
 Corrects the "gate-string rot" framing in [[bootloader-media-parse-bug]]. Design principle:
 **never reclassify a failing gate as "rot" from one platform's logs alone** — check a passing
 platform first, or you convert a product finding into a test change.
+
+> ## UPDATE 2026-10-06/07 — the pristine suite on x230v2-28GS, bootloader 6.2.40 (tb470 u0)
+>
+> Campaign `x230v2-28GS/bootloader-6.2.40/` (final logs b60a24c): 2001 PASS, 2002 PARTIAL, 2003
+> PARTIAL, 2004 PASS, 2005 FAIL. What a re-run of this suite needs to know (all measured):
+> - **The suite assumes the bootloader default boot source = TFTP** (every Feb boot was a forced
+>   TFTP boot). With the default at 9 "determined by main CLI", 2002's configure asks TFTP for
+>   `backuprelease.rel`, deletes flash's releases and leaves the unit with nothing to boot. Set
+>   Boot Menu 2 → 3 before launch; set 2 → 9 back afterwards.
+> - **The framework maps `AT-x230-28GS V2` to family `x230`**, so bootloader TFTP boots ask for
+>   `/tftproot/x230-<tb>.rel`; a root symlink to the real file was needed (tmpfs, lost on reboot).
+> - **Framework c1e7679 (2026-09-17)** runs the boot-config reset before tear_down even when a case
+>   sets `doConfCheck = False`, so after a deliberate erase (2003.11, 2005.2) the case FAILs and
+>   ATTestSet skips the rest of the TestSet. Feb's d4c21f7 did not. Harness, not product.
+> - **6.2.40 on the 28GS prints `Erasing nand0:`** where Feb's 6.2.37 printed `Erasing flash:`;
+>   2005.2's erase gate misses it although the erase happens. Graded FAIL; open question for the
+>   Test Engineer whether that is a product change or test rot.
+> - After factory defaults the framework answers the forced new-password dialog with `P@ssw0rd`
+>   (friend is refused as default), so manager/friend logins fail until it is set back.
