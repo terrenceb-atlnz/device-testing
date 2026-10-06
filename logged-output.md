@@ -1,5 +1,5 @@
 ---
-verified: 2026-10-02
+verified: 2026-10-07
 ---
 # Logged output — what a campaign leaves behind (any testbox, any product)
 
@@ -20,6 +20,12 @@ when the Test Engineer runs it after reviewing the campaign's results (§3).
 **Each run stands alone.** A final log describes one run: this bench, this build, these
 results. It never refers to an earlier run of the case or to another campaign. History is for
 the agent (memories, handovers, git), not for the output.
+
+**Except a TestCase re-run, which overwrites (Test Engineer, 2026-10-07).** When individual
+TestCases of a framework TestSet are re-run, the TestSet keeps **one clean log**: each re-run
+TestCase's result replaces its earlier result in that log, and the rest of the log stays as it
+was. *"if we re-run individual test cases, have them overwrite the previous results so theres
+one clean log."* §3 "Merging TestCase re-runs" says how.
 
 Placeholders:
 - `<TB>` is the testbox, for example `tb470`.
@@ -192,6 +198,24 @@ and re-grading anything they disagree with. For each attempted case in the list,
 
 `/create-logs` adds nothing that is not in the working log. A claim it cannot source is left
 out, and named to the Test Engineer instead.
+
+### Merging TestCase re-runs (Test Engineer, 2026-10-07)
+
+A TestSet case (`5700.2005`) whose individual TestCases were re-run keeps one final log:
+- **Where the re-run's files go:** the TestSet's own case folder, `<id>/work/run<N>-<TestCase>.log`
+  (e.g. `5700.2005/work/run3-2005.4.log`), one working log per re-run TestCase.
+- **The base** is the TestSet's existing final log (or, if none yet, its latest full-run working
+  log). `/create-logs` replaces, for each re-run TestCase, its STEP block, its line in the
+  VERDICT list and any NOT RUN / UNBLOCK / FAIL CONDITION entry about it, with the re-run's
+  evidence. Every other line of the base stays verbatim.
+- **The header** then covers both: `Run:` gives each date and what ran on it
+  (`2026-10-06 19:58-20:57 (2005.1-2005.2); 2026-10-07 hh:mm-hh:mm (2005.3-2005.8, one
+  invocation each)`), and `Tester:`/`Build:` name each run's framework commit and patch if they
+  differ. The log never says a TestCase was "re-run" or what its earlier result was: the
+  replaced result is simply gone (git keeps it).
+- **The verdict** is recomputed for the TestSet from the latest result of every TestCase (§1),
+  in the Results table first (graded-by: tester, or the Test Engineer's re-grade). The file is
+  renamed to the new suffix with `git mv`.
 
 ## 4. The template
 

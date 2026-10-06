@@ -65,6 +65,9 @@ For each confirmed case, in queue order:
 1. **Read the latest `work/run<N>.log` in full**, plus the files under `work/` that it names.
    The final log describes **that run only** (logged-output.md: each run stands alone). Earlier
    runs are not mentioned.
+   **Exception, TestCase re-runs** (`work/run<N>-<TestCase>.log`): merge them into the TestSet's
+   one log per logged-output.md §3 "Merging TestCase re-runs" — the re-run TestCase's result
+   replaces its earlier one, everything else in the base log stays verbatim.
 2. **Write `<group>-<STAMP>/<id>/<id><suffix>.log`** from the §4 template:
    - the suffix comes from the Results verdict: PASS → none, FAIL → `-fail`, PARTIAL →
      `-partial`, UNSUPPORTED → `-unsupported`;

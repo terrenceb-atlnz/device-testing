@@ -31,14 +31,14 @@ Occupancy 08:17: `precheck --consoles u0` CLEAR (exit 0).
 - Source: the pristine suite `claude/raw-data/test_scripts/5700_bootloader/` (read-only; md5
   `library_5700.py` 0519963993a8ecbbedbb18fad5dd8e44, `test-5700.2002.py` 0be9b375…,
   `test-5700.2003.py` c8c4bc02…, `test-5700.2005.py` 7a75b85e…, `runTestSuite.py` ed903949…).
-- Patch: [bootloader-6.2.40-2026-10-07T0817/library_5700.diff](bootloader-6.2.40-2026-10-07T0817/library_5700.diff),
+- Patch: [x230v2-28GS/bootloader-6.2.40/5700_x230v2-28GS_6.2.40_run3/library_5700.diff](../../x230v2-28GS/bootloader-6.2.40/5700_x230v2-28GS_6.2.40_run3/library_5700.diff),
   patched `library_5700.py` md5 7d357e1df0105a934ad15fa076d4fb99. Three lines:
   `import copy` (2002.110's `NameError`), and `'Erasing nand0'` added to the security-level
   reset's wait list and pass condition (`library_5700.py` ~613; 6.2.40 prints `Erasing nand0:`).
 - **Where the scripts live:** the lab-tree hook refuses `.py` files in the repo, so the scripts
   are staged on tb470 in `/tmp/x230/run3/` (tmpfs): the pristine `test-5700.200{2,3,5}.py`,
   `runTestSuite.py`, the patched `library_5700.py`, and a `framework -> /home/st-art/framework`
-  symlink. Each invocation runs with **cwd = its own runner dir** in the repo (below; holds
+  symlink. Each invocation runs with **cwd = its own runner dir** in the repo (Folders, below; holds
   `default.setup` + the framework's logs, no `.py`), invoking the script by absolute path.
 - `default.setup`: copied unchanged from `x230v2-28GS/bootloader-6.2.40/5700_x230v2-28GS_6.2.40_run2/`.
 
@@ -50,8 +50,13 @@ Occupancy 08:17: `precheck --consoles u0` CLEAR (exit 0).
   as root, `/tmp/x230/run3/test-5700.<set>.py -s default.setup -u -v <n>` (confirm the
   TestCase-selection syntax against ATTestSet before the first launch). One invocation per row,
   in queue order; never two at once.
-- Folders: `bootloader-6.2.40-2026-10-07T0817/<id>/work/run<N>.log` (working log) and
-  `bootloader-6.2.40-2026-10-07T0817/runner-<id>/` (cwd, `default.setup`, framework logs).
+- **Folders (Test Engineer 2026-10-07: one clean log per TestSet, re-runs overwrite;
+  logged-output.md §3 "Merging TestCase re-runs"):** everything lands in the 10-06 campaign's own
+  folders under `x230v2-28GS/bootloader-6.2.40/`:
+  - working log: `<set>/work/run3-<TestCase>.log`, e.g. `5700.2005/work/run3-2005.4.log`;
+  - runner dir (cwd, `default.setup`, framework logs), one per invocation:
+    `5700_x230v2-28GS_6.2.40_run3/<TestCase>/`, e.g. `5700_x230v2-28GS_6.2.40_run3/2005.4/`.
+  `/create-logs` later merges each re-run into the TestSet's existing final log.
   The framework holds u0 for the whole invocation, so no tester `.cfg` is captured mid-run (as
   on 10-06); the device config is the framework's `default.cfg` + what the case logs in `swi_a_<set>.log`.
 - **Bench setup, set ONCE before the first row and restored ONCE after the last**
@@ -74,7 +79,7 @@ Occupancy 08:17: `precheck --consoles u0` CLEAR (exit 0).
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | 5700.2002.110, 5700.2003.10, 5700.2005.3, 5700.2005.4, 5700.2005.5, 5700.2005.6, 5700.2005.7, 5700.2005.8 (one invocation each, in this order) | tb470/x230v2-28GS/bootloader-6.2.40-2026-10-07T0817 | QUEUED | 2005.3–.8 were ~9 h of Feb's 10 h 20 m TestSet; 2005.5 is the longest (225 checks in Feb) |
+| 1 | 5700.2002.110, 5700.2003.10, 5700.2005.3, 5700.2005.4, 5700.2005.5, 5700.2005.6, 5700.2005.7, 5700.2005.8 (one invocation each, in this order) | x230v2-28GS/bootloader-6.2.40 (case folders 5700.2002 / 5700.2003 / 5700.2005; runner dirs 5700_x230v2-28GS_6.2.40_run3/<TestCase>/) | QUEUED | 2005.3–.8 were ~9 h of Feb's 10 h 20 m TestSet; 2005.5 is the longest (225 checks in Feb) |
 
 ## Results
 
