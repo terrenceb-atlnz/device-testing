@@ -139,11 +139,57 @@ by main CLI)", Boot Security Level none, licence Base only; flash holds `x230-2.
    framework regenerates default.cfg with hostname `swi_a_5700_<set>` + every port shut), `boot config-file flash:/default.cfg`, reload.
 5. Prove: `show boot` = the baseline above, no forced banner, then `exit`. The ACCESS licence stays (Test Engineer allowed it).
 
+## Row #1 run 1 STOPPED (14:58) — and run 2 (bench-runner, 15:20)
+
+**Run 1 stopped at 14:58:43 (rc 143, SIGTERM to runTestSuite 8327 then test-5700.2002 11334, by PID; no power cycle in flight).**
+2001 PASS (11/11). 2002 failed systematically at a setup assumption: the pristine suite expects u0's **bootloader default
+boot source = TFTP** (Feb's bench: every Feb 2001 boot was `Loading tftp://10.37.101.1/x230v2-tb101.rel via switchport 2...`
+with the forced-boot banner, so `Current software` stayed the TFTP file name). With the 14:05 "Restore default (2 → 9)"
+u0 booted flash, ended 2001 on `backuprelease.rel`, and 2002's configure (createFlashBootImages → framework
+download_file_from_tftp, remote name = swi.software) asked for `tftp://10.38.215.65/backuprelease.rel` → `% Source file not
+found` ×2 after deleting flash's releases → no release on flash → 2002.10 `!!FAIL: There is no primary release file set`,
+unit restart-looping (`ERROR: Boot failed`), framework stuck in mode('#'). The suite's `recovery()` (2→3) is never called.
+2002.1 UNSUPPORTED (no SD), 2002.2 PASS before it. Run 1 logs stay in `5700_x230v2-28GS_6.2.40/`; 2002's are unrenamed
+(`swi_a.log`, `test-5700.2002.log`) because the TestSet was killed.
+
+**Recovery (within the test, 15:00–15:11):** one-off TFTP boot (Boot Menu 1 → 3, x230-tb470.rel) → CLI: temporary
+`ip address 10.38.215.74/27` on vlan1 (running only), `copy tftp://10.38.215.65/x230v2_28GS-tb470.rel flash:/x230v2_28GS-tb470.rel`
+(Successful), `boot system flash:/x230v2_28GS-tb470.rel`, `no boot system backup`, leftover `swi_a_5700_*`/`TestCase_*`
+cfgs deleted. **Tester error:** the cleanup also deleted `flash:/default.cfg` while it was the boot config → 15:06 flash
+boot loaded factory defaults → forced `% Default password needs to be changed.` (the sentinel caught it). The dialog refuses
+`friend` (`% password matches the default password`), so it was passed with the framework-list password `P@ssw0rd`, then
+`username manager privilege 15 password friend` restored manager/friend explicitly and `copy running-config
+flash:/default.cfg` recreated the boot config. A fresh manager/friend login reached `#` with no dialog. running-config now
+= the pre-run capture (only the hash salt differs). Flash: `default.cfg` + `x230v2_28GS-tb470.rel` (36,553,967 B = build
+-52 from /tftproot, was -51 pre-run). **`x230-2.rel` is no longer on flash** (run 1's 2001 configure `delete force *.rel`,
+suite design); the USB stick holds a copy (session facts).
+
+**Test Engineer, relayed ~15:03:** (1) *"Yes, TFTP default (Recommended)"* — **reverses the 14:05 "Restore default (2 → 9)"**.
+Done 15:11: Boot Menu 2 → 3, prompts verbatim `Enter IP version [4|6].................. [4]:` → 4; `Enter IP address for this
+device........ [10.38.215.40]:` → 10.38.215.34; `Enter subnet mask....................... [255.255.255.224]:` → same;
+`Enter gateway IP........................ [0.0.0.0]:` → 0.0.0.0; `Enter TFTP server IP.................... [10.38.215.33]:` → same;
+`Enter filename.......................... [x230v2_28GS-tb470.rel]:` → x230-tb470.rel → `Saving settings... Complete`. Plain-reload
+proof 15:14–15:16: `Warning: System has been forced to boot from a non-standard location` → `Loading tftp://10.38.215.33/x230-tb470.rel
+via USB Ethernet adapter...` → `Verifying release... OK` → login, `Current software : x230-tb470.rel` (-52); u0 logged out.
+(2) *"Whole suite (Recommended)"* in a fresh run dir: `5700_x230v2-28GS_6.2.40_run2/` — pristine copies md5-verified
+against raw-data, same `default.setup`, `framework` symlink. Working logs `5700.<set>/work/run2.log`.
+
+**Run 2 gates (15:17):** precheck u0 free (FOUND = calanm u2/u4 + a terrenceb minicom on u3, none ours); read-only probe
+MISMATCH = the same swi_a/swi_f naming + hub lines only; `/tftproot/x230-tb470.rel -> x230v2_28GS-tb470.rel` resolves;
+tb470 up 2:34 (no reboot), /nfsHome mounted.
+
+**Run 2 baseline / restore recipe** (replaces steps 3–5 above for run 2): bootloader default boot source = **TFTP
+x230-tb470.rel** (forced banner expected; keep it unless the Test Engineer says otherwise); flash `x230v2_28GS-tb470.rel`
+as `boot system`, `default.cfg` (manager/friend explicit, near-factory) as boot config; Boot Security Level none; ACCESS
+licence stays. If the suite leaves u0 without a release or config: one-off/default TFTP boot, copy the release back over
+port1.0.1 (vlan1 10.38.215.74/27 temporary), `boot system`, **keep `default.cfg`** (never delete the current boot config),
+reload, prove, `exit`.
+
 ## Queue
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | 5700.2001–2005 (65 TestCases, one `runTestSuite.py` process) | x230v2-28GS/bootloader-6.2.40/5700_x230v2-28GS_6.2.40 | RUNNING (step 0 TFTP proof PASSED 14:18; suite launched ~14:20) | ~19 h by the Feb timings (2001 31 m, 2002 5 h 24 m, 2003 2 h 45 m, 2004 25 m, 2005 10 h 20 m) |
+| 1 | 5700.2001–2005 (65 TestCases, one `runTestSuite.py` process) | x230v2-28GS/bootloader-6.2.40/5700_x230v2-28GS_6.2.40 | run 1 STOPPED 14:58 (2002 systematic: suite needs the TFTP default boot source); run 2 RUNNING (whole suite, `5700_x230v2-28GS_6.2.40_run2/`, TFTP default) | ~19 h by the Feb timings (2001 31 m, 2002 5 h 24 m, 2003 2 h 45 m, 2004 25 m, 2005 10 h 20 m) |
 
 ## Results
 
