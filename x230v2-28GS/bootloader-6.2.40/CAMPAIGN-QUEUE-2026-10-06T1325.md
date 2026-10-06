@@ -68,6 +68,7 @@ Triage 2026-10-06 13:28–13:55 (bench-runner; sentinel-verified where marked):
 - **Forced-boot banner** on that boot: `Warning: System has been forced to boot from a non-standard
   location` … `Reading flash:x230v2_28GS-tb470.rel`. Pre-existing or not is unknown. OPEN — a saved
   Flash+file default ignores `boot system`, which 2001's configure relies on.
+- **Decisions ~14:05 (Test Engineer):** forced-boot banner → *"Restore default (2 → 9)"*; x230-tb470.rel → *"Symlink, I approve"* (`sudo ln -s x230v2_28GS-tb470.rel /tftproot/x230-tb470.rel`, proven with a tftp get; tmpfs, re-create after any tb470 reboot).
 - **Licence:** run will `license ACCESS` (unit has Base only): *"Yes, allow ACCESS"* (Test Engineer, ~14:00).
 
 ## Expected, not 6.2.40 findings (decided before launch)
