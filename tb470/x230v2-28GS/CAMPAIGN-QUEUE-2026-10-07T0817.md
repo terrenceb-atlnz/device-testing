@@ -153,6 +153,7 @@ security level none, manager/friend).
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
 | 5700.2002.110 | Test all options for one-off boot (TestCase 110) | bootloader-6.2.40 | PASS | run4 (replaces run3, Test Engineer's overwrite rule): 13/13, rc 0, 09:22-09:49; one-off boots of main release, backup release and a TFTP copy each booted, default reverted to TFTP after each; step 4 ran (import-copy patch); in-line fix: baseline .rel deleted from flash before launch | 5700.2002/work/run4-2002.110.log | tester |
+| 5700.2003.10 | Boot stage 2 diagnostics: Filesystem FLASH test (TestCase 10) | bootloader-6.2.40 | PASS | 2/2, rc 0, 09:51-10:03: stage-2 Filesystem FLASH test "Result for test 2/2 (pass 1): PASS" (8 NAND bad blocks skipped, "expected"); Q returned to the stage 2 menu. The test erases the filesystem by design (ACCESS licence removed too; u0 restored between rows) | 5700.2003/work/run3-2003.10.log | tester |
 
 ## Issues
 
