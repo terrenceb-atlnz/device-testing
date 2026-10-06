@@ -29,6 +29,15 @@ Constraints: "Same as 10-06": "do not interact with any other devices yet" (u0 +
 
 Occupancy 08:17: `precheck --consoles u0` CLEAR (exit 0).
 
+Decisions 2026-10-07 ~08:45 (Test Engineer, answers to the triage):
+- Occupancy 08:3x FOUND calanm minicom on u2, u5, u4 (not ours; u0 free): *"Proceed on u0 only"*.
+- D1 run flags: *"Same as 10-06"* -- each invocation `-s default.setup -u -v <n>` (no `--noupdate
+  --nodefaultcfg`): initial power cycle, framework default.cfg boot, ACCESS licence step, ~8 min each.
+- D2 licences (2005.3-.6 call `update_feature_licenses(featureList=['ALL'])`): *"Allow ALL, remove
+  after"* -- run as written; after the last row remove every licence the suite added, leaving u0 at
+  Base + ACCESS (read `show license` before row 1 and after the restore; record both).
+- Release: *"Accept the swap"* -- whatever build is in /tftproot at each boot; record the build per TestCase.
+
 ## The patched suite (Test Engineer's two edits, nothing else)
 
 - Source: the pristine suite `claude/raw-data/test_scripts/5700_bootloader/` (read-only; md5
