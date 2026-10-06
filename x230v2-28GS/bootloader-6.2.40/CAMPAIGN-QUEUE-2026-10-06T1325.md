@@ -149,6 +149,7 @@ by main CLI)", Boot Security Level none, licence Base only; flash holds `x230-2.
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
+| 5700.2001 | Boot System CLI rules (11 TestCases) | bootloader-6.2.40 | PASS | 11/11 PASS, rc=0, 20 m; per-case assertion counts identical to the Feb x230v2 control | 5700.2001/work/run1.log | tester |
 
 ## Issues
 
