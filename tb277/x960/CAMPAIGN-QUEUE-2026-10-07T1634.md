@@ -72,10 +72,14 @@ flash and netboot. `isc-dhcp-server` on tb277 has been **disabled since 17 June*
 (`x960-tb277.rel` = `sin_x96056-20260921-9`; `x950GEN2-tb277.rel` = `awplus_main-20260920-12`).
 ⇒ netboot does not depend on DHCP here; the bootloaders must hold static addresses. Inferred,
 not directly read. `in.tftpd` runs without `-v`, so there are no transfer logs to close the gap.
-The framework PDU-cycles every bound device after any FAIL/UNSUPPORTED/ERROR case
-(STANDING-ORDERS §6), so **the first such cycle is the real confirmation — watch u2's console
-through it.** If the DUT does not come back, park it at the boot menu and set the boot source by
-hand; do not leave it looping.
+**CORRECTED AT TRIAGE 2026-10-07:** there is **no framework script for any of these 17 cases and
+no `.setup` to bind**, so the whole campaign is manual CLI plus host traffic driven through
+`tools/console.py`. That means **no framework run, and therefore no automatic post-failure PDU
+cycle**. Nothing will power-cycle the DUT unless the tester chooses to.
+⇒ **Do not power-cycle swi_c or swi_a during this campaign at all.** If one ever must be, watch
+u2's console through the boot and be ready to park it at the boot menu.
+Both netboot images are confirmed present in `/tftproot` — which is a **tmpfs**, so they would not
+survive a reboot of tb277 itself. Box uptime is 26 days.
 
 ## Campaign setup and restore (set ONCE before group 2, restored ONCE at the end)
 
@@ -110,12 +114,40 @@ likely to reopen it (see its note).
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | T44967 T44968 T44969 T44973 T44974 | mirror-2026-10-07T1634 | PENDING APPROVAL | DUT-only, CLI + `show mirror`; no partner, no traffic, no campaign setup needed |
-| 2 | T44979 T44986 T44988 T44989 T44990 T44991 T44992 | acl-2026-10-07T1634 | PENDING APPROVAL | needs the transit path above; T44990 also needs group 1's mirror config |
-| 3 | T43870 T47201 T44181 T44378 T44182 | ipv4-2026-10-07T1634 | PENDING APPROVAL | L3 services; T44378 and T44182 have open verification questions (I-2, I-3) |
+| 1 | T44967 T44968 T44969 T44973 T44974 | mirror-2026-10-07T1634 | DISPATCHED 16:59 | DUT-only CLI + `show mirror`. No campaign setup, no partner, no traffic. All five syntax forms confirmed on the DUT at triage |
+| 2a | T44979 T44986 T44988 T44992 | acl-2026-10-07T1634 | RUNNABLE — awaiting dispatch | needs the campaign setup. T44992 expected PARTIAL (I-1) |
+| 2b | T44989 T44990 T44991 | acl-2026-10-07T1634 | **BLOCKED** | I-8: only ONE in-bench observation point; each needs two things seen at once. Remedy: fit a copper SFP in swi_c port1.0.10 and move the tb eth3 cable onto it. Test Engineer 2026-10-07: leave blocked |
+| 3a | T43870 T44181 T44182 | ipv4-2026-10-07T1634 | RUNNABLE — awaiting dispatch | all three hash-free. T44182 needs the static ARP on swi_b; one run-time check that AW+ `ping` accepts a broadcast destination |
+| 3b | T47201 T44378 | ipv4-2026-10-07T1634 | **BLOCKED** | I-6: the DUT's `sa1` straddles the bench boundary, so DUT→swi_b is hash-exposed. Remedy: `no static-channel-group` on swi_c port1.0.4. Test Engineer 2026-10-07: leave sa1 alone |
 | — | T44987 | — | NOT TESTED | in the Test Engineer's first list, no title in the second; **dropped at their request** 2026-10-07 |
 
-## Drafted case steps — PENDING TEST ENGINEER APPROVAL
+## Triage result and the Test Engineer's decisions (2026-10-07 ~16:58 NZDT)
+
+Triage by `bench-runner`, read-only; DUT `show running-config` proven unchanged afterwards.
+Re-probe committed as `147c3d1` (bench byte-identical to the 03:09Z capture).
+**12 runnable now · 5 blocked by topology · 0 blocked otherwise.**
+
+Decisions, as given:
+1. **Start:** "Run group 1 now, decide the rest after." Groups 2a and 3a stay RUNNABLE but
+   undispatched until the Test Engineer says so.
+2. **I-6 (`sa1` straddle): "Neither — leave sa1 alone."** `port1.0.4` is not touched. T47201 and
+   T44378 stay BLOCKED; T44992 stays PARTIAL by design, not by oversight.
+3. **I-8 (Block B): "Leave all three blocked."** No SFP fitted, eth3 stays on swi_b's management
+   port. T44989/T44990/T44991 are NOT TESTED with their remedy recorded. The tester's offer to run
+   an `sa1`-bound variant of T44989/T44991 was declined.
+4. **I-7 (shared VLAN 100): "Yes, proceed on vlan 100"** with 192.168.100.0/24, accepting the
+   collision and measurement-pollution risk. Applies to groups 2a/3a only — group 1 needs no
+   addressing. Any unexplained traffic is recorded, never graded through.
+
+## Drafted case steps — APPROVED by the Test Engineer 2026-10-07, and syntax-confirmed at triage
+
+Every command family below was confirmed to exist on the DUT with `?` sent WITHOUT a trailing CR
+(`tools/qmark.py`, self-test passed). Notable: `mirror interface none` IS supported, so T44974 is a
+real case; `access-list 3000/4000` offer `copy-to-cpu copy-to-mirror deny permit send-to-cpu
+send-to-vlan-port`; `show access-list counters` exists; `service bfd` and `service rip` both exist
+despite BFD being absent from the licence feature list. A standard list (1-99) CANNOT be bound to
+an interface on this platform — `access-group` takes only 3000-3699, 4000-4699 or a named hardware
+list, and no form of it exists under a VLAN interface. That reshapes T44986 (see its entry).
 
 Exact CLI forms are to be confirmed against the DUT at triage (`<command> ?` through a driver that
 does NOT append CR — memory `never-send-cli-help-through-a-cr-driver`). The x960 is a different
@@ -217,18 +249,61 @@ Traffic: testbox `ping`/`tcpreplay` on eth4 toward 10.38.22.66 or 192.168.100.2,
 | case | verdict | reason | graded by | working log |
 | --- | --- | --- | --- | --- |
 | T44987 | NOT TESTED | no title supplied; dropped by the Test Engineer 2026-10-07 | Test Engineer | — |
+| T47201 | NOT TESTED | BLOCKED by I-6 (`sa1` straddles the bench boundary; DUT→swi_b hash-exposed). Remedy: `no static-channel-group` on swi_c port1.0.4. Test Engineer 2026-10-07: leave sa1 alone | Test Engineer | — |
+| T44378 | NOT TESTED | BLOCKED by I-6, same remedy. An honest verification DOES exist (I-2 answered) — only the path blocks it | Test Engineer | — |
+| T44989 | NOT TESTED | BLOCKED by I-8 (one in-bench observation point). Remedy: copper SFP in swi_c port1.0.10 + move tb eth3 onto it. Test Engineer 2026-10-07: leave blocked | Test Engineer | — |
+| T44990 | NOT TESTED | BLOCKED by I-8, same remedy. No `sa1` variant exists for this one | Test Engineer | — |
+| T44991 | NOT TESTED | BLOCKED by I-8, same remedy | Test Engineer | — |
 
 ## Issues
 
 Status: OPEN (waiting on the Test Engineer), CHOSEN (a blocker; recommendation applied for
-review), NOTED (no decision needed now).
+review), NOTED (no decision needed now), CLOSED (decided or answered).
 
-- **I-1 T44992 static-LAG ACL cannot be shown across members.** sa1's second member (port1.0.4)
-  runs off-bench, so only port1.0.2 carries testable traffic. NOTED — may force PARTIAL.
-- **I-2 T44378 has no clean far-end receiver.** The helper target is swi_b, a switch. OPEN —
-  settle at triage; UNMEASURED is the honest outcome if nothing works.
-- **I-3 T44182 source selection.** Needs swi_b to source to a directed-broadcast address. OPEN.
-- **I-4 Case steps are drafted, not authoritative.** Every verdict in this campaign is against
-  Claude's reconstruction from the case titles, because `ck.db` is not reachable from this
-  session. NOTED — stated at the top of this file and to be repeated in every final log.
-- **I-5 Netboot confirmation.** See "Known risk" above. NOTED.
+- **I-1 T44992 static-LAG ACL cannot be shown across members.** CLOSED as a known limitation.
+  Confirmed at triage and WORSE than first recorded: `sa1`'s second member (swi_c port1.0.4) is not
+  merely off-bench and idle, it is **connected and live to another device**. The case can prove
+  "a named hardware ACL binds to a static aggregator and filters traffic transiting it"; it cannot
+  prove "effective on every member". **Expect PARTIAL**, with the PROVEN / UNMEASURED split stated.
+- **I-2 T44378 verification.** CLOSED — answered at triage. An honest end-to-end proof exists:
+  `ip forward-protocol udp 161` + `ip helper-address 192.168.100.2`, broadcast an SNMP get from
+  eth4 into vlan 210; if the relay works swi_b answers and the reply arrives back at the testbox.
+  Fallback: a `copy-to-cpu` ACL on swi_b's port1.0.2 read with `show access-list counters`.
+  So T44378 is NOT unmeasurable — it is blocked only by I-6.
+- **I-3 T44182 source selection.** CLOSED — answered at triage. swi_b can source it: `ping WORD`
+  takes a plain destination, and with `ip route 10.38.22.64/27 192.168.100.1` on swi_b,
+  `ping 10.38.22.95` leaves as a unicast to the DUT. Hash-free. One run-time check remains:
+  whether AW+ `ping` refuses a directed-broadcast destination.
+- **I-4 Case steps are drafted, not authoritative.** NOTED, and unchanged. `ck.db` and the
+  Test-cases repo were confirmed absent from BOTH this seat and tb277 at triage, so this cannot be
+  resolved in this session. Every verdict is against the reconstruction. Repeat it in every log.
+- **I-5 Netboot.** CLOSED — see the corrected "Known risk" section. No framework run means no
+  automatic PDU cycle; both images present; recommend no power cycles at all.
+- **I-6 (NEW, triage) The DUT's `sa1` straddles the bench boundary.** `static-channel-group 1` on
+  swi_c has two CONNECTED members: port1.0.2 (→ swi_b) and port1.0.4 (OFF-BENCH, live to another
+  device). swi_b's `sa1` has port1.0.4 notconnect. DUT→swi_b traffic hashes across the two, so a
+  flow either always works or always fails with no visible cause — a bench artefact that would be
+  reported as a product failure. **Test Engineer 2026-10-07: "Neither — leave sa1 alone."** CLOSED
+  as a decision; T47201 and T44378 stay BLOCKED. Remedy if ever revisited: `no static-channel-group`
+  on swi_c port1.0.4 (no cabling), or fit copper SFPs in swi_c/swi_b port1.0.3, cable and aggregate
+  them, and drop port1.0.4 (also upgrades T44992 to a full pass).
+- **I-7 (NEW, triage) VLAN 100 is not a private segment.** Its DUT members are sa1, port1.0.2,
+  port1.0.4 and port1.0.8; 1.0.4 and 1.0.8 run off-bench, as does swi_b's port1.0.8. VLAN 1 is
+  shared too (swi_c port1.0.40). **Test Engineer 2026-10-07: "Yes, proceed on vlan 100"** with
+  192.168.100.0/24, accepting collision and measurement-pollution risk. CLOSED. Record any
+  unexplained traffic in the working log; never grade through it.
+- **I-8 (NEW, triage) One in-bench observation point.** The DUT's only in-bench data links are
+  port1.0.48 ↔ tb eth4 and port1.0.2 ↔ swi_b (locked inside `sa1`). T44989/T44990/T44991 each need
+  two things observed at once. **Test Engineer 2026-10-07: "Leave all three blocked."** The
+  tester's offer of an `sa1`-bound variant for T44989/T44991 was declined. CLOSED as a decision.
+  Remedy: one copper SFP in swi_c port1.0.10 and move the tb eth3 cable onto it.
+- **I-9 (NEW, triage) Group 1's mirror ports are empty SFP cages.** `show system pluggable` lists
+  modules only in 1.0.2, 1.0.4, 1.0.8, 1.0.40, 1.0.48. port1.0.10/1.0.11 have no module, so no link.
+  Harmless for the drafted steps, which verify configuration and `show` reporting only. NOTED —
+  record it in each group-1 log: if the real AWPTCM steps require mirrored FRAMES, these become
+  PARTIAL (I-4 territory).
+- **I-10 (NEW, triage) The DUT's clock is wrong.** swi_c `show clock` reads
+  `Fri, 17 Mar 2000 18:01:28 +0000`; swi_b reads Oct 2026. Every DUT log line and `.cfg` header
+  will carry a year-2000 date. SNMPv3 uses engine boots/time rather than wall clock, so T43870
+  should be unaffected. The tester will `clock set` on swi_c before group 1 so the evidence is
+  sanely timestamped — within a test, and not objected to. NOTED.
