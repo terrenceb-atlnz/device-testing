@@ -1,0 +1,137 @@
+================================================================================
+TEST 44973 -- CLI Remove mirror interface
+================================================================================
+Run:      2026-10-07 17:15-17:17 NZDT (DUT clock is UTC = NZDT - 13:00; it was repaired
+          from a faulty `Fri, 17 Mar 2000 18:13:24 +0000` to true UTC before the group began)
+Bench:    tb277, consoles u2,u3,u5 (this case used /dev/u2 only); Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner, by hand through tools/ckcon.py
+Graded:   tester
+Case:     AWPTCM-T44973, objective "a configured port mirror can be removed and leaves no
+          residue", 3 steps
+Build:    swi_c sin_x96056-20260921-9 (x960-tb277.rel, build date Mon Sep 21 2026)
+Configs:  swi_c.cfg (running-config after setup, i.e. with the mirror that this case removes;
+          saved to startup: no)
+
+VERDICT: PASS -- a configured mirror was removed and left no residue.
+      removal accepted .............. yes         (`no mirror interface port1.0.10`)
+      `show mirror` afterwards ...... empty       (the mirror is no longer listed)
+      running-config residue ........ none        (the mirror line is gone from port1.0.11)
+      full config diff vs baseline .. empty       (including re-merge of the range stanza)
+      drafted bare removal form ..... REJECTED    (`% Incomplete command.` -- see STEP 1)
+CAVEAT:  "The destination port returns to normal switching" is proven as a CONFIGURATION state
+         only. port1.0.10 and port1.0.11 are EMPTY SFP CAGES with no link, so no frame can be
+         sent through port1.0.11 to demonstrate forwarding, and `show interface status` reports
+         a mirror destination identically with and without a mirror on this platform (see STEP
+         0 and STEP 3), so it cannot evidence the transition either way. If the case requires
+         observed forwarding after removal, this is PARTIAL, not PASS. The steps are a
+         reconstruction from the case title: the Ask-CK / ck.db tree was not reachable from this
+         session, so the verdict is against that reconstruction and not against AWPTCM's own
+         text. In particular the drafted removal command is wrong (STEP 1); the verdict is
+         against the corrected form.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  DUT     : swi_c (AT-x960-56YSQ) console /dev/u2 at 115200, S/N A2WQS7004,
+            hostname x960-56YSQ, standalone member 1, Active Master
+            bootloader benb; boot image Not set -- netboots tb277:/tftpboot/x960-tb277.rel
+            boot config flash:/default.cfg (file exists)
+  source  : port1.0.10  -- empty SFP cage, notconnect, "not present"
+  dest    : port1.0.11  -- empty SFP cage, notconnect, "not present"
+  links   : none. No cable, no traffic, no host NIC, no partner device.
+            swi_b (u3) and swi_a (u5) were never opened.
+  tools   : tools/ckcon.py and tools/peek.py on tb277 (python3.8), driving /dev/u2
+
+STEP 0 -- baseline: configure the mirror this case will remove             done
+--------------------------------------------------------------------------------
+  Method: the case needs a mirror to exist before it can be removed. Direction `both` was
+  chosen as the most complete form, so removal is not tested against a partial case.
+
+x960-56YSQ#configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+x960-56YSQ(config)#interface port1.0.11
+x960-56YSQ(config-if)#mirror interface port1.0.10 direction both
+x960-56YSQ(config-if)#end
+                                           <-- accepted: no output, no error line
+
+Pre-removal state -- the thing that must afterwards be gone:
+
+x960-56YSQ#show mirror
+  Mirror Test Port Name: port1.0.11
+  Mirror option: Enabled
+  Mirror direction: both
+  Monitored Port Name: port1.0.10
+
+x960-56YSQ#show interface status
+  Port        Name               Status      Vlan      Duplex Speed   Type
+  ...
+  port1.0.10  -                  notconnect          1 auto   auto    not present
+  port1.0.11  -                  notconnect          1 auto   auto    not present
+                                           <-- the destination port reads EXACTLY the same with
+                                               a mirror configured as without one. Unlike a
+                                               stackport, a mirror destination is not labelled
+                                               here, so this output cannot evidence the port
+                                               leaving or returning to normal switching.
+                                               Compare the identical reading in STEP 3.
+
+STEP 1 -- "remove the mirror" (as drafted: `no mirror interface`)          FAIL
+--------------------------------------------------------------------------------
+  Method: sent exactly as the case was drafted, with no argument.
+
+x960-56YSQ#configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+x960-56YSQ(config)#interface port1.0.11
+  % port1.0.11 is currently configured as a mirror-port. Use caution when altering its config
+                                           <-- ADVISORY, not a rejection: the command succeeded
+                                               and the prompt advanced to (config-if)#
+x960-56YSQ(config-if)#no mirror interface
+  % Incomplete command.                    <-- a GENUINE rejection
+
+The DUT's own help had already predicted this, read with `?` and no trailing CR:
+
+x960-56YSQ(config-if)#no mirror interface ?
+  IFRANGE  Source Interface to use
+  none     No source interface (set destination interface only)
+                                           <-- no `<cr>`, so an argument is mandatory
+
+  => STEP 1 FAIL: `no mirror interface` with no argument is not a valid command on the x960.
+     This step fails ONLY because the drafted command is wrong; it says nothing about the
+     platform's ability to remove a mirror, which STEP 2 demonstrates. A rejected command
+     configures nothing, so the device state was unchanged.
+
+STEP 2 -- "remove the mirror" (the form the DUT takes)                     PASS
+--------------------------------------------------------------------------------
+x960-56YSQ(config-if)#no mirror interface port1.0.10
+x960-56YSQ(config-if)#end
+                                           <-- accepted: no output, no error line
+
+  => STEP 2 PASS: the mirror is removed by naming its source interface.
+
+STEP 3 -- "verify the mirror is gone and left no residue"                  PASS
+--------------------------------------------------------------------------------
+x960-56YSQ#show mirror
+x960-56YSQ#
+                                           <-- EMPTY: the mirror is no longer listed
+
+x960-56YSQ#show running-config interface port1.0.11
+  !
+  interface port1.0.11
+   switchport
+   switchport mode access
+  !
+                                           <-- the `mirror interface port1.0.10 direction both`
+                                               line is gone; a plain access port again
+
+x960-56YSQ#show interface status
+  Port        Name               Status      Vlan      Duplex Speed   Type
+  ...
+  port1.0.10  -                  notconnect          1 auto   auto    not present
+  port1.0.11  -                  notconnect          1 auto   auto    not present
+                                           <-- byte-for-byte identical to STEP 0, which is why
+                                               it is not used as evidence either way
+
+  => STEP 3 PASS: removal is proven by the two discriminating readings -- `show mirror` is empty
+     and the mirror line is absent from the port's running-config. The claim that the port
+     "returns to normal switching" holds as a configuration state only, for the reasons in
+     CAVEAT.
+================================================================================
