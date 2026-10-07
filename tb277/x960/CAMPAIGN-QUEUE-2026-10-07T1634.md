@@ -114,7 +114,7 @@ likely to reopen it (see its note).
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | T44967 T44968 T44969 T44973 T44974 | mirror-2026-10-07T1634 | RUNNING -- T44967 PASS; T44968 next | DUT-only CLI + `show mirror`. No campaign setup, no partner, no traffic. All five syntax forms confirmed on the DUT at triage |
+| 1 | T44967 T44968 T44969 T44973 T44974 | mirror-2026-10-07T1634 | RUNNING -- T44967 PASS, T44968 PASS; T44969 next | DUT-only CLI + `show mirror`. No campaign setup, no partner, no traffic. All five syntax forms confirmed on the DUT at triage |
 | 2a | T44979 T44986 T44988 T44992 | acl-2026-10-07T1634 | RUNNABLE — awaiting dispatch | needs the campaign setup. T44992 expected PARTIAL (I-1) |
 | 2b | T44989 T44990 T44991 | acl-2026-10-07T1634 | **BLOCKED** | I-8: only ONE in-bench observation point; each needs two things seen at once. Remedy: fit a copper SFP in swi_c port1.0.10 and move the tb eth3 cable onto it. Test Engineer 2026-10-07: leave blocked |
 | 3a | T43870 T44181 T44182 | ipv4-2026-10-07T1634 | RUNNABLE — awaiting dispatch | all three hash-free. T44182 needs the static ARP on swi_b; one run-time check that AW+ `ping` accepts a broadcast destination |
