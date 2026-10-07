@@ -323,6 +323,25 @@ Traffic: testbox `ping`/`tcpreplay` on eth4 toward 10.38.22.66 or 192.168.100.2,
 | T44990 | NOT TESTED | BLOCKED by I-8, same remedy. No `sa1` variant exists for this one | Test Engineer | — |
 | T44991 | NOT TESTED | BLOCKED by I-8, same remedy | Test Engineer | — |
 
+## Session close — 2026-10-07 ~17:25 NZDT
+
+Test Engineer: **"Stop here for today."** Group 1 complete (5/5 PASS), bench restored and
+verified clean, nothing left running. Groups 2a and 3a stay RUNNABLE and undispatched; they need
+the campaign setup, which is approved but not applied. `/test-mode --resume` picks up at group 2a.
+
+Platform facts earned today, for a future `platforms/x960.md`:
+- `show mirror interface <X>` keys on the **monitored/source** port, not the destination.
+- `% <port> is currently configured as a mirror-port...` is an **advisory, not a rejection** — the
+  command succeeds and the prompt advances, but a `% `-matching stop-on-error driver aborts on it.
+- `mirror interface none` is **ACL-driven mirror setup** (`Monitored Port Name: none (via ACL)`),
+  an independent second mirror entry, not an off switch. It is the mechanism T44990 needs.
+- `access-group` exists on ports and aggregators but **not on VLAN interfaces**; a standard
+  (1-99) list cannot be bound to an interface at all.
+- `service bfd` and `service rip` exist despite BFD being absent from the licence feature list.
+- `show interface status` reports a mirror destination port identically with and without a
+  mirror, so it cannot evidence "returned to normal switching" on this platform.
+- `clock set` is exec-only (no running-config footprint); `clock timezone` is config-mode.
+
 ## Issues
 
 Status: OPEN (waiting on the Test Engineer), CHOSEN (a blocker; recommendation applied for
