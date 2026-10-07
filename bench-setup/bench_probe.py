@@ -35,8 +35,8 @@ those --box is required. tb470 keeps its flat legacy layout in bench-setup/ (ben
 tb470.static, tb470.setup.current, captures/, backups/); any other box gets the same set
 under bench-setup/<TB>/. The deployed template is /home/st-art/st-art/configs/<TB>.setup.
 
-SESSION FACTS (run / generate, 2026-10-01): `--pdu IP`, `--outlet uN=OUTLET` and `--name
-uN=swi_x` (each repeatable, or comma-separated) carry what the Test Engineer said at the
+SESSION FACTS (run / generate, 2026-10-01): `--pdu IP`, `--outlet uN=OUTLET[@PDU_IP]` and
+`--name uN=swi_x` (each repeatable, or comma-separated) carry what the Test Engineer said at the
 start of the session. They are used for THIS run and never overwrite a recorded fact: a
 unit not yet in <TB>.static is appended with them; where they disagree with <TB>.static
 (or with what the consoles show) the run lists a USER-CONFLICT and exits 4, so the session
@@ -45,6 +45,10 @@ Exit codes: 0 MATCH, 1 MISMATCH, 2 NEEDS-CHECK, 4 USER-CONFLICT (precheck: 0 cle
 
 It holds no bench facts of its own. The facts no `show` command can reveal -- a unit's
 swi_ name, its PDU outlet, the PDU's IP -- live in <TB>.static, entered once by the
+user. A box whose units are split across SEVERAL PDUs (tb277, 2026-10-07) gives each such
+unit its own IP: `--outlet uN=OUTLET@PDU_IP`, stored as the third <TB>.static field. A unit
+with no IP of its own falls back to the box-wide [pdu] ip, so single-PDU boxes are unchanged.
+Entered once by the
 user (the script asks when it meets a unit it has no name for, if it has a terminal).
 bench-state.md carries nothing beyond what the run measured (the bench owner, 2026-09-25).
 
@@ -871,8 +875,19 @@ def parse_mac_table(text):
     return rows
 
 
+def _split_outlet(val):
+    """'7' -> ('7', None); '7@10.36.230.212' -> ('7', '10.36.230.212'). A unit on a PDU other
+    than the box-wide [pdu] ip carries its own IP after '@' (<box>.static: a third field)."""
+    if val is None:
+        return None, None
+    outlet, sep, ip = str(val).partition("@")
+    outlet = outlet.strip() or None
+    return outlet, ((ip.strip() or None) if sep else None)
+
+
 def load_static(path=None):
-    """<box>.static: [pdu] ip, [units] serial = name, outlet. Missing file -> empty."""
+    """<box>.static: [pdu] ip, [units] serial = name, outlet[, pdu_ip]. A unit with no pdu_ip
+    is on the box-wide [pdu] ip. Missing file -> empty."""
     path = path or STATIC
     cp = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=("#",))
     cp.optionxform = str
@@ -884,25 +899,28 @@ def load_static(path=None):
             parts = [x.strip() for x in val.split(",")]
             name = parts[0]
             outlet = parts[1] if len(parts) > 1 and parts[1] not in ("", "-", "?") else None
-            units[serial] = {"name": name, "outlet": outlet}
+            unit_pdu = parts[2] if len(parts) > 2 and parts[2] not in ("", "-", "?") else None
+            units[serial] = {"name": name, "outlet": outlet, "pdu": unit_pdu}
     return {"pdu": pdu, "units": units}
 
 
-def save_static_unit(serial, name, outlet, note, path=None):
+def save_static_unit(serial, name, outlet, note, path=None, unit_pdu=None):
     """APPEND one unit. Never rewrites a line: an existing entry is the Test Engineer's."""
     path = path or STATIC
     if not os.path.exists(path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with io.open(path, "w", encoding="utf-8") as f:
             f.write("### {}.static -- the bench facts no `show` command can reveal. Hand-entered.\n"
-                    "### serial = name, outlet (numeric; '-' = unknown). Created {} by bench_probe.py\n"
+                    "### serial = name, outlet[, pdu_ip] -- outlet numeric, '-' = unknown;\n"
+                    "### pdu_ip only for a unit NOT on the [pdu] ip above. Created {} by bench_probe.py\n"
                     "### from the Test Engineer's session facts.\n\n".format(BOX, time.strftime("%Y-%m-%d")))
             if USER.get("pdu"):
                 f.write("[pdu]\nip = {}\n\n".format(USER["pdu"]))
             f.write("[units]\n")
     with io.open(path, "a", encoding="utf-8") as f:
-        f.write("{} = {}, {}{}\n".format(serial, name, outlet or "-",
-                                         ("    ### " + note) if note else ""))
+        f.write("{} = {}, {}{}{}\n".format(serial, name, outlet or "-",
+                                           (", " + unit_pdu) if unit_pdu else "",
+                                           ("    ### " + note) if note else ""))
 
 
 def load_capture(cap_dir):
@@ -921,6 +939,8 @@ class Dev:
         self.serial, self.model, self.member_id = serial, model, member_id
         self.console, self.banner, self.hostname, self.baud = console, banner, hostname, baud
         self.name = None
+        self.outlet = None       # PDU outlet (numeric string), or None if unknown
+        self.pdu = None          # this unit's PDU IP when it is not the box-wide one
         self.stack = None        # the Stack it belongs to, or None
         self.role = None
         self.bootloader = None
@@ -1023,13 +1043,13 @@ def assign_names(devs, static, ask, conflicts=None):
     notes = []
     seen_consoles = set()
     for d in sorted(devs, key=lambda d: (d.stack is None, d.member_id or 0, d.serial)):
-        uo = USER["outlets"].get(d.console) if d.console else None
+        uo, up = _split_outlet(USER["outlets"].get(d.console) if d.console else None)
         un = USER["names"].get(d.console) if d.console else None
         if d.console:
             seen_consoles.add(d.console)
         u = static["units"].get(d.serial)
         if u:
-            d.name, d.outlet = u["name"], u["outlet"]
+            d.name, d.outlet, d.pdu = u["name"], u["outlet"], u.get("pdu")
             if un and un != u["name"]:
                 conflicts.append("{} ({} S/N {}): the session names it {}, {} records {} -- this run "
                                  "uses {}".format(d.console, d.model, d.serial, un, static_rel(), u["name"], un))
@@ -1039,28 +1059,38 @@ def assign_names(devs, static, ask, conflicts=None):
                                  "this run uses {}".format(d.console, d.model, d.serial, d.name, uo,
                                                          static_rel(), u["outlet"] or "'-' (unknown)", uo))
                 d.outlet = uo
+            if up and up != (u.get("pdu") or None):
+                conflicts.append("{} ({} S/N {} = {}): the session puts it on PDU {}, {} records {} -- "
+                                 "this run uses {}".format(d.console, d.model, d.serial, d.name, up,
+                                                           static_rel(),
+                                                           u.get("pdu") or "the box-wide [pdu] ip", up))
+                d.pdu = up
             used.add(d.name)
             continue
         free = next(("swi_" + c for c in LETTERS if "swi_" + c not in used), None)
-        d.name, d.outlet = un or free, uo
+        d.name, d.outlet, d.pdu = un or free, uo, up
         if un in used:
             conflicts.append("{} ({} S/N {}): the session names it {}, but {} already gives that name "
                              "to another serial".format(d.console, d.model, d.serial, un, static_rel()))
         if un or uo:
             save_static_unit(d.serial, d.name, d.outlet, "{} {} -- from the session's facts {}".format(
-                d.model, d.console or "", time.strftime("%Y-%m-%d")))
-            static["units"][d.serial] = {"name": d.name, "outlet": d.outlet}
-            notes.append("added {} = {}, {} to {} (session facts)".format(
-                d.serial, d.name, d.outlet or "-", static_rel()))
+                d.model, d.console or "", time.strftime("%Y-%m-%d")), unit_pdu=d.pdu)
+            static["units"][d.serial] = {"name": d.name, "outlet": d.outlet, "pdu": d.pdu}
+            notes.append("added {} = {}, {}{} to {} (session facts)".format(
+                d.serial, d.name, d.outlet or "-",
+                (" on PDU " + d.pdu) if d.pdu else "", static_rel()))
         elif ask:
             print("\nNew unit: {} S/N {} on {} (hostname {}).".format(
                 d.model, d.serial, d.console or "?", d.hostname), file=sys.stderr)
             nm = input("  swi_ name [{}]: ".format(free)).strip() or free
-            ol = input("  PDU outlet number (Enter if unknown): ").strip() or None
-            d.name, d.outlet = nm, ol
+            ol = input("  PDU outlet number, or OUTLET@PDU_IP (Enter if unknown): ").strip() or None
+            ol, ip = _split_outlet(ol)
+            if ol and not ip:
+                ip = input("  PDU IP (Enter if the box-wide one): ").strip() or None
+            d.name, d.outlet, d.pdu = nm, ol, ip
             save_static_unit(d.serial, nm, ol, "{} {} -- added {}".format(
-                d.model, d.console or "", time.strftime("%Y-%m-%d")))
-            static["units"][d.serial] = {"name": nm, "outlet": ol}
+                d.model, d.console or "", time.strftime("%Y-%m-%d")), unit_pdu=ip)
+            static["units"][d.serial] = {"name": nm, "outlet": ol, "pdu": ip}
             notes.append("added {} = {} to {}".format(d.serial, nm, static_rel()))
         else:
             notes.append("unit {} S/N {} on {} is not in {} -- named {} for this run; "
@@ -1180,7 +1210,7 @@ def render_setup(stacks, devs, links, edges, static, stamp):
     w("[power]")
     for d in named:
         if d.outlet:
-            w("pwr_{} = (pdu, {}, {})".format(d.name[-1], pdu, d.outlet))
+            w("pwr_{} = (pdu, {}, {})".format(d.name[-1], d.pdu or pdu, d.outlet))
     w("")
     w("[switch]")
     for d in named:
@@ -1840,9 +1870,12 @@ def main(argv=None):
     s.add_argument("--out", default=None)
     s.add_argument("--no-prompt", action="store_true")
     for s in (sub.choices["run"], s):
-        s.add_argument("--pdu", default=None, help="session fact: the PDU's IP")
-        s.add_argument("--outlet", action="append", default=[], metavar="uN=OUTLET",
-                       help="session fact: the PDU outlet of the unit on /dev/uN (repeatable, or a,b)")
+        s.add_argument("--pdu", default=None,
+                       help="session fact: the box-wide PDU IP (a unit on a different PDU "
+                            "carries its own via --outlet uN=OUTLET@PDU_IP)")
+        s.add_argument("--outlet", action="append", default=[], metavar="uN=OUTLET[@PDU_IP]",
+                       help="session fact: the PDU outlet of the unit on /dev/uN, with its PDU's "
+                            "IP after '@' when that is not the box-wide one (repeatable, or a,b)")
         s.add_argument("--name", action="append", default=[], metavar="uN=swi_x",
                        help="session fact: the swi_ name of the unit on /dev/uN")
     s = sub.add_parser("diff", aliases=["check"])
