@@ -157,7 +157,8 @@ security level none, manager/friend).
   plain-reload proof 18:15 (forced banner + `Loading tftp://10.38.215.33/x230-tb470.rel`). Release stays off flash
   (in-line fix); ACCESS erased, re-added by the framework preamble 18:18:10.
 - 2005.5 18:17:15–23:05:17 rc 1: **PASS** 225/225 own checks (+1 c1e7679 harness line); restored 23:06.
-- 2005.6 launched 23:07:11 (test-5700.2005.py pid 274470).
+- 2005.6 23:07:11–23:48:38 rc 1: **PASS** 16/16 own checks (+1 c1e7679 harness line); restored 23:49.
+- 2005.7 launched 23:50:14 (test-5700.2005.py pid 287579).
 
 ## Tonight's start — 18:00 2026-10-07 (for the session that runs `--resume` on this file)
 
