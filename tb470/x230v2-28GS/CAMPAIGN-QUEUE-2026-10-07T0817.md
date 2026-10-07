@@ -142,6 +142,47 @@ security level none, manager/friend).
    (`Loading flash:x230v2_28GS-tb470.rel`, no forced banner); `exit` (log out).
 6. precheck CLEAR for u0; read-only u0 probe to `/tmp` only. Leave `/tftproot` as found.
 
+## Tonight's start — 18:00 2026-10-07 (for the session that runs `--resume` on this file)
+
+Test Engineer 15:2x: *"queue the test again to start at 6pm and watch it until its done"*. The
+session that set this up (device-testing-73) expires before 18:00, so a new session started in
+tmux on the dev host (`tmux new -s test-mode`) takes it over with `/test-mode --resume` on this file.
+It does this instead of dispatching straight away:
+
+1. **Before 18:00 dispatch nothing and touch nothing.** Arm the sentinel (`/test-mode` §3:
+   Monitor `sentinel.sh SELF=1` on its own transcript, `UNTIL='2026-10-08 12:00'`, `CLI_GLOB` /
+   `FW_GLOB` over `x230v2-28GS/bootloader-6.2.40/5700_x230v2-28GS_6.2.40_run3/*/`; the 15-min cron
+   backstop, silent before 18:00). If session `device-testing-73` is still listed in `ListAgents`,
+   SendMessage it `tmux session armed for 18:00` (it then deletes its own 18:00 trigger).
+2. **CronCreate one-shot `0 18 7 10 *`** that:
+   a. gates read-only: `bench_probe.py --box tb470 precheck --consoles u0` says `/dev/u0` free,
+      and no `test-5700` process on tb470; else NEEDS YOU, dispatch nothing;
+   b. sets the Queue row to IN PROGRESS and commits;
+   c. dispatches a FRESH background `bench-runner`, mode RUN, sentinel: parent, with these rows in
+      order:
+      - u0 recovery: Boot Menu `S` → `1`. Expected: Security Level 2, password `abc 123`
+        (verify). This erases flash. Then the between-rows restore.
+      - 5700.2005.5 from scratch (overwrites `run3-2005.5.log`, Test Engineer's overwrite rule).
+      - 5700.2005.6, .7, .8, one invocation each.
+      - The group restore (below).
+      Commit per case, one RESULT line per case. **No new TestCase is launched after 07:00
+      2026-10-08 without the Test Engineer** (reboot noise; NEEDS TEST ENGINEER instead).
+3. **When the group restore is done:**
+   a. Post the results list (`/test-mode` §7), ending with *"please run /create-logs after
+      reviewing the results for the final uploadable product."*
+   b. Delete `x230v2-28GS/bootloader-6.2.40/current_test.log` (Test Engineer: "when its over,
+      delete it").
+   c. Give Terrence `sudo rm /tftproot/x250-tb470.rel /tftproot/x230-copy-tb470.rel
+      /tftproot/x230-tb470.rel` (root's; "when this is done, delete them").
+   d. Run `/wrap-dt`. The handover notes:
+      - the licence-key printout earlier today was reviewed by the Test Engineer, no action;
+      - on 10-07 two copies of session 73 ran at once and two testers collided on u0 (2005.4
+        re-run);
+      - calanm took over u0 at 14:53 to stop the noise.
+   e. **Never `/create-logs`** unless the Test Engineer asks.
+4. `device-testing-c7` (pid 512164, an unreachable desktop session) is not part of this. It is
+   stuck at an old prompt and has been told to ignore the handover queued to it.
+
 ## Queue
 
 | # | case(s) | group dir | state | note |
