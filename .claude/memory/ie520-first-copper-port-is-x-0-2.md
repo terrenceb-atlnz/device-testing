@@ -20,6 +20,13 @@ Measured on tb470, 2026-09-21; **CORRECTED 2026-09-23**; 2026-10-06 note below.
 > module first fitted linked at the switch but passed no frames; a swapped one did not link at
 > all. Cause (old module vs port) inferred, not proven.
 
+> ## 2026-10-08 — the mix-up runs the other way too
+> I asked for a cable on stack **port1.0.2** ("the copper SFP on member 1") and wrote that port1.0.1 stays uncabled.
+> Terrence fitted a pluggable into the **empty port1.0.1 cage** and cabled that ("the x230 link is to the u2 port1.0.1,
+> as requested"). Member 1's port1.0.1 is also a known DEAD cage (platforms/IE520.md). He moved it on request; LLDP then
+> confirmed port1.0.2 ↔ x230 port1.0.2. **When asking for a recable, describe the physical cage as well** ("the 2nd cage
+> on member 1, the one already holding a copper SFP"), say which cage NOT to use, and confirm with LLDP before running.
+
 > ## CORRECTION — I got the port COUNT wrong
 > The original version of this memory said each member has "effectively ONE usable copper
 > port". **That is false.** Each IE520-28GSX member has **THREE**: `portN.0.2`,

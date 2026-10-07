@@ -53,7 +53,7 @@ Constraints: "Run now, no power cycles" (option text: "Same scope, and a failing
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | AWPTCM-T22650, T22651, T22652, T22653, T22654, T22655 on the IE520 stack (u2,u4,u5) | tb470/IE520/modbus-2026-10-08T1131/ | TRIAGED 12:44, awaiting go | probe 12:42 exit 4 USER-CONFLICT = u2 login_failed + u4 silent (not a fact disagreement); u5 = member 3 master 115200; member 2 still Provisioned (T22650 0x0049 expected FAIL again); build main-calanm (Oct 6 19:44 UTC), bootloader 9.2.0 x3; master flash 176 KB free. Cable 1 eth1-port3.0.13 linked, ping v4 + link-local OK. Cable 2 port1.0.2-x230 port1.0.2 linked (LLDP), but port1.0.2 is in static-channel-group 2 (sa2) -> exception 4 on T22655 API write, as 09-29. N=6 runnable (need only u5 + eth1), M=0, K=6 gated on the Test Engineer ruling on u2/u4. NEEDS TE: u4 silent at 115200 since 12:42; may it be re-probed, or probe u2,u5 only? |
+| 1 | AWPTCM-T22650, T22651, T22652, T22653, T22654, T22655 on the IE520 stack (u2,u4,u5) | tb470/IE520/modbus-2026-10-08T1131/ | **TRIAGED, NOT LAUNCHED** — wrapped ~13:1x at the Test Engineer's instruction (relayed by device-testing-8a: "have the peer session /wrap-dt …"); resume with `/test-mode --resume` from this row | probe 12:42 exit 4 USER-CONFLICT = u2 login_failed + u4 silent (not a fact disagreement); u5 = member 3 master 115200; member 2 still Provisioned (T22650 0x0049 expected FAIL again); build main-calanm (Oct 6 19:44 UTC), bootloader 9.2.0 x3; master flash 176 KB free. Cable 1 eth1-port3.0.13 linked, ping v4 + link-local OK. Cable 2 port1.0.2-x230 port1.0.2 linked (LLDP), but port1.0.2 is in static-channel-group 2 (sa2) -> exception 4 on T22655 API write, as 09-29. N=6 runnable (need only u5 + eth1), M=0, K=6 gated on the Test Engineer ruling on u2/u4. NEEDS TE: u4 silent at 115200 since 12:42; may it be re-probed, or probe u2,u5 only? |
 | 2 | AWPTCM-T22650, T22651, T22652, T22653, T22654, T22655 on the x230v2-28GS (u0) | tb470/x230v2-28GS/modbus-2026-10-08T1131/ | DROPPED 12:2x | Test Engineer: "The DUT will be the IE520 stack" |
 
 ## Results
@@ -66,3 +66,7 @@ Constraints: "Run now, no power cycles" (option text: "Same scope, and a failing
 - 2026-10-08 11:31: tmux session `test-mode` (device-testing-49, pid 1424189) from the 10-07 run is
   still alive, stuck since 01:28 on a pending tool call; its sentinel Monitor/cron may still tick.
   It dispatches nothing (its queue is DONE). Not touched.
+- 2026-10-08 13:0x (relayed by device-testing-8a): that session (pid 1424189, tmux "test-mode") has exited — no process, no tmux
+  server, no stray sentinel.sh. Nothing was killed.
+- 2026-10-08 wrap: `bench_probe.py apply` NOT run — the only fence (capture 2026-10-07T234226Z, u5 only) would cut tb470.setup
+  from 6 devices to 1. Decision with the Test Engineer (SESSION-HANDOVER-2026-10-08.md OPEN 1).

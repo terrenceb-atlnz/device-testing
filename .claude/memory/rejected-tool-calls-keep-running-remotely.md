@@ -40,6 +40,12 @@ removed, server 1 replaced), was holding `/dev/ttyUSB1`, and had left the master
 had to be read fresh (bare CR, then `no`). **Scripts that `print()` before writing their log
 lose the step that matters. Write the log line first.**
 
+**Incident 5 (2026-10-08, 12:3x): a rejected read held the stack master's console under Terrence's minicom.**
+A read-only `ckcon` read of `/dev/u5` at 115200 was rejected because he was about to fix the stack bauds. About 45 s
+later `precheck` showed my `python3` (pid 338371) AND his `minicom` both on `/dev/ttyUSB1`. Killed by PID; `fuser` then
+showed minicom only. A second rejected call the same afternoon (a `show log` on u0) had already exited when checked.
+Step 0 below caught both; `bench_probe precheck --consoles <list>` is the one-call version of steps 1–2.
+
 **How to apply — after ANY rejected or interrupted tool call that touched the bench:**
 0. Do this FIRST, in the very next call, before replying: a rejection often means Terrence
    is about to use the hardware himself, so a leftover process means two readers on his port.
