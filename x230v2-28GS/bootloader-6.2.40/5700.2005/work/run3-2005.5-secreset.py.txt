@@ -1,0 +1,257 @@
+#!/usr/bin/env python3
+# u0 (x230v2-28GS, 9600), queue 2026-10-07T0817 row 1 evening recovery. Case-own driver (copy kept in
+# 5700.2005/work/ as .py.txt). Modes:
+#   secreset.py reset [<pw>]  -> login, reload, Boot Menu S -> 1 (Set security Level to 1, ERASES flash) -> y,
+#                                then Boot Menu S (verify level 1) -> 0 -> 2 -> 3 (TFTP x230-tb470.rel) -> 9,
+#                                boot to login:, log in, read state, log out.  <pw> is sent ONLY if the bootloader
+#                                asks "Please enter password:" (once; a refusal stops the driver).
+#   secreset.py proof         -> login, plain CLI reload (no keypress in the bootloader), expect forced banner +
+#                                Loading tftp://10.38.215.33/x230-tb470.rel, login, show system/boot, log out.
+# Bare keys in the Boot Menu, value+CR at the TFTP prompts, y+CR at the CLI reload confirmation.
+import serial, time, sys, os, re
+TTY, BAUD = '/dev/u0', 9600
+LOG = '/tmp/x230/run3/console-u0.log'
+MODE = sys.argv[1] if len(sys.argv) > 1 else ''
+PW = sys.argv[2] if len(sys.argv) > 2 else None
+if MODE not in ('reset', 'proof'):
+    print('usage: secreset.py reset [<pw>] | proof'); sys.exit(2)
+ANSWERS = [
+    (r'Enter IP version', '4'),
+    (r'Enter IP address for this device', '10.38.215.34'),
+    (r'Enter subnet mask', '255.255.255.224'),
+    (r'Enter gateway IP', '0.0.0.0'),
+    (r'Enter TFTP server IP', '10.38.215.33'),
+    (r'Enter filename', 'x230-tb470.rel'),
+]
+OPT3 = r'3\.\s+TFTP\s+\(tftp://\)'
+os.system('stty -F {} -hupcl 2>/dev/null'.format(os.path.realpath(TTY)))
+s = serial.Serial(TTY, BAUD, timeout=0.1)
+t = open(LOG, 'a', errors='replace')
+state = 'cli'
+rc = 0
+pw_used = False
+def mark(m):
+    t.write('\n===== secreset[{}] {} {} =====\n'.format(MODE, time.strftime('%F %T'), m)); t.flush()
+    print('##', time.strftime('%T'), m, flush=True)
+def show(tag, o):
+    print('=== {} (verbatim) ===\n{}\n=== END ==='.format(tag, o), flush=True)
+def rd(dur):
+    out = ''; end = time.time() + dur
+    while time.time() < end:
+        b = s.read(4096)
+        if b:
+            x = b.decode(errors='replace'); out += x; t.write(x); t.flush()
+    return out
+def expect(pats, timeout, seed=''):
+    out = seed; end = time.time() + timeout
+    for p in pats:
+        if re.search(p, out):
+            return p, out
+    while time.time() < end:
+        b = s.read(4096)
+        if b:
+            x = b.decode(errors='replace'); out += x; t.write(x); t.flush()
+            for p in pats:
+                if re.search(p, out):
+                    return p, out
+    return None, out
+def w(b):
+    s.write(b); s.flush()
+def login():
+    w(b'\r'); p, o = expect([r'login:\s*$', r'#\s*$', r'>\s*$', r'==>\s*$', r'new password:\s*$'], 10)
+    if p and ('==>' in p or 'new password' in p or ']#' in o[-5:]):
+        mark('unexpected console state {!r}: STOP'.format(o[-80:])); return False
+    if p and 'login' in p:
+        w(b'manager\r'); expect([r'Password:\s*$'], 10)
+        w(b'friend\r'); p, o = expect([r'#\s*$', r'>\s*$', r'Login incorrect', r'new password:\s*$'], 25)
+        if p and ('incorrect' in p or 'new password' in p):
+            mark('login failed ({}): STOP, no further attempts'.format(p)); return False
+        if p == r'>\s*$':
+            w(b'enable\r'); p, o = expect([r'#\s*$'], 10)
+    if p and '(config' in o[-40:]:
+        w(b'end\r'); p, o = expect([r'#\s*$'], 10)
+    return bool(p and '#' in p)
+def cmd(c, timeout=60):
+    w(c.encode() + b'\r'); p, o = expect([r'\n[^\n]*#\s*$'], timeout)
+    show(c, o)
+    return o
+def reload_cli():
+    global state
+    w(b'reload\r'); p, o = expect([r'y/n'], 20)
+    if not p:
+        mark('no (y/n) prompt'); return False
+    w(b'y\r'); state = 'rebooting'; return True
+def to_menu(timeout_banner, seen=False):
+    p, o = (True, '') if seen else expect([r'Ctrl\+B'], timeout_banner)
+    if not p:
+        mark('no bootloader banner within {} s; tail={!r}'.format(timeout_banner, o[-300:])); return None
+    menu = ''; end = time.time() + 60
+    while time.time() < end and 'Enter selection' not in menu:
+        w(b'\x02'); menu += rd(0.4)
+    menu += rd(1.0)
+    if 'Enter selection' not in menu:
+        mark('no Boot Menu'); return None
+    return o + menu
+def key(k, pats, timeout=20, tag=None):
+    """bare key; answer one 'Please enter password:' with PW (once per run)."""
+    global pw_used
+    w(k.encode())
+    p, o = expect(pats + [r'Please enter password:\s*$'], timeout)
+    if p == r'Please enter password:\s*$':
+        if PW is None or pw_used:
+            mark('bootloader asks for a password and none is left to try: STOP'); show(tag or k, o); return None, o
+        mark('bootloader asks for a password; sending the expected one once')
+        pw_used = True
+        w(PW.encode() + b'\r')
+        p, o2 = expect(pats + [r'Incorrect password'], timeout)
+        o += o2
+        if p == r'Incorrect password' or p is None:
+            mark('password refused / no answer: STOP'); show(tag or k, o); return None, o
+    o += rd(1.0)
+    show(tag or 'key ' + k, o)
+    return p, o
+def boot_9(tag, timeout=900):
+    global state
+    mark("send '9' (Quit and continue booting) [{}]".format(tag))
+    w(b'9'); state = 'booting'
+    p, o = expect([r'login:\s*$'], timeout)
+    j = o.find('Booting')
+    show('BOOT [{}] head'.format(tag), o[:2500] if j < 0 else o[:j + 8])
+    if p:
+        state = 'login'; mark('reached login: prompt')
+    else:
+        mark('NO login: within {} s; tail={!r}'.format(timeout, o[-300:]))
+    return p, o
+def escape_to_main():
+    global state
+    o = rd(1.0)
+    for _ in range(4):
+        tail = o[-700:]
+        if 'Quit and continue booting' in tail and tail.rstrip().endswith('==>'):
+            state = 'main'; return True
+        if 'Return to previous menu' in tail and tail.rstrip().endswith('==>'):
+            w(b'0'); o = rd(3.0); continue
+        w(b'\x03'); o = rd(3.0)
+    state = 'stuck'; return False
+def readstate():
+    cmd('terminal length 0'); cmd('show boot'); cmd('dir'); cmd('show license brief'); cmd('show system')
+    cmd('show running-config')
+def logout():
+    global state
+    mark('exit (log out)')
+    w(b'exit\r'); p, o = expect([r'login:\s*$'], 15)
+    if p: state = 'loggedout'
+try:
+    mark('open; login')
+    if not login():
+        rc = 2; sys.exit(rc)
+    state = 'cli'
+    if MODE == 'proof':
+        cmd('terminal length 0'); cmd('show boot')
+        mark('PROOF: plain CLI reload, no keypresses in the bootloader')
+        if not reload_cli(): rc = 3; sys.exit(rc)
+        p, o = expect([r'login:\s*$'], 900)
+        state = 'login' if p else 'unknown'
+        forced = 'non-standard location' in o
+        src = re.search(r'(Loading [^\r\n]*)', o)
+        i = o.find('Bootloader'); j = o.find('Booting')
+        show('PROOF BOOT (bootloader part)', o[i:j + 8] if i >= 0 and j > i else o[-2500:])
+        mark('proof boot: login={} forced_banner={} source={!r}'.format(bool(p), forced, src.group(1) if src else None))
+        ok = bool(p) and forced and bool(src) and 'tftp://10.38.215.33/x230-tb470.rel' in o
+        if not ok: rc = 10
+        if p and login():
+            state = 'cli'; readstate(); logout()
+        sys.exit(rc)
+    # ---- reset mode
+    o = cmd('terminal length 0'); o = cmd('show boot')
+    if 'Boot Security Level: password' not in o:
+        mark('show boot does not say "Boot Security Level: password": STOP before any change'); rc = 3; sys.exit(rc)
+    mark('reload (y+CR) to reach the Boot Menu')
+    if not reload_cli(): rc = 3; sys.exit(rc)
+    menu = to_menu(300)
+    if menu is None: state = 'unknown'; rc = 4; sys.exit(rc)
+    state = 'main'
+    show('BOOT MENU', menu[-1500:])
+    p, o = key('S', [r'Enter selection ==>\s*$'], tag='S (Security Level)')
+    if p is None: state = 'unknown'; rc = 5; sys.exit(rc)
+    state = 'secmenu'
+    if 'currently set to 2 (Password Protected)' not in o:
+        mark('security menu does not show level 2: STOP, select nothing'); w(b'0'); escape_to_main()
+        if state == 'main': boot_9('unchanged')
+        rc = 5; sys.exit(rc)
+    if not re.search(r'1\.\s+Set security Level to 1 \(None\)', o):
+        mark('option 1 text not as expected: STOP'); w(b'0'); escape_to_main()
+        if state == 'main': boot_9('unchanged')
+        rc = 5; sys.exit(rc)
+    p, o = key('1', [r'Press Y to proceed'], tag='1 (Set security Level to 1)')
+    if p is None or 'reset the security level to One' not in o:
+        mark('no level-One warning: STOP'); escape_to_main()
+        if state == 'main': boot_9('unchanged')
+        rc = 6; sys.exit(rc)
+    mark("warning confirmed; send bare 'y' (erases flash)")
+    w(b'y'); state = 'erasing'
+    p, o = expect([r'Erase complete[\s\S]*Ctrl\+B'], 900)
+    show('ERASE', o)
+    if not p:
+        mark('no "Erase complete" + Ctrl+B banner within 900 s'); rc = 7; sys.exit(rc)
+    mark('erase complete; banner seen; bare Ctrl+B into the Boot Menu')
+    menu = to_menu(300, seen=True)
+    if menu is None: state = 'unknown'; rc = 8; sys.exit(rc)
+    state = 'main'
+    show('BOOT MENU after erase', menu[-1800:])
+    p, o = key('S', [r'Enter selection ==>\s*$'], tag='S after erase')
+    level1 = 'currently set to 1 (None)' in o
+    mark('security level 1 (None) shown: {}'.format(level1))
+    p, o = key('0', [r'Quit and continue booting[\s\S]*Enter selection ==>\s*$'], tag='0 back to main')
+    state = 'main'
+    p, o = key('2', [r'Enter selection ==>\s*$'], tag='2 (Change the default boot source)')
+    state = 'select'
+    if 'Select device' not in o or not re.search(OPT3, o):
+        mark('option 3 text not as expected -- STOP, select nothing'); w(b'0'); escape_to_main()
+        if state == 'main': boot_9('unchanged')
+        rc = 9; sys.exit(rc)
+    mark("option 3 confirmed; send '3'")
+    w(b'3'); state = 'prompts'; buf = ''
+    for i in range(len(ANSWERS) + 2):
+        p, buf = expect([r'\]:\s*$', r'==>\s*$'], 30, seed=buf)
+        if not p or p.startswith('=='):
+            mark('prompt not seen; escape'); escape_to_main()
+            if state == 'main': boot_9('escape')
+            rc = 9; sys.exit(rc)
+        line = buf.rstrip().split('\n')[-1].strip()
+        ans = next((a for lab, a in ANSWERS if re.search(lab, line)), None)
+        print('PROMPT {!r} -> {!r}'.format(line, ans), flush=True)
+        if ans is None:
+            mark('unexpected prompt {!r}; Ctrl-C and escape'.format(line)); w(b'\x03'); escape_to_main()
+            if state == 'main': boot_9('escape')
+            rc = 9; sys.exit(rc)
+        w(ans.encode() + b'\r'); buf = ''
+        if ans == 'x230-tb470.rel':
+            break
+        p2, buf = expect([re.escape(ans)], 10)
+        buf = buf[buf.find(ans) + len(ans):] if ans in buf else buf
+    p, o = expect([r'Enter selection ==>\s*$'], 30)
+    o += rd(1.0)
+    show('AFTER SELECTION', o)
+    saved = 'Saving settings... Complete' in o
+    mark('Saving settings... Complete seen: {}'.format(saved))
+    if o.rfind('Select device') > o.rfind('Boot Menu:'):
+        mark("still at Select device; send '0'"); w(b'0'); expect([r'Quit and continue booting'], 10); rd(1.0)
+    state = 'main'
+    p, o = boot_9('after S->1 and 2->3')
+    forced = 'non-standard location' in o
+    tftp = 'tftp://10.38.215.33/x230-tb470.rel' in o
+    mark('first boot: forced_banner={} loading_tftp={}'.format(forced, tftp))
+    if state != 'login': rc = 10; sys.exit(rc)
+    if not (saved and level1 and forced and tftp): rc = 11
+    if login():
+        state = 'cli'; readstate(); logout()
+    else:
+        rc = 12
+finally:
+    if state == 'main':
+        try: boot_9('finally')
+        except Exception as e: mark('finally boot failed: {}'.format(e))
+    mark('close (state={}, rc={})'.format(state, rc))
+    t.close(); s.close()
+    sys.exit(rc)

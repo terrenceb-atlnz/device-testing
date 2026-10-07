@@ -144,6 +144,17 @@ security level none, manager/friend).
    (`Loading flash:x230v2_28GS-tb470.rel`, no forced banner); `exit` (log out).
 6. precheck CLEAR for u0; read-only u0 probe to `/tmp` only. Leave `/tftproot` as found.
 
+**Evening tester (bench-runner, dispatched 18:01 by device-testing-49) — live state:**
+- 18:02 gates: precheck u0 CLEAR exit 0; staged md5s unchanged (library_5700.py 7d357e1d…); framework 89900a6;
+  `/tftproot/x230-tb470.rel` now = **awplus_main-20261007-55** (36,660,463 B, swapped 14:55; "Accept the swap").
+- 18:03 u0 read: at `swi_a_5700_2005 login:` (AW+, booted ~15:01 after the stopped run's last PDU ON — not parked in
+  the bootloader); `show boot` Boot Security Level **password** (level 2, verified); flash = mainrelease.rel +
+  backuprelease.rel + swi_a_5700_2005.cfg + framework default.cfg; licences Base + ACCESS (D2 "before").
+- 18:06 runner dir `2005.5/`: the stopped 12:26 run's framework logs moved to `2005.5/stopped-20261007-1226/`;
+  tb470 markers to `/tmp/x230/run3/2005.5-stopped1226/`.
+- Next: u0 recovery (Boot Menu S → 1 via `/tmp/x230/run3/secreset.py reset`, then 2 → 3 re-applied, then the
+  between-rows restore without the release — in-line fix), then 2005.5.
+
 ## Tonight's start — 18:00 2026-10-07 (for the session that runs `--resume` on this file)
 
 Test Engineer 15:2x: *"queue the test again to start at 6pm and watch it until its done"*. The
