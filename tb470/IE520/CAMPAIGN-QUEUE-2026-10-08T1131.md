@@ -18,6 +18,20 @@ Consoles: "u0 + u2,u4,u5" (option text: "Both, e.g. run the cases on each produc
 PDU: "10.36.150.14 per tb470.static" (outlets by serial in bench-setup/tb470.static: x230v2 swi_f = 1; IE520 swi_a = 6, swi_c = 5, swi_d = 4)
 Constraints: "Run now, no power cycles" (option text: "Same scope, and a failing case must not PDU-cycle in office hours: stop and ask instead." — "same scope" = 10-07's "do not interact with any other devices": only the listed consoles and their outlets)
 
+**Updated 2026-10-08 12:0x–12:36 (Test Engineer):**
+- *"the x230 is not on 9600 baud, its now the 115200 or whatever one, since we are not doing automated tests"*
+- *"All devices have been mostly depopulated for ports, i need you to tell me what ports to connect"*;
+  *"The DUT will be the IE520 stack … everything is available, i just need a topology choice from you."*
+  → **DUT = the IE520 stack (u2 member 1, u4 member 4, u5 member 3, by serial in the 10-06 records). Only group 1 runs; group 2 (x230 as DUT) is dropped.**
+- Topology chosen (sentinel, 2026-09-29 run's shape): **cable 1** tb470 eth1 ↔ stack port3.0.13 (RJ45, member 3 / u5);
+  **cable 2** stack port1.0.2 (member 1 / u2, copper SFP) ↔ x230 port1.0.2 (passive link partner, nothing else cabled on the x230).
+  Test Engineer 12:3x: *"the x230 link is to the u2 port1.0.1, as requested."* — the sentinel asked to move it to port1.0.2
+  (stack port1.0.1 = known dead cage, platforms/IE520.md); **not yet confirmed moved — the probe/LLDP decides.**
+- x230 (u0, 115200) prepared by the sentinel at the Test Engineer's request, running-config only (no write):
+  `no lacp global-passive-mode enable`, `lldp run`. Otherwise it keeps the autoburnin running-config (per-port VLANs 10–37, RSTP off).
+  x230 port1.0.2 read `running` 12:33, `notconnect` 12:34 (during the stack baud work).
+- 12:36: *"bauds are fixed, stack is rebooting. am off of minicoms. all yours"*
+
 ## Rules carried with the queue
 
 - Verdicts, working logs, the `RESULT` line, the results list: [logged-output.md](../../logged-output.md).
@@ -39,7 +53,7 @@ Constraints: "Run now, no power cycles" (option text: "Same scope, and a failing
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
 | 1 | AWPTCM-T22650, T22651, T22652, T22653, T22654, T22655 on the IE520 stack (u2,u4,u5) | tb470/IE520/modbus-2026-10-08T1131/ | TRIAGE | |
-| 2 | AWPTCM-T22650, T22651, T22652, T22653, T22654, T22655 on the x230v2-28GS (u0) | tb470/x230v2-28GS/modbus-2026-10-08T1131/ | TRIAGE | |
+| 2 | AWPTCM-T22650, T22651, T22652, T22653, T22654, T22655 on the x230v2-28GS (u0) | tb470/x230v2-28GS/modbus-2026-10-08T1131/ | DROPPED 12:2x | Test Engineer: "The DUT will be the IE520 stack" |
 
 ## Results
 
