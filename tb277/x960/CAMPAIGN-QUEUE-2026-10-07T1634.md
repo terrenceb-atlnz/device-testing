@@ -159,6 +159,54 @@ the DUT's actual syntax in the working log and uses it.
 Uses two unused DUT ports: **port1.0.10 = mirror source**, **port1.0.11 = mirror destination**.
 Neither is cabled, so nothing else on the bench is disturbed.
 
+#### Group 1 — bench setup and EXACT restore recipe (written before the first case, 2026-10-07)
+
+**Bench setup: none.** Group 1 touches no cabling, no VLAN, no address, no partner and no PDU
+outlet. It uses ONE console, `/dev/u2` (swi_c, 115200). The only device state it changes:
+
+1. **`clock set` on swi_c** — approved by the Test Engineer (I-10). The pre-change value is
+   recorded in `mirror-2026-10-07T1634/T44967/work/run1.log`.
+2. **A port-mirror on port1.0.11** (destination) with port1.0.10 as source, applied and removed
+   inside each case.
+
+Nothing is written to startup-config. No unit is reloaded or power-cycled (Test Engineer,
+2026-10-07: no power cycles). u3 and u5 are not opened by this group at all.
+
+**Pre-group baseline:** swi_c's `show running-config` is captured to
+`mirror-2026-10-07T1634/pre-group-swi_c-running-config.txt` before the first case. The group is
+not finished until a fresh capture diffs clean against it.
+
+**EXACT restore recipe.** If the tester dies mid-group, a fresh tester runs this on `/dev/u2` at
+115200 and the bench is back to baseline. **Read the port first** — the `no` form REQUIRES an
+argument (`no mirror interface ?` offers `IFRANGE` and `none` and has **no `<cr>`**, so a bare
+`no mirror interface` is `% Incomplete command`):
+
+```
+show running-config interface port1.0.11
+```
+
+- If it shows `mirror interface port1.0.10 direction <x>` → `configure terminal` /
+  `interface port1.0.11` / `no mirror interface port1.0.10` / `end`
+- If it shows `mirror interface none` → `configure terminal` / `interface port1.0.11` /
+  `no mirror interface none` / `end`
+- If it shows neither, nothing is to be undone.
+
+Then confirm, in this exact state:
+
+```
+show mirror                                  <- prints nothing
+show running-config interface port1.0.11     <- exactly:
+interface port1.0.11
+ switchport
+ switchport mode access
+```
+
+No other port, VLAN or global setting is touched by this group, so nothing else needs undoing.
+
+**The clock is deliberately NOT restored.** swi_c read `Fri, 17 Mar 2000 18:01:28 +0000` before
+the group, which is a fault, not a bench fact. Setting it is a repair the Test Engineer approved;
+putting it back would be restoring the fault.
+
 - **T44967 — CLI show mirror interface direction set to transmit.** Configure the mirror with
   direction `transmit`; `show mirror` and `show mirror interface port1.0.11`.
   *Expected:* the mirror is listed with direction `transmit` and the correct source/destination.
