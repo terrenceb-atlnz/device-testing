@@ -31,6 +31,7 @@ Constraints: "Run now, no power cycles" (option text: "Same scope, and a failing
   `no lacp global-passive-mode enable`, `lldp run`. Otherwise it keeps the autoburnin running-config (per-port VLANs 10–37, RSTP off).
   x230 port1.0.2 read `running` 12:33, `notconnect` 12:34 (during the stack baud work).
 - 12:36: *"bauds are fixed, stack is rebooting. am off of minicoms. all yours"*
+- 12:5x, ruling on the probe USER-CONFLICT (u2 login_failed, u4 silent): *"I can see all login prompts on u2 and u4, u5 says stack is ok with \"sh stack\" so im taking it as a win"* → conflict resolved, consoles fine. *"i gotta go setup for this demo, i will communicate with you in a peer session"*: the go/no-go for row 1 arrives as a peer-session message just after 13:00.
 
 ## Rules carried with the queue
 
