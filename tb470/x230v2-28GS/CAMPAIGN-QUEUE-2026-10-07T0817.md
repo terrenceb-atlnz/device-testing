@@ -159,7 +159,13 @@ security level none, manager/friend).
 - 2005.5 18:17:15–23:05:17 rc 1: **PASS** 225/225 own checks (+1 c1e7679 harness line); restored 23:06.
 - 2005.6 23:07:11–23:48:38 rc 1: **PASS** 16/16 own checks (+1 c1e7679 harness line); restored 23:49.
 - 2005.7 23:50:14–00:34:55 rc 1: **PASS** 14/14 own checks (+1 c1e7679 harness line); restored 00:36.
-- 2005.8 launched 00:36:58 (test-5700.2005.py pid 302667).
+- 2005.8 00:36:58–01:18:44 rc 1: **PASS** 20/20 own checks (+1 c1e7679 harness line).
+- **Group restore DONE 01:19–01:28 2026-10-08** (evidence `x230v2-28GS/bootloader-6.2.40/5700.2005/work/run3-group-restore.txt`):
+  release copied back (`flash:/x230v2_28GS-tb470.rel`, 36,660,463 B = **awplus_main-20261007-55**, the accepted swap) as
+  `boot system`, backup Not set, leftovers deleted; boot config `flash:/default.cfg` (512 B; running-config identical to
+  the morning baseline, hash normalised); manager/friend; Boot Security Level none; licences **Base License + ACCESS**
+  (D2 after = before); Boot Menu 2 → 9 + plain-reload proof 01:26 (`Loading flash:x230v2_28GS-tb470.rel...`, no forced
+  banner); u0 logged out; precheck CLEAR. `/tftproot` left as found.
 
 ## Tonight's start — 18:00 2026-10-07 (for the session that runs `--resume` on this file)
 
@@ -206,7 +212,7 @@ It does this instead of dispatching straight away:
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | 5700.2002.110, 5700.2003.10, 5700.2005.3, 5700.2005.4, 5700.2005.5, 5700.2005.6, 5700.2005.7, 5700.2005.8 (one invocation each, in this order) | x230v2-28GS/bootloader-6.2.40 (case folders 5700.2002 / 5700.2003 / 5700.2005; runner dirs 5700_x230v2-28GS_6.2.40_run3/<TestCase>/) | **IN PROGRESS from 18:01 2026-10-07** (dispatched by device-testing-49, tmux `test-mode`; gate 18:01 precheck u0 CLEAR exit 0, no test-5700 on tb470, `/tftproot/x230-tb470.rel` resolves). Was HELD until 18:00 (Test Engineer 15:2x: "queue the test again to start at 6pm and watch it until its done"). Next: u0 Boot Menu S → 1 + between-rows restore, then 5700.2005.5 from scratch, .6, .7, .8, group restore. **Nothing touches u0 before 18:00.** 2002.110–2005.4 done (Results) | 2005.3–.8 were ~9 h of Feb's 10 h 20 m TestSet; 2005.5 is the longest (225 checks in Feb) |
+| 1 | 5700.2002.110, 5700.2003.10, 5700.2005.3, 5700.2005.4, 5700.2005.5, 5700.2005.6, 5700.2005.7, 5700.2005.8 (one invocation each, in this order) | x230v2-28GS/bootloader-6.2.40 (case folders 5700.2002 / 5700.2003 / 5700.2005; runner dirs 5700_x230v2-28GS_6.2.40_run3/<TestCase>/) | **DONE 01:28 2026-10-08** (tester: all eight TestCases run, group restore done; see the Row-1 evening note). Was IN PROGRESS from 18:01 2026-10-07 (dispatched by device-testing-49, tmux `test-mode`; gate 18:01 precheck u0 CLEAR exit 0, no test-5700 on tb470, `/tftproot/x230-tb470.rel` resolves). Was HELD until 18:00 (Test Engineer 15:2x: "queue the test again to start at 6pm and watch it until its done"). Next: u0 Boot Menu S → 1 + between-rows restore, then 5700.2005.5 from scratch, .6, .7, .8, group restore. **Nothing touches u0 before 18:00.** 2002.110–2005.4 done (Results) | 2005.3–.8 were ~9 h of Feb's 10 h 20 m TestSet; 2005.5 is the longest (225 checks in Feb) |
 
 ## Results
 
