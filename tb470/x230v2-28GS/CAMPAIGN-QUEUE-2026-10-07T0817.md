@@ -152,8 +152,12 @@ security level none, manager/friend).
   backuprelease.rel + swi_a_5700_2005.cfg + framework default.cfg; licences Base + ACCESS (D2 "before").
 - 18:06 runner dir `2005.5/`: the stopped 12:26 run's framework logs moved to `2005.5/stopped-20261007-1226/`;
   tb470 markers to `/tmp/x230/run3/2005.5-stopped1226/`.
-- Next: u0 recovery (Boot Menu S → 1 via `/tmp/x230/run3/secreset.py reset`, then 2 → 3 re-applied, then the
-  between-rows restore without the release — in-line fix), then 2005.5.
+- 18:07–18:16 u0 recovery DONE: Boot Menu S → 1 → y (`Erasing nand0` … `Erase complete`, no password asked), level 1;
+  the erase reset the TFTP settings, 2 → 3 re-applied (`Saving settings... Complete`); between-rows restore = baseline;
+  plain-reload proof 18:15 (forced banner + `Loading tftp://10.38.215.33/x230-tb470.rel`). Release stays off flash
+  (in-line fix); ACCESS erased, re-added by the framework preamble 18:18:10.
+- 2005.5 18:17:15–23:05:17 rc 1: **PASS** 225/225 own checks (+1 c1e7679 harness line); restored 23:06.
+- 2005.6 launched 23:07:11 (test-5700.2005.py pid 274470).
 
 ## Tonight's start — 18:00 2026-10-07 (for the session that runs `--resume` on this file)
 
