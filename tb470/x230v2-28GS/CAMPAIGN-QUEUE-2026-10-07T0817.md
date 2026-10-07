@@ -189,7 +189,7 @@ It does this instead of dispatching straight away:
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | 5700.2002.110, 5700.2003.10, 5700.2005.3, 5700.2005.4, 5700.2005.5, 5700.2005.6, 5700.2005.7, 5700.2005.8 (one invocation each, in this order) | x230v2-28GS/bootloader-6.2.40 (case folders 5700.2002 / 5700.2003 / 5700.2005; runner dirs 5700_x230v2-28GS_6.2.40_run3/<TestCase>/) | **HELD until 18:00 2026-10-07** (Test Engineer 15:2x: "queue the test again to start at 6pm and watch it until its done"). Next: u0 Boot Menu S → 1 + between-rows restore, then 5700.2005.5 from scratch, .6, .7, .8, group restore. **Nothing touches u0 before 18:00.** 2002.110–2005.4 done (Results) | 2005.3–.8 were ~9 h of Feb's 10 h 20 m TestSet; 2005.5 is the longest (225 checks in Feb) |
+| 1 | 5700.2002.110, 5700.2003.10, 5700.2005.3, 5700.2005.4, 5700.2005.5, 5700.2005.6, 5700.2005.7, 5700.2005.8 (one invocation each, in this order) | x230v2-28GS/bootloader-6.2.40 (case folders 5700.2002 / 5700.2003 / 5700.2005; runner dirs 5700_x230v2-28GS_6.2.40_run3/<TestCase>/) | **IN PROGRESS from 18:01 2026-10-07** (dispatched by device-testing-49, tmux `test-mode`; gate 18:01 precheck u0 CLEAR exit 0, no test-5700 on tb470, `/tftproot/x230-tb470.rel` resolves). Was HELD until 18:00 (Test Engineer 15:2x: "queue the test again to start at 6pm and watch it until its done"). Next: u0 Boot Menu S → 1 + between-rows restore, then 5700.2005.5 from scratch, .6, .7, .8, group restore. **Nothing touches u0 before 18:00.** 2002.110–2005.4 done (Results) | 2005.3–.8 were ~9 h of Feb's 10 h 20 m TestSet; 2005.5 is the longest (225 checks in Feb) |
 
 ## Results
 
