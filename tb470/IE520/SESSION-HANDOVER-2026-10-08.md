@@ -100,8 +100,9 @@ Inferred:
   the baud change. The Test Engineer sees a normal login prompt; not re-checked.
 
 ## OPEN
-1. **`apply`: (a) none (default, as left); (b) full re-probe u0–u5 then apply; (c) apply the partial fence (not
-   recommended).** The partial fence keeps only `swi_c = /dev/u5`, `stk_a = swi_c`, outlet 5, and
+1. **`apply`: DECIDED (a), no apply** (Test Engineer, relayed by device-testing-8a ~13:2x: *"(a) no apply. Leave the
+   deployed tb470.setup as it is."*). **For the next session: cable 1 is now eth1-port3.0.13, the stack consoles are
+   at 115200, and a full u0–u5 probe, then `apply`, is needed** (command in "Bench state" above). The partial fence keeps only `swi_c = /dev/u5`, `stk_a = swi_c`, outlet 5, and
    `tb-swi_c = eth1-port3.0.13`. It drops swi_a/b/d/e/f, every inter-switch `[portlink]`, and 5 of 6 `[power]` lines.
    Real changes a full re-probe should carry: eth1 now lands on port3.0.13 (deployed: port3.0.10, plus eth3-port3.0.9);
    the x230's baud is now 115200 (deployed: 9600).
@@ -114,7 +115,7 @@ Inferred:
 6. Still owed from the x230 work (the other handover): the `sudo rm /tftproot/…` line.
 
 ## Next steps
-1. Decide OPEN 1 (apply).
+1. Full u0–u5 probe, then `apply` (OPEN 1: decided no apply now, apply after a full probe).
 2. Run the campaign: start a session in `claude/device-testing/`, then
    `/test-mode --resume tb470/IE520/CAMPAIGN-QUEUE-2026-10-08T1131.md`. Row 1 is triaged. Its precheck and the
    tester's gates re-run; then dispatch RUN for T22650 → T22655. **Estimate 45–60 min** (09-29: about 40 min for the
