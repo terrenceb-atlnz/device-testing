@@ -29,6 +29,8 @@ Constraints: "Same as 10-06": "do not interact with any other devices yet" (u0 +
 
 Occupancy 08:17: `precheck --consoles u0` CLEAR (exit 0).
 
+2026-10-07 15:2x (Test Engineer, to tmux session device-testing-49): back to check the run by **06:15 2026-10-08**. NEEDS YOU items raised overnight wait for him; the 07:00 no-new-TestCase rule stands.
+
 Decisions 2026-10-07 ~08:45 (Test Engineer, answers to the triage):
 - Occupancy 08:3x FOUND calanm minicom on u2, u5, u4 (not ours; u0 free): *"Proceed on u0 only"*.
 - D1 run flags: *"Same as 10-06"* -- each invocation `-s default.setup -u -v <n>` (no `--noupdate
