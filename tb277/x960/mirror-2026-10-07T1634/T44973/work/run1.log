@@ -1,0 +1,359 @@
+AWPTCM-T44973 -- CLI Remove mirror interface
+Working log, run 1. Written as the case ran.
+
+VERDICT: PASS -- a configured mirror was removed with `no mirror interface port1.0.10`;
+`show mirror` no longer lists it, port1.0.11 is back to a plain access port, and the full
+running-config diff against the pre-group baseline is empty. See CAVEATS.
+
+================================================================================
+SESSION FACTS
+================================================================================
+Test Engineer : bidhanc@bidhanc-dl
+Testbox       : tb277
+Consoles      : u2, u3, u5 (this case used /dev/u2 ONLY; u3 and u5 were never opened)
+Constraints   : none, EXCEPT the group-1 dispatch adds: no power cycles of any unit
+Dispatch      : RUN, group 1 (mirror), 2026-10-07 ~16:59 NZDT
+Group dir     : tb277/x960/mirror-2026-10-07T1634/
+Sentinel      : parent session ("main"), armed
+Run labelled  : CLEAN
+
+================================================================================
+DEVICE UNDER TEST
+================================================================================
+Role       : DUT (the only device this case uses)
+Name       : swi_c
+Console    : /dev/u2 at 115200 baud
+Model      : AT-x960-56YSQ
+Serial     : A2WQS7004
+Hostname   : x960-56YSQ
+Stack      : standalone, member 1, Active Master
+Software   : sin_x96056-20260921-9  (Current software: x960-tb277.rel, built Mon Sep 21 2026)
+Bootloader : benb  (a dev build)
+Boot config: flash:/default.cfg (file exists)   <- the run's declared baseline, unchanged
+Boot image : Not set -- this unit NETBOOTS from tb277:/tftpboot/x960-tb277.rel
+
+Ports used : port1.0.10 = mirror SOURCE, port1.0.11 = mirror DESTINATION.
+             Both are EMPTY SFP cages (see CAVEATS / I-9). Neither is cabled, so nothing else on
+             the bench was disturbed.
+Links/NICs : none. This case generated no traffic and used no host NIC.
+Partners   : none. swi_b (u3) and swi_a (u5) are not involved and were not opened.
+
+================================================================================
+CAVEATS CARRIED INTO THIS VERDICT -- read before using it
+================================================================================
+I-4  THE STEPS ARE A RECONSTRUCTION, NOT AWPTCM'S TEXT.
+     The Ask-CK / ck.db tree is not reachable from this session (neither ~/claude/Test-cases on
+     the dev host nor on tb277). The steps below were drafted by the parent session from the case
+     TITLE alone and approved by the Test Engineer as the basis for this run. This verdict is
+     against that draft. If the real AWPTCM steps differ, it must be revisited.
+
+I-9  port1.0.10 AND port1.0.11 ARE EMPTY SFP CAGES -- THERE IS NO LINK AND NO FRAMES.
+     `show system pluggable` on swi_c lists modules in 1.0.2, 1.0.4, 1.0.8, 1.0.40 and 1.0.48
+     ONLY; 1.0.10 and 1.0.11 are unpopulated, and `show interface status` reads `notconnect ...
+     not present` for both. The drafted steps verify CONFIGURATION and `show` REPORTING, which
+     are unaffected by the absence of a module -- the mirror is a port-level configuration and
+     the DUT accepted, stored and reported it correctly.
+     >>> IF THE REAL AWPTCM STEPS REQUIRE MIRRORED FRAMES TO BE OBSERVED, THIS CASE IS PARTIAL,
+     >>> NOT PASS. The drafted expectation says the destination port "returns to normal switching";
+     >>> with no module and no link, this run proves that only as a CONFIGURATION state, never as
+     >>> observed forwarding behaviour.
+
+I-10 THE DUT'S CLOCK WAS WRONG AND WAS REPAIRED EARLIER IN THIS GROUP, BEFORE THIS CASE.
+     It read `Fri, 17 Mar 2000 18:13:24 +0000`; it was set to true UTC
+     (`Wed, 7 Oct 2026 04:06:13 +0000`, about 6 s behind the testbox). `clock set` is an EXEC
+     command and leaves no running-config footprint, so the teardown diff below is still
+     meaningful. The DUT's own clock is UTC; every `HH:MM:SS >>>` prefix in this log is the
+     TESTBOX's local NZDT time, written by tools/ckcon.py. NZDT = UTC + 13:00.
+
+================================================================================
+TOOLS USED (from the repo-root tools/, copied to the box's scratch)
+================================================================================
+Copied : cp -r ~/claude/device-testing/tools /tmp/x960-2026-10-07T1634/
+Python : python3.8 on tb277 (the box's python3 is 3.6.9, too old; pyserial 3.4)
+
+  tools/peek.py   -- pre-run console state check (one bare CR, no login)
+      python3.8 ./peek.py /dev/u2 115200 /tmp/x960-2026-10-07T1634/console-u2.log
+
+  tools/ckcon.py  -- command runner; CKTO sets the per-command timeout in seconds
+      CKTO=90 python3.8 ./ckcon.py /dev/u2 115200 /tmp/x960-2026-10-07T1634/console-u2.log \
+              [--stop-on-error] CMD [CMD ...]
+
+  tools/qmark.py  -- read-only CLI help probe, types `PREFIX ?` with NO trailing CR and clears
+                     the line with Ctrl-U; self-test proves nothing is executed. Used for the
+                     syntax confirmations quoted below. NEVER `<cmd> ?` through a CR driver
+                     (memory never-send-cli-help-through-a-cr-driver).
+      python3.8 ./qmark.py /dev/u2 115200 <transcript> [--mode CMD ... --] PREFIX [PREFIX ...]
+
+Raw console transcript (every byte sent and received, NOT committed, stays on the box):
+  /tmp/x960-2026-10-07T1634/console-u2.log
+Raw stdout of this case's runs, on the box:
+  /tmp/x960-2026-10-07T1634/T44973-run.txt
+  /tmp/x960-2026-10-07T1634/T44973-teardown.txt
+
+No framework run. There is no .setup on tb277 and no framework script for this case, so there is
+no framework log and no exit code, and the framework's post-failure PDU cycle cannot fire.
+
+================================================================================
+PRE-RUN GATE
+================================================================================
+1. Occupancy check (no console opened):
+     bench_probe.py --box tb277 precheck --consoles u2,u3,u5   -> exit 5 FOUND
+   The one FOUND item was the box-wide daemon `/usr/sbin/ser2net` (pid 744, up 26 days).
+   Read-only evidence that it holds none of our consoles: `sudo -n /bin/fuser -v /dev/ttyUSB2
+   /dev/ttyUSB3 /dev/ttyUSB5` returns no holder; /proc/744/fd holds sockets only (fds 3-7); no
+   /run/lock/LCK..* files; /etc/ser2net.conf maps only /dev/ttyS0 and /dev/ttyS1 on TCP
+   2000/2001 and 3000/3001 and cannot reach a ttyUSB at all. All three consoles read `free`.
+   Escalated to the Test Engineer via the sentinel and cleared: "tb277 is ours to probe",
+   "All console are ours to use".
+
+2. No console parked mid-state: peek.py on each ->
+     /dev/u2 TAIL: 'x960-56YSQ#'   /dev/u3 TAIL: 'x960-28YSQ#'   /dev/u5 TAIL: 'x950gen2#'
+   All three at a privileged exec prompt. None in config mode, none at a root shell.
+
+3. Box template path: tb277 has NO deployed .setup. /home/st-art/st-art exists but has no
+   configs/ subdirectory. Expected on this box, not a fault. /home is NFS from 10.36.250.11,
+   nothing dangling.
+
+4. Probe with the session facts:
+     bench_probe.py --box tb277 run --consoles u2,u3,u5 --no-prompt \
+       --pdu 10.36.230.212 --outlet u2=1 --outlet u3=7 --outlet u5=3@10.36.230.35 \
+       --name u2=swi_c --name u3=swi_b --name u5=swi_a
+   -> exit 0. All three consoles opened first time at their cached bauds (115200/9600/9600); the
+   known first-contact 9600 login_failed did not occur. Diff skipped (no template). Device table,
+   links and the setup fence are IDENTICAL to the morning's 030931Z capture; Advisories dropped
+   to "none" because tb277.static already holds all three units -- NO USER-CONFLICT.
+   Committed as 147c3d1 (capture 2026-10-07T034454Z).
+
+5. The .setup the run binds: none exists; this case binds none. Not applicable.
+
+6. Offline preflight (pt_preflight.py): NOT APPLICABLE and NOT AVAILABLE. There is no framework
+   script for this case. ~/claude/Test-cases does not exist on this seat or on tb277.
+
+7. Boot baseline: `show boot` on swi_c -> `Current boot config: flash:/default.cfg (file exists)`.
+   Re-checked at the end of the case: unchanged.
+
+8. Ask-CK server run path: not used.
+
+9. Sentinel: parent session, armed (dispatch states `sentinel: parent`).
+
+10. CLI will not fail at the defaulting step: every form this case sends was confirmed with `?`
+    sent WITHOUT a CR (tools/qmark.py, self-test passed each time):
+
+      [config-if port1.0.11]
+      mirror interface ?                       -> IFRANGE  Source Interface to use
+                                                  none     No source interface (set destination
+                                                           interface only)
+      mirror interface port1.0.10 direction ?  -> both      Mirror traffic in both directions
+                                                  receive   Mirror received traffic
+                                                  transmit  Mirror transmitted traffic
+      no mirror interface ?                    -> IFRANGE  Source Interface to use
+                                                  none     No source interface (set destination
+                                                           interface only)
+                                                  (NOTE: no <cr>, so the `no` form REQUIRES an
+                                                   argument -- a bare `no mirror interface` is
+                                                   % Incomplete command)
+      [exec]
+      show mirror ?                            -> interface  Source Interface to use
+                                                  <cr>
+
+    No command in this case is rejected by the parser.
+
+================================================================================
+PRE-CASE BASELINE
+================================================================================
+swi_c `show running-config` captured before any change in this group, 110 lines, saved to
+  tb277/x960/mirror-2026-10-07T1634/pre-group-swi_c-running-config.txt
+This is the group-wide baseline; this case diffs against it.
+
+Verified clean before this case started: the previous case's teardown diff against this same
+baseline was empty, `show mirror` printed nothing, and port1.0.11 read exactly
+`switchport` / `switchport mode access`. port1.0.10 and port1.0.11 were both covered by the range
+stanza `interface port1.0.9-1.0.69`, i.e. plain untagged members of vlan 1, with no mirror
+configured anywhere on the DUT.
+
+================================================================================
+SETUP -- a mirror to remove (applied before step 1; this is what the .cfg captures)
+================================================================================
+This case needs a mirror to exist before it can be removed, so the setup configures one. Direction
+`both` was chosen as the most complete form, so the removal is not tested against a partial case.
+Exactly as sent, with the device's own prompt:
+
+  x960-56YSQ#configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+  x960-56YSQ(config)#interface port1.0.11
+  x960-56YSQ(config-if)#mirror interface port1.0.10 direction both
+  x960-56YSQ(config-if)#end
+
+Accepted with no output and no error line.  (17:15:48 - 17:15:51 NZDT)
+
+Note: entering `interface port1.0.11` produced NO advisory here, because no mirror was configured
+on that port at the time. The advisory appears only when a mirror already exists -- see STEP 1.
+
+CONFIG SAVED: tb277/x960/mirror-2026-10-07T1634/T44973/swi_c.cfg
+  -- swi_c `show running-config` taken at 17:15:53 NZDT, after setup and before step 1,
+     122 lines including the three-line AW+ header. Line 95 carries the mirror.
+
+================================================================================
+PRE-REMOVAL STATE -- the thing that must afterwards be gone
+================================================================================
+  x960-56YSQ#show mirror
+  Mirror Test Port Name: port1.0.11
+  Mirror option: Enabled
+  Mirror direction: both
+  Monitored Port Name: port1.0.10
+
+(17:15:54 NZDT)
+
+  x960-56YSQ#show interface status
+  Port        Name               Status      Vlan      Duplex Speed   Type
+  ...
+  port1.0.10  -                  notconnect          1 auto   auto    not present
+  port1.0.11  -                  notconnect          1 auto   auto    not present
+
+(17:15:56 NZDT)
+
+>>> MEASURED, AND IT LIMITS WHAT THIS CASE CAN PROVE: `show interface status` reports the mirror
+>>> DESTINATION port exactly the same with the mirror configured as without it -- `notconnect`,
+>>> Vlan 1, `not present`. Unlike a stackport, which `show interface status` labels in the Vlan
+>>> column, a mirror destination is not distinguished there on this platform. So
+>>> `show interface status` CANNOT be used as evidence that the port left or returned to normal
+>>> switching. The discriminating evidence is `show mirror` and the running-config, both used
+>>> below. Compare with the identical post-removal output in STEP 3.
+
+================================================================================
+STEP 1 -- remove the mirror, exactly as the case is drafted  ............. FAIL
+         (DRAFTING ERROR -- the drafted form is incomplete on this platform)
+================================================================================
+The drafted step writes the removal as `no mirror interface ...` with no argument. Sent exactly
+that way, in configure/interface mode:
+
+  x960-56YSQ#configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+  x960-56YSQ(config)#interface port1.0.11
+  % port1.0.11 is currently configured as a mirror-port. Use caution when altering its config
+  x960-56YSQ(config-if)#no mirror interface
+  % Incomplete command.
+
+(17:16:15 - 17:16:17 NZDT)
+
+Two separate `% ` lines there, and they mean opposite things:
+
+  1. `% port1.0.11 is currently configured as a mirror-port. Use caution when altering its
+     config` is an ADVISORY, not a rejection. The command SUCCEEDED -- the prompt advanced to
+     (config-if)#. It is emitted on every entry into the destination port's interface mode while
+     a mirror exists.
+  2. `% Incomplete command.` IS a genuine rejection. `no mirror interface` with no argument is
+     not a valid command on the x960.
+
+>>> DRAFTING ERROR, NOT A PRODUCT RESULT (I-4). The DUT's own help, read at triage with `?` and
+>>> no trailing CR, had already predicted this:
+>>>
+>>>     x960-56YSQ(config-if)#no mirror interface ?
+>>>       IFRANGE  Source Interface to use
+>>>       none     No source interface (set destination interface only)
+>>>
+>>> -- note there is NO `<cr>` in that list, so an argument is mandatory. This step is recorded
+>>> as FAILING ONLY BECAUSE THE DRAFTED COMMAND IS WRONG. It says nothing about the x960's
+>>> ability to remove a mirror, which STEP 2 demonstrates. The case verdict is PASS on the
+>>> corrected form; this step is kept in the log as the evidence for the drafting correction, so
+>>> that nobody later reads `% Incomplete command.` as an x960 defect.
+>>>
+>>> The device state was NOT changed by this step -- a rejected command configures nothing.
+
+================================================================================
+STEP 2 -- remove the mirror with the form the DUT actually takes  ........ PASS
+================================================================================
+Same configure/interface session, immediately afterwards:
+
+  x960-56YSQ(config-if)#no mirror interface port1.0.10
+  x960-56YSQ(config-if)#end
+
+(17:16:19 - 17:16:20 NZDT)
+
+Accepted with no output and no error line.
+
+================================================================================
+STEP 3 -- verify the mirror is gone  ..................................... PASS
+================================================================================
+  x960-56YSQ#show mirror
+  x960-56YSQ#
+
+-- EMPTY. The mirror is no longer listed. (17:16:21 NZDT)
+
+  x960-56YSQ#show running-config interface port1.0.11
+  !
+  interface port1.0.11
+   switchport
+   switchport mode access
+  !
+
+-- the `mirror interface port1.0.10 direction both` line is gone; the port is a plain access port
+again. (17:16:22 NZDT)
+
+  x960-56YSQ#show interface status
+  Port        Name               Status      Vlan      Duplex Speed   Type
+  ...
+  port1.0.10  -                  notconnect          1 auto   auto    not present
+  port1.0.11  -                  notconnect          1 auto   auto    not present
+
+-- byte-for-byte identical to the PRE-REMOVAL reading above, which is exactly why this output is
+NOT used as evidence either way. See the note in PRE-REMOVAL STATE.
+
+All three parts of the drafted expectation are met, with the stated limit:
+  - `show mirror` no longer lists it                        -> PROVEN
+  - no residue in `show running-config`                     -> PROVEN (full diff below)
+  - the destination port returns to normal switching        -> PROVEN AS CONFIGURATION ONLY.
+    port1.0.11 is an empty SFP cage with no link (I-9), so no frame can be sent through it to
+    demonstrate forwarding. This is a bench limit, not a product limit.
+
+================================================================================
+TEARDOWN
+================================================================================
+None required beyond the case itself: for this case the REMOVAL IS the teardown. Step 2 returned
+the DUT to its pre-case state, and the diff below proves it.
+
+================================================================================
+TEARDOWN VERIFICATION -- full running-config diff
+================================================================================
+  diff pre-group-swi_c-running-config.txt <fresh show running-config>
+  -> no output
+
+  T44973 REMOVAL DIFF CLEAN -- no residue. swi_c's running-config is identical to the pre-group
+  baseline, including the re-merge of the `interface port1.0.9-1.0.69` range stanza that the
+  mirror had split. This is the strongest available form of the drafted expectation "no residue
+  in `show running-config`": not merely that the mirror line is absent from port1.0.11, but that
+  the ENTIRE 110-line configuration matches the pre-case copy.
+
+Boot config re-checked: `Current boot config: flash:/default.cfg (file exists)` -- the declared
+baseline, unchanged.
+
+Nothing was written to startup-config. No unit was reloaded or power-cycled. u3 and u5 were never
+opened. No PDU outlet was touched. No traffic was generated.
+
+================================================================================
+FILES SAVED BY THIS RUN
+================================================================================
+  tb277/x960/mirror-2026-10-07T1634/T44973/swi_c.cfg                     (deliverable)
+  tb277/x960/mirror-2026-10-07T1634/T44973/work/run1.log                 (this file)
+  tb277/x960/mirror-2026-10-07T1634/pre-group-swi_c-running-config.txt   (group baseline, shared)
+
+On the box, not committed:
+  /tmp/x960-2026-10-07T1634/console-u2.log       raw console transcript
+  /tmp/x960-2026-10-07T1634/T44973-setup.txt     stdout of the setup + pre-removal state
+  /tmp/x960-2026-10-07T1634/T44973-removal.txt   stdout of steps 1-3
+  /tmp/x960-2026-10-07T1634/T44973-post.txt      stdout of the post-removal verification
+
+================================================================================
+VERDICT: PASS -- `no mirror interface port1.0.10` removed the configured mirror from port1.0.11;
+`show mirror` printed nothing afterwards, the mirror line was gone from the port's
+running-config, and the FULL running-config diff against the pre-group baseline was empty.
+PROVEN: removal, and the absence of any configuration residue. NOT MEASURED: that the destination
+port resumes forwarding traffic -- port1.0.10 and port1.0.11 are empty SFP cages with no link
+(I-9), and `show interface status` does not distinguish a mirror destination on this platform, so
+"returns to normal switching" is proven as a configuration state only. If the real AWPTCM steps
+require observed forwarding after removal, this is PARTIAL, not PASS. Graded against a
+reconstruction of the case from its title, not AWPTCM's text (I-4). The drafted removal command
+`no mirror interface` with no argument is INVALID on the x960 (`% Incomplete command.`); the verdict
+is against the corrected form `no mirror interface <source-port>`, and the rejection of the drafted
+form is recorded in STEP 1 as evidence of the drafting error, not as a product defect.
+================================================================================
