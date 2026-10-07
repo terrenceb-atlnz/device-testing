@@ -76,3 +76,81 @@ GATES 18:01-18:03 (tester; the sentinel's own 18:01 gate was CLEAR too)
                        line con 0 exec-timeout 0 0 / length 0).
           show users: con 0 manager only.
   Console state recorded before any change: AW+ login prompt (not a shell, not a config mode).
+
+U0 RECOVERY (queue row-1 dispatch item 1; tester, within the test; 18:07-18:16)
+  Driver: /tmp/x230/run3/secreset.py (case-own; copy 5700.2005/work/run3-2005.5-secreset.py.txt, md5 on box
+    2583398f0d0a3a533195ba5e57927215). Full output: run3-2005.5-u0-recovery-1807.txt; transcript appended to
+    tb470:/tmp/x230/run3/console-u0.log.
+  18:07:33 tb470$ python3 /tmp/x230/run3/secreset.py reset "abc 123"   (the password is sent only if the bootloader asks;
+    it did NOT ask -- level 2 does not gate S -> 1 on this bootloader, the same as the 12:04:50 2005.4 log)
+    swi_a_5700_2005# show boot -> ... Boot Security Level: password
+    swi_a_5700_2005# reload -> (y/n) y+CR ; "Bootloader 6.2.40 loaded / Press <Ctrl+B> for the Boot Menu" ; bare Ctrl+B
+    Boot Menu: S ->
+       Security Settings menu:
+        The security Level is currently set to 2 (Password Protected)      <-- level 2 verified on the menu itself
+        0. Return to previous menu / 1. Set security Level to 1 (None) / 2. Set security Level to 3 (Locked Down) /
+        3. Change Password
+    1 ->
+       WARNING: This option will reset the security level to One.
+       which will DESTROY the entire contents of the FLASH file system
+       Press Y to proceed, or any other key to return to the previous menu ==>
+    y (bare) 18:07:44 ->
+       Erasing nand0:       [==================================================]
+       Erase complete. Restarting...
+       Bootloader 6.2.40 loaded / Press <Ctrl+B> for the Boot Menu   -> bare Ctrl+B 18:07:51
+    Boot Menu ("WARNING: The bootloader is not currently password protected.") S ->
+        The security Level is currently set to 1 (None)                     <-- level 1 18:07:54
+    0 ; 2 -> Select device: 1. Flash / 3. TFTP (tftp://) / 4. YMODEM / 6. USB / 9. Boot from default (determined by main CLI)
+    3 -> the erase had reset the TFTP settings (defaults shown [0.0.0.0] / filename []), answered:
+       Enter IP version [4|6].................. [4]: 4
+       Enter IP address for this device........ [0.0.0.0]: 10.38.215.34
+       Enter subnet mask....................... [0.0.0.0]: 255.255.255.224
+       Enter gateway IP........................ [0.0.0.0]: 0.0.0.0
+       Enter TFTP server IP.................... [0.0.0.0]: 10.38.215.33
+       Enter filename.......................... []: x230-tb470.rel
+       Saving settings... Complete                                          <-- group setup re-applied 18:08:01
+    9 -> "Warning: System has been forced to boot from a non-standard location" / "Loading tftp://10.38.215.33/
+       x230-tb470.rel via USB Ethernet adapter..." / "Verifying release... OK" / "Booting." -> login: 18:10:51
+    awplus# show boot -> Current boot config flash:/default.cfg (file not found); Boot Security Level: none
+    awplus# dir -> log/ only (flash erased: 200 KB used)
+    awplus# show license brief -> 1 Base License only   <-- ACCESS erased with flash (the framework preamble re-adds it:
+       "Add ACCESS license to swi_a for platform family x230", as for 2005.3; the group restore checks Base + ACCESS)
+    show system: awplus_main-20261007-55, Build date Tue Oct 6 23:16:47 UTC 2026, uptime 00:02:36, System Name awplus.
+    rc 0, logged out.
+BETWEEN-ROWS RESTORE (18:11-18:13; tools/ckyn.py /dev/u0 9600 /tmp/x230/run3/console-u0.log ...; output
+  run3-2005.5-restore-before.txt)
+  18:11:52 awplus(config)# username manager privilege 15 password friend ; end
+  18:11:58 awplus# copy running-config flash:/default.cfg -> Successful operation ; awplus(config)# boot config-file
+           flash:/default.cfg ; show running-config then showed the AW+ factory defaults still loading at the first
+           read (ssh server allow-users manager / service ssh / loop-protection loop-detect ldf-interval 1 fast-block /
+           interface vlan1 ip address dhcp, ipv6 enable, ipv6 address dhcp, ip dhcp-client vendor-identifying-class,
+           ip dhcp-client request vendor-identifying-specific) -> removed:
+  18:12:1x awplus(config)# no ssh server allow-users manager / no service ssh / no loop-protection loop-detect /
+           interface vlan1 / no ip dhcp-client vendor-identifying-class / no ip dhcp-client request
+           vendor-identifying-specific / no ipv6 address dhcp / no ipv6 enable / no ip address dhcp / end
+  18:12:40 awplus# copy running-config flash:/default.cfg
+             This is the boot configuration file, are you sure (y/n)[n]:y -> Copying... Successful operation
+           show boot: Current boot image Not set; Current boot config flash:/default.cfg (file exists); Boot Security
+             Level: none ; dir: 512 default.cfg + log/
+  tools/rcdiff.py run4-2005.4-prelaunch-running-config.txt <18:12:43 show running-config>: only the salted hash of
+    `username manager privilege 15 password 8 ...` differs (same password, re-hashed) = IDENTICAL to the baseline.
+  Not restored here, by decision: the release (in-line fix: off flash until the group restore; u0 boots the TFTP
+    default) and ACCESS (framework preamble).
+PLAIN-RELOAD PROOF of the group setup (18:12:52-18:15:50; secreset.py proof; output run3-2005.5-proof-1812.txt)
+  awplus# reload -> y ; no keypress in the bootloader:
+    Bootloader 6.2.40 loaded / Press <Ctrl+B> for the Boot Menu
+    Warning: System has been forced to boot from a non-standard location
+    Loading tftp://10.38.215.33/x230-tb470.rel via USB Ethernet adapter...
+    Verifying release... OK / Booting.  -> login: 18:15:42; manager/friend login OK (no password dialog)
+  show boot: Current boot config flash:/default.cfg (file exists), Boot Security Level none; dir 512 default.cfg + log/;
+  running-config = baseline; awplus_main-20261007-55. Logged out (exit -> login:).
+PRE-LAUNCH GATES (18:16-18:19)
+  bench_probe.py --box tb470 run --consoles u0 --read-only --no-prompt --pdu 10.36.150.14 --outlet u0=1
+    --out /tmp/x230/run3/bench-state-u0-pre-2005.5.md --template <runner dir>/2005.5/default.setup -> exit 1 MISMATCH (12),
+    the same diff as every probe of this campaign: swi_a/swi_f naming ([switch]/[power]/[powerlink]) and the hub_a
+    portlinks no probe sees; NEEDS-CHECK tb-swi_a eth3 (read-only: no pings); no USER-CONFLICT. Device row:
+    /dev/u0 | 9600 | swi_f | AT-x230-28GS V2 | A10783G262900002 | awplus | standalone | awplus_main-20261007-55 | 6.2.40 |
+    boot image Not (set). Repo bench-state.md NOT overwritten. The probe left u0 at awplus# -> `exit` -> 'awplus login:'.
+  pt_preflight.py --setup 2005.5/default.setup --script test-5700.2005.py -> VERDICT: RUNNABLE (1/1 links).
+  Gate 10 (CLI defaulting): the same pristine suite ran 2005.3 and 2005.4 today with no defaulting failure.
+  sudo fuser /dev/ttyUSB2: no holder; no test-5700 process.
