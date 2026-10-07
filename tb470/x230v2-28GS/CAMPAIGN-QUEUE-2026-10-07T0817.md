@@ -146,7 +146,7 @@ security level none, manager/friend).
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | 5700.2002.110, 5700.2003.10, 5700.2005.3, 5700.2005.4, 5700.2005.5, 5700.2005.6, 5700.2005.7, 5700.2005.8 (one invocation each, in this order) | x230v2-28GS/bootloader-6.2.40 (case folders 5700.2002 / 5700.2003 / 5700.2005; runner dirs 5700_x230v2-28GS_6.2.40_run3/<TestCase>/) | IN PROGRESS (bench-runner, from 08:38; group setup recorded above) | 2005.3–.8 were ~9 h of Feb's 10 h 20 m TestSet; 2005.5 is the longest (225 checks in Feb) |
+| 1 | 5700.2002.110, 5700.2003.10, 5700.2005.3, 5700.2005.4, 5700.2005.5, 5700.2005.6, 5700.2005.7, 5700.2005.8 (one invocation each, in this order) | x230v2-28GS/bootloader-6.2.40 (case folders 5700.2002 / 5700.2003 / 5700.2005; runner dirs 5700_x230v2-28GS_6.2.40_run3/<TestCase>/) | **HELD until 18:00 2026-10-07** (Test Engineer 15:2x: "queue the test again to start at 6pm and watch it until its done"). Next: u0 Boot Menu S → 1 + between-rows restore, then 5700.2005.5 from scratch, .6, .7, .8, group restore. **Nothing touches u0 before 18:00.** 2002.110–2005.4 done (Results) | 2005.3–.8 were ~9 h of Feb's 10 h 20 m TestSet; 2005.5 is the longest (225 checks in Feb) |
 
 ## Results
 
@@ -162,3 +162,10 @@ security level none, manager/friend).
 - 2026-10-07: Test Engineer re-graded 5700.2005.2 (in the 10-06 campaign) to PASS for that
   TestCase: the only device-side FAIL was the `Erasing flash` / `Erasing nand0:` wording. The
   10-06 Results row is updated to match (TestSet 5700.2005 → PARTIAL, re-graded from FAIL).
+- 2026-10-07 15:2x, Test Engineer: calanm stopped the 2005.5 run (his minicom on u0 at 14:53:19)
+  *"at the behest of those around him, the automated rebooting was causing distress due to the
+  noise."* Decision: *"queue the test again to start at 6pm and watch it until its done"*.
+  2005.5 re-runs from scratch at 18:00; 2005.6–.8 and the group restore follow in the same
+  evening. **The reboot-heavy rows run after hours only:** no row is launched after 07:00
+  2026-10-08 without asking the Test Engineer. u0 sits as calanm left it (expected: bootloader
+  Security Level 2, password "abc 123") until 18:00.
