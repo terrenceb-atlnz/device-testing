@@ -158,7 +158,8 @@ security level none, manager/friend).
   (in-line fix); ACCESS erased, re-added by the framework preamble 18:18:10.
 - 2005.5 18:17:15–23:05:17 rc 1: **PASS** 225/225 own checks (+1 c1e7679 harness line); restored 23:06.
 - 2005.6 23:07:11–23:48:38 rc 1: **PASS** 16/16 own checks (+1 c1e7679 harness line); restored 23:49.
-- 2005.7 launched 23:50:14 (test-5700.2005.py pid 287579).
+- 2005.7 23:50:14–00:34:55 rc 1: **PASS** 14/14 own checks (+1 c1e7679 harness line); restored 00:36.
+- 2005.8 launched 00:36:58 (test-5700.2005.py pid 302667).
 
 ## Tonight's start — 18:00 2026-10-07 (for the session that runs `--resume` on this file)
 
