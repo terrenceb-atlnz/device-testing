@@ -62,12 +62,10 @@ Constraints: "do not interact with any other devices yet" (u0 + its PDU outlet 1
 **Final logs created.** No `work/` folder remains in this group.
 
 ## OPEN
-- **Folder move, uncommitted, not this session's.** `x230v2-28GS/bootloader-6.2.40/` was moved to
-  `tb470/x230v2-28GS/bootloader-6.2.40/` (187 `D` + one untracked dir in `git status`; content identical).
-  Whoever moved it commits it with `git add -A x230v2-28GS tb470/x230v2-28GS/bootloader-6.2.40`.
-  Until then, HEAD still has the old path.
-- **Peer `device-testing-49` is still open**, at the `current_test.log` delete prompt. That symlink and
-  the ten untracked `swi_a-*-tags.log` in `5700_x230v2-28GS_6.2.40_run3/` are its to finish.
+- **Folder move committed** by the Test Engineer, `a1b65d5` (12:03): `x230v2-28GS/bootloader-6.2.40/` →
+  `tb470/x230v2-28GS/bootloader-6.2.40/`. It also committed the dangling `current_test.log` symlink there.
+- **Peer `device-testing-49`:** sentinel stood down (12:1x). It is holding its `rm current_test.log` and its
+  wrap for the Test Engineer directly. It took c7's Escape on its stale prompt as his rejection.
 - **Root cleanup on tb470 is still owed to the Test Engineer:**
   `sudo rm /tftproot/x250-tb470.rel /tftproot/x230-copy-tb470.rel /tftproot/x230-tb470.rel`.
   Check first that the modbus campaign does not need them.
