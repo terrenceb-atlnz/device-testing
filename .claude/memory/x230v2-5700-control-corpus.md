@@ -91,5 +91,11 @@ platform first, or you convert a product finding into a test change.
 >   the TestSet preamble still runs (~7.5 min); the baseline `.rel` must be OFF flash first or
 >   configure runs out of space for `backuprelease.rel`. The framework console log is `swi_a.log`
 >   (+ `swi_a-5700.<id>-tags.log`), so a sentinel CLI_GLOB needs `swi_a*.log`, not `swi_a_*.log`.
+> - **Final (create-logs b91a876, 2026-10-08): all five TestSets PASS** (2003 re-graded PASS by the
+>   Test Engineer: 2003.11's only FAIL is the c1e7679 harness line, as on 2005.3-.8). Logs now under
+>   `tb470/x230v2-28GS/bootloader-6.2.40/` (moved 2026-10-08). **2005.7 checks only the NO-ENTRY
+>   timeout** (`selectBootMenuOptionPWTimeout(self, dut, 1, "", 60)`, test-5700.2005.py:936):
+>   partial entry and valid-entry-without-Return have no check; the tester misdescribed it, so
+>   read the suite call, not the working log, before describing what a case proves.
 > - After factory defaults the framework answers the forced new-password dialog with `P@ssw0rd`
 >   (friend is refused as default), so manager/friend logins fail until it is set back.

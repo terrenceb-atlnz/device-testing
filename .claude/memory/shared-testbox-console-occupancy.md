@@ -75,3 +75,10 @@ probe and returns to the Test Engineer on FOUND.
 - bench_probe.py is still tb470-wired (`BOX`, `REMOTE`, `tb470.static`): on another box never
   `apply` (it would overwrite tb470.setup), and its LLDP switch-on is a device change that needs
   the box owner's consent. See [[bench-probe-one-tool]].
+
+**Gate on the precheck's exit code — never `;`-chain a driver after it (2026-10-08, tb470 u0).**
+A wrap ran `bench_probe.py precheck --consoles u0; ckcon.py /dev/u0 …` in one ssh. Precheck
+said FOUND (the Test Engineer's minicom, opened ~2 h after the last CLEAR, for a modbus
+campaign), but `;` ran ckcon anyway: it sent one bare CR into his live console, then died on
+"multiple access on port". Use `precheck … && driver …`, or read the result before the next call.
+A CLEAR from earlier in the session is stale.
