@@ -62,3 +62,44 @@ LAUNCH 12:26:38 NZDT: sudo -n setsid nohup /tmp/x230/run3/launch1.sh 2005 5 (wra
   Passwords the suite uses, in order (test-5700.2005.py:617): "ABCDEF", "abcdef", "123456", "abc 123", "!@#$%^&*()_+='",
     r'{}[]|\:;"<,>.?/', "ABC def 123 !@#$%". Test values, not secrets.
   Feb control (6.2.37, x230v2-18GT): 2005.5 PASS 225/0 in 4 h 27 m (2026-02-20 01:01:29-05:28:32).
+  12:30 sentinel relayed the Test Engineer's answer on arp_tb470.py: "Carry on". Keep running 2005.5-.8; flag any
+    TFTP- or ARP-looking failure as possibly related to calanm's arp_tb470.py; stop and ask (NEEDS TEST ENGINEER) if
+    failures look systematic; never touch calanm's process or consoles.
+
+================================================================================
+STOPPED 14:58:59 -- CONFOUNDED: a second operator opened OUR console u0 mid-run
+================================================================================
+  Progress up to the intrusion (test-5700.2005.log, verbatim summary): 124 PASS / 0 FAIL, 12:34:42-14:53:11.
+    12:35:16 "PASS: Security Level 2 set" with "ABCDEF" (upper case); 13:10:20 "Password reset" to "abcdef" (lower case);
+    13:45:22 "Password reset" to "123456" (numeric); 14:20:26 "Password reset" to "abc 123" (space). Each completed round:
+    options 1/2/3/5 refuse a wrong password and accept the right one; 4/6/7 need none. The "abc 123" round had reached
+    Step 210 (option 7, no password), the last check before its next power cycle: 14:53:11 "PASS: Returned from
+    selectBootMenuOptionNoPW to Boot Menu". Not reached: the "!@#$%^&*()_+='", r'{}[]|\:;"<,>.?/' and
+    "ABC def 123 !@#$%" rounds, the level-1 reset and the licence reset.
+  What broke it:
+    tb470 14:58:40 sudo fuser -v /dev/ttyUSB2 (no console opened):
+      /dev/ttyUSB2:  root    159130 F.... test-5700.2005.
+                     calanm  175449 F.... minicom
+    ps: 175449 calanm  Wed Oct 7 14:53:19 2026  minicom --wrap -D /dev/u0 -c off
+    /var/lock: LCK..u0 owned by calanm, 14:53.
+    From the first power cycle after 14:53:19 the framework read only fragments of the console stream (two readers split
+    the bytes):
+      14:54:28 power on -> 14:56:17 send(, 120, ['Press <Ctrl+B> for the Boot Menu']) wait time reached:  "--e0"
+      14:56:34 power on -> 14:58:24 ... wait time reached:  "i;0m 2OS e  ^[d^[K ;"   (fragments of the AW+ boot banner
+                                                            escape codes: the unit IS booting; the bytes are lost)
+    PDU side healthy throughout (power-group-swi_a.log: "Current outlet status: {1: '1', ...}" after each on).
+    The framework's enter_bootrom_with_retry would have kept PDU-cycling the unit calanm has open.
+  Action (tester, own process only): waited for the outlet-1 ON (14:58:43 "Turning PowerGroup on: Success"), then
+    14:58:59 tb470$ sudo -n kill 159130 (test-5700.2005.py, root, started 12:26:37) -> gone; the launcher 159127 exited
+    with it; marker "end 2026-10-07 14:58:59 NZDT rc 143". calanm's minicom 175449 NOT touched; u0 NOT opened.
+    14:59 fuser /dev/ttyUSB2: calanm 175449 minicom only.
+  Reported to the sentinel 14:59 as NEEDS TEST ENGINEER (release of u0; re-run 2005.5 vs carry on with 2005.6-.8).
+  Device state expected (not read: console held by calanm): bootloader Security Level 2, password "abc 123"; flash =
+    default.cfg? + mainrelease.rel/backuprelease.rel from this run's configure (11:16-style; not re-read); AW+ running
+    the TFTP build with the framework's TestSet config. Needs, once u0 is free: Boot Menu S -> 1 (password "abc 123",
+    erases flash), then the between-rows restore.
+  Framework logs (runner dir 5700_x230v2-28GS_6.2.40_run3/2005.5/, not renamed: the run was killed) committed as evidence;
+    chowned to terrenceb; key-fragment check 0 hits; no *-tags.log added. Not this run's fault, not the device's.
+  Feb control (6.2.37): 2005.5 PASS 225/0. Here: 124/124 of the checks it reached, then confounded.
+  Label: CONFOUNDED -- because a second operator's minicom attached to /dev/u0 at 14:53:19 during the case.
+  (No VERDICT line yet: pending the Test Engineer's decision on a re-run.)
