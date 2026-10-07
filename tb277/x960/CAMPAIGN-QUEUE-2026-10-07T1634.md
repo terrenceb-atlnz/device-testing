@@ -114,7 +114,7 @@ likely to reopen it (see its note).
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | T44967 T44968 T44969 T44973 T44974 | mirror-2026-10-07T1634 | DISPATCHED 16:59 | DUT-only CLI + `show mirror`. No campaign setup, no partner, no traffic. All five syntax forms confirmed on the DUT at triage |
+| 1 | T44967 T44968 T44969 T44973 T44974 | mirror-2026-10-07T1634 | RUNNING -- T44967 PASS; T44968 next | DUT-only CLI + `show mirror`. No campaign setup, no partner, no traffic. All five syntax forms confirmed on the DUT at triage |
 | 2a | T44979 T44986 T44988 T44992 | acl-2026-10-07T1634 | RUNNABLE — awaiting dispatch | needs the campaign setup. T44992 expected PARTIAL (I-1) |
 | 2b | T44989 T44990 T44991 | acl-2026-10-07T1634 | **BLOCKED** | I-8: only ONE in-bench observation point; each needs two things seen at once. Remedy: fit a copper SFP in swi_c port1.0.10 and move the tb eth3 cable onto it. Test Engineer 2026-10-07: leave blocked |
 | 3a | T43870 T44181 T44182 | ipv4-2026-10-07T1634 | RUNNABLE — awaiting dispatch | all three hash-free. T44182 needs the static ARP on swi_b; one run-time check that AW+ `ping` accepts a broadcast destination |
@@ -175,6 +175,21 @@ Nothing is written to startup-config. No unit is reloaded or power-cycled (Test 
 **Pre-group baseline:** swi_c's `show running-config` is captured to
 `mirror-2026-10-07T1634/pre-group-swi_c-running-config.txt` before the first case. The group is
 not finished until a fresh capture diffs clean against it.
+
+**⚠️ A benign `% ` line will fire during the restore.** Measured 2026-10-07 during T44967: while a
+mirror is configured, entering the destination port's interface mode prints
+
+```
+% port1.0.11 is currently configured as a mirror-port. Use caution when altering its config
+```
+
+That is an **advisory, not a rejection** — the command succeeds and the prompt advances to
+`(config-if)#`. But it starts with `% `, so `ckcon.py --stop-on-error` (and any driver using the
+same heuristic) aborts the sequence before the `no mirror interface` ever runs. **Do not use
+`--stop-on-error` for this restore.** Run it without, then gate on proven state: `show mirror`
+must print nothing and the running-config diff must be clean. Proven state is better evidence
+than an exit code. This fires on every case in the group, since all five enter
+`interface port1.0.11` with a mirror configured.
 
 **EXACT restore recipe.** If the tester dies mid-group, a fresh tester runs this on `/dev/u2` at
 115200 and the bench is back to baseline. **Read the port first** — the `no` form REQUIRES an
