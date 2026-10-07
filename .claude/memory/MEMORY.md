@@ -14,7 +14,7 @@
 - [AW+ CLI confirmations need Enter](awplus-cli-confirmations-need-enter.md) — CLI (y/n) wants `y\r`; only the BOOTLOADER menu takes a bare keypress; dsrdtr=True is flow control (use stty -hupcl)
 - [No stray scripts](no-stray-scripts.md) — throwaway scripts go in the SESSION SCRATCHPAD, never the lab tree; ENFORCED by ~/.claude/hooks/no-stray-py.py (Bash + Write)
 - [Read the whole function before judging](read-the-whole-function-before-judging.md) — read a function to its END; to claim a path is broken, RUN it (the PDU-401 false alarm); creds in secrets.md
-- [x230v2 5700 control corpus](x230v2-5700-control-corpus.md) — Feb x230v2 run = the control vs IE520 divergence; grep -a; 2026-10-06 28GS/6.2.40 traps: TFTP default boot, c1e7679 erase skip
+- [x230v2 5700 control corpus](x230v2-5700-control-corpus.md) — Feb x230v2 run = the control vs IE520 divergence; grep -a; 6.2.40 traps: TFTP default boot, c1e7679 erase skip, nand0 patch, one-TestCase runs
 - [IE520 SPIFlash goes dark](ie520-spiflash-goes-dark.md) — SPIFlash is incredibly slow (41 MB copy ≈ 12 min) and the unit answers NOTHING meanwhile — looks like a crash; wait it out
 - [IE520 TFTP boot needs a USB NIC](ie520-tftp-boot-needs-usb-nic.md) — no onboard mgmt eth; the .setup's eth0 is an ASIX USB dongle seen only by the bootloader; link is up only DURING BOOT
 - [IE520 bootloader console driving](ie520-bootloader-console-driving.md) — POINTER only: mechanics live in platforms/IE520.md §2 (state-driven escape: main-menu 0 = Restart, 9 in Select device SAVES); the worked example of a bench fact copied into a mechanics memory
@@ -68,3 +68,4 @@
 - [Files to a unit: device-side copy tftp](file-to-unit-via-device-copy-tftp.md) — Terrence 2026-10-06: put it in the box's /tftproot, then on the unit `copy tftp://<box IP in its subnet>/<file> flash:/<name>`; no helper hunting
 - [/test-mode wiki page](test-mode-wiki-page.md) — wiki.atlnz.lc Ask-ck/test-mode; source = docs/WIKI-Ask-ck-test-mode.wiki, Terrence pastes it; read live with curl `&action=raw`, diff vs repo
 - [Reboot-heavy runs after hours](reboot-heavy-runs-after-hours.md) — 2026-10-07: hours of PDU cycles distressed the office and a colleague stopped 2005.5; ask office vs after-hours at triage, no new reboot-heavy case into office hours
+- [Session restart leaves the old copy alive](session-restart-leaves-old-copy.md) — 2026-10-07: two --resume copies = two testers on u0; ps-check before resuming; unattended starts go in tmux with a one-shot cron

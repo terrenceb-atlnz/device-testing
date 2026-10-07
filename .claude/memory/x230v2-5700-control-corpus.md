@@ -84,7 +84,12 @@ platform first, or you convert a product finding into a test change.
 >   sets `doConfCheck = False`, so after a deliberate erase (2003.11, 2005.2) the case FAILs and
 >   ATTestSet skips the rest of the TestSet. Feb's d4c21f7 did not. Harness, not product.
 > - **6.2.40 on the 28GS prints `Erasing nand0:`** where Feb's 6.2.37 printed `Erasing flash:`;
->   2005.2's erase gate misses it although the erase happens. Graded FAIL; open question for the
->   Test Engineer whether that is a product change or test rot.
+>   2005.2's erase gate misses it although the erase happens. **Test Engineer 2026-10-07: wording
+>   only, PASS for that TestCase**; the follow-up run's `library_5700.py` patch adds `'Erasing nand0'`
+>   to the gate and `import copy` (2002.110's NameError). Diff: `5700_x230v2-28GS_6.2.40_run3/library_5700.diff`.
+> - **2026-10-07 follow-up, one TestCase per invocation** (`test-5700.<set>.py -s default.setup -u -v <n>`):
+>   the TestSet preamble still runs (~7.5 min); the baseline `.rel` must be OFF flash first or
+>   configure runs out of space for `backuprelease.rel`. The framework console log is `swi_a.log`
+>   (+ `swi_a-5700.<id>-tags.log`), so a sentinel CLI_GLOB needs `swi_a*.log`, not `swi_a_*.log`.
 > - After factory defaults the framework answers the forced new-password dialog with `P@ssw0rd`
 >   (friend is refused as default), so manager/friend logins fail until it is set back.

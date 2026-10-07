@@ -1,3 +1,147 @@
+# Session handover — 2026-10-07 (second wrap, 15:4x): x230v2 follow-up run, HANDED OVER, not finished
+
+Session `device-testing-73` (transcript `8733c1d4…`) ran the follow-up TestCases 08:17–15:00.
+It wraps here **with the run handed to a tmux session that starts it at 18:01 tonight**. The first
+wrap (the 10-06 campaign) is further down, unchanged.
+
+## Session facts
+Test Engineer: terrenceb@terrenceb-dl
+Testbox: tb470
+Consoles: u0 only (x230v2-28GS, S/N A10783G262900002, 9600; swi_a in the suite's default.setup)
+PDU: 10.36.150.14, outlet 1 (u0)
+Constraints: "Same as 10-06": "do not interact with any other devices yet" (u0 + its PDU outlet 1 only); reboot-heavy rows after hours only (Test Engineer 15:2x: "queue the test again to start at 6pm and watch it until its done")
+
+(From [CAMPAIGN-QUEUE-2026-10-07T0817.md](CAMPAIGN-QUEUE-2026-10-07T0817.md).)
+
+## TL;DR
+
+- **Four of eight TestCases are done, all PASS:** 5700.2002.110, 2003.10, 2005.3 and 2005.4
+  (queue Results).
+- **2005.5 was stopped at 14:58 and is CONFOUNDED.** calanm opened minicom on u0 at 14:53 *"at the
+  behest of those around him, the automated rebooting was causing distress due to the noise"*.
+  Before that, 124/124 of the checks it reached had passed.
+- **The rest runs tonight.** tmux session `test-mode` on terrenceb-dl (Claude session
+  `device-testing-49`, transcript `7c95580d-c82c-4608-b598-edfe9388a869.jsonl`) is the
+  sentinel and dispatcher. Its 18:01 one-shot gates on u0 being free, then dispatches a fresh
+  bench-runner for, in order:
+  1. u0 recovery (Boot Menu S → 1, password expected `abc 123`, erases flash; then the between-rows restore);
+  2. 2005.5 from scratch;
+  3. 2005.6, 2005.7, 2005.8;
+  4. the group restore.
+  It launches **no new TestCase after 07:00 on 2026-10-08** without the Test Engineer. The steps are
+  in the queue file's "Tonight's start — 18:00" section.
+- **The bench is PARKED mid-campaign by design. Do not restore it.** u0 is as calanm left it.
+  Expected, not read: bootloader Security Level 2, the default boot source still TFTP
+  `x230-tb470.rel`, AW+ running the TFTP build. At 15:4x u0 was free (precheck) and no test
+  process was running on tb470.
+- **This session's sentinel stood down at 15:3x.** Its Monitor was stopped, its 18:00 trigger and
+  15-min cron were deleted, and no stray `sentinel.sh` was left. Session 49 owns the run.
+
+## How to check on it at the next session (read-only; never two dispatchers)
+
+1. **Is the run still owned?** On terrenceb-dl:
+   ```bash
+   tmux ls                                   # expect: test-mode
+   ps -eo pid,lstart,cmd | grep -E '[c]laude --permission-mode auto|[-]-resume='   # one owner only
+   tmux attach -t test-mode                  # read session 49; detach with Ctrl-b d
+   ```
+   In the attached session, any **NEEDS YOU:** waits for your answer there.
+2. **Where it got to** (from the repo, no box access):
+   ```bash
+   cd /media/terrenceb/mnt/testbox_home/claude/device-testing
+   git log --oneline -15                     # per-case commits from tonight's tester
+   sed -n '/^## Queue/,/^## Issues/p' tb470/x230v2-28GS/CAMPAIGN-QUEUE-2026-10-07T0817.md
+   ls x230v2-28GS/bootloader-6.2.40/5700.2005/work/
+   ```
+3. **On tb470, without opening a console:**
+   ```bash
+   sock=/run/user/$(id -u)/keyring/ssh
+   SSH_AUTH_SOCK=$sock ssh -o BatchMode=yes tb470 'for d in /tmp/x230/run3/2005.*/; do echo "$d $(cat $d/start 2>/dev/null) | $(cat $d/end 2>/dev/null) rc=$(cat $d/rc 2>/dev/null)"; done; ps -eo pid,etime,cmd --no-headers' | grep -E 'run3|test-5700|launch1'
+   SSH_AUTH_SOCK=$sock ssh -o BatchMode=yes tb470 'cd ~/claude/device-testing/bench-setup && python3 bench_probe.py --box tb470 precheck --consoles u0'
+   ```
+   A live `test-5700.2005.py` means a TestCase is mid-run: leave u0 alone.
+4. **If session 49 is gone and rows are left:** start a new session in tmux the same way:
+   ```bash
+   tmux new -s test-mode
+   cd /media/terrenceb/mnt/testbox_home/claude/device-testing
+   claude --permission-mode auto
+   ```
+   Then run `/test-mode --resume tb470/x230v2-28GS/CAMPAIGN-QUEUE-2026-10-07T0817.md`. Before
+   dispatching, check that nothing else owns the run (step 1) and that no test-5700 process is live
+   (step 3).
+
+## What was done (08:17–15:4x)
+
+- Setup: the patched suite was staged on tb470 `/tmp/x230/run3/`, eight runner dirs were created,
+  and u0's Boot Menu was set 2 → 3 (TFTP default, proof reload 08:44).
+- Runs: 2002.110 run3 (configure out of flash space) → in-line fix → run4 PASS; 2003.10 PASS;
+  2005.3 PASS; 2005.4 PASS on run4 (run3 was disturbed by a second tester, see Findings); 2005.5
+  confounded at 14:53.
+- Records:
+  - logged-output.md: the "TestCase re-run overwrites" rule and §3 "Merging TestCase re-runs";
+  - the create-logs pointer (3d8c37d);
+  - the 10-06 queue: 5700.2005 re-graded PARTIAL;
+  - the queue's 18:00 hold and the "Tonight's start" section (473740d, 91c71a4);
+  - memories: `reboot-heavy-runs-after-hours` (6cfcc47), `session-restart-leaves-old-copy`, and an
+    update to `x230v2-5700-control-corpus`.
+- Session c7 (unreachable desktop, stuck at its 10-06 /create-logs question) was sent a handover and
+  then a CANCEL. It acts on neither.
+
+## Results so far (queue `## Results`)
+
+| case | verdict | run |
+| --- | --- | --- |
+| 5700.2002.110 | PASS | run4: clean, 13/13, rc 0 |
+| 5700.2003.10 | PASS | clean, 2/2, rc 0 |
+| 5700.2005.3 | PASS | clean on its own checks, 30/30 (framework FAIL = c1e7679 post-erase reset, harness) |
+| 5700.2005.4 | PASS | run4: clean on its own checks, 44/44 |
+| 5700.2005.5 | (none yet) | run3 CONFOUNDED: a second operator's minicom on u0 at 14:53:19; re-runs tonight |
+| 5700.2005.6–.8 | (none yet) | tonight |
+
+**Final logs NOT created yet.** Working logs are under `x230v2-28GS/bootloader-6.2.40/5700.200{2,3,5}/work/`.
+After tonight's results list, run `/create-logs`. It merges the re-runs into the TestSets' existing
+final logs (logged-output.md §3).
+
+## Findings
+
+Measured:
+- 6.2.40 security-level reset prints `Erasing nand0:`; with the patch, 2005.3 and 2005.4 reached
+  level 1.
+- One TestCase per invocation still runs the TestSet preamble (~7.5 min). The baseline `.rel` must
+  be off flash or configure runs out of space.
+- The ALL-licence step: ACCESS is accepted, 5 bundles are refused (u0 stays at Base + ACCESS).
+- The framework console log in the runner dirs is `swi_a.log`, not `swi_a_*.log`.
+
+Process (observed):
+- A VS Code restart around 10:56 left the old session process alive. Two testers drove u0 and
+  2005.4 was re-run. The same happened at 14:59 (memory `session-restart-leaves-old-copy`).
+- Licence keys were printed into a tester transcript. Reviewed by the Test Engineer: *"keys dont
+  need cycling, its fine"*. No action.
+- Reboot noise: the office objected to hours of PDU cycles. Runs go after hours (memory
+  `reboot-heavy-runs-after-hours`).
+
+## OPEN
+
+1. Tonight's 2005.5–.8 verdicts and the group restore. Session 49 reports them.
+2. Untracked: six framework `*-tags.log` files in `5700_x230v2-28GS_6.2.40_run3/*/` (more will
+   come tonight) and the root-owned symlink `x230v2-28GS/bootloader-6.2.40/current_test.log`.
+   - The Test Engineer chose to delete `*-tags.log` at the 10-06 wrap; this run's are left for
+     session 49's wrap to ask about.
+   - `current_test.log` is deleted at the end of the run (the Test Engineer's instruction).
+3. `/tftproot` leftovers (root): `x230-tb470.rel` symlink (needed tonight), `x230-copy-tb470.rel`,
+   `x250-tb470.rel`. After the run: `sudo rm /tftproot/x250-tb470.rel /tftproot/x230-copy-tb470.rel /tftproot/x230-tb470.rel`.
+4. bench-state.md was **not** regenerated: the bench is mid-campaign, and a u0-only probe would
+   rewrite it without the IE520 stack (same as the 10-06 OPEN 5).
+
+## Next steps
+
+1. Check on the run (above).
+2. Review the results list, then run `/create-logs`.
+3. Do the `/tftproot` sudo rm.
+4. Push (all commits from this session are local).
+
+---
+
 # Session handover — 2026-10-07, wrap of the x230v2-28GS bootloader 6.2.40 campaign (tb470 u0)
 
 The campaign ran 2026-10-06 in session `device-testing-c7` (one-session `/test-mode`). Terrence
