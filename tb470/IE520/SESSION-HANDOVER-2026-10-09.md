@@ -27,8 +27,10 @@ The Test Engineer, verbatim:
 - **Image names:** keep the dated names (OPEN 3: "it doesnt matter").
 - **Probe `2026-10-08T192750Z`: MISMATCH, one item only**: the new `tb-swi_e eth2-port1.0.1`
   (host MAC learned on 4050 port1.0.1). Every unit runs `awplus_main-20261008-57`.
-  **`apply` is NOT run**: the cable is "for now", so whether the `.setup` should declare it is the
-  Test Engineer's call. Until then the deployed `tb470.setup` lacks that link.
+  **Applied** at the Test Engineer's request (*"then apply the eth2 change to the bench state"*):
+  re-probe `2026-10-08T193631Z` (same single item), `apply` `2026-10-08T193647Z` (snapshot in
+  `backups/`), so `tb470.setup` now declares `tb-swi_e = eth2-port1.0.1`. Confirming probe
+  `2026-10-08T193648Z`: **MATCH**. The cable is "for now": if it is removed, re-probe and apply again.
 - OPEN 1 (AR4050S), 2, 3, 4 and 5 below are closed by this section.
 
 ---
