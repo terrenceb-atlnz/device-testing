@@ -502,6 +502,8 @@ pass with the `access-group` removed and proven gone** (trap 1 above). QoS path:
 | case | verdict | reason | graded by | working log |
 | --- | --- | --- | --- | --- |
 | T44992 | PASS | named hw IP ACL on static LAG sa1 enforces on BOTH members; host+network forms, vlan qualifier both ways, first-match, ARP unaffected, via access-group AND service-policy, survives reload, removes with no config or TCAM residue. Stack clauses withdrawn by the Test Engineer, NOT run. | bench-runner 2026-10-08 | acl-lag-2026-10-08T1637/T44992/work/run1.log |
+| T44967 | PASS | `mirror interface port1.0.48 direction transmit` accepted on the destination port, reported by both `show mirror` and `show mirror interface`, and copies ONLY egress frames of the monitored port (6 replies, 0 requests); forwarding undisturbed; the `no` form removes it cleanly from config and dataplane | tester | mirror-2026-10-08T1637/T44967/work/run1.log |
+| T44968 | PASS | `mirror interface port1.0.48 direction receive` accepted and reported correctly, copies ONLY ingress frames (6 requests, 0 replies) — the exact inverse of T44967 on identical cabling, so the two are each other's control. Defects **M1** (a re-applied mirror needs a destination-port bounce) and **M2** (an in-place `direction` change is silently ignored) were found while proving it; both are recorded as measured observations in this log, with the seven-capture table and the host-side causes ruled out first | tester | mirror-2026-10-08T1637/T44968/work/run1.log |
 
 ## Issues
 
