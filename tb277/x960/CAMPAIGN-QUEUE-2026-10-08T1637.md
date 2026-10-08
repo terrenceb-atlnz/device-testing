@@ -435,6 +435,17 @@ review), NOTED (no decision needed now), CLOSED (decided or answered).
   (2026-09-30), and tb277's uptime is 27 days. A reboot of **tb277 itself** would empty
   `/tftproot` and the DUT could not then boot. Re-read `/tftproot` immediately before any D3
   reload.
+- **I-6 SHARPENED 2026-10-08 17:43, during T44992 — the consumption rate is now MEASURED.**
+  With exactly one hardware ACL rule applied (`deny ip … vlan …` on `sa1`), the DUT reports
+  `ACL 1` and `Total 3 / 1024`, against a clean baseline of `Total 2 / 1024` (the 2 being Loop
+  Detection). ⇒ **one hardware ACL rule = one classifier entry**, so the ceiling on this build is
+  about **1022 ACL rules with nothing else configured** — and the same 1024 pool is shared with
+  Global ACL, VACL, QoS, Loop Detection, EPSR, CFM, G8032, DoS, RA Guard, BFD/BEFD, AMFAPPS,
+  IPFIX (Flow and Sample), OpenFlow (Hybrid/Flow/Default) and MLAG, each separately counted.
+  The project budget is **2.5K 60-byte rules**. This is not a margin question: the pool is
+  roughly **2.5x smaller than the budget assumes**. Egress is a separate `0 / 6144`.
+  **This is the strongest evidence yet for raising it as its own CR** — it is measured on the
+  DUT, reproducible in one command, and lands exactly on the Test Strategy's headline risk.
 - **I-6 (OPEN — Test Engineer) The ingress classifier pool reads 1024 entries, not ~2.5K.**
   Measured at triage on a clean DUT: `show platform classifier statistics utilization brief` →
   `[Instance 0] [port1.0.1-port1.0.77]`, ingress `Total 2 / 1024` (the 2 = Loop Detection),
