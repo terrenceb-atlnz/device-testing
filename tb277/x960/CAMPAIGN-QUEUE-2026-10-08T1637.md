@@ -174,6 +174,54 @@ Restore at the end: reverse 1–4 exactly, un-shut 1.0.4 / 1.0.14, remove swi_b'
 return port1.0.48 and port1.0.10 to vlan 1 and clear any mirror, then diff all three
 running-configs against the campaign baseline and re-probe.
 
+### Setup AMENDMENTS from triage (2026-10-08 ~17:10) — apply these before group 1
+
+The tester found four things in the recipe above that would have produced unreadable or false
+results, and two gaps in the restore. All are within its own authority; none needs the Test
+Engineer at the bench.
+
+- **(a) 🔥 VLAN 100 is not a closed domain.** **DUT `port1.0.8` and swi_b `port1.0.8` are both
+  connected, both already in VLAN 100, both STP Forwarding, both far ends unidentified.** The
+  setup moves test traffic INTO vlan 100, so anything live behind either port floods into the
+  test VLAN, reaches `sa1` and `port1.0.48`, **and is mirrored into every group-1 capture** —
+  destroying the "eth3 captures only the expected frames" proof, and able to answer ARP for
+  10.38.22.70. ⇒ **`shutdown` DUT port1.0.8 and swi_b port1.0.8 in setup; un-shut in restore.**
+  Same family, lower priority: DUT `port1.0.40` (connected, vlan 1, Forwarding, far end unknown)
+  is an STP participant that can inject topology changes — shut it too or record it explicitly.
+- **(b) swi_a↔swi_b stays live, and swi_b is the observer.** Shutting DUT 1.0.4/1.0.14 isolates
+  swi_a from the DUT, but swi_a 1.0.1/1.0.11 ↔ swi_b 1.0.1/1.0.11 remain up — two parallel vlan-1
+  links with RSTP blocking one and loop-protection fast-block armed. A flap there sends a TCN
+  into **swi_b**, flushing the MAC table that every ACL case's forwarding check depends on.
+  ⇒ **also `shutdown` swi_b port1.0.1 and port1.0.11.** One STP domain in the path, swi_a fully
+  out.
+- **(c) Shut 1.0.16 before reworking the LAG.** `loop-protection` is enabled on every port,
+  action `vlan-dis`, fast-block, 7 s timeout. Changing VLAN and channel-group membership on
+  1.0.16 at two ends leaves a window where the ends disagree; a transient loop there silently
+  disables VLAN 100 on a port for 7 s mid-setup. ⇒ **`shutdown` DUT 1.0.16 and swi_b 1.0.16 →
+  make every change at both ends → `no shutdown` both.** Then confirm
+  `show static-channel-group` reads `port1.0.2, port1.0.16` on both units with both members
+  Forwarding, and check `show log` for loop-protection actions before case 1.
+- **(d) DUT port1.0.4 keeps `switchport access vlan 100`** after `no static-channel-group`. It is
+  shut so it is harmless, but set it to vlan 1 or record it deliberately.
+- **(d2) Mirror oversubscription.** `port1.0.10` links at **1 Gbps** and so does the monitored
+  `port1.0.48`. `direction both` at line rate exceeds the destination and drops frames, which
+  reads as a mirror failure. **Keep group-1 traffic at ping/scapy rates — not `tcpreplay` line
+  rate.**
+- **(e1) Back up `flash:/default.cfg` first.** D3 does `copy running-config startup-config`,
+  which overwrites the DUT's 1703-byte saved baseline. The restore only reverses running-config.
+  ⇒ **copy `flash:/default.cfg` to `flash:/precampaign.cfg` before group 1** and restore it at
+  the end. Note the running-config carries `lldp run` that startup-config does not, so a D3 save
+  would persist that too.
+- **(e2) Set the clocks.** The DUT logs in **UTC** while the box is NZDT (**+13 h**), and swi_b's
+  clock is ~12 h off the DUT's. Group 1's method correlates DUT behaviour against host `tcpdump`
+  stamps and swi_b receipt. `clock set` is exec-only with no running-config footprint, so fixing
+  it on the DUT and swi_b at campaign start costs nothing and needs no restore. **Do it.**
+
+Boot baseline confirmed safe for D3 (triage): DUT `Current boot config: flash:/default.cfg (file
+exists)`; `/tftproot/x960-tb277.rel` present, 57,496,435 B, `.info` =
+`x960-sin_x96056-20260921-9.rel`, **matching the running build**. swi_a reads
+`flash:/default.cfg (file not found)` — it netboots and defaults, as I-3 records.
+
 **`port1.0.10` becomes the mirror destination in group 1 and stays one for group 3.** A mirror
 destination leaves every VLAN and stops normal switching, and **only one mirror destination is
 supported per switch** — so host eth3 sees mirrored frames only, and no case may configure a
@@ -315,6 +363,28 @@ review), NOTED (no decision needed now), CLOSED (decided or answered).
   (2026-09-30), and tb277's uptime is 27 days. A reboot of **tb277 itself** would empty
   `/tftproot` and the DUT could not then boot. Re-read `/tftproot` immediately before any D3
   reload.
+- **I-6 (OPEN — Test Engineer) The ingress classifier pool reads 1024 entries, not ~2.5K.**
+  Measured at triage on a clean DUT: `show platform classifier statistics utilization brief` →
+  `[Instance 0] [port1.0.1-port1.0.77]`, ingress `Total 2 / 1024` (the 2 = Loop Detection),
+  egress `0 / 6144`. The TPS's Falcon arithmetic implies ~3K 60-byte ACL rules and the project
+  works to a **2.5K budget**; the Test Strategy's named risk is *"TCAM consumption against the
+  chosen 2.5K rule budget on Falcon"*. On this build that risk looks already realised, by roughly
+  2.5x. Only **one** instance is reported although the TPS describes two control pipes.
+  **Blocks none of the 13 cases** (each uses a handful of rules), and the separate
+  `Global ACL` / `ACL` / `VACL` / `QoS` counters in that one pool make group 3's ACL-vs-QoS
+  contention directly measurable. **Asked 2026-10-08, unanswered:** is 1024 expected on
+  `sin_x96056-20260921-9`, or is this the budget risk materialising? May deserve its own case or
+  CR, independent of these 13.
+- **I-7 (OPEN — Test Engineer) Four consoles on tb277 are outside this session's list** — `u0`,
+  `u1`, `u4`, `u6`. None was opened. If one fronts a second **x960-56YSQ**, T44992's stack
+  clauses could be revisited; that is both a console outside the session list and a topology
+  change, so it is the Test Engineer's call, not the tester's.
+- **I-8 (NOTED, for group 3) The `access-list hardware <name>` sub-mode actions are unconfirmed.**
+  Entering that sub-mode creates the list — a config change the read-only triage correctly
+  refused. The numbered forms prove every action the four group-3 cases use. **Confirm the
+  sub-mode's action list in the first minute of group 3**, where creating a named hardware ACL is
+  the case's own step. Related: `send-to-mirror` and `deny-and-not-cpu` are **absent** from the
+  numbered forms on this build (`platforms/x960.md` §5, corrected 2026-10-08).
 - **I-5 (NOTED) Case steps are drafted, not authoritative.** They come from ck.db's `steps_text`
   and `summary`, re-grounded against the Feature Overview guides, the TPS and the Test Strategy.
   Where the standard or the guide contradicts a step, the tester tests the correct behaviour and
