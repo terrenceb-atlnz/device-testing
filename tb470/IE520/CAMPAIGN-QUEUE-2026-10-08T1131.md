@@ -33,6 +33,12 @@ Constraints: "Run now, no power cycles" (option text: "Same scope, and a failing
 - 12:36: *"bauds are fixed, stack is rebooting. am off of minicoms. all yours"*
 - 12:5x, ruling on the probe USER-CONFLICT (u2 login_failed, u4 silent): *"I can see all login prompts on u2 and u4, u5 says stack is ok with \"sh stack\" so im taking it as a win"* → conflict resolved, consoles fine. *"i gotta go setup for this demo, i will communicate with you in a peer session"*: the go/no-go for row 1 arrives as a peer-session message just after 13:00.
 
+**Resumed 2026-10-08 13:08 NZDT by device-testing-8a (`/test-mode --resume`, this session = sentinel):**
+- Told the expected T22650 FAIL (member 2 `Provisioned`), the Test Engineer said: *"member two is contactable, but lets start the campaign anyway"* → **the go for row 1.**
+  Recorded verbatim; the tester measures member 2's state rather than assuming it absent.
+- Recorded facts taken as standing: consoles u2,u4,u5 (stack), PDU 10.36.150.14 (u2=6, u4=4, u5=5), **no power cycles**. Sentinel stands down 17:30 unless told otherwise.
+- The deployed tb470.setup is still stale (handover OPEN 1: cable 1 = eth1-port3.0.13, stack consoles 115200); no apply this session.
+
 ## Rules carried with the queue
 
 - Verdicts, working logs, the `RESULT` line, the results list: [logged-output.md](../../logged-output.md).
@@ -53,7 +59,7 @@ Constraints: "Run now, no power cycles" (option text: "Same scope, and a failing
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | AWPTCM-T22650, T22651, T22652, T22653, T22654, T22655 on the IE520 stack (u2,u4,u5) | tb470/IE520/modbus-2026-10-08T1131/ | **TRIAGED, NOT LAUNCHED** — wrapped ~13:1x at the Test Engineer's instruction (relayed by device-testing-8a: "have the peer session /wrap-dt …"); resume with `/test-mode --resume` from this row | probe 12:42 exit 4 USER-CONFLICT = u2 login_failed + u4 silent (not a fact disagreement); u5 = member 3 master 115200; member 2 still Provisioned (T22650 0x0049 expected FAIL again); build main-calanm (Oct 6 19:44 UTC), bootloader 9.2.0 x3; master flash 176 KB free. Cable 1 eth1-port3.0.13 linked, ping v4 + link-local OK. Cable 2 port1.0.2-x230 port1.0.2 linked (LLDP), but port1.0.2 is in static-channel-group 2 (sa2) -> exception 4 on T22655 API write, as 09-29. N=6 runnable (need only u5 + eth1), M=0, K=6 gated on the Test Engineer ruling on u2/u4. NEEDS TE: u4 silent at 115200 since 12:42; may it be re-probed, or probe u2,u5 only? |
+| 1 | AWPTCM-T22650, T22651, T22652, T22653, T22654, T22655 on the IE520 stack (u2,u4,u5) | tb470/IE520/modbus-2026-10-08T1131/ | **RESUMED 13:08, RUN dispatching** (device-testing-8a = sentinel; was TRIAGED, NOT LAUNCHED after the 13:0x wrap) | probe 12:42 exit 4 USER-CONFLICT = u2 login_failed + u4 silent (not a fact disagreement); u5 = member 3 master 115200; member 2 still Provisioned (T22650 0x0049 expected FAIL again); build main-calanm (Oct 6 19:44 UTC), bootloader 9.2.0 x3; master flash 176 KB free. Cable 1 eth1-port3.0.13 linked, ping v4 + link-local OK. Cable 2 port1.0.2-x230 port1.0.2 linked (LLDP), but port1.0.2 is in static-channel-group 2 (sa2) -> exception 4 on T22655 API write, as 09-29. N=6 runnable (need only u5 + eth1), M=0, K=6 gated on the Test Engineer ruling on u2/u4. NEEDS TE: u4 silent at 115200 since 12:42; may it be re-probed, or probe u2,u5 only? |
 | 2 | AWPTCM-T22650, T22651, T22652, T22653, T22654, T22655 on the x230v2-28GS (u0) | tb470/x230v2-28GS/modbus-2026-10-08T1131/ | DROPPED 12:2x | Test Engineer: "The DUT will be the IE520 stack" |
 
 ## Results
