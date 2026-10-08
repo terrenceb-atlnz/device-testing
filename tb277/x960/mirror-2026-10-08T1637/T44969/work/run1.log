@@ -134,6 +134,41 @@ Reproduced 5 times: cap-both.txt, cap-both-retry.txt, cap-both-bounce2.txt, cap-
 cap-both-afterboot.txt -- all 1 byte.
 CR wording is the Test Engineer's call; these are the measurements.
 
+FAIL CONDITION: with `mirror interface port1.0.48 direction both` configured on the
+destination port, a 6-ping flow across the monitored port must deliver BOTH directions to the
+mirror destination -- 6 echo requests (what the DUT receives on port1.0.48) AND 6 echo replies
+(what it transmits out of it), 12 frames in total.
+  expected : 6 echo requests AND 6 echo replies at tb277 eth3
+  observed : 0 echo requests and 0 echo replies, five separate runs, every capture file 1 byte
+             (cap-both.txt, cap-both-retry.txt, cap-both-bounce2.txt, cap-both-confirm.txt,
+              cap-both-afterboot.txt), tcpdump reporting "0 packets received by filter"
+  the ping passed 6/6 at 0% loss in every one of those runs, so the traffic to be mirrored
+  was present on the monitored port throughout.
+WHY THIS IS THE PRODUCT, NOT THE METHOD: `direction transmit` and `direction receive` were
+applied on the SAME boot, the SAME cabling, the SAME 6-ping flow and by the SAME procedure
+(remove -> apply -> bounce the destination -> measure), and each delivered exactly its expected
+frames -- transmit 6 replies and 0 requests (cap-tx-sameboot.txt, 535 B), receive 6 requests and
+0 replies (cap-rx-sameboot.txt, 547 B). A method, bench or capture fault would have taken those
+two down with it. The decisive run was on a PRISTINE BOOT: `both` was saved to startup-config
+and the DUT reloaded, so the hardware was programmed from flash with NO re-application history,
+which is what rules out defect M1 as the explanation. It still copied nothing.
+
+TRIED: everything below was done before grading, and none of it changed the result.
+  - re-measured with no configuration change, in case the mirror needed settle time
+    -> cap-both-retry.txt, 1 byte
+  - bounced the destination port a SECOND time with 25 s settle
+    -> cap-both-bounce2.txt, 1 byte
+  - checked the link at both ends during the failure: `show interface port1.0.10 status` read
+    `connected ... a-full a-1000`, and the host NIC read `UP ... LOWER_UP`
+  - checked it was not a capture-side fault: tcpdump reported "0 packets RECEIVED BY FILTER",
+    so nothing reached eth3 at all, and an earlier UNFILTERED capture in this group caught not
+    one frame of any kind in 14 s
+  - checked the mirror engine was not wedged by the preceding reconfigurations: re-applied
+    `direction transmit` mid-session, clean + bounce -> cap-tx-control-after-both.txt, 541 B,
+    6 echo replies. The engine was working seconds before and after `both` failed.
+  - saved and reloaded, then re-tested on the pristine boot, and re-tested both working
+    directions on that same boot
+
 VERDICT: FAIL -- `mirror interface port1.0.48 direction both` is accepted and reported correctly
 by every CLI status command, and survives a save and reload, but copies NO frames to the mirror
 destination. `direction transmit` and `direction receive` both work on the same boot, same
