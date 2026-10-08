@@ -1,0 +1,139 @@
+# T44968 (AWP-5317) -- CLI show mirror interface direction set to receive -- run 1 -- 2026-10-09
+
+## Session facts
+Testbox    tb277 (Test Engineer bidhanc@bidhanc-dl).  Consoles u2=swi_c (DUT), u3=swi_b, u5=swi_a.
+PDU        10.36.230.212 outlet 1 (u2), outlet 7 (u3); 10.36.230.35 outlet 3 (u5).
+Constraints none stated. Power cycles allowed. Sentinel: parent session.
+Group      mirror-2026-10-08T1637. Setup G0-G4 and restore R0-R6 are in the queue file (2df8463).
+Run order  T44967 (transmit) was run immediately before this case, on identical cabling and the
+           identical 6-ping flow. The two are each other's control.
+
+## Devices
+swi_c DUT /dev/u2 115200 AT-x960-56YSQ S/N A2WQS7004, hostname x960-56YSQ, bridge MAC
+          e01a.ead4.72cb, Marvell 98CX8514 Falcon, sin_x96056-20260921-9, NETBOOTS
+swi_b     /dev/u3 9600 AT-x960-28YSQ S/N A10737A261700021, bridge MAC 0000.cd42.3029, STP root
+swi_a     /dev/u5 -- deliberately isolated for this group
+
+## Links and host NICs
+tb eth4 00:0d:b9:55:77:0f 10.38.22.65/27 ---- swi_c port1.0.48   SOURCE / MONITORED port
+swi_c sa1 = port1.0.2 + port1.0.16 ---- swi_b sa1 (VLAN 100)
+swi_b vlan100 10.38.22.70/27                                     far-side endpoint
+tb eth3 00:0d:b9:55:77:0e ---- swi_c port1.0.10                  MIRROR DESTINATION, tcpdump here
+
+## Tools
+cfg.py, ckcon.py, cap.sh -- as T44967. Raw evidence, unedited, in ../work-box/ (commit 477b339).
+
+## Steps and evidence
+
+### STEP 0 -- D0 baseline
+Carried from the state immediately before this case: the T44967 mirror had been removed and
+proven gone, `show mirror` empty, and ../work-box/cap-after-rm.err records
+"0 packets captured / 0 packets received by filter" with ping-after-rm.txt at 0% loss.
+  PASS. The destination port is silent before this case configures anything.
+
+### STEP 1 -- "set the mirror direction to receive" and read it back
+x960-56YSQ(config)#interface port1.0.10
+x960-56YSQ(config-if)#mirror interface port1.0.48 direction receive
+x960-56YSQ#show mirror
+  Mirror Test Port Name: port1.0.10
+  Mirror option: Enabled
+  Mirror direction: receive                 <-- direction as set
+  Monitored Port Name: port1.0.48
+x960-56YSQ#show mirror interface port1.0.48
+  Mirror Test Port Name: port1.0.10
+  Mirror option: Enabled
+  Mirror direction: receive
+  Monitored Port Name: port1.0.48
+  => STEP 1 PASS: the command is accepted on the destination port naming the source, and both
+     show forms report destination port1.0.10, direction receive and monitored port1.0.48.
+
+### STEP 2 -- first measurement: NO frames copied  (this is defect M1, not a feature failure)
+host# ./cap.sh rx        (../work-box/cap-rx.txt, cap-rx.err, ping-rx.txt)
+  cap-rx.err:  0 packets captured / 0 packets received by filter / 0 packets dropped by kernel
+  ping-rx.txt: 6 packets transmitted, 6 received, 0% packet loss
+  Nothing was copied although `show mirror` reported the mirror Enabled and correct.
+
+  Diagnosis before concluding anything -- "DUT not mirroring" vs "host not capturing":
+x960-56YSQ#show interface port1.0.10 status
+  port1.0.10  -   connected   1  a-full a-1000  10GBASE-TM     <-- link is up
+host# ip -br link show dev eth3
+  eth3  UP  00:0d:b9:55:77:0e <BROADCAST,MULTICAST,UP,LOWER_UP> <-- host NIC is up
+  tcpdump reported "0 packets RECEIVED BY FILTER" -- i.e. nothing reached eth3 at all, so this
+  is not a filter or a decode problem.
+x960-56YSQ#show interface port1.0.10      (before and after 10 pings)
+  output packets 86779 ... -> output packets 86790          delta +11 in ~11 s
+  That delta matches the 1-per-second loop-detect frames (`loop-protection loop-detect
+  ldf-interval 1` is enabled on every port), NOT mirrored traffic. So the DUT genuinely was not
+  copying frames.
+  Further fresh applies all captured nothing: ../work-box/cap-tx2.txt, cap-rx2.txt, cap-tx3.txt,
+  cap-rx3.txt and raw-rx.txt are each 1 byte, and raw-rx was an UNFILTERED capture -- not one
+  frame of any kind arrived at eth3 in 14 s.
+
+### STEP 3 -- bounce the destination port, then measure: receive mirrors ONLY ingress
+x960-56YSQ(config-if)#interface port1.0.10
+x960-56YSQ(config-if)#shutdown
+x960-56YSQ(config-if)#no shutdown
+host# ./cap.sh rx-bounce  (../work-box/cap-rx-bounce.txt, .err, ping-rx-bounce.txt)
+  cap-rx-bounce.txt:
+    09:02:23.565262 IP 10.38.22.65 > 10.38.22.70: ICMP echo request, id 26228, seq 1, length 64
+    09:02:24.070480 IP 10.38.22.65 > 10.38.22.70: ICMP echo request, id 26228, seq 2, length 64
+    09:02:24.582518 IP 10.38.22.65 > 10.38.22.70: ICMP echo request, id 26228, seq 3, length 64
+    09:02:25.094491 IP 10.38.22.65 > 10.38.22.70: ICMP echo request, id 26228, seq 4, length 64
+    09:02:25.606498 IP 10.38.22.65 > 10.38.22.70: ICMP echo request, id 26228, seq 5, length 64
+    09:02:26.118491 IP 10.38.22.65 > 10.38.22.70: ICMP echo request, id 26228, seq 6, length 64
+  ping-rx-bounce.txt: 6 packets transmitted, 6 received, 0% packet loss
+  counted: echo REQUESTS (ingress on 1.0.48) = 6 ; echo REPLIES (egress on 1.0.48) = 0
+  => STEP 3 PASS: six requests and ZERO replies -- the exact inverse of T44967's six replies and
+     zero requests, on identical cabling with the identical flow. The requests are what the DUT
+     RECEIVES on port1.0.48. Only the received direction was copied, which is what
+     `direction receive` means. Forwarding was undisturbed. T44967 is the control for this
+     result and this is the control for T44967; neither could be produced by a mirror that
+     ignored direction.
+
+## Defects -- both reproducible, both measured here
+
+### M1 -- a RE-APPLIED mirror copies nothing until the destination port is bounced
+Full evidence table from ../work-box/, in time order, ping at 0% loss throughout
+(a 1-byte cap file means nothing was captured; ~540-553 B means frames arrived):
+
+  cap file                      time   state                                        frames
+  cap-d0.txt                    08:54  no mirror (baseline)                          none  correct
+  cap-tx.txt                    08:55  transmit, FIRST EVER apply on this port        YES
+  cap-rx.txt                    08:57  removed, receive applied fresh                 none  <-- M1
+  cap-tx2/rx2/tx3/rx3.txt       08:58  further removals and fresh applies             none  <-- M1
+  cap-rx-bounce.txt             09:02  receive + destination port bounced             YES
+  cap-tx-fresh-nobounce.txt     09:05  removed, transmit applied fresh, no bounce     none  <-- M1
+  cap-tx-fresh-bounce.txt       09:06  same, then destination bounced                 YES
+
+The only mirror that worked without a bounce was the very first one on a port that had never
+been a mirror destination. Every later application required `shutdown` / `no shutdown` on
+port1.0.10 before a single frame was copied, and `show mirror` reported the mirror as Enabled
+with the correct direction and source the whole time.
+
+### M2 -- changing `direction` in place is SILENTLY IGNORED
+With `direction receive` live and working:
+x960-56YSQ(config-if)#interface port1.0.10
+x960-56YSQ(config-if)#mirror interface port1.0.48 direction transmit
+                                            <-- accepted, NO error of any kind
+x960-56YSQ#show mirror
+  Mirror option: Enabled
+  Mirror direction: receive                 <-- STILL reports receive, not transmit
+host# ./cap.sh tx-nobounce (../work-box/cap-tx-nobounce.txt, 553 B)
+  counted: echo REQUESTS = 6 ; echo REPLIES = 0      <-- still RECEIVE behaviour
+Bouncing the port did not help either (cap-tx-bounce.txt: 6 requests, 0 replies). Only
+`no mirror interface port1.0.48` followed by a fresh apply changed the reported direction:
+x960-56YSQ#show mirror  ->  Mirror direction: transmit
+and after a bounce, cap-tx-fresh-bounce.txt held 6 echo REPLIES, 0 requests.
+
+Why M2 matters: the running configuration is not what was typed, and `show mirror` agrees with
+the STALE value, so there is no way to detect it from the CLI. A test that reads back
+`show mirror` and stops there would record a false pass. This is why every verdict in this group
+rests on captured frames. CR wording is the Test Engineer's call; these are the measurements.
+
+VERDICT: PASS -- `mirror interface port1.0.48 direction receive` is accepted on the destination
+port, reported correctly by `show mirror` and `show mirror interface port1.0.48`, and copies
+ONLY the frames the DUT receives on the monitored port (6 requests, 0 replies), the exact
+inverse of T44967's transmit result on identical cabling. Two defects were found while proving
+it -- M1, a re-applied mirror needs a destination-port bounce, and M2, an in-place direction
+change is silently ignored -- neither of which is part of this case's step text and neither of
+which prevented `direction receive` itself from behaving correctly once applied.
