@@ -299,12 +299,99 @@ R6  diff both running-configs against the pre-change baselines; re-run bench_pro
 Nothing in S0-S5 was saved to startup-config on either unit, so a reload of either clears
 S1-S5 by itself. S0 leaves only an inert extra file in the DUT's flash.
 
+## Group 1 bench setup and its exact restore recipe (mirror-2026-10-08T1637)
+
+Written BEFORE the group's first case (bench-runner RUN obligation) so a fresh tester can
+restore the bench if this session dies mid-group. Group 4 (T44992) ran first and was fully
+restored; this setup starts from the restored baseline, NOT from group 4's state.
+
+Pre-change baselines are captured to the group's first case folder as
+`work/pre-u2.txt` / `work/pre-u3.txt`. The repo copies are authoritative — tb277's `/tmp`
+does not survive a box reboot.
+
+Adopts the triage amendments: (a) the two live off-bench VLAN-100 ports are shut, (b) swi_a
+is isolated on BOTH sides, (c) the LAG rework is done shut-first against loop-protection
+fast-block, (g) both device clocks are set so console logs correlate with host tcpdump.
+
+### Setup, in order
+
+```
+G0  both   clock set <HH:MM:SS> <DD MMM YYYY>        exec-only, NO running-config footprint,
+                                                     so it needs no restore. The DUT logs in
+                                                     UTC (+13h from the box) and swi_b's clock
+                                                     was ~12h off the DUT's; without this the
+                                                     mirror evidence cannot be lined up with
+                                                     the host capture.
+G1  swi_b  interface port1.0.16 ; shutdown
+    DUT    interface port1.0.16 ; shutdown
+G2  swi_b  interface port1.0.4  ; no static-channel-group
+           interface port1.0.16 ; switchport access vlan 100 ; static-channel-group 1
+           interface port1.0.8  ; shutdown        (off-bench, was live in vlan 100)
+           interface port1.0.1  ; shutdown        (isolates swi_a)
+           interface port1.0.11 ; shutdown        (isolates swi_a)
+           interface vlan100    ; ip address 10.38.22.70/27
+G3  DUT    interface port1.0.4  ; no static-channel-group ; switchport access vlan 1 ; shutdown
+           interface port1.0.14 ; shutdown        (isolates swi_a)
+           interface port1.0.8  ; shutdown        (off-bench, was live in vlan 100)
+           interface port1.0.16 ; switchport access vlan 100 ; static-channel-group 1
+           interface port1.0.48 ; switchport access vlan 100     MONITORED (source) port
+G4  swi_b  interface port1.0.16 ; no shutdown
+    DUT    interface port1.0.16 ; no shutdown
+```
+
+`port1.0.10` is left a plain VLAN-1 access port by the setup. **Each case makes it the mirror
+destination itself** — that is the case's own content, not bench setup. Only ONE mirror
+destination is supported per switch, so no case may configure a second.
+
+Gate before case 1 — all must pass:
+- `show static-channel-group` reads `port1.0.2` + `port1.0.16` on BOTH units, both Forwarding
+- `show spanning-tree brief` on the DUT: `sa1` Forwarding, `port1.0.48` and `port1.0.10`
+  Forwarding, `port1.0.4`/`1.0.8`/`1.0.14` Discarding (shut)
+- `show log` shows no loop-protection action
+- `show mirror` is EMPTY on the DUT
+- CONTROL PING host eth4 10.38.22.65 <-> swi_b 10.38.22.70 passes BOTH ways. That round trip
+  transits the DUT on port1.0.48 and sa1, and it is the traffic every mirroring case captures.
+
+### Restore — exact reverse, run it whole
+
+```
+R0  DUT    clear any mirror: interface port1.0.10 ; no mirror interface <src>|none
+           `show mirror` must be EMPTY before going on
+R1  DUT    interface port1.0.16 ; shutdown
+    swi_b  interface port1.0.16 ; shutdown
+R2  DUT    interface port1.0.48 ; switchport access vlan 1
+           interface port1.0.16 ; no static-channel-group ; switchport access vlan 1
+           interface port1.0.8  ; no shutdown
+           interface port1.0.14 ; no shutdown
+           interface port1.0.4  ; no shutdown ; switchport access vlan 100 ; static-channel-group 1
+R3  swi_b  interface vlan100    ; no ip address
+           interface port1.0.11 ; no shutdown
+           interface port1.0.1  ; no shutdown
+           interface port1.0.8  ; no shutdown
+           interface port1.0.16 ; no static-channel-group ; switchport access vlan 1
+           interface port1.0.4  ; static-channel-group 1      (it kept vlan 100)
+R4  swi_b  interface port1.0.16 ; no shutdown
+    DUT    interface port1.0.16 ; no shutdown
+R5  host   ip addr del <any secondary> dev eth4 ; stop any tcpdump by PID
+R6  diff both running-configs against the pre-change baselines; re-run bench_probe
+```
+
+**D3 for this group is carried by T44969.** Before its reload: re-read `/tftproot/x960-tb277.rel`
+(the DUT netboots) and confirm `show boot` reads `Current boot config: flash:/default.cfg
+(file exists)`. `flash:/precampaign.cfg` is ALREADY on the DUT from group 4 and is the
+byte-exact pre-campaign startup config — do NOT delete it, and after any D3 save restore the
+startup config by re-saving the torn-down running-config (a direct
+`copy flash:/precampaign.cfg flash:/default.cfg` is REFUSED: "% Cannot overwrite
+flash:/default.cfg as it is the default config file").
+
+Nothing in G0-G4 is saved to startup-config, so a reload of either unit clears G1-G4 by itself.
+
 ## Queue
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
 | 0 | — | — | TRIAGE DONE | campaign setup above; then triage confirms every drafted command on the DUT |
-| 1 | T44967 T44968 T44969 T44973 T44974 | mirror-2026-10-08T1637 | TODO | port mirroring. Now with **real frames**: 1.0.48 is the monitored port, 1.0.10 the destination, host eth3 captures. D3 carried by T44969 |
+| 1 | T44967 T44968 T44969 T44973 T44974 | mirror-2026-10-08T1637 | RUNNING | port mirroring. Now with **real frames**: 1.0.48 is the monitored port, 1.0.10 the destination, host eth3 captures. D3 carried by T44969 |
 | 2 | T44987 T44988 T44986 | acl-num-2026-10-08T1637 | TODO | numbered ACLs: IP 3000 range, MAC 4000 range, standard 1–99. D3 carried by T44987 |
 | 3 | T44979 T44991 T44989 T44990 | acl-named-2026-10-08T1637 | TODO | named hardware ACLs on a port: proto, copy-to-cpu, send-to-cpu, copy-to-mirror. Run copy-to-cpu and send-to-cpu back to back and contrast. D3 carried by T44979 |
 | 4 | T44992 | acl-lag-2026-10-08T1637 | DONE | named hardware ACL on `sa1`. Stack clauses WITHDRAWN by the Test Engineer 2026-10-08 — graded in full, no longer PARTIAL. Setup + restore recipe above |
