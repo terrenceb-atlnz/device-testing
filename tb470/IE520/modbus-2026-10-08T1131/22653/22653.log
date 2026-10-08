@@ -1,0 +1,516 @@
+================================================================================
+TEST 22653 -- modbus -  read port  information
+================================================================================
+Run:      2026-10-08 13:23:48-13:25:12 NZDT (device clocks UTC; times below are tb470's, NZDT)
+Bench:    tb470, consoles u2,u4,u5 (case driven on u5); Test Engineer terrenceb@terrenceb-dl
+Tester:   bench-runner (by hand: tools/ckcon.py, tools/mb.py, no framework script)
+Graded:   tester
+Case:     AWPTCM-T22653, objective "Able to retrieve port information", 7 steps
+          (registers 0x5000-0x5009 of port #1; each step "Confirm this is same as CLI")
+Build:    stk_a main-calanm (IE520-tb470.rel, build date Tue Oct 6 19:44:28 UTC 2026),
+          bootloader 9.2.0; stack members 1, 3, 4
+Configs:  stk_a.cfg (running-config after setup; saved to startup: no)
+
+VERDICT: PASS -- port #1's current state, configured state and input/output byte
+         registers equal the CLI; PoE steps 3-5 UNSUPPORTED (no PoE on the AT-IE520-28GSX)
+      1 Port Current State (0x5000) ...... PASS         (0000 = down/auto/auto/auto = CLI "Link is DOWN",
+                                                         configured auto; linked ports read f103 = CLI up/full/1000)
+      2 Port Configured State (0x5001) ... PASS         (f000 = admin up, auto/auto/auto = CLI "administrative
+                                                         state is UP", configured duplex/speed/polarity auto)
+      3 Port PoE Configuration (0x5002) .. UNSUPPORTED  (`show power-inline` = "% Invalid input detected";
+                                                         the register answers illegal data address)
+      4 PoE Data Pairs Power (0x5003) .... UNSUPPORTED  (same; 0x5003 answers illegal data address)
+      5 PoE Spare Pairs Power (0x5004) ... UNSUPPORTED  (same; 0x5004 answers illegal data address)
+      6 Port Input Bytes (0x5005) ........ PASS         (0 = CLI "input packets 0, bytes 0";
+                                                         linked port1.0.2 6298 = CLI 6298)
+      7 Port Output Bytes (0x5009) ....... PASS         (0 = CLI "output packets 0, bytes 0";
+                                                         linked port1.0.2 299318, CLI 299818 5 s later)
+CAVEAT:  the case's #1 port (port1.0.1) is an empty SFP cage, so steps 1, 6 and 7 read
+         zero/down values. The same registers read on the linked ports port1.0.2 and
+         port3.0.13 carry live non-zero values equal to the CLI; they are shown as the
+         control in each of those steps.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  DUT     : stk_a (AT-IE520-28GSX VCStack, hostname IE520-stk) console u5 (master),
+            Normal operation, stack MAC 0000.cd37.0d6f (virtual)
+            member 1 = swi_a S/N 264A23061 MAC 84e3.2787.0ac0, Backup Member, console u2
+            member 2 = Provisioned only (`switch 2 provision ie520-28`; no MAC, no unit)
+            member 3 = swi_c S/N 264A23066 MAC 84e3.2787.0740, Active Master, console u5 (driven)
+            member 4 = swi_d S/N 264A23052 MAC 84e3.2787.09c0, Backup Member, console u4
+            vlan1 10.38.215.10/27 (+ .40, .66 secondaries), ipv6 enable, ipv6 address dhcp
+  ports   : port1.0.1  = empty SFP cage (no row in `show system pluggable`), notconnect,
+                         switchport mode access -- the case's "#1 port"
+            port1.0.2  = AT-SPTXa copper SFP, connected a-full a-1000, static-channel-group 2
+            port3.0.13 = AT-SPTXc copper SFP, connected a-full a-1000
+  link    : stk_a port1.0.2 <-> x230 (swi_f) port1.0.2  (1000BASE-T; the x230 is only the
+            link partner, so it has no .cfg here)
+  host    : tb470 eth1 10.38.215.1/27 (fd32:b1f0:dff8:d701::1/64, fe80::f667:7041:7dff:3cfc)
+            -> stk_a port3.0.13 (member 3, 1000BASE-T, a-full a-1000, VLAN 1);
+            Modbus/TCP to 10.38.215.10 port 502
+  tools   : tools/mb.py (Modbus/TCP client) on tb470, every call as
+              mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log [--slave <unit>] ...
+            tools/ckcon.py on tb470: /dev/u5 115200 (the stack master's console);
+            tools/rc2cfg.py turned the after-setup running-config into stk_a.cfg
+  regmap  : (ART library_1359) 13 words per port from 0x5000, ports in order per member;
+            Modbus unit id = stack member. Port #1 = port1.0.1 = unit 1, block 0x5000:
+            +0 current state, +1 configured state, +2 PoE configuration, +3 PoE data-pairs
+            power, +4 PoE spare-pairs power, +5..+8 input bytes, +9..+12 output bytes.
+            State word = 4 nibbles [state, duplex, polarity, speed]: state 0 down / F up;
+            duplex 0 auto 1 full 2 half; polarity 0 auto 1 mdi 2 mdix;
+            speed 0 auto 1 10 2 100 3 1000 4 10000.
+
+STEP 0 -- baseline (Modbus server OFF) and setup                              done
+--------------------------------------------------------------------------------
+IE520-stk# show stack                                            (13:23:53)
+  Virtual Chassis Stacking summary information
+
+  ID   Pending ID  MAC address        Priority  Status  Role
+  1    -           84e3.2787.0ac0     128       Ready   Backup Member   <-- member 1 (swi_a)
+  2    -           -                  -         -       Provisioned   <-- member 2: provisioned, absent
+  3    -           84e3.2787.0740     128       Ready   Active Master   <-- member 3 (swi_c), master, u5
+  4    -           84e3.2787.09c0     128       Ready   Backup Member   <-- member 4 (swi_d)
+
+  Operational Status                 Normal operation
+  Stack MAC address                  0000.cd37.0d6f (Virtual MAC)
+IE520-stk# show scada modbus tcp server                          (13:23:54)
+  MODBUS is disabled                                      <-- server OFF
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log probe
+  Connection to (10.38.215.10, 502) failed: [Errno 111] Connection refused
+  13:23:56 CONNECT 10.38.215.10:502 slave=0 -> FAILED (no TCP connection)   <-- nothing answers on 502
+
+Setup (13:24:01-13:24:06):
+IE520-stk# configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)# scada modbus tcp server
+IE520-stk(config)# end
+IE520-stk# show scada modbus tcp server
+  SCADA MODBUS Summary Information
+
+  MODBUS is enabled                                       <-- server ON
+  Write access: disabled                                  <-- read-only access
+  Master heartbeat status: Not set
+  Master heartbeat timeout: 0
+
+  -------------------------------------
+  TCP Server Characteristics:
+    Port            :   502                               <-- port 502
+    Max Connections :     1
+
+  -------------------------------------
+  Statistics:
+    Read Requests:
+      coils                :          0
+      discrete inputs      :          0
+      holding registers    :        108                   <-- counter before this case's reads
+      input registers      :          0
+
+    Write Requests:
+      single coil          :          0
+      single register      :          0
+      multiple coils       :          0
+      multiple registers   :          0
+
+    Other Requests         :          0
+
+    Exceptions:
+      illegal function     :          0
+      illegal data address :          4                   <-- counter before this case's reads
+      illegal data value   :          5                   <-- counter before this case's reads
+      slave device failure :          5
+IE520-stk# show running-config | include scada
+  scada modbus tcp server
+  Running-config then saved as stk_a.cfg (3 header + 186 config lines); not written
+  to startup.
+  => STEP 0 done: with the server off nothing answers on TCP 502; after
+     `scada modbus tcp server` the DUT is a read-only Modbus/TCP server on port 502.
+
+STEP 1 -- 0x5000 #1 Port Current State (R, 1 word HEX)                        PASS
+--------------------------------------------------------------------------------
+  Method: read port #1's current-state word over Modbus and compare it with
+  `show interface`; then read the same word on two linked ports as the control.
+  The member-info word on unit 1 confirms unit 1 = member 1 with 28 ports.
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 1 read 0x0120 5 RAW "unit 1 member info"
+  13:24:32 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:24:32   TX 00 01 00 00 00 06 01 03 01 20 00 05
+  13:24:32 READ  0x0120 x5 RAW unit 1 member info -> words=['0x0001', '0x001c', '0x0000', '0x0005', '0x001f'] value=[1, 28, 0, 5, 31]   <-- member 1, 28 ports
+
+The CLI for port #1 (13:24:19-13:24:23):
+IE520-stk# show interface port1.0.1
+  Interface port1.0.1
+    Scope: both
+    Link is DOWN, administrative state is UP              <-- link DOWN, admin UP
+    Thrash-limiting
+      Status Not Detected, Action learn-disable, Timeout 1(s)
+    Hardware is Ethernet, address is 0000.cd37.0d6f
+    index 5001 metric 1 mru 1500
+    configured duplex auto, configured speed auto, configured polarity auto   <-- configured auto/auto/auto
+    <UP,BROADCAST,MULTICAST>
+    SNMP link-status traps: Disabled
+    SNMP mac-change traps - added: Disabled, removed: Disabled
+    DHCP subscriber-id substitution for client-id is not enabled
+    DHCP subscriber-id is <not-set>
+      input packets 0, bytes 0, dropped 0, multicast packets 0
+      output packets 0, bytes 0, multicast packets 0, broadcast packets 0
+      input average rate : 30 seconds 0 bps, 5 minutes 0 bps
+      output average rate: 30 seconds 0 bps, 5 minutes 0 bps
+    Time since last state change: 0 days 00:49:15
+    Unknown unicast flooding blocking is disabled
+IE520-stk# show interface port1.0.1 status
+  Port        Name               Status      Vlan      Duplex Speed   Type        
+  --------------------------------------------------------------------------------
+  port1.0.1   -                  notconnect          1 auto   auto    not present   <-- notconnect, nothing fitted
+IE520-stk# show running-config interface port1.0.1
+  !
+  interface port1.0.1
+   switchport
+   switchport mode access
+  !
+IE520-stk# show system pluggable
+  System Pluggable Information
+
+  Port    Vendor           Device           Serial Number    Datecode Type
+  --------------------------------------------------------------------------------
+  1.0.2   ATI              AT-SPTXa         A04906R191400056 19041101 1000BASE-T   <-- 1.0.2 is listed; there is no 1.0.1 row
+  1.0.27  ATI              AT-SP10SR        A05160R193700253 190902   10GBASE-SR  
+  1.0.28  TE Connectivity  1-2127931-2      17510045         17121800 1xCOPPER PAS
+  3.0.2   ATI              AT-SPTXa         A04906R194700157 19112101 1000BASE-T  
+  3.0.13  ATI              AT-SPTXc         A10217F224400102 221020   1000BASE-T  
+  3.0.27  TE Connectivity  1-2127931-2      4P812YD21460F9   21111400 1xCOPPER PAS
+  3.0.28  ATI              AT-SP10SR        A05160R202800633 200703   10GBASE-SR  
+  4.0.2   ATI              AT-SP10TM        A10321F233700035 23090401 10GBASE-TM  
+  4.0.26  ATI              AT-SPSX          A03240R192702000 19070301 1000BASE-SX 
+  4.0.27  TE Connectivity  1-2127931-2      17510045         17121800 1xCOPPER PAS
+  4.0.28  TE Connectivity  1-2127931-2      4P812YD21460F9   21111400 1xCOPPER PAS
+
+The Modbus read (13:24:32):
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 1 read 0x5000 1 HEX "s1-7 port1.0.1 current state"
+  13:24:32 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:24:32   TX 00 01 00 00 00 06 01 03 50 00 00 01
+  13:24:32 READ  0x5000 x1 HEX s1-7 port1.0.1 current state -> words=['0x0000'] value='0000'   <-- 0000 = down, duplex auto, polarity auto, speed auto
+
+Control, the same word on the two linked ports:
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 1 read 0x500d 1 HEX "port1.0.2 current state"
+  13:24:39 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:24:39   TX 00 01 00 00 00 06 01 03 50 0d 00 01
+  13:24:39 READ  0x500d x1 HEX port1.0.2 current state -> words=['0xf103'] value='f103'   <-- f103 = up, full, auto, 1000
+IE520-stk# show interface port1.0.2                              (13:24:44)
+  Interface port1.0.2
+    Scope: both
+    Link is UP, administrative state is UP                <-- link UP
+    Thrash-limiting
+      Status Not Detected, Action learn-disable, Timeout 1(s)
+    Hardware is Ethernet, address is 0000.cd37.0d6f
+    index 5002 metric 1 mru 1500
+    current duplex full, current speed 1000, current polarity auto   <-- full / 1000 / auto
+    configured duplex auto, configured speed auto, configured polarity auto
+    <UP,BROADCAST,RUNNING,MULTICAST>
+    SNMP link-status traps: Disabled
+    SNMP mac-change traps - added: Disabled, removed: Disabled
+    DHCP subscriber-id substitution for client-id is not enabled
+    DHCP subscriber-id is <not-set>
+      input packets 94, bytes 6298, dropped 0, multicast packets 94
+      output packets 3039, bytes 299818, multicast packets 218, broadcast packets 20
+      input average rate : 30 seconds 30 bps, 5 minutes 2 bps
+      output average rate: 30 seconds 1.03 Kbps, 5 minutes 995 bps
+      input peak rate 135 bps at 2026/10/07 23:39:31
+      output peak rate 1.84 Kbps at 2026/10/07 23:38:39
+    Time since last state change: 0 days 00:47:09
+    Unknown unicast flooding blocking is disabled
+IE520-stk# show interface port1.0.2 status
+  Port        Name               Status      Vlan      Duplex Speed   Type        
+  --------------------------------------------------------------------------------
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 3 read 0x509c 1 HEX "port3.0.13 current state"
+  13:24:47 CONNECT 10.38.215.10:502 slave=3 -> ok
+  13:24:47   TX 00 01 00 00 00 06 03 03 50 9c 00 01
+  13:24:47 READ  0x509c x1 HEX port3.0.13 current state -> words=['0xf103'] value='f103'   <-- f103 = up, full, auto, 1000
+IE520-stk# show interface port3.0.13                             (13:24:53)
+  Interface port3.0.13
+    Scope: both
+    Link is UP, administrative state is UP                <-- link UP
+    Thrash-limiting
+      Status Not Detected, Action learn-disable, Timeout 1(s)
+    Hardware is Ethernet, address is 0000.cd37.0d6f
+    index 15013 metric 1 mru 1500
+    current duplex full, current speed 1000, current polarity auto   <-- full / 1000 / auto
+    configured duplex auto, configured speed auto, configured polarity auto
+    <UP,BROADCAST,RUNNING,MULTICAST>
+    SNMP link-status traps: Disabled
+    SNMP mac-change traps - added: Disabled, removed: Disabled
+    DHCP subscriber-id substitution for client-id is not enabled
+    DHCP subscriber-id is <not-set>
+      input packets 956, bytes 72670, dropped 0, multicast packets 2
+      output packets 3639, bytes 346917, multicast packets 218, broadcast packets 13
+      input average rate : 30 seconds 2.70 Kbps, 5 minutes 991 bps
+      output average rate: 30 seconds 2.82 Kbps, 5 minutes 1.67 Kbps
+      input peak rate 34.93 Kbps at 2026/10/08 00:18:28
+      output peak rate 25.59 Kbps at 2026/10/08 00:18:28
+    Time since last state change: 0 days 00:47:17
+    Unknown unicast flooding blocking is disabled
+
+      port        word (unit)    Modbus  decoded                  CLI
+      port1.0.1   0x5000 (1)     0000    down / auto/auto/auto    Link is DOWN; notconnect, auto/auto
+      port1.0.2   0x500d (1)     f103    up / full/auto/1000      Link is UP; current full, 1000, auto
+      port3.0.13  0x509c (3)     f103    up / full/auto/1000      Link is UP; current full, 1000, auto
+  => STEP 1 PASS: port #1's current-state word (0000 = down, auto) is what the CLI
+     reports for port1.0.1 (Link is DOWN, notconnect). The word follows the link: on
+     the two linked ports it reads f103 (up, full, 1000), again exactly as the CLI.
+
+STEP 2 -- 0x5001 #1 Port Configured State (RW, 1 word HEX)                    PASS
+--------------------------------------------------------------------------------
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 1 read 0x5001 1 HEX "s1-7 port1.0.1 configured state"
+  13:24:32 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:24:32   TX 00 01 00 00 00 06 01 03 50 01 00 01
+  13:24:32 READ  0x5001 x1 HEX s1-7 port1.0.1 configured state -> words=['0xf000'] value='f000'   <-- f000 = admin up, duplex auto, polarity auto, speed auto
+  The CLI for port1.0.1 (show interface port1.0.1, 13:24:19, in full in STEP 1):
+    Link is DOWN, administrative state is UP              <-- administrative state is UP
+    configured duplex auto, configured speed auto, configured polarity auto   <-- configured auto/auto/auto
+
+Control, the same word on the two linked ports:
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 1 read 0x500e 1 HEX "port1.0.2 configured state"
+  13:24:39 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:24:39   TX 00 01 00 00 00 06 01 03 50 0e 00 01
+  13:24:39 READ  0x500e x1 HEX port1.0.2 configured state -> words=['0xf000'] value='f000'   <-- f000
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 3 read 0x509d 1 HEX "port3.0.13 configured state"
+  13:24:47 CONNECT 10.38.215.10:502 slave=3 -> ok
+  13:24:47   TX 00 01 00 00 00 06 03 03 50 9d 00 01
+  13:24:47 READ  0x509d x1 HEX port3.0.13 configured state -> words=['0xf000'] value='f000'   <-- f000
+  The CLI (show interface port1.0.2 13:24:44, show interface port3.0.13 13:24:53, in STEP 1):
+    Link is UP, administrative state is UP                <-- port1.0.2 admin UP
+    configured duplex auto, configured speed auto, configured polarity auto   <-- port1.0.2 configured auto/auto/auto
+    Link is UP, administrative state is UP                <-- port3.0.13 admin UP
+    configured duplex auto, configured speed auto, configured polarity auto   <-- port3.0.13 configured auto/auto/auto
+
+      port        word (unit)    Modbus  decoded                  CLI
+      port1.0.1   0x5001 (1)     f000    up / auto/auto/auto      administrative state UP; configured auto/auto/auto
+      port1.0.2   0x500e (1)     f000    up / auto/auto/auto      administrative state UP; configured auto/auto/auto
+      port3.0.13  0x509d (3)     f000    up / auto/auto/auto      administrative state UP; configured auto/auto/auto
+  => STEP 2 PASS: port #1's configured-state word (f000 = administratively up,
+     duplex/speed/polarity auto) matches the CLI's "administrative state is UP" and
+     "configured duplex auto, configured speed auto, configured polarity auto". It is
+     the configured value, not the link: port1.0.1 is down yet reads f000, like the
+     linked ports.
+
+STEP 3 -- 0x5002 #1 Port PoE Configuration (RW, 1 word HEX)            UNSUPPORTED
+--------------------------------------------------------------------------------
+IE520-stk# show power-inline                                     (13:24:29)
+  ^
+  % Invalid input detected at '^' marker.                 <-- no PoE commands on this platform
+IE520-stk# show power-inline interface port1.0.1                 (13:24:30)
+  ^
+  % Invalid input detected at '^' marker.                 <-- no PoE commands on this platform
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 1 read 0x5002 1 HEX "s1-7 port1.0.1 PoE configuration"
+  Exception response 131 / 0
+  13:24:32 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:24:32   TX 00 01 00 00 00 06 01 03 50 02 00 01
+  13:24:32 READ  0x5002 x1 HEX s1-7 port1.0.1 PoE configuration -> EXCEPTION ExceptionResponse(dev_id=1, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)   <-- exception, no value
+  The same word on the linked ports also answers with an exception:
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 1 read 0x500f 1 HEX "port1.0.2 PoE configuration"
+  Exception response 131 / 0
+  13:24:39 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:24:39   TX 00 01 00 00 00 06 01 03 50 0f 00 01
+  13:24:39 READ  0x500f x1 HEX port1.0.2 PoE configuration -> EXCEPTION ExceptionResponse(dev_id=1, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 3 read 0x509e 1 HEX "port3.0.13 PoE configuration"
+  Exception response 131 / 0
+  13:24:47 CONNECT 10.38.215.10:502 slave=3 -> ok
+  13:24:47   TX 00 01 00 00 00 06 03 03 50 9e 00 01
+  13:24:47 READ  0x509e x1 HEX port3.0.13 PoE configuration -> EXCEPTION ExceptionResponse(dev_id=3, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)
+  Reading port #1's whole 13-word block in one request is refused too, because it
+  spans the PoE words. Single reads of the other words succeed (steps 1, 2, 6, 7):
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 1 read 0x5000 13 RAW "port1.0.1 whole 13-word block"
+  Exception response 131 / 0
+  13:24:33 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:24:33   TX 00 01 00 00 00 06 01 03 50 00 00 0d
+  13:24:33 READ  0x5000 x13 RAW port1.0.1 whole 13-word block -> EXCEPTION ExceptionResponse(dev_id=1, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)
+  The other two reads this case sent, unit 0 and unit 2 (member 2 is provisioned only):
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log read 0x5000 1 HEX "unit 0 0x5000"
+  13:24:54 CONNECT 10.38.215.10:502 slave=0 -> ok
+  13:24:54   TX 00 01 00 00 00 06 00 03 50 00 00 01
+  13:24:54 READ  0x5000 x1 HEX unit 0 0x5000 -> words=['0x0000'] value='0000'
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 2 read 0x5000 1 HEX "unit 2 0x5000"
+  Exception response 131 / 0
+  13:24:54 CONNECT 10.38.215.10:502 slave=2 -> ok
+  13:24:54   TX 00 01 00 00 00 06 02 03 50 00 00 01
+  13:24:54 READ  0x5000 x1 HEX unit 2 0x5000 -> EXCEPTION ExceptionResponse(dev_id=2, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)
+  The server's own count of the exceptions (compare the counters in STEP 0, 13:24:04):
+IE520-stk# show scada modbus tcp server                          (13:24:59)
+  SCADA MODBUS Summary Information
+
+  MODBUS is enabled
+  Write access: disabled
+  Master heartbeat status: Not set
+  Master heartbeat timeout: 0
+
+  -------------------------------------
+  TCP Server Characteristics:
+    Port            :   502
+    Max Connections :     1
+
+  -------------------------------------
+  Statistics:
+    Read Requests:
+      coils                :          0
+      discrete inputs      :          0
+      holding registers    :        133                   <-- 108 -> 133: +25 = every read this case sent
+      input registers      :          0
+
+    Write Requests:
+      single coil          :          0
+      single register      :          0
+      multiple coils       :          0
+      multiple registers   :          0
+
+    Other Requests         :          0
+
+    Exceptions:
+      illegal function     :          0
+      illegal data address :         14                   <-- 4 -> 14: +10 = the nine PoE reads + the block
+      illegal data value   :          6                   <-- 5 -> 6: +1 = the unit 2 read
+      slave device failure :          5
+  => STEP 3 UNSUPPORTED: the AT-IE520-28GSX has no PoE. The CLI has no
+     `show power-inline` command, and the DUT answers the PoE-configuration word with
+     an exception that it counts as illegal data address (the +10 above: 0x5002-0x5004
+     on three ports, plus the block that spans them). There is no PoE value to compare.
+
+STEP 4 -- 0x5003 #1 Port PoE Data Pairs Current Power Usage (R, 1 word UINT)  UNSUPPORTED
+--------------------------------------------------------------------------------
+IE520-stk# show power-inline                                     (13:24:29, as STEP 3)
+  ^
+  % Invalid input detected at '^' marker.                 <-- no PoE commands on this platform
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 1 read 0x5003 1 UINT "s1-7 port1.0.1 PoE data-pairs power"
+  Exception response 131 / 0
+  13:24:32 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:24:32   TX 00 01 00 00 00 06 01 03 50 03 00 01
+  13:24:32 READ  0x5003 x1 UINT s1-7 port1.0.1 PoE data-pairs power -> EXCEPTION ExceptionResponse(dev_id=1, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)   <-- exception, no value
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 1 read 0x5010 1 UINT "port1.0.2 PoE data-pairs power"
+  Exception response 131 / 0
+  13:24:39 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:24:39   TX 00 01 00 00 00 06 01 03 50 10 00 01
+  13:24:39 READ  0x5010 x1 UINT port1.0.2 PoE data-pairs power -> EXCEPTION ExceptionResponse(dev_id=1, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 3 read 0x509f 1 UINT "port3.0.13 PoE data-pairs power"
+  Exception response 131 / 0
+  13:24:47 CONNECT 10.38.215.10:502 slave=3 -> ok
+  13:24:47   TX 00 01 00 00 00 06 03 03 50 9f 00 01
+  13:24:47 READ  0x509f x1 UINT port3.0.13 PoE data-pairs power -> EXCEPTION ExceptionResponse(dev_id=3, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)
+  => STEP 4 UNSUPPORTED: no PoE on the AT-IE520-28GSX. `show power-inline` is not a
+     command, and the data-pairs power word answers illegal data address on every port
+     (counted in the +10 in STEP 3).
+
+STEP 5 -- 0x5004 #1 Port PoE Spare Pairs Current Power Usage (R, 1 word UINT) UNSUPPORTED
+--------------------------------------------------------------------------------
+IE520-stk# show power-inline                                     (13:24:29, as STEP 3)
+  ^
+  % Invalid input detected at '^' marker.                 <-- no PoE commands on this platform
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 1 read 0x5004 1 UINT "s1-7 port1.0.1 PoE spare-pairs power"
+  Exception response 131 / 0
+  13:24:32 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:24:32   TX 00 01 00 00 00 06 01 03 50 04 00 01
+  13:24:32 READ  0x5004 x1 UINT s1-7 port1.0.1 PoE spare-pairs power -> EXCEPTION ExceptionResponse(dev_id=1, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)   <-- exception, no value
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 1 read 0x5011 1 UINT "port1.0.2 PoE spare-pairs power"
+  Exception response 131 / 0
+  13:24:39 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:24:39   TX 00 01 00 00 00 06 01 03 50 11 00 01
+  13:24:39 READ  0x5011 x1 UINT port1.0.2 PoE spare-pairs power -> EXCEPTION ExceptionResponse(dev_id=1, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 3 read 0x50a0 1 UINT "port3.0.13 PoE spare-pairs power"
+  Exception response 131 / 0
+  13:24:47 CONNECT 10.38.215.10:502 slave=3 -> ok
+  13:24:47   TX 00 01 00 00 00 06 03 03 50 a0 00 01
+  13:24:47 READ  0x50a0 x1 UINT port3.0.13 PoE spare-pairs power -> EXCEPTION ExceptionResponse(dev_id=3, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)
+  => STEP 5 UNSUPPORTED: no PoE on the AT-IE520-28GSX. `show power-inline` is not a
+     command, and the spare-pairs power word answers illegal data address on every port
+     (counted in the +10 in STEP 3).
+
+STEP 6 -- 0x5005 #1 Port Input Bytes (R, 4 words UINT)                        PASS
+--------------------------------------------------------------------------------
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 1 read 0x5005 4 UINT "s1-7 port1.0.1 input bytes"
+  13:24:32 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:24:32   TX 00 01 00 00 00 06 01 03 50 05 00 04
+  13:24:32 READ  0x5005 x4 UINT s1-7 port1.0.1 input bytes -> words=['0x0000', '0x0000', '0x0000', '0x0000'] value=0   <-- 0 bytes
+  The CLI before the reads (13:24:19, in full in STEP 1):
+      input packets 0, bytes 0, dropped 0, multicast packets 0   <-- input bytes 0
+  The CLI after the reads:
+IE520-stk# show interface port1.0.1                              (13:24:38)
+  Interface port1.0.1
+    Scope: both
+    Link is DOWN, administrative state is UP
+    Thrash-limiting
+      Status Not Detected, Action learn-disable, Timeout 1(s)
+    Hardware is Ethernet, address is 0000.cd37.0d6f
+    index 5001 metric 1 mru 1500
+    configured duplex auto, configured speed auto, configured polarity auto
+    <UP,BROADCAST,MULTICAST>
+    SNMP link-status traps: Disabled
+    SNMP mac-change traps - added: Disabled, removed: Disabled
+    DHCP subscriber-id substitution for client-id is not enabled
+    DHCP subscriber-id is <not-set>
+      input packets 0, bytes 0, dropped 0, multicast packets 0   <-- input bytes still 0
+      output packets 0, bytes 0, multicast packets 0, broadcast packets 0
+      input average rate : 30 seconds 0 bps, 5 minutes 0 bps
+      output average rate: 30 seconds 0 bps, 5 minutes 0 bps
+    Time since last state change: 0 days 00:49:33
+    Unknown unicast flooding blocking is disabled
+
+Control, the same counter on the two linked ports:
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 1 read 0x5012 4 UINT "port1.0.2 input bytes"
+  13:24:39 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:24:39   TX 00 01 00 00 00 06 01 03 50 12 00 04
+  13:24:39 READ  0x5012 x4 UINT port1.0.2 input bytes -> words=['0x0000', '0x0000', '0x0000', '0x189a'] value=6298   <-- 6298
+      input packets 94, bytes 6298, dropped 0, multicast packets 94   <-- CLI port1.0.2 13:24:44: 6298
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 3 read 0x50a1 4 UINT "port3.0.13 input bytes"
+  13:24:47 CONNECT 10.38.215.10:502 slave=3 -> ok
+  13:24:47   TX 00 01 00 00 00 06 03 03 50 a1 00 04
+  13:24:47 READ  0x50a1 x4 UINT port3.0.13 input bytes -> words=['0x0000', '0x0000', '0x0001', '0x1954'] value=72020   <-- 72020
+      input packets 956, bytes 72670, dropped 0, multicast packets 2   <-- CLI port3.0.13 13:24:53: 72670
+      input average rate : 30 seconds 2.70 Kbps, 5 minutes 991 bps   <-- port3.0.13 input rate
+
+      port        counter (unit)   Modbus (time)         CLI input bytes (time)
+      port1.0.1   0x5005 x4 (1)    0      (13:24:32)     0     (13:24:19 and 13:24:38)
+      port1.0.2   0x5012 x4 (1)    6298   (13:24:39)     6298  (13:24:44)
+      port3.0.13  0x50a1 x4 (3)    72020  (13:24:47)     72670 (13:24:53)  this link carries the
+                                                                           Modbus and ping traffic
+                                                                           itself
+  => STEP 6 PASS: port #1's input-bytes counter reads 0, as the CLI does before and
+     after. On a linked port the same counter carries a live value equal to the CLI
+     (port1.0.2: 6298 = 6298); on port3.0.13, the link the Modbus requests arrive on,
+     the CLI reading 6 s later has only grown.
+
+STEP 7 -- 0x5009 "#1 Port Input Bytes" (R, 4 words UINT) = Output Bytes       PASS
+--------------------------------------------------------------------------------
+  Note: the step text names "#1 Port Input Bytes", but in the register map 0x5009 is
+  the Output Bytes counter (the 4 words after input bytes at 0x5005). Graded as output
+  bytes.
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 1 read 0x5009 4 UINT "s1-7 port1.0.1 output bytes"
+  13:24:32 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:24:32   TX 00 01 00 00 00 06 01 03 50 09 00 04
+  13:24:32 READ  0x5009 x4 UINT s1-7 port1.0.1 output bytes -> words=['0x0000', '0x0000', '0x0000', '0x0000'] value=0   <-- 0 bytes
+  The CLI for port1.0.1 (13:24:19 and 13:24:38, in full in STEPS 1 and 6):
+      output packets 0, bytes 0, multicast packets 0, broadcast packets 0   <-- output bytes 0 (13:24:19)
+      output packets 0, bytes 0, multicast packets 0, broadcast packets 0   <-- output bytes 0 (13:24:38)
+
+Control, the same counter on the two linked ports:
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 1 read 0x5016 4 UINT "port1.0.2 output bytes"
+  13:24:39 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:24:39   TX 00 01 00 00 00 06 01 03 50 16 00 04
+  13:24:39 READ  0x5016 x4 UINT port1.0.2 output bytes -> words=['0x0000', '0x0000', '0x0004', '0x9136'] value=299318   <-- 299318
+      output packets 3039, bytes 299818, multicast packets 218, broadcast packets 20   <-- CLI port1.0.2 13:24:44: 299818
+      output average rate: 30 seconds 1.03 Kbps, 5 minutes 995 bps   <-- port1.0.2 output rate
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22653.log --slave 3 read 0x50a5 4 UINT "port3.0.13 output bytes"
+  13:24:48 CONNECT 10.38.215.10:502 slave=3 -> ok
+  13:24:48   TX 00 01 00 00 00 06 03 03 50 a5 00 04
+  13:24:48 READ  0x50a5 x4 UINT port3.0.13 output bytes -> words=['0x0000', '0x0000', '0x0005', '0x47c7'] value=346055   <-- 346055
+      output packets 3639, bytes 346917, multicast packets 218, broadcast packets 13   <-- CLI port3.0.13 13:24:53: 346917
+      output average rate: 30 seconds 2.82 Kbps, 5 minutes 1.67 Kbps   <-- port3.0.13 output rate
+
+      port        counter (unit)   Modbus (time)          CLI output bytes (time)
+      port1.0.1   0x5009 x4 (1)    0       (13:24:32)     0      (13:24:19 and 13:24:38)
+      port1.0.2   0x5016 x4 (1)    299318  (13:24:39)     299818 (13:24:44)  +500 bytes in 5 s
+                                                                             on a live link
+      port3.0.13  0x50a5 x4 (3)    346055  (13:24:48)     346917 (13:24:53)  carries the Modbus
+                                                                             and ping traffic
+  => STEP 7 PASS: port #1's output-bytes counter reads 0, as the CLI does before and
+     after the reads. On the linked ports the same counter carries live values, and
+     the CLI's reading a few seconds later is larger only by the traffic in between
+     (port1.0.2 299318 -> 299818 in 5 s, at a CLI output rate of 1.03 Kbps).
+================================================================================

@@ -1,0 +1,415 @@
+================================================================================
+TEST 22655 -- modbus - dynamic changes
+================================================================================
+Run:      2026-10-08 13:31:57-13:35:47 NZDT (device clock UTC, ~50 s ahead of tb470;
+          DUT log times below are DUT clock)
+Bench:    tb470, consoles u2,u4,u5 (case driven on u5); Test Engineer terrenceb@terrenceb-dl
+Tester:   bench-runner (by hand: tools/ckcon.py, tools/mb.py, no framework script)
+Graded:   tester
+Case:     AWPTCM-T22655 (Draft, folder /Modbus/Proj 2166 Modbus Support), objective "dynamic
+          change of server configuration and confirm it is reflected correctly", precondition
+          "modbus is configured and client able to retrieve information", 4 steps
+Build:    stk_a main-calanm (IE520-tb470.rel, build date Tue Oct 6 19:44:28 UTC 2026),
+          bootloader 9.2.0, on members 1, 3 and 4
+Configs:  stk_a.cfg (running-config after setup; saved to startup: no)
+
+VERDICT: PASS -- TCP port change, server disable/enable, API port disable/enable and CLI-to-register reflection all confirmed
+      dynamic TCP port change 502 -> 5020 .... PASS  (:502 refused, :5020 answers READ 0x0000 = 5;
+                                                      DUT logs "TCP Port changed to 5020"; reversed
+                                                      the same way)
+      dynamic server disable / enable ........ PASS  (disabled: :502 refused; enabled: :502 answers
+                                                      READ 0x0000 = 5, Write access still enabled)
+      API disables / enables port1.0.2 ....... PASS  (write 0x500e = 0x0000 -> CLI "administrative
+                                                      state is DOWN", "user shutdown", 0x500d/0x500e
+                                                      = 0000; write 0xf000 -> UP, f103/f000; each
+                                                      write answered exception 4, see CAVEAT)
+      CLI shutdown reflected over Modbus ..... PASS  (CLI shutdown -> 0x500d/0x500e = 0000; no
+                                                      shutdown -> f103/f000)
+CAVEAT:  every linked stack port reachable on this bench is a static-aggregator member (port3.0.13
+         is the client's own link and cannot be shut), so STEP 3 was exercised on port1.0.2, a
+         member of sa2. There the DUT applies the port state change but answers each write with an
+         exception (function code 134 = 0x86; the server's "slave device failure" counter, code 4,
+         goes 5 -> 7 over the two writes) and logs "Failed to set Auto duplex / polarity / speed for
+         port1.0.2." plus "MODBUS: Request failed". The same write on port1.0.1 (not an aggregator
+         member) is acknowledged "ok (echo ...)", but port1.0.1 has no transceiver ("not present"),
+         so there only its administrative state moves; no link was taken down on a non-member port.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  DUT     : stk_a (AT-IE520-28GSX VCStack, hostname IE520-stk), Normal operation,
+            stack MAC 0000.cd37.0d6f (virtual)
+            member 1 = swi_a S/N 264A23061 MAC 84e3.2787.0ac0, Backup Member, console u2
+            member 2 = Provisioned only (no MAC, no unit)
+            member 3 = swi_c S/N 264A23066 MAC 84e3.2787.0740, Active Master, console u5 (driven)
+            member 4 = swi_d S/N 264A23052 MAC 84e3.2787.09c0, Backup Member, console u4
+            vlan1 10.38.215.10/27 (+ .40, .66 secondaries), ipv6 enable, ipv6 address dhcp
+  link    : stk_a port1.0.2 (member 1, AT-SPTXa copper SFP) <-> x230v2-28GS (swi_f, console u0)
+            port1.0.2, 1000BASE-T a-full a-1000, VLAN 1. port1.0.2 is in static-channel-group 2
+            (sa2 = port1.0.2 + port1.0.9; port1.0.9 notconnect). The x230 is a passive link
+            partner; nothing was sent to it.
+  host    : tb470 eth1 10.38.215.1/27 (fd32:b1f0:dff8:d701::1/64, fe80::f667:7041:7dff:3cfc)
+            -> stk_a port3.0.13 (member 3, 1000BASE-T, a-full a-1000, VLAN 1)
+  tools   : tools/ckcon.py on tb470: /dev/u5 115200, --stop-on-error (the stack master's console)
+            tools/mb.py (pymodbus 3.8.6) on tb470, Modbus/TCP client -> 10.38.215.10:502 (or
+            :5020 in STEP 1); every call below also carried --log /tmp/modbus-1008/mb-22655.log
+  register: unit (slave) id = stack member. port1.0.2 = unit 1, 0x500d current state, 0x500e
+            configured state ("port1.0.2 Config State(REG=0x500e)" in the DUT log); port1.0.1 =
+            unit 1, 0x5001 ("port1.0.1 Config State(REG=0x5001)"). 0x0000 = Mapping Version.
+
+STEP 0 -- baseline (server OFF) and the precondition                                  done
+--------------------------------------------------------------------------------
+IE520-stk# show stack
+  Virtual Chassis Stacking summary information
+
+  ID   Pending ID  MAC address        Priority  Status  Role
+  1    -           84e3.2787.0ac0     128       Ready   Backup Member
+  2    -           -                  -         -       Provisioned
+  3    -           84e3.2787.0740     128       Ready   Active Master
+  4    -           84e3.2787.09c0     128       Ready   Backup Member
+
+  Operational Status                 Normal operation
+  Stack MAC address                  0000.cd37.0d6f (Virtual MAC)
+IE520-stk# show scada modbus tcp server
+  MODBUS is disabled                                   <-- feature OFF
+IE520-stk# show running-config | include scada
+  (no output)
+IE520-stk# show static-channel-group
+  LAG Maximum        : 124
+  LAG Static  Count  : 3
+  LAG Dynamic Count  : 0
+  LAG Total   Count  : 3
+  Static Aggregator: sa1
+  Member:
+   port3.0.2
+   port4.0.2
+  Static Aggregator: sa2
+  Member:
+   port1.0.2                                           <-- the port used in STEPS 3 and 4
+   port1.0.9
+  Static Aggregator: sa3
+  Member:
+   port1.0.13
+   port4.0.9
+IE520-stk# show interface port1.0.2 status
+  Port        Name               Status      Vlan      Duplex Speed   Type
+  --------------------------------------------------------------------------------
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+IE520-stk# show running-config interface port1.0.2
+  !
+  interface port1.0.2
+   switchport
+   switchport mode access
+   static-channel-group 2
+  !
+tb470$ mb.py --host 10.38.215.10 probe
+  Connection to (10.38.215.10, 502) failed: [Errno 111] Connection refused
+  13:32:10 CONNECT 10.38.215.10:502 slave=0 -> FAILED (no TCP connection)   <-- server OFF
+
+Precondition "modbus is configured and client able to retrieve information":
+IE520-stk# configure terminal
+IE520-stk(config)# scada modbus tcp server
+IE520-stk(config)# scada modbus tcp server access read-write
+IE520-stk(config)# end
+IE520-stk# show scada modbus tcp server
+  SCADA MODBUS Summary Information
+
+  MODBUS is enabled
+  Write access: enabled
+  Master heartbeat status: Not set
+  Master heartbeat timeout: 0
+
+  -------------------------------------
+  TCP Server Characteristics:
+    Port            :   502
+    Max Connections :     1
+  (statistics omitted)
+IE520-stk# show running-config | include scada
+  scada modbus tcp server access read-write
+  scada modbus tcp server
+tb470$ mb.py --host 10.38.215.10 read 0x0000 1 UINT "precondition: client retrieves Mapping Version"
+  13:32:22 CONNECT 10.38.215.10:502 slave=0 -> ok
+  13:32:22   TX 00 01 00 00 00 06 00 03 00 00 00 01
+  13:32:22 READ  0x0000 x1 UINT precondition: client retrieves Mapping Version -> words=['0x0005'] value=5
+                                                       <-- the client retrieves information
+  stk_a.cfg saved from this running-config (13:32), before STEP 1.
+
+STEP 1 -- "dynamic change tcp port"                                                   PASS
+--------------------------------------------------------------------------------
+  Expected: "Client has to change its tcp port before it can connect to server again"
+IE520-stk# configure terminal
+IE520-stk(config)# scada modbus tcp server port 5020
+IE520-stk(config)# end
+IE520-stk# show scada modbus tcp server
+  MODBUS is enabled
+  Write access: enabled
+  ...
+  TCP Server Characteristics:
+    Port            :  5020                            <-- applied at once
+    Max Connections :     1
+IE520-stk# show running-config | include scada
+  scada modbus tcp server port 5020
+  scada modbus tcp server access read-write
+  scada modbus tcp server
+tb470$ mb.py --host 10.38.215.10 --port 502 read 0x0000 1 UINT "old port 502"
+  Connection to (10.38.215.10, 502) failed: [Errno 111] Connection refused
+  13:32:41 CONNECT 10.38.215.10:502 slave=0 -> FAILED (no TCP connection)   <-- the old port refuses
+tb470$ mb.py --host 10.38.215.10 --port 5020 read 0x0000 1 UINT "new port 5020"
+  13:32:41 CONNECT 10.38.215.10:5020 slave=0 -> ok
+  13:32:41   TX 00 01 00 00 00 06 00 03 00 00 00 01
+  13:32:41 READ  0x0000 x1 UINT new port 5020 -> words=['0x0005'] value=5   <-- client moved: served
+  DUT log 2026 Oct 08 00:33:25 user.notice IE520-stk modbusd[522]: MODBUS: Modbus server TCP Port changed to 5020.
+
+  Reverse change (back to the default port):
+IE520-stk# configure terminal
+IE520-stk(config)# no scada modbus tcp server port
+IE520-stk(config)# end
+IE520-stk# show scada modbus tcp server
+  MODBUS is enabled
+  Write access: enabled
+  ...
+    Port            :   502
+IE520-stk# show running-config | include scada
+  scada modbus tcp server access read-write
+  scada modbus tcp server                              <-- the port line is gone
+tb470$ mb.py --host 10.38.215.10 --port 5020 read 0x0000 1 UINT "after restore: 5020"
+  Connection to (10.38.215.10, 5020) failed: [Errno 111] Connection refused
+  13:32:53 CONNECT 10.38.215.10:5020 slave=0 -> FAILED (no TCP connection)
+tb470$ mb.py --host 10.38.215.10 --port 502 read 0x0000 1 UINT "after restore: 502"
+  13:32:53 CONNECT 10.38.215.10:502 slave=0 -> ok
+  13:32:53   TX 00 01 00 00 00 06 00 03 00 00 00 01
+  13:32:53 READ  0x0000 x1 UINT after restore: 502 -> words=['0x0005'] value=5
+  DUT log 2026 Oct 08 00:33:37 user.notice IE520-stk modbusd[522]: MODBUS: Modbus server TCP Port changed to 502.
+  => STEP 1 PASS: the port change takes effect immediately: the
+     old port refuses and the client is served only once it moves to the new port, in both
+     directions (502 -> 5020 -> 502), and the DUT logs each change.
+
+STEP 2 -- "dynamic enable and disable modbus"                                         PASS
+--------------------------------------------------------------------------------
+  Expected: "Confirm modbus can be disable and enable"
+IE520-stk# configure terminal
+IE520-stk(config)# no scada modbus tcp server
+IE520-stk(config)# end
+IE520-stk# show scada modbus tcp server
+  MODBUS is disabled
+IE520-stk# show running-config | include scada
+  (no output)
+tb470$ mb.py --host 10.38.215.10 read 0x0000 1 UINT "server disabled"
+  Connection to (10.38.215.10, 502) failed: [Errno 111] Connection refused
+  13:33:05 CONNECT 10.38.215.10:502 slave=0 -> FAILED (no TCP connection)   <-- disabled: refused
+IE520-stk# configure terminal
+IE520-stk(config)# scada modbus tcp server
+IE520-stk(config)# end
+IE520-stk# show scada modbus tcp server
+  MODBUS is enabled
+  Write access: enabled                                <-- read-write setting kept across the disable
+  ...
+    Port            :   502
+IE520-stk# show running-config | include scada
+  scada modbus tcp server access read-write
+  scada modbus tcp server
+tb470$ mb.py --host 10.38.215.10 read 0x0000 1 UINT "server re-enabled"
+  13:33:16 CONNECT 10.38.215.10:502 slave=0 -> ok
+  13:33:16   TX 00 01 00 00 00 06 00 03 00 00 00 01
+  13:33:16 READ  0x0000 x1 UINT server re-enabled -> words=['0x0005'] value=5   <-- enabled: served
+  => STEP 2 PASS: disabling the server refuses client connections at once, and enabling it serves
+     the client again on the same port, with the read-write access setting retained.
+
+STEP 3 -- "Using API to disable and enable a port"                                    PASS
+--------------------------------------------------------------------------------
+  Expected: "Confirm modbus can be disable and enable via API"
+  Method: write port1.0.2's configured-state register (unit 1, 0x500e) with 0x0000 (disable)
+  and then 0xf000 (enable), reading both port registers and the CLI after each.
+IE520-stk# show interface port1.0.2 status
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+tb470$ mb.py --host 10.38.215.10 --slave 1 read 0x500d 1 HEX "before: current"
+  13:33:29 READ  0x500d x1 HEX before: current -> words=['0xf103'] value='f103'   <-- up, full, auto, 1000
+tb470$ mb.py --host 10.38.215.10 --slave 1 read 0x500e 1 HEX "before: configured"
+  13:33:29 READ  0x500e x1 HEX before: configured -> words=['0xf000'] value='f000'  <-- admin up, all auto
+
+  Disable over the API:
+tb470$ mb.py --host 10.38.215.10 --slave 1 write 0x500e 0x0000 "API disable port1.0.2"
+  Exception response 134 / 0
+  13:33:29 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:33:30   TX 00 01 00 00 00 06 01 06 50 0e 00 00
+  13:33:30 WRITE 0x500e = 0x0000 API disable port1.0.2 -> EXCEPTION ExceptionResponse(dev_id=1, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)
+                                                       <-- 134 = 0x86 = FC 0x06 + 0x80 (see CAVEAT)
+  (5 s later)
+tb470$ mb.py --host 10.38.215.10 --slave 1 read 0x500d 1 HEX "after disable: current"
+  13:33:35 READ  0x500d x1 HEX after disable: current -> words=['0x0000'] value='0000'
+tb470$ mb.py --host 10.38.215.10 --slave 1 read 0x500e 1 HEX "after disable: configured"
+  13:33:35 READ  0x500e x1 HEX after disable: configured -> words=['0x0000'] value='0000'
+IE520-stk# show interface port1.0.2
+  Interface port1.0.2
+    Scope: both
+    Link is DOWN, administrative state is DOWN         <-- the API write shut the port
+    ...
+    configured duplex auto, configured speed auto, configured polarity auto
+    <BROADCAST,MULTICAST>
+    ...
+    Time since last state change: 0 days 00:00:09
+IE520-stk# show interface port1.0.2 status
+  port1.0.2   -                  disabled            1 auto   auto    1000BASE-T
+IE520-stk# show running-config interface port1.0.2
+  !
+  interface port1.0.2
+   switchport
+   switchport mode access
+   shutdown                                            <-- written by the API write
+   static-channel-group 2
+  !
+IE520-stk# show log | include modbusd|NSM.*port1.0.2|port1.0.2
+  2026 Oct 08 00:34:20 user.notice IE520-stk NSM[613]: Port down notification received for port1.0.2
+  2026 Oct 08 00:34:20 user.notice IE520-stk NSM[613]: port1.0.2 user shutdown
+  2026 Oct 08 00:34:20 user.notice IE520-stk modbusd[522]: MODBUS: Failed to set Auto duplex for port1.0.2.
+  2026 Oct 08 00:34:20 user.warning IE520-stk modbusd[522]: MODBUS: Failed to set Auto polarity for port1.0.2.
+  2026 Oct 08 00:34:20 user.notice IE520-stk modbusd[522]: MODBUS: Failed to set Auto speed for port1.0.2.
+  2026 Oct 08 00:34:20 user.notice IE520-stk modbusd[522]: MODBUS: Performed write request from 10.38.215.1:29313: Write Single Register(FC=0x06) to member 1 starting at port1.0.2 Config State(REG=0x500e) for 1 word with data 0x0000
+  2026 Oct 08 00:34:20 user.err IE520-stk modbusd[522]: MODBUS: Request failed
+
+  Enable over the API:
+tb470$ mb.py --host 10.38.215.10 --slave 1 write 0x500e 0xf000 "API enable port1.0.2"
+  Exception response 134 / 0
+  13:33:49 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:33:49   TX 00 01 00 00 00 06 01 06 50 0e f0 00
+  13:33:49 WRITE 0x500e = 0xf000 API enable port1.0.2 -> EXCEPTION ExceptionResponse(dev_id=1, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)
+  (10 s later)
+tb470$ mb.py --host 10.38.215.10 --slave 1 read 0x500d 1 HEX "after enable: current"
+  13:33:59 READ  0x500d x1 HEX after enable: current -> words=['0xf103'] value='f103'
+tb470$ mb.py --host 10.38.215.10 --slave 1 read 0x500e 1 HEX "after enable: configured"
+  13:33:59 READ  0x500e x1 HEX after enable: configured -> words=['0xf000'] value='f000'
+IE520-stk# show interface port1.0.2
+  Interface port1.0.2
+    Scope: both
+    Link is UP, administrative state is UP             <-- the API write re-enabled the port
+    ...
+    current duplex full, current speed 1000, current polarity auto
+    configured duplex auto, configured speed auto, configured polarity auto
+    <UP,BROADCAST,RUNNING,MULTICAST>
+    ...
+    Time since last state change: 0 days 00:00:11
+IE520-stk# show interface port1.0.2 status
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+IE520-stk# show running-config interface port1.0.2
+  !
+  interface port1.0.2
+   switchport
+   switchport mode access
+   static-channel-group 2                              <-- the shutdown line is gone
+  !
+IE520-stk# show log | include modbusd|NSM.*port1.0.2|port1.0.2   (new lines)
+  2026 Oct 08 00:34:39 user.notice IE520-stk NSM[613]: port1.0.2 user no shutdown
+  2026 Oct 08 00:34:39 user.notice IE520-stk modbusd[522]: MODBUS: Failed to set Auto duplex for port1.0.2.
+  2026 Oct 08 00:34:39 user.warning IE520-stk modbusd[522]: MODBUS: Failed to set Auto polarity for port1.0.2.
+  2026 Oct 08 00:34:39 user.notice IE520-stk modbusd[522]: MODBUS: Failed to set Auto speed for port1.0.2.
+  2026 Oct 08 00:34:39 user.notice IE520-stk modbusd[522]: MODBUS: Performed write request from 10.38.215.1:47245: Write Single Register(FC=0x06) to member 1 starting at port1.0.2 Config State(REG=0x500e) for 1 word with data 0xf000
+  2026 Oct 08 00:34:39 user.err IE520-stk modbusd[522]: MODBUS: Request failed
+  2026 Oct 08 00:34:42 user.notice IE520-stk NSM[613]: Port up notification received for port1.0.2
+
+  Server statistics (show scada modbus tcp server):
+                               13:33:13 (before STEP 3)   13:34:13 (after the two writes)
+    single register writes            10                        12
+    illegal data address              17                        17
+    illegal data value                 6                         6
+    slave device failure               5                         7      <-- +2 = the two port1.0.2 writes
+
+  Control, the same write on port1.0.1 (not an aggregator member; unit 1, 0x5001):
+tb470$ mb.py --host 10.38.215.10 --slave 1 write 0x5001 0x0000 "API disable port1.0.1"
+  13:34:14   TX 00 01 00 00 00 06 01 06 50 01 00 00
+  13:34:14 WRITE 0x5001 = 0x0000 API disable port1.0.1 -> ok (echo addr=0x5001 value=0x0000)
+tb470$ mb.py --host 10.38.215.10 --slave 1 read 0x5001 1 HEX "after disable"
+  13:34:14 READ  0x5001 x1 HEX after disable -> words=['0x0000'] value='0000'
+IE520-stk# show interface port1.0.1 status
+  port1.0.1   -                  disabled            1 auto   auto    not present
+tb470$ mb.py --host 10.38.215.10 --slave 1 write 0x5001 0xf000 "API enable port1.0.1"
+  13:34:21   TX 00 01 00 00 00 06 01 06 50 01 f0 00
+  13:34:21 WRITE 0x5001 = 0xf000 API enable port1.0.1 -> ok (echo addr=0x5001 value=0xf000)
+tb470$ mb.py --host 10.38.215.10 --slave 1 read 0x5001 1 HEX "after enable"
+  13:34:21 READ  0x5001 x1 HEX after enable -> words=['0xf000'] value='f000'
+IE520-stk# show interface port1.0.1 status
+  port1.0.1   -                  notconnect          1 auto   auto    not present
+IE520-stk# show running-config interface port1.0.1
+  !
+  interface port1.0.1
+   switchport
+   switchport mode access
+  !
+  DUT log (read in STEP 4's show log):
+  2026 Oct 08 00:35:04 user.notice IE520-stk modbusd[522]: MODBUS: Performed write request from 10.38.215.1:29859: Write Single Register(FC=0x06) to member 1 starting at port1.0.1 Config State(REG=0x5001) for 1 word with data 0x0000
+  2026 Oct 08 00:35:11 user.notice IE520-stk modbusd[522]: MODBUS: Performed write request from 10.38.215.1:33955: Write Single Register(FC=0x06) to member 1 starting at port1.0.1 Config State(REG=0x5001) for 1 word with data 0xf000
+                                                       <-- no "Failed to set" / "Request failed" lines here
+  => STEP 3 PASS: the port is disabled and re-enabled through the Modbus API: each write changes
+     the port's administrative state, and the CLI (link and admin state, status, the shutdown
+     line), the DUT log ("user shutdown" / "user no shutdown", port down/up) and both port
+     registers reflect it each way. On sa2-member port1.0.2 each write is answered with exception
+     4 and logged with three "Failed to set Auto ..." lines although the change is applied; the
+     same write on non-member port1.0.1 is acknowledged ok (see CAVEAT).
+
+STEP 4 -- "Using CLI to disable a port"                                               PASS
+--------------------------------------------------------------------------------
+  Expected: "Confirm using modbus able to retrieve port state correctly reflected the change"
+IE520-stk# configure terminal
+IE520-stk(config)# interface port1.0.2
+IE520-stk(config-if)# shutdown
+IE520-stk(config-if)# end
+IE520-stk# show interface port1.0.2
+  Interface port1.0.2
+    Scope: both
+    Link is DOWN, administrative state is DOWN
+    ...
+    configured duplex auto, configured speed auto, configured polarity auto
+    <BROADCAST,MULTICAST>
+    ...
+    Time since last state change: 0 days 00:00:02
+IE520-stk# show interface port1.0.2 status
+  port1.0.2   -                  disabled            1 auto   auto    1000BASE-T
+  (4 s later)
+tb470$ mb.py --host 10.38.215.10 --slave 1 read 0x500d 1 HEX "after CLI shutdown: current"
+  13:34:45 READ  0x500d x1 HEX after CLI shutdown: current -> words=['0x0000'] value='0000'
+tb470$ mb.py --host 10.38.215.10 --slave 1 read 0x500e 1 HEX "after CLI shutdown: configured"
+  13:34:45 READ  0x500e x1 HEX after CLI shutdown: configured -> words=['0x0000'] value='0000'
+IE520-stk# configure terminal
+IE520-stk(config)# interface port1.0.2
+IE520-stk(config-if)# no shutdown
+IE520-stk(config-if)# end
+  (10 s later)
+tb470$ mb.py --host 10.38.215.10 --slave 1 read 0x500d 1 HEX "after CLI no shutdown: current"
+  13:35:05 READ  0x500d x1 HEX after CLI no shutdown: current -> words=['0xf103'] value='f103'
+tb470$ mb.py --host 10.38.215.10 --slave 1 read 0x500e 1 HEX "after CLI no shutdown: configured"
+  13:35:05 READ  0x500e x1 HEX after CLI no shutdown: configured -> words=['0xf000'] value='f000'
+IE520-stk# show interface port1.0.2
+  Interface port1.0.2
+    Scope: both
+    Link is UP, administrative state is UP
+    ...
+    current duplex full, current speed 1000, current polarity auto
+    <UP,BROADCAST,RUNNING,MULTICAST>
+    ...
+IE520-stk# show interface port1.0.2 status
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+IE520-stk# show running-config interface port1.0.2
+  !
+  interface port1.0.2
+   switchport
+   switchport mode access
+   static-channel-group 2
+  !
+IE520-stk# show static-channel-group
+  Static Aggregator: sa2
+  Member:
+   port1.0.2
+   port1.0.9                                           <-- sa2 unchanged (sa1, sa3 as STEP 0)
+IE520-stk# show log | include modbusd|NSM.*port1.0.2|port1.0.2   (new lines for port1.0.2)
+  2026 Oct 08 00:35:25 user.notice IE520-stk NSM[613]: Port down notification received for port1.0.2
+  2026 Oct 08 00:35:25 user.notice IE520-stk NSM[613]: port1.0.2 user shutdown
+  2026 Oct 08 00:35:41 user.notice IE520-stk NSM[613]: port1.0.2 user no shutdown
+  2026 Oct 08 00:35:44 user.notice IE520-stk NSM[613]: Port up notification received for port1.0.2
+
+      port1.0.2 state        CLI                                   0x500d (current)   0x500e (configured)
+      before (STEP 3)        connected a-full a-1000               f103               f000
+      after CLI shutdown     DOWN / admin DOWN, disabled           0000               0000
+      after CLI no shutdown  UP / admin UP, connected a-full a-1000 f103               f000
+  => STEP 4 PASS: a port shut and re-enabled from the CLI is reported correctly over Modbus: both
+     the current-state and configured-state registers read 0000 while the port is shut and return
+     to f103 / f000 (up, full, 1000; admin up, auto) once it is enabled again.
+================================================================================

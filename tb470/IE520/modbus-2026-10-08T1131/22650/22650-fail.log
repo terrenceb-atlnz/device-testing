@@ -1,0 +1,664 @@
+================================================================================
+TEST 22650 -- S2166.1.10, S2166.1.11, S2166.1.12 -  modbus -  read System information
+================================================================================
+Run:      2026-10-08 13:16:44-13:18:00 NZDT (times below are tb470 host time; the
+          device clock is UTC, show clock "00:18:21 +0000" at host 13:17:32)
+Bench:    tb470, consoles u2,u4,u5 (case driven on u5); Test Engineer terrenceb@terrenceb-dl
+Tester:   bench-runner (by hand: tools/ckcon.py, tools/mb.py, no framework script)
+Graded:   tester
+Case:     AWPTCM-T22650 (Zephyr Draft, folder /Modbus/Proj 2166 Modbus Support),
+          objective "Able to read system information", 10 steps, no precondition
+Build:    stk_a main-calanm (IE520-tb470.rel, build date Tue Oct 6 19:44:28 UTC 2026),
+          members 1, 3, 4; bootloader 9.2.0 on each
+Configs:  stk_a.cfg (running-config after setup; saved to startup: no)
+
+VERDICT: FAIL -- 9 of 10 items equal the CLI at their Mapping-Version-5 addresses;
+         Number of Alarms 0x0049 = 124 where the CLI lists 93 (31 x members 1, 3, 4);
+         124 = 31 x 4, so the provisioned, absent member 2 is counted
+      1 Mapping Version ......... PASS  (0x0000 = 5, one word)
+      2 Board Name .............. PASS  (unit 1/3/4 0x0202 'AT-IE520-28GSX' = show system Board Name)
+      3 Serial Number ........... PASS  (unit 1/3/4 0x0222 = 264A23061 / 264A23066 / 264A23052)
+      4 Number of Sensors ....... PASS  (0x0047 = 15 = 3 x 5, show system environment)
+      5 Number of Alarms ........ FAIL  (0x0048 global 4 = CLI 4; 0x0049 per-member 124 vs CLI 93)
+      6 Number of Ports ......... PASS  (0x0045 = 84 = 3 x 28)
+      7 Number of Faults ........ PASS  (0x0046 = 0; all 15 sensors Ok, Environment Status Normal)
+      8 Software Version ........ PASS  (0x0021 'main-calanm' = show system Software version)
+      9 System Name ............. PASS  (0x0001 'IE520-stk' = hostname / show system System Name)
+     10 HW Mac Address .......... PASS  (0x0041 '0000cd370d6f' = Virtual MAC Address 0000.cd37.0d6f)
+FAIL CONDITION: step 5 -- register 0x0049 (per-member Number of Alarms) = 124 while
+         `show alarm facility settings` lists 93 per-member alarms (31 on each of members
+         1, 3, 4). Expected the register to equal the CLI. The excess is exactly one
+         member's 31 alarms and matches the stack's provisioned-but-absent member 2
+         (`switch 2 provision ie520-28`, `show stack` "Provisioned"). The other count
+         registers (ports 84, sensors 15, faults 0) count only the three present members,
+         so the alarm count is inconsistent with them: a product mismatch, not the method.
+CAVEAT:  the case text's register addresses are the version-1 layout; the DUT is Mapping
+         Version 5, and the steps were graded at the version-5 address of each named item
+         (the literal-address reads are quoted in each step too). Whether 0x0049 SHOULD
+         include a provisioned slot is a product question for the case owner; this run
+         reports the mismatch with the CLI. Member 2's console was not in this run's
+         console list, so whether a unit exists off the stack was not looked for.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  DUT     : stk_a (AT-IE520-28GSX VCStack, hostname IE520-stk), Normal operation,
+            stack MAC 0000.cd37.0d6f (virtual), virtual-chassis-id 3439
+            member 1 = swi_a S/N 264A23061 MAC 84e3.2787.0ac0, Backup Member, console u2
+            member 2 = Provisioned only (`switch 2 provision ie520-28`; no MAC, no unit)
+            member 3 = swi_c S/N 264A23066 MAC 84e3.2787.0740, ACTIVE MASTER, console u5 (driven)
+            member 4 = swi_d S/N 264A23052 MAC 84e3.2787.09c0, Backup Member, console u4
+            software main-calanm on all three; bootloader 9.2.0
+            vlan1 10.38.215.10/27 (+ .40, .66 secondaries), ipv6 enable, ipv6 address dhcp
+  stack   : port1.0.27 <-> port3.0.28, port1.0.28 <-> port4.0.27, port3.0.27 <-> port4.0.28
+            (a ring of three; nothing learnt toward a member 2)
+  host    : tb470 eth1 10.38.215.1/27, fd32:b1f0:dff8:d701::1/64, fe80::f667:7041:7dff:3cfc
+            -> stk_a port3.0.13 (member 3, 1000BASE-T, a-full a-1000, VLAN 1)
+  tools   : mb.py (Modbus/TCP client, pymodbus 3.8.6) on tb470 -> 10.38.215.10:502, run as
+              mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22650.log [--slave N] read ADDR COUNT TYPE DESC
+              (unit id 0 unless --slave is given; one TCP connection per read)
+            ckcon.py on tb470: ckcon.py /dev/u5 115200 <console log> --stop-on-error <cmds>
+  config  : stk_a.cfg (running-config 13:17 after setup; saved to startup: no)
+
+STEP 0 -- baseline (Modbus server OFF)                                      done
+--------------------------------------------------------------------------------
+IE520-stk# show running-config                                      [13:16:39]
+  (184 lines; no `scada` line, no `alarm` line)
+IE520-stk# show stack                                               [13:16:49]
+  Virtual Chassis Stacking summary information
+
+  ID   Pending ID  MAC address        Priority  Status  Role
+  1    -           84e3.2787.0ac0     128       Ready   Backup Member
+  2    -           -                  -         -       Provisioned
+  3    -           84e3.2787.0740     128       Ready   Active Master
+  4    -           84e3.2787.09c0     128       Ready   Backup Member
+
+  Operational Status                 Normal operation
+  Stack MAC address                  0000.cd37.0d6f (Virtual MAC)
+IE520-stk# show scada modbus tcp server                             [13:16:50]
+  MODBUS is disabled
+tb470$ mb.py --host 10.38.215.10 probe
+  Connection to (10.38.215.10, 502) failed: [Errno 111] Connection refused
+  13:16:51 CONNECT 10.38.215.10:502 slave=0 -> FAILED (no TCP connection)     <-- nothing answers Modbus with the server off
+  => STEP 0 done: the server is off and port 502 refuses, so every register value read
+     below comes from the server this case enables.
+
+SETUP -- enable the Modbus TCP server                                       done
+--------------------------------------------------------------------------------
+IE520-stk# configure terminal                                       [13:16:56]
+IE520-stk(config)# scada modbus tcp server
+IE520-stk(config)# end
+IE520-stk# show scada modbus tcp server                             [13:17:00]
+  SCADA MODBUS Summary Information
+
+  MODBUS is enabled
+  Write access: disabled
+  Master heartbeat status: Not set
+  Master heartbeat timeout: 0
+
+  -------------------------------------
+  TCP Server Characteristics:
+    Port            :   502
+    Max Connections :     1
+
+  -------------------------------------
+  Statistics:
+    Read Requests:
+      coils                :          0
+      discrete inputs      :          0
+      holding registers    :          0
+      input registers      :          0
+
+    Write Requests:
+      single coil          :          0
+      single register      :          0
+      multiple coils       :          0
+      multiple registers   :          0
+
+    Other Requests         :          0
+
+    Exceptions:
+      illegal function     :          0
+      illegal data address :          0
+      illegal data value   :          0
+      slave device failure :          0
+IE520-stk# show running-config | include scada                      [13:17:01]
+  scada modbus tcp server
+  stk_a.cfg saved from `show running-config` at 13:17; its only difference from the
+  baseline is the `scada modbus tcp server` line.
+  => SETUP done: server enabled on port 502, read-only (write access disabled), all
+     counters 0 before the first read.
+
+  Method for STEPS 1-10: the case lists its register addresses in the version-1 layout.
+  The DUT reports Mapping Version 5, so every item was read twice: at the case's literal
+  address (read sN below) and at the item's Mapping-Version-5 address (read "v5 ..."),
+  and graded at the version-5 address against the CLI. Per-member items were read with
+  the unit id = the stack member ID (1..4). Reads ran 13:17:33-13:17:37; the CLI
+  reference ran 13:17:21-13:17:32 on u5. In the 32-word ASCII reads the word list is
+  trimmed with "..." after the first all-zero word; every trimmed word is '0x0000'.
+
+STEP 1 -- Mapping Version                                                   PASS
+--------------------------------------------------------------------------------
+  Graded at 0x0000 (the same address in the case and in version 5).
+tb470$ mb.py --host 10.38.215.10 read 0x0000 1 UINT "s1 Mapping Version"
+  13:17:33 CONNECT 10.38.215.10:502 slave=0 -> ok
+  13:17:33   TX 00 01 00 00 00 06 00 03 00 00 00 01
+  13:17:33 READ  0x0000 x1 UINT s1 Mapping Version -> words=['0x0005'] value=5
+tb470$ mb.py --host 10.38.215.10 read 0x0000 1 UINT "v5 Mapping Version"
+  13:17:34 CONNECT 10.38.215.10:502 slave=0 -> ok
+  13:17:34   TX 00 01 00 00 00 06 00 03 00 00 00 01
+  13:17:34 READ  0x0000 x1 UINT v5 Mapping Version -> words=['0x0005'] value=5   <-- version 5
+  The case's literal addresses, read at unit 0, and what each holds in version 5:
+      step  item (case)        case addr  read            value                version-5 meaning
+      s1    Mapping Version    0x0000 x1  UINT            5                    Mapping Version
+      s2    Board Name         0x0001 x32 ASCII           'IE520-stk'          System Name
+      s3    Serial Number      0x0021 x32 ASCII           'main-calanm'        Software Version
+      s4    Number of Sensors  0x0041 x1  UINT            0     (0x0000)     HW MAC word 1
+      s5    Number of Alarms   0x0042 x1  UINT            52535 (0xcd37)     HW MAC word 2
+      s6    Number of Ports    0x0043 x1  UINT            3439  (0x0d6f)     HW MAC word 3
+      s7    Number of Faults   0x0044 x1  UINT            13    (0x000d)     stack-member bitmap
+      s8    Software Version   0x0045 x32 ASCII           EXCEPTION            1-word Number of Ports;
+                                                                               32 words run off the block
+      s9    System Name        0x0065 x32 ASCII           EXCEPTION
+      s10   HW Mac Address     0x0085 x3  HEX             '000000050000'
+  (each read's verbatim line is quoted in its own step below)
+  => STEP 1 PASS: register 0x0000 is one word holding 5 (the case's "1" is the
+     version-1 map). The version-5 layout it names is the one under which every other
+     register read below equals the CLI, which the literal version-1 addresses do not.
+
+STEP 2 -- Board Name                                                        PASS
+--------------------------------------------------------------------------------
+  Graded at unit 1/3/4 register 0x0202 (version 5, per member). The case's literal
+  0x0001 holds the System Name in version 5.
+tb470$ mb.py --host 10.38.215.10 read 0x0001 32 ASCII "s2 (case: Board Name)"
+  13:17:33   TX 00 01 00 00 00 06 00 03 00 01 00 20
+  13:17:33 READ  0x0001 x32 ASCII s2 (case: Board Name) -> words=['0x4945', '0x3532', '0x302d', '0x7374', '0x6b00', '0x0000', ...] value='IE520-stk'   <-- the System Name, not a board name
+tb470$ mb.py --host 10.38.215.10 --slave N read 0x0200 1 UINT "unit N board class"   (N = 1..4)
+tb470$ mb.py --host 10.38.215.10 --slave N read 0x0202 32 ASCII "unit N Board Name"   (N = 1..4)
+  13:17:35   TX 00 01 00 00 00 06 01 03 02 00 00 01
+  13:17:35 READ  0x0200 x1 UINT unit 1 board class -> words=['0x0001'] value=1
+  13:17:35   TX 00 01 00 00 00 06 01 03 02 02 00 20
+  13:17:35 READ  0x0202 x32 ASCII unit 1 Board Name -> words=['0x4154', '0x2d49', '0x4535', '0x3230', '0x2d32', '0x3847', '0x5358', '0x0000', ...] value='AT-IE520-28GSX'
+  Exception response 131 / 0
+  13:17:36 CONNECT 10.38.215.10:502 slave=2 -> ok
+  13:17:36   TX 00 01 00 00 00 06 02 03 02 00 00 01
+  13:17:36 READ  0x0200 x1 UINT unit 2 board class -> EXCEPTION ExceptionResponse(dev_id=2, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)
+  Exception response 131 / 0
+  13:17:36 CONNECT 10.38.215.10:502 slave=2 -> ok
+  13:17:36   TX 00 01 00 00 00 06 02 03 02 02 00 20
+  13:17:36 READ  0x0202 x32 ASCII unit 2 Board Name -> EXCEPTION ExceptionResponse(dev_id=2, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)
+  13:17:36   TX 00 01 00 00 00 06 03 03 02 00 00 01
+  13:17:36 READ  0x0200 x1 UINT unit 3 board class -> words=['0x0001'] value=1
+  13:17:36   TX 00 01 00 00 00 06 03 03 02 02 00 20
+  13:17:36 READ  0x0202 x32 ASCII unit 3 Board Name -> words=['0x4154', '0x2d49', '0x4535', '0x3230', '0x2d32', '0x3847', '0x5358', '0x0000', ...] value='AT-IE520-28GSX'
+  13:17:37   TX 00 01 00 00 00 06 04 03 02 00 00 01
+  13:17:37 READ  0x0200 x1 UINT unit 4 board class -> words=['0x0001'] value=1
+  13:17:37   TX 00 01 00 00 00 06 04 03 02 02 00 20
+  13:17:37 READ  0x0202 x32 ASCII unit 4 Board Name -> words=['0x4154', '0x2d49', '0x4535', '0x3230', '0x2d32', '0x3847', '0x5358', '0x0000', ...] value='AT-IE520-28GSX'
+IE520-stk# show system                                              [13:17:21]
+  System Status                                           Thu Oct 08 00:18:10 2026
+
+  Stack member 1
+
+  Board      ID   Bay     Board Name                        Rev   Serial number
+  --------------------------------------------------------------------------------
+  Base       717  Base    AT-IE520-28GSX                    X1-0  264A23061     <-- unit 1 0x0202
+  --------------------------------------------------------------------------------
+  RAM: Total: 506724 kB Free: 280044 kB
+  Flash: 106.3MB Used: 78.4MB Available: 27.9MB
+  --------------------------------------------------------------------------------
+  Environment Status : Normal
+  Uptime             : 0 days 00:42:16
+  Bootloader version : 9.2.0
+
+
+  Stack member 3
+
+  Board      ID   Bay     Board Name                        Rev   Serial number
+  --------------------------------------------------------------------------------
+  Base       717  Base    AT-IE520-28GSX                    X1-0  264A23066     <-- unit 3 0x0202
+  --------------------------------------------------------------------------------
+  RAM: Total: 506724 kB Free: 263736 kB
+  Flash: 106.3MB Used: 106.2MB Available: 176.0KB
+  --------------------------------------------------------------------------------
+  Environment Status : Normal
+  Uptime             : 0 days 00:42:15
+  Bootloader version : 9.2.0
+
+
+  Stack member 4
+
+  Board      ID   Bay     Board Name                        Rev   Serial number
+  --------------------------------------------------------------------------------
+  Base       717  Base    AT-IE520-28GSX                    X1-0  264A23052     <-- unit 4 0x0202
+  --------------------------------------------------------------------------------
+  RAM: Total: 506724 kB Free: 278324 kB
+  Flash: 106.3MB Used: 78.4MB Available: 27.9MB
+  --------------------------------------------------------------------------------
+  Environment Status : Normal
+  Uptime             : 0 days 00:42:17
+  Bootloader version : 9.2.0
+
+
+  Current software   : IE520-tb470.rel
+  Software version   : main-calanm
+  Build date         : Tue Oct 6 19:44:28 UTC 2026
+
+  Current boot config: flash:/tb470-bench.cfg (file exists)
+
+  System Name
+   IE520-stk
+  System Contact
+
+  System Location
+  => STEP 2 PASS: each present member's own unit (1, 3, 4) returns 'AT-IE520-28GSX',
+     the Board Name `show system` prints for that member, with board class 1 (the Base
+     board). Unit 2 has no member behind it and answers an exception.
+
+STEP 3 -- Serial Number                                                     PASS
+--------------------------------------------------------------------------------
+  Graded at unit 1/3/4 register 0x0222 (version 5, per member). The case's literal
+  0x0021 holds the Software Version in version 5.
+tb470$ mb.py --host 10.38.215.10 read 0x0021 32 ASCII "s3 (case: Serial Number)"
+  13:17:33   TX 00 01 00 00 00 06 00 03 00 21 00 20
+  13:17:33 READ  0x0021 x32 ASCII s3 (case: Serial Number) -> words=['0x6d61', '0x696e', '0x2d63', '0x616c', '0x616e', '0x6d00', '0x0000', ...] value='main-calanm'   <-- the software version, not a serial
+tb470$ mb.py --host 10.38.215.10 --slave N read 0x0222 32 ASCII "unit N Serial Number"   (N = 1..4)
+  13:17:35   TX 00 01 00 00 00 06 01 03 02 22 00 20
+  13:17:35 READ  0x0222 x32 ASCII unit 1 Serial Number -> words=['0x3236', '0x3441', '0x3233', '0x3036', '0x3100', '0x0000', ...] value='264A23061'
+  Exception response 131 / 0
+  13:17:36 CONNECT 10.38.215.10:502 slave=2 -> ok
+  13:17:36   TX 00 01 00 00 00 06 02 03 02 22 00 20
+  13:17:36 READ  0x0222 x32 ASCII unit 2 Serial Number -> EXCEPTION ExceptionResponse(dev_id=2, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)
+  13:17:37   TX 00 01 00 00 00 06 03 03 02 22 00 20
+  13:17:37 READ  0x0222 x32 ASCII unit 3 Serial Number -> words=['0x3236', '0x3441', '0x3233', '0x3036', '0x3600', '0x0000', ...] value='264A23066'
+  13:17:37   TX 00 01 00 00 00 06 04 03 02 22 00 20
+  13:17:37 READ  0x0222 x32 ASCII unit 4 Serial Number -> words=['0x3236', '0x3441', '0x3233', '0x3035', '0x3200', '0x0000', ...] value='264A23052'
+  show system (13:17:21, quoted in full in STEP 2), Serial number column:
+      member  show system serial   unit 0x0222
+      1       264A23061            '264A23061'
+      3       264A23066            '264A23066'
+      4       264A23052            '264A23052'
+  => STEP 3 PASS: each member's unit returns that member's own serial number exactly as
+     `show system` prints it; the three values differ, so each unit reads its own board.
+
+STEP 4 -- Number of Sensors                                                 PASS
+--------------------------------------------------------------------------------
+  Graded at 0x0047 (version 5, stack total), with the per-member count in word 4 of
+  unit N 0x0120 [boards,ports,faults,sensors,alarms]. The case's literal 0x0041 holds
+  HW MAC word 1 in version 5.
+tb470$ mb.py --host 10.38.215.10 read 0x0041 1 UINT "s4 (case: Number of Sensors)"
+  13:17:33   TX 00 01 00 00 00 06 00 03 00 41 00 01
+  13:17:33 READ  0x0041 x1 UINT s4 (case: Number of Sensors) -> words=['0x0000'] value=0   <-- MAC word 1
+tb470$ mb.py --host 10.38.215.10 read 0x0047 1 UINT "v5 Number of Sensors"
+  13:17:35   TX 00 01 00 00 00 06 00 03 00 47 00 01
+  13:17:35 READ  0x0047 x1 UINT v5 Number of Sensors -> words=['0x000f'] value=15   <-- 15
+tb470$ mb.py --host 10.38.215.10 --slave N read 0x0120 5 RAW "unit N member info [boards,ports,faults,sensors,alarms]"   (N = 1..4)
+  13:17:35   TX 00 01 00 00 00 06 01 03 01 20 00 05
+  13:17:35 READ  0x0120 x5 RAW unit 1 member info [boards,ports,faults,sensors,alarms] -> words=['0x0001', '0x001c', '0x0000', '0x0005', '0x001f'] value=[1, 28, 0, 5, 31]
+  Exception response 131 / 0
+  13:17:36 CONNECT 10.38.215.10:502 slave=2 -> ok
+  13:17:36   TX 00 01 00 00 00 06 02 03 01 20 00 05
+  13:17:36 READ  0x0120 x5 RAW unit 2 member info [boards,ports,faults,sensors,alarms] -> EXCEPTION ExceptionResponse(dev_id=2, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)
+  13:17:36   TX 00 01 00 00 00 06 03 03 01 20 00 05
+  13:17:36 READ  0x0120 x5 RAW unit 3 member info [boards,ports,faults,sensors,alarms] -> words=['0x0001', '0x001c', '0x0000', '0x0005', '0x001f'] value=[1, 28, 0, 5, 31]
+  13:17:37   TX 00 01 00 00 00 06 04 03 01 20 00 05
+  13:17:37 READ  0x0120 x5 RAW unit 4 member info [boards,ports,faults,sensors,alarms] -> words=['0x0001', '0x001c', '0x0000', '0x0005', '0x001f'] value=[1, 28, 0, 5, 31]
+IE520-stk# show system environment                                  [13:17:27]
+  Environment Monitoring Status
+
+  Stack member 1:
+
+  Overall Status: Normal
+
+  Resource ID: 100  Name: AT-IE520-28GSX
+  ID  Sensor (Units)                      Reading  Low Limit High Limit Status
+  1   Temp: System (Degrees C)                 48   90(Hyst)         95     Ok
+  2   Almmon: LED Output                       No        -          -       Ok
+  3   Almmon: Relay Output 1                 Open        -          -       Ok
+  4   Power Input 1                           Yes        -          -       Ok
+  5   Power Input 2                            No        -          -       Ok     <-- 5 sensors
+
+  Stack member 3:
+
+  Overall Status: Normal
+
+  Resource ID: 100  Name: AT-IE520-28GSX
+  ID  Sensor (Units)                      Reading  Low Limit High Limit Status
+  1   Temp: System (Degrees C)                 42   90(Hyst)         95     Ok
+  2   Almmon: LED Output                       No        -          -       Ok
+  3   Almmon: Relay Output 1               Closed        -          -       Ok
+  4   Power Input 1                            No        -          -       Ok
+  5   Power Input 2                           Yes        -          -       Ok     <-- 5 sensors
+
+  Stack member 4:
+
+  Overall Status: Normal
+
+  Resource ID: 100  Name: AT-IE520-28GSX
+  ID  Sensor (Units)                      Reading  Low Limit High Limit Status
+  1   Temp: System (Degrees C)                 44   90(Hyst)         95     Ok
+  2   Almmon: LED Output                       No        -          -       Ok
+  3   Almmon: Relay Output 1                 Open        -          -       Ok
+  4   Power Input 1                           Yes        -          -       Ok
+  5   Power Input 2                            No        -          -       Ok     <-- 5 sensors
+  => STEP 4 PASS: 0x0047 = 15 = 3 members x 5 sensors, and each present member's unit
+     reports 5 sensors (0x0005), exactly the five rows `show system environment` lists
+     for it. The total counts only the three present members.
+
+STEP 5 -- Number of Alarms                                                  FAIL
+--------------------------------------------------------------------------------
+  Graded at 0x0048 (global alarms) and 0x0049 (per-member alarms, stack total), with the
+  per-member count in word 5 of unit N 0x0120. The case's literal 0x0042 holds HW MAC
+  word 2 in version 5.
+tb470$ mb.py --host 10.38.215.10 read 0x0042 1 UINT "s5 (case: Number of Alarms)"
+  13:17:33   TX 00 01 00 00 00 06 00 03 00 42 00 01
+  13:17:33 READ  0x0042 x1 UINT s5 (case: Number of Alarms) -> words=['0xcd37'] value=52535   <-- MAC word 2
+tb470$ mb.py --host 10.38.215.10 read 0x0048 1 UINT "v5 Number of Alarms (global)"
+  13:17:35   TX 00 01 00 00 00 06 00 03 00 48 00 01
+  13:17:35 READ  0x0048 x1 UINT v5 Number of Alarms (global) -> words=['0x0004'] value=4   <-- = CLI 4 global
+tb470$ mb.py --host 10.38.215.10 read 0x0049 1 UINT "v5 Number of Alarms (per-member total)"
+  13:17:35   TX 00 01 00 00 00 06 00 03 00 49 00 01
+  13:17:35 READ  0x0049 x1 UINT v5 Number of Alarms (per-member total) -> words=['0x007c'] value=124   <-- CLI lists 93
+tb470$ mb.py --host 10.38.215.10 read 0x0044 1 HEX "v5 stack-member bitmap"
+  13:17:34   TX 00 01 00 00 00 06 00 03 00 44 00 01
+  13:17:34 READ  0x0044 x1 HEX v5 stack-member bitmap -> words=['0x000d'] value='000d'   <-- bits 1, 3, 4: member 2 excluded
+  unit N 0x0120 [boards,ports,faults,sensors,alarms] (verbatim reads in STEP 4):
+      unit  value               alarms (word 5)
+      1     [1, 28, 0, 5, 31]   31
+      2     EXCEPTION           -
+      3     [1, 28, 0, 5, 31]   31
+      4     [1, 28, 0, 5, 31]   31
+IE520-stk# show alarm facility settings                             [13:17:29]
+  Member output control: Disabled
+
+  Global alarms:
+
+  Alarm                    ID           Outputs - L: LED, R: Relay
+  ----------------------------------------------------------------------
+  EPSR                     -            -
+  Loop detect              -            -
+  G8032                    -            -
+  UFO                      -            -                                <-- 4 global alarms
+
+  Per stack member alarms:
+
+  Stack member 1:
+
+  Alarm                    ID           Outputs - L: LED, R: Relay
+  ----------------------------------------------------------------------
+  External PSU             1            -
+  External PSU             2            -
+  Link down                port1.0.1    -
+  Link down                port1.0.2    -
+  Link down                port1.0.3    -
+  Link down                port1.0.4    -
+  Link down                port1.0.5    -
+  Link down                port1.0.6    -
+  Link down                port1.0.7    -
+  Link down                port1.0.8    -
+  Link down                port1.0.9    -
+  Link down                port1.0.10   -
+  Link down                port1.0.11   -
+  Link down                port1.0.12   -
+  Link down                port1.0.13   -
+  Link down                port1.0.14   -
+  Link down                port1.0.15   -
+  Link down                port1.0.16   -
+  Link down                port1.0.17   -
+  Link down                port1.0.18   -
+  Link down                port1.0.19   -
+  Link down                port1.0.20   -
+  Link down                port1.0.21   -
+  Link down                port1.0.22   -
+  Link down                port1.0.23   -
+  Link down                port1.0.24   -
+  Link down                port1.0.25   -
+  Link down                port1.0.26   -
+  Link down                port1.0.27   -
+  Link down                port1.0.28   -
+  Temperature              -            -                                <-- member 1: 2 + 28 + 1 = 31
+
+
+  Alarm                    ID           Alarm position
+  ----------------------------------------------------
+
+  Stack member 3:
+
+  Alarm                    ID           Outputs - L: LED, R: Relay
+  ----------------------------------------------------------------------
+  External PSU             1            -
+  External PSU             2            -
+  Link down                port3.0.1    -
+  Link down                port3.0.2    -
+  Link down                port3.0.3    -
+  Link down                port3.0.4    -
+  Link down                port3.0.5    -
+  Link down                port3.0.6    -
+  Link down                port3.0.7    -
+  Link down                port3.0.8    -
+  Link down                port3.0.9    -
+  Link down                port3.0.10   -
+  Link down                port3.0.11   -
+  Link down                port3.0.12   -
+  Link down                port3.0.13   -
+  Link down                port3.0.14   -
+  Link down                port3.0.15   -
+  Link down                port3.0.16   -
+  Link down                port3.0.17   -
+  Link down                port3.0.18   -
+  Link down                port3.0.19   -
+  Link down                port3.0.20   -
+  Link down                port3.0.21   -
+  Link down                port3.0.22   -
+  Link down                port3.0.23   -
+  Link down                port3.0.24   -
+  Link down                port3.0.25   -
+  Link down                port3.0.26   -
+  Link down                port3.0.27   -
+  Link down                port3.0.28   -
+  Temperature              -            -                                <-- member 3: 31
+
+
+  Alarm                    ID           Alarm position
+  ----------------------------------------------------
+
+  Stack member 4:
+
+  Alarm                    ID           Outputs - L: LED, R: Relay
+  ----------------------------------------------------------------------
+  External PSU             1            -
+  External PSU             2            -
+  Link down                port4.0.1    -
+  Link down                port4.0.2    -
+  Link down                port4.0.3    -
+  Link down                port4.0.4    -
+  Link down                port4.0.5    -
+  Link down                port4.0.6    -
+  Link down                port4.0.7    -
+  Link down                port4.0.8    -
+  Link down                port4.0.9    -
+  Link down                port4.0.10   -
+  Link down                port4.0.11   -
+  Link down                port4.0.12   -
+  Link down                port4.0.13   -
+  Link down                port4.0.14   -
+  Link down                port4.0.15   -
+  Link down                port4.0.16   -
+  Link down                port4.0.17   -
+  Link down                port4.0.18   -
+  Link down                port4.0.19   -
+  Link down                port4.0.20   -
+  Link down                port4.0.21   -
+  Link down                port4.0.22   -
+  Link down                port4.0.23   -
+  Link down                port4.0.24   -
+  Link down                port4.0.25   -
+  Link down                port4.0.26   -
+  Link down                port4.0.27   -
+  Link down                port4.0.28   -
+  Temperature              -            -                                <-- member 4: 31
+
+
+  Alarm                    ID           Alarm position
+  ----------------------------------------------------
+                                                    <-- no "Stack member 2" section
+  Member 2, as measured from the stack:
+IE520-stk# show stack                                               [13:17:23]
+  (excerpt: the member table)
+  ID   Pending ID  MAC address        Priority  Status  Role
+  1    -           84e3.2787.0ac0     128       Ready   Backup Member
+  2    -           -                  -         -       Provisioned  <-- no MAC, no status
+  3    -           84e3.2787.0740     128       Ready   Active Master
+  4    -           84e3.2787.09c0     128       Ready   Backup Member
+IE520-stk# show stack detail                                        [13:17:24]
+  (excerpt: the member 2 section, complete as printed)
+  Stack member 2:
+  ------------------------------------------------------------------
+  ID                                      2
+  Product type                            ie520-28
+  Role                                    Provisioned     <-- no MAC, status, or stack-port lines
+  (members 1, 3, 4 each print "Status Ready" and two "Learnt neighbor" stack-port lines,
+   forming the ring port1.0.27-3.0.28, 1.0.28-4.0.27, 3.0.27-4.0.28; none points at a 2)
+IE520-stk# show running-config | include hostname|provision         [13:17:26]
+  hostname IE520-stk
+  switch 1 provision ie520-28
+  switch 2 provision ie520-28                    <-- member 2 exists only as this line
+  switch 3 provision ie520-28
+  switch 4 provision ie520-28
+IE520-stk# show scada modbus tcp server                             [13:17:42]
+  (excerpt: after the 40 reads of STEPS 1-10)
+  Statistics:
+    Read Requests:
+      coils                :          0
+      discrete inputs      :          0
+      holding registers    :         40
+      input registers      :          0
+  ...
+    Exceptions:
+      illegal function     :          0
+      illegal data address :          2     <-- s8, s9 (STEPS 8, 9)
+      illegal data value   :          5     <-- the five unit-2 reads (0x0120, 0x0200, 0x0202, 0x0222, 0x0242)
+      slave device failure :          0
+  Comparison:
+      alarms     CLI (show alarm facility settings)   Modbus
+      global     4  (EPSR, Loop detect, G8032, UFO)    0x0048 = 4      equal
+      member 1   31                                    unit 1 = 31     equal
+      member 3   31                                    unit 3 = 31     equal
+      member 4   31                                    unit 4 = 31     equal
+      member 2   (no section)                          unit 2 = exception
+      members    93 (31 x 3)                           0x0049 = 124    124 = 31 x 4  MISMATCH
+  => STEP 5 FAIL: the global count 0x0048 = 4 equals the CLI, and each present member's
+     own unit reports 31 alarms, equal to the CLI. But the per-member total 0x0049 = 124
+     where the CLI lists 93. The excess of 31 is exactly one member's worth and matches the
+     provisioned slot 2: the stack shows it with no MAC and no status, the member bitmap
+     0x000d excludes it, its own unit-2 block answers an exception on every register, and
+     the ports (84), sensors (15) and faults (0) totals all count three members, not four.
+
+STEP 6 -- Number of Ports                                                   PASS
+--------------------------------------------------------------------------------
+  Graded at 0x0045 (version 5, stack total), with the per-member count in word 2 of
+  unit N 0x0120. The case's literal 0x0043 holds HW MAC word 3 in version 5.
+tb470$ mb.py --host 10.38.215.10 read 0x0043 1 UINT "s6 (case: Number of Ports)"
+  13:17:33   TX 00 01 00 00 00 06 00 03 00 43 00 01
+  13:17:33 READ  0x0043 x1 UINT s6 (case: Number of Ports) -> words=['0x0d6f'] value=3439   <-- MAC word 3
+tb470$ mb.py --host 10.38.215.10 read 0x0045 1 UINT "v5 Number of Ports"
+  13:17:35   TX 00 01 00 00 00 06 00 03 00 45 00 01
+  13:17:35 READ  0x0045 x1 UINT v5 Number of Ports -> words=['0x0054'] value=84   <-- 84
+      member  unit N 0x0120 word 2 (STEP 4)   CLI (STEP 5: show alarm facility settings)
+      1       0x001c = 28                     Link down port1.0.1 .. port1.0.28 = 28 ports
+      3       0x001c = 28                     Link down port3.0.1 .. port3.0.28 = 28 ports
+      4       0x001c = 28                     Link down port4.0.1 .. port4.0.28 = 28 ports
+      2       exception                       no member 2 section
+  => STEP 6 PASS: 0x0045 = 84 = 3 x 28, the port count of the three present
+     AT-IE520-28GSX members, each of which reports 28 on its own unit.
+
+STEP 7 -- Number of Faults                                                  PASS
+--------------------------------------------------------------------------------
+  Graded at 0x0046 (version 5, stack total), with the per-member count in word 3 of
+  unit N 0x0120. The case's literal 0x0044 holds the stack-member bitmap in version 5.
+tb470$ mb.py --host 10.38.215.10 read 0x0044 1 UINT "s7 (case: Number of Faults)"
+  13:17:34   TX 00 01 00 00 00 06 00 03 00 44 00 01
+  13:17:34 READ  0x0044 x1 UINT s7 (case: Number of Faults) -> words=['0x000d'] value=13   <-- the member bitmap
+tb470$ mb.py --host 10.38.215.10 read 0x0046 1 UINT "v5 Number of Faults"
+  13:17:35   TX 00 01 00 00 00 06 00 03 00 46 00 01
+  13:17:35 READ  0x0046 x1 UINT v5 Number of Faults -> words=['0x0000'] value=0   <-- 0
+  unit 1/3/4 0x0120 word 3 = 0x0000 each (STEP 4).
+IE520-stk# show alarm facility status                               [13:17:30]
+  Active alarms            ID
+  -------------------------------------                  <-- header only: no active alarm
+  show system environment (13:17:27, STEP 4): "Overall Status: Normal" on members 1, 3, 4,
+  every one of the 15 sensors "Ok"; show system (STEP 2): "Environment Status : Normal" x3.
+  => STEP 7 PASS: 0x0046 = 0 and each member's unit reports 0 faults, matching a stack
+     whose 15 sensors all read Ok with no active alarm.
+
+STEP 8 -- Software Version                                                  PASS
+--------------------------------------------------------------------------------
+  Graded at 0x0021 (version 5). The case's literal 0x0045 x32 answers an exception.
+tb470$ mb.py --host 10.38.215.10 read 0x0045 32 ASCII "s8 (case: Software Version)"
+  Exception response 131 / 0
+  13:17:34 CONNECT 10.38.215.10:502 slave=0 -> ok
+  13:17:34   TX 00 01 00 00 00 06 00 03 00 45 00 20
+  13:17:34 READ  0x0045 x32 ASCII s8 (case: Software Version) -> EXCEPTION ExceptionResponse(dev_id=0, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)
+       <-- in version 5, 0x0045 is the 1-word Number of Ports; 32 words run off the block
+           (counted as "illegal data address", STEP 5 statistics)
+tb470$ mb.py --host 10.38.215.10 read 0x0021 32 ASCII "v5 Software Version"
+  13:17:34   TX 00 01 00 00 00 06 00 03 00 21 00 20
+  13:17:34 READ  0x0021 x32 ASCII v5 Software Version -> words=['0x6d61', '0x696e', '0x2d63', '0x616c', '0x616e', '0x6d00', '0x0000', ...] value='main-calanm'
+  show system (13:17:21, STEP 2):
+    Current software   : IE520-tb470.rel
+    Software version   : main-calanm                  <-- = 0x0021
+  => STEP 8 PASS: 0x0021 returns 'main-calanm', the Software version `show system`
+     reports for the stack.
+
+STEP 9 -- System Name                                                       PASS
+--------------------------------------------------------------------------------
+  Graded at 0x0001 (version 5). The case's literal 0x0065 x32 answers an exception.
+tb470$ mb.py --host 10.38.215.10 read 0x0065 32 ASCII "s9 (case: System Name)"
+  Exception response 131 / 0
+  13:17:34 CONNECT 10.38.215.10:502 slave=0 -> ok
+  13:17:34   TX 00 01 00 00 00 06 00 03 00 65 00 20
+  13:17:34 READ  0x0065 x32 ASCII s9 (case: System Name) -> EXCEPTION ExceptionResponse(dev_id=0, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)
+tb470$ mb.py --host 10.38.215.10 read 0x0001 32 ASCII "v5 System Name"
+  13:17:34   TX 00 01 00 00 00 06 00 03 00 01 00 20
+  13:17:34 READ  0x0001 x32 ASCII v5 System Name -> words=['0x4945', '0x3532', '0x302d', '0x7374', '0x6b00', '0x0000', ...] value='IE520-stk'
+  show system (13:17:21, STEP 2):
+    System Name
+     IE520-stk                                        <-- = 0x0001
+  show running-config | include hostname|provision (13:17:26, STEP 5):
+    hostname IE520-stk
+  => STEP 9 PASS: 0x0001 returns 'IE520-stk', the configured hostname and the System
+     Name `show system` prints.
+
+STEP 10 -- HW Mac Address                                                   PASS
+--------------------------------------------------------------------------------
+  Graded at 0x0041 x3 (version 5, the stack MAC), with each member's board MAC at unit N
+  0x0242 x3. The case's literal 0x0085 x3 does not hold a MAC in version 5.
+tb470$ mb.py --host 10.38.215.10 read 0x0085 3 HEX "s10 (case: HW Mac Address)"
+  13:17:34   TX 00 01 00 00 00 06 00 03 00 85 00 03
+  13:17:34 READ  0x0085 x3 HEX s10 (case: HW Mac Address) -> words=['0x0000', '0x0005', '0x0000'] value='000000050000'   <-- not a MAC
+tb470$ mb.py --host 10.38.215.10 read 0x0041 3 HEX "v5 HW MAC"
+  13:17:34   TX 00 01 00 00 00 06 00 03 00 41 00 03
+  13:17:34 READ  0x0041 x3 HEX v5 HW MAC -> words=['0x0000', '0xcd37', '0x0d6f'] value='0000cd370d6f'   <-- the virtual MAC
+tb470$ mb.py --host 10.38.215.10 --slave N read 0x0242 3 HEX "unit N board MAC"   (N = 1..4)
+  13:17:36   TX 00 01 00 00 00 06 01 03 02 42 00 03
+  13:17:36 READ  0x0242 x3 HEX unit 1 board MAC -> words=['0x84e3', '0x2787', '0x0ac0'] value='84e327870ac0'
+  Exception response 131 / 0
+  13:17:36 CONNECT 10.38.215.10:502 slave=2 -> ok
+  13:17:36   TX 00 01 00 00 00 06 02 03 02 42 00 03
+  13:17:36 READ  0x0242 x3 HEX unit 2 board MAC -> EXCEPTION ExceptionResponse(dev_id=2, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)
+  13:17:37   TX 00 01 00 00 00 06 03 03 02 42 00 03
+  13:17:37 READ  0x0242 x3 HEX unit 3 board MAC -> words=['0x84e3', '0x2787', '0x0740'] value='84e327870740'
+  13:17:37   TX 00 01 00 00 00 06 04 03 02 42 00 03
+  13:17:37 READ  0x0242 x3 HEX unit 4 board MAC -> words=['0x84e3', '0x2787', '0x09c0'] value='84e3278709c0'
+IE520-stk# show system mac                                          [13:17:22]
+  Stack member        MAC Address
+  ------------------------------------
+  1                   84e3.2787.0ac0     <-- = unit 1 0x0242
+  3                   84e3.2787.0740     <-- = unit 3 0x0242
+  4                   84e3.2787.09c0     <-- = unit 4 0x0242
+
+  Virtual MAC Address 0000.cd37.0d6f     <-- = 0x0041
+  => STEP 10 PASS: 0x0041 returns 0000cd370d6f, the stack's Virtual MAC Address, and
+     each present member's unit returns that member's own MAC as `show system mac`
+     lists it. Unit 2 has no MAC and answers an exception.
+================================================================================

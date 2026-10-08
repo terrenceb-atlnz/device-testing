@@ -1,0 +1,407 @@
+================================================================================
+TEST 22652 -- S2166.1.10, S2166.1.11, S2166.1.12 - modbus -  read alarm information
+================================================================================
+Run:      2026-10-08 13:21:37-13:22:37 NZDT (times below are tb470's clock; device clock UTC)
+Bench:    tb470, consoles u2,u4,u5 (case driven on u5); Test Engineer terrenceb@terrenceb-dl
+Tester:   bench-runner (by hand: tools/ckcon.py, tools/mb.py, no framework script)
+Graded:   tester
+Case:     AWPTCM-T22652 (Draft, /Modbus/Proj 2166 Modbus Support), objective "Able to retrieve
+          alarm information. To get a list of alarm - apteryx -t /alarm-monitoring To check
+          alarm setting - show alarm setting", 3 steps
+Build:    stk_a main-calanm (IE520-tb470.rel, build date Tue Oct 6 19:44:28 UTC 2026),
+          bootloader 9.2.0, on members 1, 3 and 4
+Configs:  stk_a.cfg (running-config after setup; saved to startup: no)
+
+VERDICT: PASS -- alarm #1 type, configuration and status read over Modbus/TCP equal the CLI on stack members 1, 3 and 4
+  Graded at the DUT's Mapping Version 5 alarm block 0x3000 (one entry per alarm, per member by unit id):
+      #1 Alarm Type (0x3000) ............ PASS  (1 word, 1 = External PSU on units 1, 3, 4 = the
+                                                 first per-member alarm in show alarm facility
+                                                 settings, "External PSU 1")
+      #1 Alarm Configuration (0x3001) ... PASS  (1 word, 0x0000 on units 1, 3, 4 = no LED/relay
+                                                 output = Outputs "-" on every member)
+      #1 Alarm Status (0x3005) .......... PASS  (1 word, False / True / False on units 1 / 3 / 4 =
+                                                 alarm present exactly where show system
+                                                 environment reads Power Input 1 No)
+      control: entries #2, #3, #4, #31 .. agree (not graded: #2 External PSU 2 status is the
+                                                 opposite pattern, True / False / True = Power
+                                                 Input 2 No / Yes / No; link-down and temperature
+                                                 entries match show interface status / Temp Ok)
+CAVEAT:  The case text names registers 0x3600-0x3602. This DUT's register map reports Mapping
+         Version 5; at 0x3600-0x3602 it answers an exception response, and alarm #1 lives at
+         0x3000 (type), 0x3001 (configuration) and 0x3005 (status) of a 6-word entry
+         [type, configuration, 0, 0, 0, status], addressed per stack member by Modbus unit id
+         (unit 0 = the master). The steps were graded there. Step 2 saw only the configuration
+         value 0x0000 (no output configured); a non-zero configuration word was not read here.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  DUT     : stk_a (AT-IE520-28GSX VCStack, hostname IE520-stk), Normal operation,
+            stack MAC 0000.cd37.0d6f (virtual)
+            member 1 = swi_a S/N 264A23061 MAC 84e3.2787.0ac0, Backup Member, console u2
+            member 2 = Provisioned only (`switch 2 provision ie520-28`; no MAC, no unit)
+            member 3 = swi_c S/N 264A23066 MAC 84e3.2787.0740, Active Master, console u5 (driven)
+            member 4 = swi_d S/N 264A23052 MAC 84e3.2787.09c0, Backup Member, console u4
+            vlan1 10.38.215.10/27 (+ .40, .66 secondaries), ipv6 enable, ipv6 address dhcp
+  host    : tb470 eth1 10.38.215.1/27 (fd32:b1f0:dff8:d701::1/64, fe80::f667:7041:7dff:3cfc)
+            -> stk_a port3.0.13 (member 3, 1000BASE-T, a-full a-1000, VLAN 1)
+  tools   : tools/mb.py Modbus/TCP client on tb470 -> 10.38.215.10:502, run as
+              mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22652.log [--slave <unit>] <cmd>
+            tools/ckcon.py on tb470: ckcon.py /dev/u5 115200 /tmp/modbus-1008/console-u5.log
+              --stop-on-error "<command>" ...
+  config  : stk_a.cfg (running-config 13:22 after setup; saved to startup: no)
+
+STEP 0 -- baseline (Modbus server OFF)                                     done
+--------------------------------------------------------------------------------
+IE520-stk# show stack                                                (13:21:42)
+  Virtual Chassis Stacking summary information
+
+  ID   Pending ID  MAC address        Priority  Status  Role
+  1    -           84e3.2787.0ac0     128       Ready   Backup Member
+  2    -           -                  -         -       Provisioned
+  3    -           84e3.2787.0740     128       Ready   Active Master
+  4    -           84e3.2787.09c0     128       Ready   Backup Member
+
+  Operational Status                 Normal operation
+  Stack MAC address                  0000.cd37.0d6f (Virtual MAC)
+IE520-stk# show scada modbus tcp server                              (13:21:43)
+  MODBUS is disabled                                     <-- server off
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22652.log probe
+  Connection to (10.38.215.10, 502) failed: [Errno 111] Connection refused
+  13:21:44 CONNECT 10.38.215.10:502 slave=0 -> FAILED (no TCP connection)
+                                                         <-- nothing answers on TCP 502
+  => STEP 0 done: with the server off the DUT refuses Modbus/TCP, so every register value
+     read below comes from the server enabled in SETUP.
+
+SETUP -- enable the Modbus/TCP server                                      done
+--------------------------------------------------------------------------------
+IE520-stk(config)# scada modbus tcp server                           (13:21:51)
+IE520-stk# show scada modbus tcp server                              (13:21:53)
+  SCADA MODBUS Summary Information
+
+  MODBUS is enabled                                      <-- server on
+  Write access: disabled                                 <-- read-only case
+  Master heartbeat status: Not set
+  Master heartbeat timeout: 0
+
+  -------------------------------------
+  TCP Server Characteristics:
+    Port            :   502
+    Max Connections :     1
+
+  -------------------------------------
+  Statistics:
+    Read Requests:
+      coils                :          0
+      discrete inputs      :          0
+      holding registers    :         80                  <-- counter before this case's reads
+      input registers      :          0
+
+    Write Requests:
+      single coil          :          0
+      single register      :          0
+      multiple coils       :          0
+      multiple registers   :          0
+
+    Other Requests         :          0
+
+    Exceptions:
+      illegal function     :          0
+      illegal data address :          2                  <-- before this case's reads
+      illegal data value   :          5
+      slave device failure :          4                  <-- before this case's reads
+IE520-stk# show running-config | include scada                       (13:21:55)
+  scada modbus tcp server                                <-- the only line the case adds
+  (stk_a.cfg saved here from show running-config: 3 header + 186 config lines)
+
+STEP 1 -- "Read register 0x3600 for #1 Alarm Type"                         PASS
+          (expected "Return 1 word ENUM")
+--------------------------------------------------------------------------------
+  Method: the case's literal address first (unit 1), then alarm #1's type word at the
+  Mapping Version 5 address 0x3000 on each present stack member (unit id = member ID).
+  The CLI reference is show alarm facility settings, whose per-member list gives the
+  alarm order: #1 External PSU 1, #2 External PSU 2, #3-#30 Link down portN.0.1-28,
+  #31 Temperature.
+
+IE520-stk# show alarm facility settings                              (13:22:09)
+  Member output control: Disabled
+
+  Global alarms:
+
+  Alarm                    ID           Outputs - L: LED, R: Relay
+  ----------------------------------------------------------------------
+  EPSR                     -            -
+  Loop detect              -            -
+  G8032                    -            -
+  UFO                      -            -
+
+  Per stack member alarms:
+
+  Stack member 1:
+
+  Alarm                    ID           Outputs - L: LED, R: Relay
+  ----------------------------------------------------------------------
+  External PSU             1            -                <-- #1, type External PSU
+  External PSU             2            -                <-- #2
+  Link down                port1.0.1    -                <-- #3
+  Link down                port1.0.2    -                <-- #4
+  Link down                port1.0.3    -
+  ...                                                    (port1.0.4 - port1.0.27, each "-")
+  Link down                port1.0.28   -                <-- #30
+  Temperature              -            -                <-- #31
+
+
+  Alarm                    ID           Alarm position
+  ----------------------------------------------------
+
+  Stack member 3:
+
+  Alarm                    ID           Outputs - L: LED, R: Relay
+  ----------------------------------------------------------------------
+  External PSU             1            -                <-- #1
+  External PSU             2            -
+  Link down                port3.0.1    -
+  ...                                                    (port3.0.2 - port3.0.28, each "-")
+  Temperature              -            -
+
+
+  Alarm                    ID           Alarm position
+  ----------------------------------------------------
+
+  Stack member 4:
+
+  Alarm                    ID           Outputs - L: LED, R: Relay
+  ----------------------------------------------------------------------
+  External PSU             1            -                <-- #1
+  External PSU             2            -
+  Link down                port4.0.1    -
+  ...                                                    (port4.0.2 - port4.0.28, each "-")
+  Temperature              -            -
+
+
+  Alarm                    ID           Alarm position
+  ----------------------------------------------------
+
+The case's literal address (not graded):
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22652.log --slave 1 read 0x3600 1 ENUM "case s1 #1 Alarm Type"
+  Exception response 131 / 0                             <-- 131 = 0x83: exception reply to function 03
+  13:22:16 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:22:16   TX 00 01 00 00 00 06 01 03 36 00 00 01      <-- unit 1, fn 03, addr 0x3600, 1 word
+  13:22:16 READ  0x3600 x1 ENUM case s1 #1 Alarm Type -> EXCEPTION ExceptionResponse(dev_id=1, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)
+                                                         <-- not a register of this DUT
+
+Mapping Version 5 address (graded):
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22652.log --slave 1 read 0x3000 1 ENUM "unit 1 step1 #1 Alarm Type"
+  13:22:17 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:22:17   TX 00 01 00 00 00 06 01 03 30 00 00 01
+  13:22:17 READ  0x3000 x1 ENUM unit 1 step1 #1 Alarm Type -> words=['0x0001'] value=1
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22652.log --slave 3 read 0x3000 1 ENUM "unit 3 step1 #1 Alarm Type"
+  13:22:17 CONNECT 10.38.215.10:502 slave=3 -> ok
+  13:22:17   TX 00 01 00 00 00 06 03 03 30 00 00 01
+  13:22:17 READ  0x3000 x1 ENUM unit 3 step1 #1 Alarm Type -> words=['0x0001'] value=1
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22652.log --slave 4 read 0x3000 1 ENUM "unit 4 step1 #1 Alarm Type"
+  13:22:18 CONNECT 10.38.215.10:502 slave=4 -> ok
+  13:22:18   TX 00 01 00 00 00 06 04 03 30 00 00 01
+  13:22:18 READ  0x3000 x1 ENUM unit 4 step1 #1 Alarm Type -> words=['0x0001'] value=1
+
+      unit (member)   0x3000 #1 Alarm Type   CLI alarm #1 of that member
+      1               ['0x0001'] 1           External PSU 1
+      3               ['0x0001'] 1           External PSU 1
+      4               ['0x0001'] 1           External PSU 1
+      (The same block gives type 4 at #3/#4 = Link down and type 8 at #31 = Temperature on
+       every member; see STEP 3, so the ENUM distinguishes alarm kinds.)
+  => STEP 1 PASS: alarm #1's type register returns 1 word, ENUM 1 = External PSU, on every
+     present member, matching the first per-member alarm the CLI lists ("External PSU 1").
+     The case's literal 0x3600 is not in this DUT's map and answers an exception.
+
+STEP 2 -- "Read register 0x3601 for #1 Alarm Configuration"                PASS
+          (expected "Return 1 word HEX")
+--------------------------------------------------------------------------------
+  Method: the literal address (unit 1), then alarm #1's configuration word at 0x3001 on
+  each member. CLI reference: the Outputs column of show alarm facility settings (STEP 1:
+  "-" for External PSU 1 on members 1, 3 and 4), show alarm facility status and the
+  alarm lines of the running-config.
+
+IE520-stk# show alarm facility status                                (13:22:10)
+  Active alarms            ID
+  -------------------------------------                  <-- empty: no alarm has an output
+IE520-stk# show running-config | include alarm                       (13:22:15)
+                                                         <-- (no output): no alarm configured
+
+The case's literal address (not graded):
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22652.log --slave 1 read 0x3601 1 HEX "case s2 #1 Alarm Configuration"
+  Exception response 131 / 0
+  13:22:16 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:22:16   TX 00 01 00 00 00 06 01 03 36 01 00 01
+  13:22:16 READ  0x3601 x1 HEX case s2 #1 Alarm Configuration -> EXCEPTION ExceptionResponse(dev_id=1, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)
+
+Mapping Version 5 address (graded):
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22652.log --slave 1 read 0x3001 1 HEX "unit 1 step2 #1 Alarm Configuration"
+  13:22:17 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:22:17   TX 00 01 00 00 00 06 01 03 30 01 00 01
+  13:22:17 READ  0x3001 x1 HEX unit 1 step2 #1 Alarm Configuration -> words=['0x0000'] value='0000'
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22652.log --slave 3 read 0x3001 1 HEX "unit 3 step2 #1 Alarm Configuration"
+  13:22:18 CONNECT 10.38.215.10:502 slave=3 -> ok
+  13:22:18   TX 00 01 00 00 00 06 03 03 30 01 00 01
+  13:22:18 READ  0x3001 x1 HEX unit 3 step2 #1 Alarm Configuration -> words=['0x0000'] value='0000'
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22652.log --slave 4 read 0x3001 1 HEX "unit 4 step2 #1 Alarm Configuration"
+  13:22:18 CONNECT 10.38.215.10:502 slave=4 -> ok
+  13:22:18   TX 00 01 00 00 00 06 04 03 30 01 00 01
+  13:22:18 READ  0x3001 x1 HEX unit 4 step2 #1 Alarm Configuration -> words=['0x0000'] value='0000'
+
+      unit (member)   0x3001 #1 Alarm Configuration   CLI Outputs, External PSU 1
+      1               ['0x0000'] '0000'               -
+      3               ['0x0000'] '0000'               -
+      4               ['0x0000'] '0000'               -
+  => STEP 2 PASS: alarm #1's configuration register returns 1 word, HEX 0000 = no LED and
+     no relay output, on every present member, matching the CLI's Outputs "-", the empty
+     active-alarm list and the absence of any alarm line in the running-config. The case's
+     literal 0x3601 answers an exception.
+
+STEP 3 -- "Read register 0x3602 for #1 Alarm Status"                       PASS
+          (expected "Return 1 word BOOL")
+--------------------------------------------------------------------------------
+  Method: the literal address (unit 1), then alarm #1's status word at 0x3005 on each
+  member (0x3002-0x3004 read as the entry's middle words). CLI reference for External PSU
+  alarms: show system environment, Power Input 1 / 2 per member.
+
+IE520-stk# show system environment                                   (13:22:11)
+  Environment Monitoring Status
+
+  Stack member 1:
+
+  Overall Status: Normal
+
+  Resource ID: 100  Name: AT-IE520-28GSX
+  ID  Sensor (Units)                      Reading  Low Limit High Limit Status
+  1   Temp: System (Degrees C)                 48   90(Hyst)         95     Ok
+  2   Almmon: LED Output                       No        -          -       Ok
+  3   Almmon: Relay Output 1                 Open        -          -       Ok
+  4   Power Input 1                           Yes        -          -       Ok      <-- PSU 1 present
+  5   Power Input 2                            No        -          -       Ok
+
+  Stack member 3:
+
+  Overall Status: Normal
+
+  Resource ID: 100  Name: AT-IE520-28GSX
+  ID  Sensor (Units)                      Reading  Low Limit High Limit Status
+  1   Temp: System (Degrees C)                 42   90(Hyst)         95     Ok
+  2   Almmon: LED Output                       No        -          -       Ok
+  3   Almmon: Relay Output 1               Closed        -          -       Ok
+  4   Power Input 1                            No        -          -       Ok      <-- PSU 1 absent
+  5   Power Input 2                           Yes        -          -       Ok
+
+  Stack member 4:
+
+  Overall Status: Normal
+
+  Resource ID: 100  Name: AT-IE520-28GSX
+  ID  Sensor (Units)                      Reading  Low Limit High Limit Status
+  1   Temp: System (Degrees C)                 44   90(Hyst)         95     Ok
+  2   Almmon: LED Output                       No        -          -       Ok
+  3   Almmon: Relay Output 1                 Open        -          -       Ok
+  4   Power Input 1                           Yes        -          -       Ok      <-- PSU 1 present
+  5   Power Input 2                            No        -          -       Ok
+
+The case's literal address (not graded):
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22652.log --slave 1 read 0x3602 1 BOOL "case s3 #1 Alarm Status"
+  Exception response 131 / 0
+  13:22:17 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:22:17   TX 00 01 00 00 00 06 01 03 36 02 00 01
+  13:22:17 READ  0x3602 x1 BOOL case s3 #1 Alarm Status -> EXCEPTION ExceptionResponse(dev_id=1, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)
+
+Mapping Version 5 address (graded):
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22652.log --slave 1 read 0x3005 1 BOOL "unit 1 step3 #1 Alarm Status"
+  13:22:17 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:22:17   TX 00 01 00 00 00 06 01 03 30 05 00 01
+  13:22:17 READ  0x3005 x1 BOOL unit 1 step3 #1 Alarm Status -> words=['0x0000'] value=False
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22652.log --slave 3 read 0x3005 1 BOOL "unit 3 step3 #1 Alarm Status"
+  13:22:18 CONNECT 10.38.215.10:502 slave=3 -> ok
+  13:22:18   TX 00 01 00 00 00 06 03 03 30 05 00 01
+  13:22:18 READ  0x3005 x1 BOOL unit 3 step3 #1 Alarm Status -> words=['0xffff'] value=True
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22652.log --slave 4 read 0x3005 1 BOOL "unit 4 step3 #1 Alarm Status"
+  13:22:19 CONNECT 10.38.215.10:502 slave=4 -> ok
+  13:22:19   TX 00 01 00 00 00 06 04 03 30 05 00 01
+  13:22:19 READ  0x3005 x1 BOOL unit 4 step3 #1 Alarm Status -> words=['0x0000'] value=False
+tb470$ for u in 1 3 4: mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22652.log --slave $u read 0x3002 3 RAW "unit $u #1 reserved words"
+  13:22:17 READ  0x3002 x3 RAW unit 1 #1 reserved words -> words=['0x0000', '0x0000', '0x0000'] value=[0, 0, 0]
+  13:22:18 READ  0x3002 x3 RAW unit 3 #1 reserved words -> words=['0x0000', '0x0000', '0x0000'] value=[0, 0, 0]
+  13:22:19 READ  0x3002 x3 RAW unit 4 #1 reserved words -> words=['0x0000', '0x0000', '0x0000'] value=[0, 0, 0]
+  (CONNECT lines omitted: each "-> ok")
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22652.log read 0x3000 6 RAW "unit 0 #1"
+  13:22:19 CONNECT 10.38.215.10:502 slave=0 -> ok
+  13:22:19   TX 00 01 00 00 00 06 00 03 30 00 00 06
+  13:22:19 READ  0x3000 x6 RAW unit 0 #1 -> words=['0x0001', '0x0000', '0x0000', '0x0000', '0x0000', '0xffff'] value=[1, 0, 0, 0, 0, 65535]
+                                                         <-- unit 0 = the master's (member 3's) entry
+
+      unit (member)   0x3005 #1 Alarm Status   CLI Power Input 1   alarm expected
+      1               ['0x0000'] False         Yes                 no
+      3               ['0xffff'] True          No                  yes
+      4               ['0x0000'] False         Yes                 no
+      0 (master = 3)  0xffff (word 6 of 6)     No                  yes
+
+  Control: the neighbouring entries of the same block, on the same members (not graded).
+  Their status word (the 6th) tracks the CLI state of each alarm's own object:
+tb470$ for u in 1 3 4:
+         mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22652.log --slave $u read 0x3006 6 RAW "unit $u #2 External PSU 2"
+         mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22652.log --slave $u read 0x300c 6 RAW "unit $u #3 Link down portN.0.1"
+         mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22652.log --slave $u read 0x3012 6 RAW "unit $u #4 Link down portN.0.2"
+         mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22652.log --slave $u read 0x30b4 6 RAW "unit $u #31 Temperature"
+  13:22:17 READ  0x3006 x6 RAW unit 1 #2 External PSU 2 -> words=['0x0001', '0x0000', '0x0000', '0x0000', '0x0000', '0xffff'] value=[1, 0, 0, 0, 0, 65535]
+  13:22:18 READ  0x3006 x6 RAW unit 3 #2 External PSU 2 -> words=['0x0001', '0x0000', '0x0000', '0x0000', '0x0000', '0x0000'] value=[1, 0, 0, 0, 0, 0]
+  13:22:19 READ  0x3006 x6 RAW unit 4 #2 External PSU 2 -> words=['0x0001', '0x0000', '0x0000', '0x0000', '0x0000', '0xffff'] value=[1, 0, 0, 0, 0, 65535]
+  13:22:17 READ  0x300c x6 RAW unit 1 #3 Link down portN.0.1 -> words=['0x0004', '0x0000', '0x0000', '0x0000', '0x0000', '0xffff'] value=[4, 0, 0, 0, 0, 65535]
+  13:22:18 READ  0x300c x6 RAW unit 3 #3 Link down portN.0.1 -> words=['0x0004', '0x0000', '0x0000', '0x0000', '0x0000', '0xffff'] value=[4, 0, 0, 0, 0, 65535]
+  13:22:19 READ  0x300c x6 RAW unit 4 #3 Link down portN.0.1 -> words=['0x0004', '0x0000', '0x0000', '0x0000', '0x0000', '0xffff'] value=[4, 0, 0, 0, 0, 65535]
+  13:22:17 READ  0x3012 x6 RAW unit 1 #4 Link down portN.0.2 -> words=['0x0004', '0x0000', '0x0000', '0x0000', '0x0000', '0x0000'] value=[4, 0, 0, 0, 0, 0]
+  13:22:18 READ  0x3012 x6 RAW unit 3 #4 Link down portN.0.2 -> words=['0x0004', '0x0000', '0x0000', '0x0000', '0x0000', '0x0000'] value=[4, 0, 0, 0, 0, 0]
+  13:22:19 READ  0x3012 x6 RAW unit 4 #4 Link down portN.0.2 -> words=['0x0004', '0x0000', '0x0000', '0x0000', '0x0000', '0x0000'] value=[4, 0, 0, 0, 0, 0]
+  13:22:17 READ  0x30b4 x6 RAW unit 1 #31 Temperature -> words=['0x0008', '0x0000', '0x0000', '0x0000', '0x0000', '0x0000'] value=[8, 0, 0, 0, 0, 0]
+  13:22:18 READ  0x30b4 x6 RAW unit 3 #31 Temperature -> words=['0x0008', '0x0000', '0x0000', '0x0000', '0x0000', '0x0000'] value=[8, 0, 0, 0, 0, 0]
+  13:22:19 READ  0x30b4 x6 RAW unit 4 #31 Temperature -> words=['0x0008', '0x0000', '0x0000', '0x0000', '0x0000', '0x0000'] value=[8, 0, 0, 0, 0, 0]
+  (CONNECT and TX lines omitted: each CONNECT "-> ok")
+IE520-stk# show interface status                                     (13:22:13)
+  Port        Name               Status      Vlan      Duplex Speed   Type
+  --------------------------------------------------------------------------------
+  port1.0.1   -                  notconnect          1 auto   auto    not present
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+  ...
+  port3.0.1   -                  notconnect          1 auto   auto    not present
+  port3.0.2   -                  connected          10 a-full a-1000  1000BASE-T
+  ...
+  port4.0.1   -                  notconnect          1 auto   auto    not present
+  port4.0.2   -                  connected          10 a-full a-1000  10GBASE-TM
+  ...
+
+      entry (address)               unit 1         unit 3         unit 4         CLI
+      #2 External PSU 2 (0x3006)    0xffff         0x0000         0xffff         Power Input 2 No / Yes / No
+      #3 Link down N.0.1 (0x300c)   0xffff         0xffff         0xffff         portN.0.1 notconnect on all
+      #4 Link down N.0.2 (0x3012)   0x0000         0x0000         0x0000         portN.0.2 connected on all
+      #31 Temperature (0x30b4)      0x0000         0x0000         0x0000         48 / 42 / 44 C, Ok
+      (type word: 1 External PSU, 4 Link down, 8 Temperature, as the CLI lists the entries)
+
+  Server counters after all of this case's reads (they cover the three literal-address
+  reads of steps 1-3):
+IE520-stk# show scada modbus tcp server                              (13:22:24)
+  ...
+    Read Requests:
+      coils                :          0
+      discrete inputs      :          0
+      holding registers    :        108                  <-- +28 = this case's 28 reads
+      input registers      :          0
+  ...
+    Exceptions:
+      illegal function     :          0
+      illegal data address :          4                  <-- +2
+      illegal data value   :          5                  <-- +0
+      slave device failure :          5                  <-- +1; 2 + 1 = the 3 exception
+                                                             replies to 0x3600-0x3602
+  => STEP 3 PASS: alarm #1's status register returns 1 word, BOOL, and it is True only on
+     member 3, the one member whose Power Input 1 reads No; False on members 1 and 4,
+     whose Power Input 1 reads Yes. Unit 0 returns member 3's entry. The control entries
+     prove the status word follows each alarm's real condition: External PSU 2 shows the
+     opposite pattern (alarm on members 1 and 4, where Power Input 2 is No), link-down is
+     set for the notconnect ports N.0.1 and clear for the connected ports N.0.2, and
+     temperature is clear at Ok readings. The case's literal 0x3602 answers an exception.
+================================================================================

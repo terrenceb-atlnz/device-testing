@@ -1,0 +1,427 @@
+================================================================================
+TEST 22651 -- S2166.1.10, S2166.1.11, S2166.1.12 - modbus -  read Sensor information
+================================================================================
+Run:      2026-10-08 13:19:36-13:20:32 NZDT (device clock UTC, offset 0)
+Bench:    tb470, consoles u2,u4,u5 (case driven on u5); Test Engineer terrenceb@terrenceb-dl
+Tester:   bench-runner (by hand: tools/ckcon.py, tools/mb.py, no framework script)
+Graded:   tester
+Case:     AWPTCM-T22651 (Draft, /Modbus/Proj 2166 Modbus Support), objective "Able to retrieve
+          sensor information and compares with apteryx -t /platform/environment/boards/Base/sensors
+          show sys env for converting sensor reading use the online tools: (require to convert for
+          big endian)", 5 steps
+Build:    stk_a main-calanm (IE520-tb470.rel, build date Tue Oct 6 19:44:28 UTC 2026), bootloader
+          9.2.0, on members 1, 3 and 4
+Configs:  stk_a.cfg (running-config after setup; saved to startup: no)
+
+VERDICT: PASS -- sensor #1/#2 type, reading, units, status over Modbus/TCP = show system environment, members 1/3/4
+      #1 Sensor Type (0x1000) .............. PASS  (2 on members 1/3/4 = the temperature sensor)
+      #1 Sensor Reading (0x1001-0x1002) .... PASS  (big-endian float 48.0 / 42.0 / 44.0 = CLI 48 / 42 / 44)
+      #1 Sensor Units (0x1003) ............. PASS  (2 = Degrees C on each member)
+      #1 Sensor Fault Status (0x1004) ...... PASS  (0 on each member = CLI "Ok")
+      #2 sensor (0x1005-0x1009) ............ PASS  (type 11, 0.0, units 0, status 0 = "Almmon: LED Output No Ok")
+      sensors #3-#5 (0x100a-0x1018) ........ agree (Relay Output 1 and Power Input 1/2 = CLI per member,
+                                                    including member 3's Closed / No / Yes)
+      past sensor #5 (0x1019) .............. exception on every unit (5 sensors per member, as the CLI)
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  DUT     : stk_a (AT-IE520-28GSX VCStack, hostname IE520-stk), Normal operation,
+            stack MAC 0000.cd37.0d6f (virtual)
+            member 1 = swi_a S/N 264A23061 MAC 84e3.2787.0ac0, Backup Member, console u2
+            member 2 = Provisioned only (switch 2 provision ie520-28; no MAC, no unit)
+            member 3 = swi_c S/N 264A23066 MAC 84e3.2787.0740, Active Master, console u5 (driven)
+            member 4 = swi_d S/N 264A23052 MAC 84e3.2787.09c0, Backup Member, console u4
+            stack ports 1.0.27<->3.0.28, 1.0.28<->4.0.27, 3.0.27<->4.0.28 (a ring of three)
+            software main-calanm (IE520-tb470.rel, build date Tue Oct 6 19:44:28 UTC 2026),
+            bootloader 9.2.0
+            vlan1 10.38.215.10/27 (+ .40, .66 secondaries), ipv6 enable, ipv6 address dhcp
+  host    : tb470 eth1 10.38.215.1/27 (fd32:b1f0:dff8:d701::1/64, fe80::f667:7041:7dff:3cfc)
+            -> stk_a port3.0.13 (member 3, 1000BASE-T, a-full a-1000, VLAN 1)
+  server  : scada modbus tcp server on stk_a, TCP port 502, Max Connections 1, write access disabled
+  tools   : on tb470: tools/ckcon.py /dev/u5 115200 --stop-on-error (console u5, stack master);
+            tools/mb.py --host 10.38.215.10 (Modbus/TCP client, pymodbus 3.8.6) -> 10.38.215.10:502,
+            one connection per read, function 03 (read holding registers), unit id = stack member
+            (1, 3, 4; unit 0 = the master's block); tools/rc2cfg.py wrote stk_a.cfg
+
+STEP 0 -- baseline (Modbus server OFF)                                      done
+--------------------------------------------------------------------------------
+IE520-stk# show stack
+  Virtual Chassis Stacking summary information
+
+  ID   Pending ID  MAC address        Priority  Status  Role
+  1    -           84e3.2787.0ac0     128       Ready   Backup Member
+  2    -           -                  -         -       Provisioned   <-- member 2 provisioned only
+  3    -           84e3.2787.0740     128       Ready   Active Master   <-- master = member 3 (console u5)
+  4    -           84e3.2787.09c0     128       Ready   Backup Member
+
+  Operational Status                 Normal operation
+  Stack MAC address                  0000.cd37.0d6f (Virtual MAC)
+IE520-stk# show scada modbus tcp server
+  MODBUS is disabled   <-- server off
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log probe
+  Connection to (10.38.215.10, 502) failed: [Errno 111] Connection refused
+  13:19:43 CONNECT 10.38.215.10:502 slave=0 -> FAILED (no TCP connection)   <-- nothing listens on 502
+  => STEP 0 done: members 1, 3, 4 Ready (3 = Active Master); Modbus server disabled and TCP 502
+     refused, so every value read below is served by the server this case enables.
+
+SETUP -- enable the Modbus TCP server                                       done
+--------------------------------------------------------------------------------
+IE520-stk# configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)# scada modbus tcp server
+IE520-stk(config)# end
+IE520-stk# show scada modbus tcp server
+  SCADA MODBUS Summary Information
+
+  MODBUS is enabled   <-- server on
+  Write access: disabled
+  Master heartbeat status: Not set
+  Master heartbeat timeout: 0
+
+  -------------------------------------
+  TCP Server Characteristics:
+    Port            :   502   <-- TCP 502
+    Max Connections :     1
+
+  -------------------------------------
+  Statistics:
+    Read Requests:
+      coils                :          0
+      discrete inputs      :          0
+      holding registers    :         40   <-- 40 before this case's first read
+      input registers      :          0
+
+    Write Requests:
+      single coil          :          0
+      single register      :          0
+      multiple coils       :          0
+      multiple registers   :          0
+
+    Other Requests         :          0
+
+    Exceptions:
+      illegal function     :          0
+      illegal data address :          2
+      illegal data value   :          5
+      slave device failure :          0   <-- 0 before this case's first read
+IE520-stk# show running-config | include scada
+  scada modbus tcp server
+IE520-stk# show running-config
+  -> saved as stk_a.cfg (3 header + 186 config lines); not written to startup
+  => SETUP done: the server is enabled on TCP 502, read-only.
+
+REFERENCE -- show system environment (CLI) 13:20:07                         done
+--------------------------------------------------------------------------------
+IE520-stk# show system environment
+  Environment Monitoring Status
+
+  Stack member 1:
+
+  Overall Status: Normal
+
+  Resource ID: 100  Name: AT-IE520-28GSX
+  ID  Sensor (Units)                      Reading  Low Limit High Limit Status
+  1   Temp: System (Degrees C)                 48   90(Hyst)         95     Ok   <-- member 1 sensor #1
+  2   Almmon: LED Output                       No        -          -       Ok   <-- member 1 sensor #2
+  3   Almmon: Relay Output 1                 Open        -          -       Ok
+  4   Power Input 1                           Yes        -          -       Ok
+  5   Power Input 2                            No        -          -       Ok
+
+  Stack member 3:
+
+  Overall Status: Normal
+
+  Resource ID: 100  Name: AT-IE520-28GSX
+  ID  Sensor (Units)                      Reading  Low Limit High Limit Status
+  1   Temp: System (Degrees C)                 42   90(Hyst)         95     Ok   <-- member 3 sensor #1
+  2   Almmon: LED Output                       No        -          -       Ok   <-- member 3 sensor #2
+  3   Almmon: Relay Output 1               Closed        -          -       Ok
+  4   Power Input 1                            No        -          -       Ok
+  5   Power Input 2                           Yes        -          -       Ok
+
+  Stack member 4:
+
+  Overall Status: Normal
+
+  Resource ID: 100  Name: AT-IE520-28GSX
+  ID  Sensor (Units)                      Reading  Low Limit High Limit Status
+  1   Temp: System (Degrees C)                 44   90(Hyst)         95     Ok   <-- member 4 sensor #1
+  2   Almmon: LED Output                       No        -          -       Ok   <-- member 4 sensor #2
+  3   Almmon: Relay Output 1                 Open        -          -       Ok
+  4   Power Input 1                           Yes        -          -       Ok
+  5   Power Input 2                            No        -          -       Ok
+  => REFERENCE done: 5 sensors per member, all Ok. Every Modbus value below is graded against this
+     output (re-read after the Modbus reads, at 13:20:18: identical line for line).
+
+STEP 1 -- #1 Sensor Type                                                    PASS
+--------------------------------------------------------------------------------
+  Method: one read per stack member; the Modbus unit id selects the member (1, 3, 4), and
+  unit 0 serves the master's block. TX = MBAP header + unit, function 03, address, count.
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 1 read 0x1000 1 ENUM "unit 1 step1 #1 Sensor Type"
+  13:20:08 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:20:08   TX 00 01 00 00 00 06 01 03 10 00 00 01
+  13:20:08 READ  0x1000 x1 ENUM unit 1 step1 #1 Sensor Type -> words=['0x0002'] value=2   <-- type 2 (temperature)
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 3 read 0x1000 1 ENUM "unit 3 step1 #1 Sensor Type"
+  13:20:09 CONNECT 10.38.215.10:502 slave=3 -> ok
+  13:20:09   TX 00 01 00 00 00 06 03 03 10 00 00 01
+  13:20:09 READ  0x1000 x1 ENUM unit 3 step1 #1 Sensor Type -> words=['0x0002'] value=2   <-- type 2
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 4 read 0x1000 1 ENUM "unit 4 step1 #1 Sensor Type"
+  13:20:10 CONNECT 10.38.215.10:502 slave=4 -> ok
+  13:20:10   TX 00 01 00 00 00 06 04 03 10 00 00 01
+  13:20:10 READ  0x1000 x1 ENUM unit 4 step1 #1 Sensor Type -> words=['0x0002'] value=2   <-- type 2
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 0 read 0x1000 1 ENUM "unit 0 step1 #1 Sensor Type"
+  13:20:11 CONNECT 10.38.215.10:502 slave=0 -> ok
+  13:20:11   TX 00 01 00 00 00 06 00 03 10 00 00 01
+  13:20:11 READ  0x1000 x1 ENUM unit 0 step1 #1 Sensor Type -> words=['0x0002'] value=2   <-- = unit 3 (master)
+
+      unit (member)   0x1000   CLI sensor 1
+      1 (member 1)    2        Temp: System (Degrees C)
+      3 (member 3)    2        Temp: System (Degrees C)
+      4 (member 4)    2        Temp: System (Degrees C)
+      0 (master)      2        = unit 3
+  => STEP 1 PASS: sensor #1 reads type 2 on every member: the temperature sensor, CLI sensor 1
+     "Temp: System (Degrees C)", the only sensor with units.
+
+STEP 2 -- #1 Sensor Reading                                                 PASS
+--------------------------------------------------------------------------------
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 1 read 0x1001 2 FLOAT "unit 1 step2 #1 Sensor Reading"
+  13:20:08 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:20:08   TX 00 01 00 00 00 06 01 03 10 01 00 02
+  13:20:08 READ  0x1001 x2 FLOAT unit 1 step2 #1 Sensor Reading -> words=['0x4240', '0x0000'] value=48.0   <-- 0x4240 0x0000 = 48.0 = CLI member 1 Temp 48
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 3 read 0x1001 2 FLOAT "unit 3 step2 #1 Sensor Reading"
+  13:20:09 CONNECT 10.38.215.10:502 slave=3 -> ok
+  13:20:09   TX 00 01 00 00 00 06 03 03 10 01 00 02
+  13:20:09 READ  0x1001 x2 FLOAT unit 3 step2 #1 Sensor Reading -> words=['0x4228', '0x0000'] value=42.0   <-- 0x4228 0x0000 = 42.0 = CLI member 3 Temp 42
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 4 read 0x1001 2 FLOAT "unit 4 step2 #1 Sensor Reading"
+  13:20:10 CONNECT 10.38.215.10:502 slave=4 -> ok
+  13:20:10   TX 00 01 00 00 00 06 04 03 10 01 00 02
+  13:20:10 READ  0x1001 x2 FLOAT unit 4 step2 #1 Sensor Reading -> words=['0x4230', '0x0000'] value=44.0   <-- 0x4230 0x0000 = 44.0 = CLI member 4 Temp 44
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 0 read 0x1001 2 FLOAT "unit 0 step2 #1 Sensor Reading"
+  13:20:12 CONNECT 10.38.215.10:502 slave=0 -> ok
+  13:20:12   TX 00 01 00 00 00 06 00 03 10 01 00 02
+  13:20:12 READ  0x1001 x2 FLOAT unit 0 step2 #1 Sensor Reading -> words=['0x4228', '0x0000'] value=42.0   <-- = unit 3 (master)
+
+      unit (member)   0x1001 0x1002    float (big-endian)   CLI sensor 1 Reading
+      1 (member 1)    0x4240 0x0000     48.0                 48
+      3 (member 3)    0x4228 0x0000     42.0                 42
+      4 (member 4)    0x4230 0x0000     44.0                 44
+      0 (master)      0x4228 0x0000     42.0                 = unit 3
+  => STEP 2 PASS: the two words of sensor #1, decoded as one big-endian IEEE-754 float (high word
+     first), give 48.0 / 42.0 / 44.0 = the CLI's 48 / 42 / 44 for members 1 / 3 / 4: three different
+     values, each landing on its own member.
+
+STEP 3 -- #1 Sensor Units                                                   PASS
+--------------------------------------------------------------------------------
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 1 read 0x1003 1 ENUM "unit 1 step3 #1 Sensor Units"
+  13:20:08 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:20:08   TX 00 01 00 00 00 06 01 03 10 03 00 01
+  13:20:08 READ  0x1003 x1 ENUM unit 1 step3 #1 Sensor Units -> words=['0x0002'] value=2   <-- 2 = Degrees C
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 3 read 0x1003 1 ENUM "unit 3 step3 #1 Sensor Units"
+  13:20:09 CONNECT 10.38.215.10:502 slave=3 -> ok
+  13:20:09   TX 00 01 00 00 00 06 03 03 10 03 00 01
+  13:20:09 READ  0x1003 x1 ENUM unit 3 step3 #1 Sensor Units -> words=['0x0002'] value=2   <-- 2 = Degrees C
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 4 read 0x1003 1 ENUM "unit 4 step3 #1 Sensor Units"
+  13:20:11 CONNECT 10.38.215.10:502 slave=4 -> ok
+  13:20:11   TX 00 01 00 00 00 06 04 03 10 03 00 01
+  13:20:11 READ  0x1003 x1 ENUM unit 4 step3 #1 Sensor Units -> words=['0x0002'] value=2   <-- 2 = Degrees C
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 0 read 0x1003 1 ENUM "unit 0 step3 #1 Sensor Units"
+  13:20:12 CONNECT 10.38.215.10:502 slave=0 -> ok
+  13:20:12   TX 00 01 00 00 00 06 00 03 10 03 00 01
+  13:20:12 READ  0x1003 x1 ENUM unit 0 step3 #1 Sensor Units -> words=['0x0002'] value=2   <-- = unit 3 (master)
+
+      unit (member)   0x1003   CLI sensor 1 units
+      1 (member 1)    2        (Degrees C)
+      3 (member 3)    2        (Degrees C)
+      4 (member 4)    2        (Degrees C)
+      0 (master)      2        = unit 3
+  => STEP 3 PASS: sensor #1 units = 2 on every member, matching the CLI's "(Degrees C)".
+
+STEP 4 -- #1 Sensor Fault Status                                            PASS
+--------------------------------------------------------------------------------
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 1 read 0x1004 1 UINT "unit 1 step4 #1 Sensor Fault Status"
+  13:20:08 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:20:08   TX 00 01 00 00 00 06 01 03 10 04 00 01
+  13:20:08 READ  0x1004 x1 UINT unit 1 step4 #1 Sensor Fault Status -> words=['0x0000'] value=0   <-- 0 = CLI Status Ok
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 3 read 0x1004 1 UINT "unit 3 step4 #1 Sensor Fault Status"
+  13:20:10 CONNECT 10.38.215.10:502 slave=3 -> ok
+  13:20:10   TX 00 01 00 00 00 06 03 03 10 04 00 01
+  13:20:10 READ  0x1004 x1 UINT unit 3 step4 #1 Sensor Fault Status -> words=['0x0000'] value=0   <-- 0 = CLI Status Ok
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 4 read 0x1004 1 UINT "unit 4 step4 #1 Sensor Fault Status"
+  13:20:11 CONNECT 10.38.215.10:502 slave=4 -> ok
+  13:20:11   TX 00 01 00 00 00 06 04 03 10 04 00 01
+  13:20:11 READ  0x1004 x1 UINT unit 4 step4 #1 Sensor Fault Status -> words=['0x0000'] value=0   <-- 0 = CLI Status Ok
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 0 read 0x1004 1 UINT "unit 0 step4 #1 Sensor Fault Status"
+  13:20:12 CONNECT 10.38.215.10:502 slave=0 -> ok
+  13:20:12   TX 00 01 00 00 00 06 00 03 10 04 00 01
+  13:20:12 READ  0x1004 x1 UINT unit 0 step4 #1 Sensor Fault Status -> words=['0x0000'] value=0   <-- = unit 3 (master)
+
+      unit (member)   0x1004   CLI sensor 1 Status
+      1 (member 1)    0        Ok
+      3 (member 3)    0        Ok
+      4 (member 4)    0        Ok
+      0 (master)      0        = unit 3
+  => STEP 4 PASS: sensor #1 fault status = 0 on every member, matching the CLI's Status "Ok".
+
+STEP 5 -- #2 sensor (Sensor Type, Reading, Units, Fault Status)             PASS
+--------------------------------------------------------------------------------
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 1 read 0x1005 1 ENUM "unit 1 step5 #2 Sensor Type"
+  13:20:09 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:20:09   TX 00 01 00 00 00 06 01 03 10 05 00 01
+  13:20:09 READ  0x1005 x1 ENUM unit 1 step5 #2 Sensor Type -> words=['0x000b'] value=11   <-- type 11
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 1 read 0x1006 2 FLOAT "unit 1 step5 #2 Sensor Reading"
+  13:20:09 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:20:09   TX 00 01 00 00 00 06 01 03 10 06 00 02
+  13:20:09 READ  0x1006 x2 FLOAT unit 1 step5 #2 Sensor Reading -> words=['0x0000', '0x0000'] value=0.0   <-- 0.0
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 1 read 0x1008 1 ENUM "unit 1 step5 #2 Sensor Units"
+  13:20:09 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:20:09   TX 00 01 00 00 00 06 01 03 10 08 00 01
+  13:20:09 READ  0x1008 x1 ENUM unit 1 step5 #2 Sensor Units -> words=['0x0000'] value=0   <-- 0 = no units
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 1 read 0x1009 1 UINT "unit 1 step5 #2 Sensor Fault Status"
+  13:20:09 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:20:09   TX 00 01 00 00 00 06 01 03 10 09 00 01
+  13:20:09 READ  0x1009 x1 UINT unit 1 step5 #2 Sensor Fault Status -> words=['0x0000'] value=0   <-- 0 = Ok
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 3 read 0x1005 1 ENUM "unit 3 step5 #2 Sensor Type"
+  13:20:10 CONNECT 10.38.215.10:502 slave=3 -> ok
+  13:20:10   TX 00 01 00 00 00 06 03 03 10 05 00 01
+  13:20:10 READ  0x1005 x1 ENUM unit 3 step5 #2 Sensor Type -> words=['0x000b'] value=11
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 3 read 0x1006 2 FLOAT "unit 3 step5 #2 Sensor Reading"
+  13:20:10 CONNECT 10.38.215.10:502 slave=3 -> ok
+  13:20:10   TX 00 01 00 00 00 06 03 03 10 06 00 02
+  13:20:10 READ  0x1006 x2 FLOAT unit 3 step5 #2 Sensor Reading -> words=['0x0000', '0x0000'] value=0.0
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 3 read 0x1008 1 ENUM "unit 3 step5 #2 Sensor Units"
+  13:20:10 CONNECT 10.38.215.10:502 slave=3 -> ok
+  13:20:10   TX 00 01 00 00 00 06 03 03 10 08 00 01
+  13:20:10 READ  0x1008 x1 ENUM unit 3 step5 #2 Sensor Units -> words=['0x0000'] value=0
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 3 read 0x1009 1 UINT "unit 3 step5 #2 Sensor Fault Status"
+  13:20:10 CONNECT 10.38.215.10:502 slave=3 -> ok
+  13:20:10   TX 00 01 00 00 00 06 03 03 10 09 00 01
+  13:20:10 READ  0x1009 x1 UINT unit 3 step5 #2 Sensor Fault Status -> words=['0x0000'] value=0
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 4 read 0x1005 1 ENUM "unit 4 step5 #2 Sensor Type"
+  13:20:11 CONNECT 10.38.215.10:502 slave=4 -> ok
+  13:20:11   TX 00 01 00 00 00 06 04 03 10 05 00 01
+  13:20:11 READ  0x1005 x1 ENUM unit 4 step5 #2 Sensor Type -> words=['0x000b'] value=11
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 4 read 0x1006 2 FLOAT "unit 4 step5 #2 Sensor Reading"
+  13:20:11 CONNECT 10.38.215.10:502 slave=4 -> ok
+  13:20:11   TX 00 01 00 00 00 06 04 03 10 06 00 02
+  13:20:11 READ  0x1006 x2 FLOAT unit 4 step5 #2 Sensor Reading -> words=['0x0000', '0x0000'] value=0.0
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 4 read 0x1008 1 ENUM "unit 4 step5 #2 Sensor Units"
+  13:20:11 CONNECT 10.38.215.10:502 slave=4 -> ok
+  13:20:11   TX 00 01 00 00 00 06 04 03 10 08 00 01
+  13:20:11 READ  0x1008 x1 ENUM unit 4 step5 #2 Sensor Units -> words=['0x0000'] value=0
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 4 read 0x1009 1 UINT "unit 4 step5 #2 Sensor Fault Status"
+  13:20:11 CONNECT 10.38.215.10:502 slave=4 -> ok
+  13:20:11   TX 00 01 00 00 00 06 04 03 10 09 00 01
+  13:20:11 READ  0x1009 x1 UINT unit 4 step5 #2 Sensor Fault Status -> words=['0x0000'] value=0
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 0 read 0x1005 1 ENUM "unit 0 step5 #2 Sensor Type"
+  13:20:12 CONNECT 10.38.215.10:502 slave=0 -> ok
+  13:20:12   TX 00 01 00 00 00 06 00 03 10 05 00 01
+  13:20:12 READ  0x1005 x1 ENUM unit 0 step5 #2 Sensor Type -> words=['0x000b'] value=11   <-- = unit 3 (master)
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 0 read 0x1006 2 FLOAT "unit 0 step5 #2 Sensor Reading"
+  13:20:12 CONNECT 10.38.215.10:502 slave=0 -> ok
+  13:20:12   TX 00 01 00 00 00 06 00 03 10 06 00 02
+  13:20:12 READ  0x1006 x2 FLOAT unit 0 step5 #2 Sensor Reading -> words=['0x0000', '0x0000'] value=0.0   <-- = unit 3 (master)
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 0 read 0x1008 1 ENUM "unit 0 step5 #2 Sensor Units"
+  13:20:12 CONNECT 10.38.215.10:502 slave=0 -> ok
+  13:20:12   TX 00 01 00 00 00 06 00 03 10 08 00 01
+  13:20:12 READ  0x1008 x1 ENUM unit 0 step5 #2 Sensor Units -> words=['0x0000'] value=0   <-- = unit 3 (master)
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 0 read 0x1009 1 UINT "unit 0 step5 #2 Sensor Fault Status"
+  13:20:12 CONNECT 10.38.215.10:502 slave=0 -> ok
+  13:20:12   TX 00 01 00 00 00 06 00 03 10 09 00 01
+  13:20:12 READ  0x1009 x1 UINT unit 0 step5 #2 Sensor Fault Status -> words=['0x0000'] value=0   <-- = unit 3 (master)
+
+      unit (member)   type    reading   units   status   CLI sensor 2
+      1 (member 1)    11      0.0       0       0        Almmon: LED Output   No   Ok
+      3 (member 3)    11      0.0       0       0        Almmon: LED Output   No   Ok
+      4 (member 4)    11      0.0       0       0        Almmon: LED Output   No   Ok
+      0 (master)      11      0.0       0       0        = unit 3
+
+  Control: the whole sensor table, sensors #1-#5 (5 words each), and the first address past it:
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 1 read 0x1000 25 RAW "unit 1 sensors 1-5 block"
+  13:20:09 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:20:09   TX 00 01 00 00 00 06 01 03 10 00 00 19
+  13:20:09 READ  0x1000 x25 RAW unit 1 sensors 1-5 block -> words=['0x0002', '0x4240', '0x0000', '0x0002', '0x0000', '0x000b', '0x0000', '0x0000', '0x0000', '0x0000', '0x000a', '0x3f80', '0x0000', '0x0000', '0x0000', '0x0007', '0x3f80', '0x0000', '0x0000', '0x0000', '0x0007', '0x0000', '0x0000', '0x0000', '0x0000'] value=[2, 16960, 0, 2, 0, 11, 0, 0, 0, 0, 10, 16256, 0, 0, 0, 7, 16256, 0, 0, 0, 7, 0, 0, 0, 0]
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 1 read 0x1019 5 RAW "unit 1 past sensor 5"
+  13:20:09 CONNECT 10.38.215.10:502 slave=1 -> ok
+  13:20:09   TX 00 01 00 00 00 06 01 03 10 19 00 05
+  13:20:09 READ  0x1019 x5 RAW unit 1 past sensor 5 -> EXCEPTION ExceptionResponse(dev_id=1, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)   <-- no sensor #6
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 3 read 0x1000 25 RAW "unit 3 sensors 1-5 block"
+  13:20:10 CONNECT 10.38.215.10:502 slave=3 -> ok
+  13:20:10   TX 00 01 00 00 00 06 03 03 10 00 00 19
+  13:20:10 READ  0x1000 x25 RAW unit 3 sensors 1-5 block -> words=['0x0002', '0x4228', '0x0000', '0x0002', '0x0000', '0x000b', '0x0000', '0x0000', '0x0000', '0x0000', '0x000a', '0x0000', '0x0000', '0x0000', '0x0000', '0x0007', '0x0000', '0x0000', '0x0000', '0x0000', '0x0007', '0x3f80', '0x0000', '0x0000', '0x0000'] value=[2, 16936, 0, 2, 0, 11, 0, 0, 0, 0, 10, 0, 0, 0, 0, 7, 0, 0, 0, 0, 7, 16256, 0, 0, 0]
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 3 read 0x1019 5 RAW "unit 3 past sensor 5"
+  13:20:10 CONNECT 10.38.215.10:502 slave=3 -> ok
+  13:20:10   TX 00 01 00 00 00 06 03 03 10 19 00 05
+  13:20:10 READ  0x1019 x5 RAW unit 3 past sensor 5 -> EXCEPTION ExceptionResponse(dev_id=3, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)   <-- no sensor #6
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 4 read 0x1000 25 RAW "unit 4 sensors 1-5 block"
+  13:20:11 CONNECT 10.38.215.10:502 slave=4 -> ok
+  13:20:11   TX 00 01 00 00 00 06 04 03 10 00 00 19
+  13:20:11 READ  0x1000 x25 RAW unit 4 sensors 1-5 block -> words=['0x0002', '0x4230', '0x0000', '0x0002', '0x0000', '0x000b', '0x0000', '0x0000', '0x0000', '0x0000', '0x000a', '0x3f80', '0x0000', '0x0000', '0x0000', '0x0007', '0x3f80', '0x0000', '0x0000', '0x0000', '0x0007', '0x0000', '0x0000', '0x0000', '0x0000'] value=[2, 16944, 0, 2, 0, 11, 0, 0, 0, 0, 10, 16256, 0, 0, 0, 7, 16256, 0, 0, 0, 7, 0, 0, 0, 0]
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 4 read 0x1019 5 RAW "unit 4 past sensor 5"
+  13:20:11 CONNECT 10.38.215.10:502 slave=4 -> ok
+  13:20:11   TX 00 01 00 00 00 06 04 03 10 19 00 05
+  13:20:11 READ  0x1019 x5 RAW unit 4 past sensor 5 -> EXCEPTION ExceptionResponse(dev_id=4, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)   <-- no sensor #6
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 0 read 0x1000 25 RAW "unit 0 sensors 1-5 block"
+  13:20:12 CONNECT 10.38.215.10:502 slave=0 -> ok
+  13:20:12   TX 00 01 00 00 00 06 00 03 10 00 00 19
+  13:20:12 READ  0x1000 x25 RAW unit 0 sensors 1-5 block -> words=['0x0002', '0x4228', '0x0000', '0x0002', '0x0000', '0x000b', '0x0000', '0x0000', '0x0000', '0x0000', '0x000a', '0x0000', '0x0000', '0x0000', '0x0000', '0x0007', '0x0000', '0x0000', '0x0000', '0x0000', '0x0007', '0x3f80', '0x0000', '0x0000', '0x0000'] value=[2, 16936, 0, 2, 0, 11, 0, 0, 0, 0, 10, 0, 0, 0, 0, 7, 0, 0, 0, 0, 7, 16256, 0, 0, 0]
+tb470$ mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22651.log --slave 0 read 0x1019 5 RAW "unit 0 past sensor 5"
+  13:20:12 CONNECT 10.38.215.10:502 slave=0 -> ok
+  13:20:12   TX 00 01 00 00 00 06 00 03 10 19 00 05
+  13:20:12 READ  0x1019 x5 RAW unit 0 past sensor 5 -> EXCEPTION ExceptionResponse(dev_id=0, transaction_id=1, address=0, count=0, bits=[], registers=[], status=1)   <-- no sensor #6
+
+      sensor (words)        member 1           member 3           member 4           CLI (1 / 3 / 4)
+      #1 type,reading       2, 48.0            2, 42.0            2, 44.0            Temp 48 / 42 / 44
+      #2 type,reading       11, 0.0            11, 0.0            11, 0.0            LED Output No / No / No
+      #3 type,reading       10, 1.0 (0x3f80)   10, 0.0            10, 1.0 (0x3f80)   Relay Output 1 Open / Closed / Open
+      #4 type,reading       7, 1.0 (0x3f80)    7, 0.0             7, 1.0 (0x3f80)    Power Input 1 Yes / No / Yes
+      #5 type,reading       7, 0.0             7, 1.0 (0x3f80)    7, 0.0             Power Input 2 No / Yes / No
+      units, status (all)   0, 0 for #2-#5; #1 units 2, status 0                     all Ok
+      0x1019 (past #5)      exception          exception          exception          5 sensors each
+      (unit 0 returns exactly unit 3's 25 words and the same exception)
+  => STEP 5 PASS: sensor #2 reads type 11, 0.0, units 0, status 0 on every member = CLI sensor 2
+     "Almmon: LED Output No Ok". As a control, sensors #3-#5 also equal the CLI on every member,
+     including member 3, whose Relay (Closed = 0.0) and Power Inputs (No = 0.0 / Yes = 1.0) are the
+     opposite of members 1 and 4; and the table ends exactly after sensor #5.
+
+AFTER THE READS -- CLI re-read and server statistics                        done
+--------------------------------------------------------------------------------
+IE520-stk# show system environment
+  (13:20:18: identical, line for line, to the REFERENCE output above)
+IE520-stk# show scada modbus tcp server
+  SCADA MODBUS Summary Information
+
+  MODBUS is enabled
+  Write access: disabled
+  Master heartbeat status: Not set
+  Master heartbeat timeout: 0
+
+  -------------------------------------
+  TCP Server Characteristics:
+    Port            :   502
+    Max Connections :     1
+
+  -------------------------------------
+  Statistics:
+    Read Requests:
+      coils                :          0
+      discrete inputs      :          0
+      holding registers    :         80   <-- 40 -> 80: the 40 reads of this case (10 per unit x 4)
+      input registers      :          0
+
+    Write Requests:
+      single coil          :          0
+      single register      :          0
+      multiple coils       :          0
+      multiple registers   :          0
+
+    Other Requests         :          0
+
+    Exceptions:
+      illegal function     :          0
+      illegal data address :          2
+      illegal data value   :          5
+      slave device failure :          4   <-- 0 -> 4: the four past-sensor-5 reads (0x1019)
+  => done: the DUT's own counters account for every request of this case: 40 holding-register
+     read requests, and exactly 4 exceptions (slave device failure), one per past-the-end read.
+================================================================================
