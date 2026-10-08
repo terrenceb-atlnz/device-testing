@@ -22,6 +22,15 @@ Constraints: "Triage only for now" (option text: "Probe and triage; report what 
 - eth3: *"I unplugged it pending your direction as to where it should actually go"* → answer: **"x230 port1.0.5"** (option text: "Move the AT-SPTXc from stack port4.0.14 (free) into x230 port1.0.5 and cable eth3 to it. … IE520-sa loses its host link.") — **pending the Test Engineer's recable**.
 - AR4050S USB stick (D): **"Clear before the case"** (option text: "The tester deletes atmf/ and the old .rel files from usb: within the ATMF test setup.")
 
+**Updated 2026-10-09 ~12:0x (Test Engineer) — the run is scheduled:**
+- *"cron job the campaign to start at 6pm tonight"* → constraint "Triage only for now" is **lifted for an 18:00 NZDT start**.
+- Scope: **"18 + after-hours reloads"** (option text: "Also the reload cases that need no person or decision: T31858
+  SettingClock, T31863 BIST, T31866 PRBS, T47114/T47115 secure mode (x230 only). Reloads drop the running-only VLAN
+  103/104/105 isolation, so each case restores it after the reload. T31868 Autoboot, T46810 ATMF, the reference-device
+  and person cases stay blocked.")
+- Run host: **"This VS Code session"** (option text: "I arm a one-shot cron here for 18:00. It dies if VS Code / this
+  window closes or restarts before or during the run.") — sentinel = session 50f164f5 (`/test-mode`, shape A).
+
 ## Rules carried with the queue
 
 - Verdicts, working logs, the `RESULT` line, the results list: [logged-output.md](../../logged-output.md).
@@ -48,6 +57,29 @@ Constraints: "Triage only for now" (option text: "Probe and triage; report what 
 | 3 | ports, pluggables, link: T47228, T46421, T20358, T44179, T33234, T47209, T47208, T47210 | tb470/x230v2-28GS/ports-2026-10-09T0845/ | TRIAGED-3: 5 run / 1 unsupported / 2 TE-or-after-hours | RE-TRIAGE 10:0x (B+C done). RUNNABLE: T46421, T47208 (SPTX on 1.0.2/1.0.3; the SPTXa on 1.0.1 against the 4050's fixed copper once 4050 port1.0.2 is up), T47210, T20358 (B done; in-test: RSTP on the x230 and loop-protection off on stack port1.0.17/1.0.3; broadcast from eth1), T47209 (C done: x230 port1.0.4 ↔ stack port1.0.3, 1000BASE-SX only). All have no steps. BLOCKED topology: T44179, see row 4's path. Jumbo also needs: x230 `platform jumboframe` (reload); 4050 `mru jumbo` per port; stack `platform jumboframe` (stack reload) if eth1 is the far end; root MTU on two tb470 NICs. UNSUPPORTED: T33234 (no fixed copper on the x230). TE: T47228 (no steps, API unspecified). RE-TRIAGE 11:2x: T44179 is no longer topology-blocked (eth3 → x230 port1.0.5 → port1.0.2 → stack → eth1). It still needs x230 `platform jumboframe` (write + reload, x2), stack `platform jumboframe` (stack reload, x2) and root MTU on eth3/eth1 → AFTER HOURS + TE. |
 | 4 | L2/L3 traffic + SNMP: T38294, T38295, T30403, T18570, T18571, T15255 | tb470/x230v2-28GS/l2l3-2026-10-09T0845/ | TRIAGED-3: 5 run / 1 unsupported | RE-TRIAGE 11:2x (A' done: eth3 ↔ x230 port1.0.5). RUNNABLE: T15255. T38294: in-test, port1.0.5 → own VLAN + IP in 10.38.215.64/27 (ping-check first), vlan1 IP in 10.38.215.0/27, `ip route 192.0.2.0/24 10.38.215.1`; linerate.py --tx eth3 --rx eth1 --ttl 2, after an L2 baseline. T38295: same, plus an IPv6 pcap (linerate.py is IPv4-only; scapy pcap in /tmp, hop limit 2); next hop = eth1's link-local, so no root change on tb470. T18570/T18571: in-test, LAG x230 port1.0.2+1.0.3 ↔ stack sa2(port1.0.2)+port1.0.17 (out of VLAN 103), 802.1Q tagged; eth3 → port1.0.5 (access) → LAG → stack → eth1 (port3.0.13 in the test VLAN, or tagged + tcpdump); multi-MAC via l2flows.py; x230 has `lacp global-passive-mode enable`. UNSUPPORTED: T30403. |
 | 5 | ATMF: T28218, T46810 | tb470/x230v2-28GS/atmf-2026-10-09T0845/ | TRIAGED-2: 2 TE/after-hours | RE-TRIAGE 10:0x. D done: AR4050S usb: 28.9G is available and already holds an `atmf/` dir dated 2026-09-21 (old backups; TE to say keep or clear). T46810: no steps. Topology OK: AR4050S master (FULL has AMF-MASTER), x230 member via stack or the 4050 link. Needs atmf network-name + atmf-link on 4050, stack and x230, then reload of each → AFTER HOURS. T28218: TE decision; the x230 cannot be master (no AMF-MASTER). |
+
+## Run plan — 18:00 NZDT 2026-10-09 (23 cases; Test Engineer's scope above)
+
+The one-shot cron fires at 18:00. The sentinel re-runs the occupancy precheck (FOUND: stop, report and run nothing), arms
+the Monitor watch and the 15-min cron backstop, then dispatches one `bench-runner` RUN per group, in THIS order:
+
+| run | queue row | cases (in order) |
+| --- | --- | --- |
+| 1 | row 1 platform | T47226, T47227, T47215, T31852, T31853, T31855, T31856, T31861, then the reload cases T31858, T31863, T31866 (PRBS: the parser takes `platform prbs {internal-fabric\|stack-fabric\|all-fabric}`, not the case's `all`) |
+| 2 | row 3 ports | T46421, T47208, T47210, T20358, T47209 |
+| 3 | row 4 L2/L3 | T15255 (before any secure mode), T38294, T38295, T18570, T18571 |
+| 4 | row 2 secure | T47114, T47115 (x230 only; secure mode in, then out; LAST, after SNMP) |
+
+Every other case stays BLOCKED with its triage reason (NOT TESTED rows in Results): T47214, T45543, T31868, T31854, T31859,
+T47120, T47119, T47121, T47228, T44179, T33234, T30403, T28218, T46810.
+
+**After ANY x230 reload, before the next step:** re-apply the running-only isolation on the x230 (it boots `default.cfg`):
+`vlan database` / `vlan 103,104,105`; `interface port1.0.3` / `switchport access vlan 103`; `interface port1.0.4` /
+`switchport access vlan 104`; `interface port1.0.5` / `switchport access vlan 105`. Verify with `show vlan brief`. The
+stack keeps its side (103/104), so no loop forms in between, but eth3 shares eth1's domain until port1.0.5 is back in 105.
+
+Unattended end-of-run order (memory `unattended-session-stalls-on-permission-prompt`): commit the Results, post the
+results list, THEN anything that can prompt. Nothing that touches root-owned files or anything outside the repo.
 
 ## Triage 2026-10-09 (bench-runner, TRIAGE mode)
 
