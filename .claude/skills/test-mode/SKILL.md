@@ -33,7 +33,8 @@ through `bench_probe.py --box <TB>`:
 
 **The Test Engineer's session facts are never overwritten.** Every answer to §1 is written into
 the queue file's header (§2) word for word. When the bench, a recorded fact or a later step
-disagrees with one, **ask them which is right** (AskUserQuestion). Never pick a side, never
+disagrees with one, **ask them which is right** (AskUserQuestion; in a `Driver: ask-ck` campaign
+§10 replaces every such question with a notice). Never pick a side, never
 "correct" their answer, and never edit `<TB>.static` or a `.setup` to make the disagreement go
 away.
 
@@ -55,7 +56,9 @@ away.
      - The hand-off's format, its location and where the run id comes from are Ask-CK's
        (`Test-cases/ask-ck/plans/PLAN-agent-sessions.md`, not written yet). Until that exists,
        `<run id>` is the hand-off file's basename, and nothing else here reads the hand-off.
-2. **Ask the setup questions in ONE AskUserQuestion call**, before touching any box. Each is
+2. **Ask the setup questions in ONE AskUserQuestion call**, before touching any box. (A
+   `Driver: ask-ck` campaign takes these answers from the hand-off; a missing one goes through
+   §10, never AskUserQuestion.) Each is
    free text through "Other"; offer the obvious options:
    - **Testbox:** which box (`tbNNN`)? Offer the box `/orient-dt` §0b finds, if any: the last
      test bench run this Test Engineer recorded, or this host's `bench-setup/default-boxes`
@@ -159,7 +162,8 @@ SSH_AUTH_SOCK=$sock ssh -o BatchMode=yes <TB> \
     script, with the human behind a root-owned `sudo minicom`;
   - who is logged in.
 - **Exit 0 = CLEAR.** Carry on.
-- **Exit 5 = FOUND.** **Stop and return to the Test Engineer** with the FOUND list verbatim:
+- **Exit 5 = FOUND** (in a `Driver: ask-ck` campaign: §10, with the occupied consoles' cases
+  BLOCKED). **Stop and return to the Test Engineer** with the FOUND list verbatim:
   which console, which process, which user, how long it has been up. Then end the turn. Never
   kill, detach or displace anything. "Idle" is not "free": a minicom idle for hours is still
   someone's console.
@@ -226,7 +230,8 @@ rewrites a recorded line. Its exit codes:
 | 4 USER-CONFLICT | a session fact disagrees with the record or the bench (an outlet, a name, the PDU, a console with no device on it) | the tester stops TRIAGE and hands back the list; you **prompt** (below) |
 | "no template" | a box with no deployed `.setup` yet | the generated `bench-state.md` is the only description; writing the template is `apply`, the Test Engineer's |
 
-**On USER-CONFLICT, prompt; do not resolve.** Use one AskUserQuestion per conflict (up to four
+**On USER-CONFLICT, prompt; do not resolve** (in a `Driver: ask-ck` campaign: §10, with the
+cases that bind the disputed fact BLOCKED). Use one AskUserQuestion per conflict (up to four
 per call): "*The session says PDU outlet 7 for u2 (S/N …); `bench-setup/<TB>/<TB>.static`
 records 6. Which is right?*", with options "Session (7)" / "Recorded (6)" / Other.
 - "Session" → with their go-ahead, change that one line in `<TB>.static` with a dated comment
@@ -241,7 +246,8 @@ does anything the Test Engineer types. Do not poll.
 On the triage report:
 - Show it to the Test Engineer **verbatim**: N runnable / M blocked by topology, with the exact
   change each needs / K blocked otherwise. Do not soften it and do not add your own guesses.
-- Ask the one question this skill is allowed to block on: **proceed with the N now, or
+- Ask the one question this skill is allowed to block on (a `Driver: ask-ck` campaign does not
+  ask: it proceeds with the N and notices the rest, §10): **proceed with the N now, or
   reconfigure first?**
   - Proceed → §6 with the runnable rows. Mark the M and K rows BLOCKED in the queue with the
     reason, so `--resume` skips them until the bench changes.
@@ -296,7 +302,8 @@ unacknowledged NEEDS YOU on the table.
 - **The Test Engineer re-grades a case** ("12589 is a PASS") → change that Results row to the
   new verdict with graded-by `Test Engineer, re-graded from <old> on <date>`, commit, and confirm
   in one line. The tester's working log is not edited.
-- **`NEEDS TEST ENGINEER:` from the tester** → surface it at once under a bold **NEEDS YOU:**
+- **`NEEDS TEST ENGINEER:` from the tester** (in a `Driver: ask-ck` campaign: a §10 notice
+  instead) → surface it at once under a bold **NEEDS YOU:**
   header, with the running list of everything unanswered. Do not answer it yourself and do not
   nudge the tester: it has already moved on to other runnable work. When the Test Engineer
   answers, relay it with `SendMessage` as "Test Engineer's answer, relayed: …", only what they
@@ -363,3 +370,36 @@ Same session or a new one, after a cut, a crash or a deliberate stop:
 5. §5 only if the box's `bench-state.md` "Generated" stamp predates a recable the Test Engineer
    mentions. `bench-runner`'s own gate re-probes before every run anyway.
 6. §6 from the first row not DONE / BLOCKED.
+
+## 10. Ask-CK campaigns (`Driver: ask-ck`) — never stop to wait (Terrence, 2026-10-09)
+
+Decision D5 in Ask-CK's `plans/PLAN-agent-sessions.md` §8. Terrence: *"i dont want the testing
+campaign to stop. Id say make it an informative email, with a small amount of detail, and then
+work past it if at all possible. if not, then move to the next test case."* It applies only
+when the queue's Session facts say `Driver: ask-ck`. **User-driven `/test-mode` is unchanged.**
+
+Wherever this skill would ask the Test Engineer something (every AskUserQuestion above, the
+§1 setup questions, §3 FOUND, §5 USER-CONFLICT and the proceed question, a §7 `NEEDS TEST
+ENGINEER:`), do this instead:
+
+1. **Send a notice, not a request.** Say which run and case it is, what it needed, and what you
+   did instead. Until Ask-CK's event channel exists (PLAN-agent-sessions P0), that means:
+   - print one marker line in your output, exactly
+     `NOTIFY <case-id|campaign> -- <what it needed> -- <what it did instead>`;
+   - add the same text to the queue's `## Issues`.
+
+   Ask-CK's server turns these into email. The session never sends mail itself.
+2. **Work past it if at all possible.** Take the safe choice that agrees with STANDING-ORDERS,
+   and write it into the case's Results row reason as `Assumed: …`. Terrence can still re-grade
+   it (memory `grading-authority-tier-list`).
+   - **The safe choice is never to make a decision STANDING-ORDERS §4 keeps for the Test
+     Engineer:** no root, no `apply`, no recable or destack, no licence, no resolving a
+     USER-CONFLICT, no displacing a console holder.
+   - For those, "working past" means running every case that does not depend on the decision.
+3. **If it cannot be worked past**, mark the case BLOCKED with the reason and move to the next
+   case.
+4. **If the block applies to EVERY remaining case**, end the campaign with the same notice,
+   because moving on would only repeat it. Examples: no testbox access, every console occupied,
+   or a probe result no case can run under.
+
+§8's completion still applies: an Ask-CK campaign then runs `/create-logs --auto` (§8).
