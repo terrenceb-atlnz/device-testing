@@ -80,3 +80,20 @@ Totals now: **14 runnable / 5 blocked by topology / 18 blocked otherwise**.
 | --- | --- | --- | --- | --- | --- | --- |
 
 ## Issues
+
+- **2026-10-09 10:43 NZDT, bench change authorised by the Test Engineer ("VLAN-isolate the new links"), running-config only, NO `write` on either unit.**
+  - Why: links B and C had formed a VLAN1 loop with spanning tree off on both units. The stack's loop-protection held port1.0.17 and port1.0.3 in Blocking (vlan-disable, 7 s).
+  - What changed (all values were free on both units beforehand):
+    - Stack, via the master on u5 (member 3): `vlan database` / `vlan 103,104`; `interface port1.0.17` / `switchport access vlan 103`; `interface port1.0.3` / `switchport access vlan 104`.
+    - x230, via u0: `vlan database` / `vlan 103,104`; `interface port1.0.3` / `switchport access vlan 103`; `interface port1.0.4` / `switchport access vlan 104`.
+    - No `% ` line on either unit.
+  - Verified 10:44–10:45 by re-reading:
+    - `show vlan brief` on both units: 103 = stack port1.0.17 / x230 port1.0.3; 104 = stack port1.0.3 / x230 port1.0.4.
+    - All four ports still `connected` a-full a-1000.
+    - Stack loop-protection: port1.0.17 and port1.0.3 `Normal`, with no new log events across about 60 s (the only new log lines are the two `port mode access updated VLAN` lines).
+    - LLDP still sees all three x230↔stack links.
+  - Re-probe `2026-10-08T214518Z`: exit 1 MISMATCH, the same as before the change. `swi_a-swi_f` is now 3 links (needs `apply`, the TE's call), and the NEEDS-CHECK on eth3 is no carrier (unplugged by the TE, pending direction).
+  - Lost at the next reload, because nothing was written. Revert sooner by hand:
+    - Stack: `interface port1.0.17,port1.0.3` / `switchport access vlan 1`; then `vlan database` / `no vlan 103,104`.
+    - x230: `interface port1.0.3-1.0.4` / `switchport access vlan 1`; then `vlan database` / `no vlan 103,104`.
+    - Reverting re-creates the loop unless links B and C are unplugged first.
