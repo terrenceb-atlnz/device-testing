@@ -10,9 +10,62 @@ adding one are in [../logged-output.md](../logged-output.md) §2:
 
 ## How to run them
 
-- **Copy the whole directory to the testbox's scratch** and run from there. For example:
+- **From a session, every step on a box goes through `tools/tb`** (below). Run it from the repo
+  root on the dev host. It copies this directory to the box, sets the ssh agent itself, and runs
+  each tool on the box.
+- **By hand, copy the whole directory to the testbox's scratch** and run from there. For example:
   `scp -r tools <box>:/tmp/<campaign>/`, then `cd /tmp/<campaign>/tools`. The tools import each
   other from their own directory, so keep them together.
+
+### `tb`
+The one way a device-testing session reaches a testbox: `tools/tb <action> <box> [args...]`
+(Ask-CK decision D6, 2026-10-09).
+- **Why it exists:** every ssh step is one named action, so a settings file can allow each with
+  one narrow rule (`Bash(tools/tb ckcon *)`). A hand-built `SSH_AUTH_SOCK=… ssh tbNNN '…'`
+  line can never match a rule.
+- **What it does for you:**
+  - sets `SSH_AUTH_SOCK` (the keyring agent);
+  - picks the box's Python (tb105: `python3.8`; or set `TB_PY`);
+  - quotes every argument;
+  - runs locally when the host IS the box.
+- **Actions** (`tools/tb --help` gives the full list with arguments):
+  - read-only: `hostname`, `precheck`, `probe` (`bench_probe.py run` only), `holders`, `ps`,
+    `nics`, `template`, `tail`, `grep`, `waitfor`;
+  - scratch: `scratch <name>` (a fresh copy of `tools/` into `/tmp/<name>/tools`), `put`;
+  - consoles: `ckcon ckyn cfg qmark peek listen poll reloadc ckreload` (`<scratch> <uN> <baud>
+    ...`; the transcript goes to `/tmp/<scratch>/console-<uN>.log`), and `tftp_copy flash_copy
+    bootmenu_escape bootmenu_park witness_log` (`<scratch> <uN> ...`);
+  - other tools: `tool`, `sudotool` (the root traffic tools), `capture` (tcpdump), `ping`,
+    `case` (a case script you `put` first), `pdu`;
+  - framework runs: `fwprep`, `fw` (always `--noupdate --nodefaultcfg`; writes `run.log` and
+    `run.exit`);
+  - housekeeping: `killmine`.
+- **Where:** the dev host (or the box itself); **needs:** Python 3.6+, ssh/scp with the keyring
+  agent
+- **Imports:** none (it runs the other tools on the box)
+- **Guards:**
+  - Every console action first runs `fuser` on the device node and refuses (exit 5), naming the
+    holder, if any other process has it open.
+  - `probe` refuses `apply`/`--force`.
+  - `tail`/`grep`/`waitfor` read only under `/tmp/` and `/home/st-art/pytest-create/`.
+  - `killmine` kills only this repo's tools, probes and framework runs, never a minicom, screen
+    or tmux (the Test Engineer runs as the same Unix user).
+  - There are no actions for `apply`, licences or root changes: those are STANDING-ORDERS §4.
+- **Settings for Ask-CK-launched campaigns:** `.claude/ask-ck-campaign.settings.json`.
+  - Ask-CK's launcher passes it with `claude --settings <it>`; Claude Code never loads it on its
+    own.
+  - It holds one allow rule per action (`case` deliberately has none), denies for
+    `bench_probe.py apply`, and an `autoMode` block: the lab as trusted infrastructure, console
+    configuration allowed, and the STANDING-ORDERS §4 items as `hard_deny`.
+  - It is a draft until Terrence approves it (2026-10-09).
+- **Status:** verified 2026-10-09 on tb470:
+  - `hostname`, `precheck`, `holders`, `ps`, `nics`, `template`, `scratch`, `put` + `case`,
+    `waitfor`, `tail`;
+  - `ckcon` on u0 (x230, `show clock`);
+  - the held-console refusal, with `listen` holding u0;
+  - the refusals for `probe apply`, `tail /etc/passwd`, a bad box name and `killmine 1`.
+
+  `fwprep`, `fw`, `pdu`, `sudotool` and `capture` have not yet run: check their first use.
 - **Console tools take `<tty> <baud> <transcript>` first.**
   - `<tty>` is the unit's console on the box, for example `/dev/u3`.
   - `<transcript>` is where every byte sent and received is written. Put it at

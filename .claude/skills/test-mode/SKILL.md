@@ -147,9 +147,7 @@ On a box other people use, the other writer on a console is a colleague
 (memory `shared-testbox-console-occupancy`). Check without touching any console:
 
 ```bash
-sock=/run/user/$(id -u)/keyring/ssh                  # the keyring agent (TESTBOX-ACCESS.md §0)
-SSH_AUTH_SOCK=$sock ssh -o BatchMode=yes <TB> \
-  'cd ~/claude/device-testing/bench-setup && <PY> bench_probe.py --box <TB> precheck --consoles <U-list>'
+tools/tb precheck <TB> <U-list>      # repo root; sets the keyring agent itself (Ask-CK D6, 2026-10-09)
 ```
 
 - **`<PY>`** is a Python ≥ 3.7 on the box. tb105's `python3` is 3.6, so use `python3.8` there.

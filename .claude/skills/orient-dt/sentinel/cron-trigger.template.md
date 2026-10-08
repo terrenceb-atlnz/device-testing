@@ -23,7 +23,7 @@ CHECKS — read-only, one Bash call where you can:
    DONE/BLOCKED, that is case C below.
 2. Transcript growth: `wc -l` the jsonl (one-session: the subagent's); read any new assistant
    text blocks.
-3. <TB>: `ssh -o BatchMode=yes <TB> 'ps -eo pid,etime,cmd --no-headers'`, filtered LOCALLY.
+3. <TB>: `tools/tb ps <TB>` (filtered LOCALLY by the wrapper, so it never matches itself).
    Never a remote pgrep — it matches its own bash -c wrapper.
 4. Watch armed? `find $SCRATCH/sentinel.heartbeat -mmin -3`. A fresh heartbeat proves something
    is ticking, NOT that its events reach you: a Monitor the harness marked stopped can keep

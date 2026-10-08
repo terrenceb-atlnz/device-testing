@@ -1,0 +1,287 @@
+#!/usr/bin/env python3
+"""tb -- the one way a device-testing session reaches a testbox (Ask-CK decision D6, 2026-10-09).
+
+    tools/tb <action> <box> [args...]          run from the repo root (claude/device-testing/)
+
+The action comes FIRST so each allow rule is anchored at the start of the command. Every ssh step bench-runner and the /test-mode sentinel take goes through ONE action here, so a
+settings file can allow each action with one narrow rule (`Bash(tools/tb ckcon *)`) instead
+of matching free-form `SSH_AUTH_SOCK=... ssh tbNNN '...'` strings. The wrapper sets
+SSH_AUTH_SOCK itself (the keyring agent, TESTBOX-ACCESS.md §0), validates every argument, and
+quotes everything it sends. It runs the step locally when the host IS <box>.
+
+Read-only / gate actions
+  hostname                                reachability (BatchMode ssh)
+  precheck <consoles>                     bench_probe.py precheck (no console opened); exit 0 CLEAR / 5 FOUND
+  probe <bench_probe run args...>         bench_probe.py run ... (never `apply`: that is the Test Engineer's)
+  holders <consoles>                      fuser (sudo -n when allowed) + lock files per console
+  ps [regex]                              ps -eo pid,user,lstart,etime,cmd, filtered HERE (no self-match)
+  nics                                    host NIC addresses, carrier, neighbours
+  template                                gate 3: /nfsHome mount (tb470) and the box's deployed .setup
+  tail <path> [lines]                     a file under /tmp/ or /home/st-art/pytest-create/ (NULs stripped)
+  grep <regex> <path>                     grep -a -E in such a file
+  waitfor <path> <timeout_s>              wait until that file exists (done markers; never pgrep)
+
+Scratch on the box (/tmp/<scratch>/, tmpfs)
+  scratch <scratch>                       mkdir + fresh copy of the repo's tools/ into /tmp/<scratch>/tools
+  put <local-file> <scratch>              scp one file into /tmp/<scratch>/
+
+Consoles (refuses, exit 5, if any other process holds the console)
+  <tool> <scratch> <uN> <baud> [args...]  tool in: ckcon ckyn cfg qmark peek listen poll reloadc ckreload
+                                          -> tool.py /dev/uN <baud> /tmp/<scratch>/console-uN.log args...
+  <tool> <scratch> <uN> [args...]         tool in: tftp_copy flash_copy bootmenu_escape bootmenu_park witness_log
+                                          -> tool.py /dev/uN args...
+
+Other tools and traffic
+  tool <scratch> <name> [args...]         a non-console, non-root tools/ script (mb, mbplan, mkpcap, rcdiff, ...)
+  sudotool <scratch> <name> [args...]     a traffic tool that needs root (linerate, l2flows, vsend, igmp, ...)
+  capture <scratch> <nic> <secs> <out> [filter...]   sudo -n timeout <secs> tcpdump -i <nic> -U -w /tmp/<scratch>/<out>
+  ping <nic> <ip> [count]                 ping -I <nic>
+  case <scratch> <script.py> [args...]    a case-specific script already in /tmp/<scratch>/ (put it there first)
+  pdu <ip> <outlet> on|off|status|cycle [secs]   framework PduPower from a clean dir (a DUT power-cycle within a test)
+
+Framework runs (/home/st-art/pytest-create/<case>/<run>/)
+  fwprep <case>/<run> <local-file>...     mkdir, scp the files, framework symlink, ck_media.py
+  fw <case>/<run> <script.py> <setup> [extra...]   detached `sudo -n ... -v --noupdate --nodefaultcfg`;
+                                          writes run.log and run.exit in the workdir (waitfor run.exit)
+
+Housekeeping
+  killmine <pid>                          kill ONE process that is this session's own tool (python3 under
+                                          /tmp/<x>/tools/, bench_probe.py, or a pytest-create run).
+                                          Never minicom/screen/tmux: the Test Engineer runs as the same Unix
+                                          user (memory rejected-tool-calls-keep-running-remotely, incident 6)
+
+Not here on purpose (STANDING-ORDERS §4, the Test Engineer's): `bench_probe.py apply`, licences,
+root changes on the box (keys, sshd, routes, mounts, firewall), displacing a console holder.
+Exit: the remote command's exit status; 2 usage error; 5 console held / refused."""
+import os, re, shlex, socket, subprocess, sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO_ON_BOX = '~/claude/device-testing'
+BOX_RE = re.compile(r'^tb[0-9]+$')
+NAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]*$')
+CON_RE = re.compile(r'^u[0-9]+$')
+NIC_RE = re.compile(r'^(eth|enp|ens|eno)[A-Za-z0-9]*$')
+CON_TBT = {'ckcon', 'ckyn', 'cfg', 'qmark', 'peek', 'listen', 'poll', 'reloadc', 'ckreload'}
+CON_TTY = {'tftp_copy', 'flash_copy', 'bootmenu_escape', 'bootmenu_park', 'witness_log'}
+SUDO_TOOLS = {'linerate', 'l2flows', 'vsend', 'igmp', 'nsresp', 'dhc6', 'rs', 'lldpmed_phone'}
+NOT_ON_BOX = {'case_tokens'}                         # dev-host only
+BOX_PY = {'tb105': 'python3.8'}                     # orient-dt §1: tb105's python3 is 3.6
+READ_ROOTS = ('/tmp/', '/home/st-art/pytest-create/')
+q = shlex.quote
+
+
+def die(msg, code=2):
+    print('tb: ' + msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def need(cond, msg):
+    if not cond:
+        die(msg)
+
+
+def name(v, what='scratch'):
+    need(NAME_RE.match(v or ''), 'bad %s name %r (letters, digits, . _ -)' % (what, v))
+    return v
+
+
+def safe_path(p):
+    need(p.startswith(READ_ROOTS) and '..' not in p.split('/'),
+         'path must be under %s and contain no ..: %r' % (' or '.join(READ_ROOTS), p))
+    return p
+
+
+def tool_file(t):
+    need(NAME_RE.match(t) and os.path.isfile(os.path.join(HERE, t + '.py')),
+         'no such tool tools/%s.py' % t)
+    return t
+
+
+def held_check(con):
+    """Remote snippet: refuse (exit 5) if any process holds the console's device node."""
+    return ('t=$(readlink -f /dev/%s) || exit 5; [ -c "$t" ] || { echo "tb: /dev/%s does not exist"; exit 5; }; '
+            'h=$( (sudo -n fuser "$t" 2>/dev/null || fuser "$t" 2>/dev/null) | tr -s " " ); '
+            'if [ -n "$h" ]; then echo "tb: /dev/%s ($t) is held by PID(s):$h -- not opening it"; '
+            'ps -o pid,user,lstart,cmd -p $(echo $h | tr " " ,); exit 5; fi; ' % (con, con, con))
+
+
+def run(box, remote, local_files=None, dest=None):
+    env = dict(os.environ)
+    sock = '/run/user/%d/keyring/ssh' % os.getuid()
+    if os.path.exists(sock):
+        env['SSH_AUTH_SOCK'] = sock
+    if local_files:
+        if socket.gethostname().split('.')[0] == box:
+            rc = subprocess.call(['cp'] + local_files + [dest.replace('~', os.path.expanduser('~'), 1)])
+        else:
+            rc = subprocess.call(['scp', '-q', '-o', 'BatchMode=yes'] + local_files + ['%s:%s' % (box, dest)], env=env)
+        if rc:
+            sys.exit(rc)
+        if remote is None:
+            return 0
+    if socket.gethostname().split('.')[0] == box:
+        return subprocess.call(['bash', '-c', remote], env=env)
+    return subprocess.call(['ssh', '-o', 'BatchMode=yes', box, remote], env=env)
+
+
+def capture_out(box, remote):
+    env = dict(os.environ)
+    sock = '/run/user/%d/keyring/ssh' % os.getuid()
+    if os.path.exists(sock):
+        env['SSH_AUTH_SOCK'] = sock
+    cmd = ['bash', '-c', remote] if socket.gethostname().split('.')[0] == box else ['ssh', '-o', 'BatchMode=yes', box, remote]
+    p = subprocess.run(cmd, env=env, stdout=subprocess.PIPE, universal_newlines=True)
+    return p.returncode, p.stdout
+
+
+def main(argv):
+    if len(argv) < 2 or argv[0] in ('-h', '--help'):
+        print(__doc__)
+        return 0 if argv[:1] in (['-h'], ['--help']) else 2
+    action, box, a = argv[0], argv[1], argv[2:]
+    need(BOX_RE.match(box), 'second argument must be a testbox name (tbNNN), got %r' % box)
+    py = os.environ.get('TB_PY') or BOX_PY.get(box, 'python3')
+    bs = 'cd %s/bench-setup && %s bench_probe.py --box %s ' % (REPO_ON_BOX, py, box)
+
+    if action == 'hostname':
+        return run(box, 'hostname')
+    if action == 'precheck':
+        need(len(a) == 1, 'usage: precheck <consoles>')
+        return run(box, bs + 'precheck --consoles ' + q(a[0]))
+    if action == 'probe':
+        need(not any(x in ('apply', 'generate', 'render', '--force') for x in a),
+             'probe runs `bench_probe.py run` only; apply is the Test Engineer\'s')
+        return run(box, bs + 'run ' + ' '.join(q(x) for x in a))
+    if action == 'holders':
+        need(len(a) == 1, 'usage: holders <consoles>  (u0,u2 or 0-5)')
+        cons = []
+        for part in a[0].split(','):
+            m = re.match(r'^u?(\d+)-u?(\d+)$', part)
+            cons += ['u%d' % i for i in range(int(m.group(1)), int(m.group(2)) + 1)] if m else [part if part.startswith('u') else 'u' + part]
+        for c in cons:
+            need(CON_RE.match(c), 'bad console %r' % c)
+        script = ''.join('t=$(readlink -f /dev/%s); echo "== /dev/%s -> $t"; (sudo -n fuser -v "$t" 2>&1 || fuser -v "$t" 2>&1) | sed "s/^/   /"; ' % (c, c) for c in cons)
+        return run(box, script + 'ls -l /var/lock/LCK..* 2>/dev/null || echo "no lock files"')
+    if action == 'ps':
+        rc, out = capture_out(box, 'ps -eo pid,user,lstart,etime,cmd --no-headers')
+        pat = re.compile(a[0]) if a else None
+        for line in out.splitlines():
+            if 'ps -eo pid,user,lstart,etime,cmd' in line:
+                continue                                    # our own remote shell
+            if pat is None or pat.search(line):
+                print(line)
+        return rc
+    if action == 'template':
+        return run(box, 'findmnt /nfsHome || echo "tb: /nfsHome not mounted"; '
+                        'ls -l /home/st-art/st-art/configs/%s.setup || echo "tb: no deployed %s.setup"' % (box, box))
+    if action == 'nics':
+        return run(box, 'ip -br addr; for n in /sys/class/net/*; do b=$(basename $n); [ "$b" = lo ] || '
+                        'echo "$b carrier=$(cat $n/carrier 2>/dev/null) mac=$(cat $n/address)"; done; ip neigh')
+    if action == 'tail':
+        need(1 <= len(a) <= 2, 'usage: tail <path> [lines]')
+        n = a[1] if len(a) == 2 else '40'
+        need(n.isdigit(), 'lines must be a number')
+        return run(box, 'tail -n %s %s | tr -d "\\000"' % (n, q(safe_path(a[0]))))
+    if action == 'grep':
+        need(len(a) == 2, 'usage: grep <regex> <path>')
+        return run(box, 'tr -d "\\000" < %s | grep -a -E %s' % (q(safe_path(a[1])), q(a[0])))
+    if action == 'waitfor':
+        need(len(a) == 2 and a[1].isdigit(), 'usage: waitfor <path> <timeout_s>')
+        p = q(safe_path(a[0]))
+        return run(box, 'end=$(( $(date +%%s) + %s )); until [ -e %s ]; do [ $(date +%%s) -ge $end ] && '
+                        '{ echo "tb: timeout waiting for %s"; exit 3; }; sleep 5; done; echo "tb: %s exists"; '
+                        '[ $(stat -c %%s %s) -lt 2000 ] && cat %s; exit 0' % (a[1], p, a[0], a[0], p, p))
+
+    if action == 'scratch':
+        need(len(a) == 1, 'usage: scratch <scratch>')
+        d = '/tmp/' + name(a[0])
+        return run(box, 'mkdir -p %s && rm -rf %s/tools && cp -r %s/tools %s/ && rm -rf %s/tools/__pycache__ && '
+                        'echo "tb: %s/tools refreshed ($(ls %s/tools | wc -l) files)"' % (d, d, REPO_ON_BOX, d, d, d, d))
+    if action == 'put':
+        need(len(a) == 2, 'usage: put <local-file> <scratch>')
+        need(os.path.isfile(a[0]), 'no local file %r' % a[0])
+        d = '/tmp/' + name(a[1])
+        return run(box, 'mkdir -p ' + d) or run(box, None, [a[0]], d + '/')
+
+    if action in CON_TBT or action in CON_TTY:
+        tool_file(action)
+        need(len(a) >= 2, 'usage: %s <scratch> <uN> %s[args...]' % (action, '<baud> ' if action in CON_TBT else ''))
+        d, con = '/tmp/' + name(a[0]), a[1]
+        need(CON_RE.match(con), 'bad console %r (uN)' % con)
+        if action in CON_TBT:
+            need(len(a) >= 3 and a[2].isdigit(), 'usage: %s <scratch> <uN> <baud> [args...]' % action)
+            args = ['/dev/' + con, a[2], '%s/console-%s.log' % (d, con)] + a[3:]
+        else:
+            args = ['/dev/' + con] + a[2:]
+        return run(box, held_check(con) + 'cd %s/tools && %s %s.py %s' % (d, py, action, ' '.join(q(x) for x in args)))
+    if action in ('tool', 'sudotool'):
+        need(len(a) >= 2, 'usage: %s <scratch> <name> [args...]' % action)
+        d, t = '/tmp/' + name(a[0]), tool_file(a[1])
+        need(t not in CON_TBT and t not in CON_TTY, '%s drives a console: use `tools/tb %s %s ...`' % (t, t, box))
+        need(t not in NOT_ON_BOX, '%s runs on the dev host, not the box' % t)
+        if action == 'tool':
+            need(t not in SUDO_TOOLS, '%s needs root: use sudotool' % t)
+            return run(box, 'cd %s/tools && %s %s.py %s' % (d, py, t, ' '.join(q(x) for x in a[2:])))
+        need(t in SUDO_TOOLS, 'sudotool is only for the root traffic tools: %s' % ' '.join(sorted(SUDO_TOOLS)))
+        return run(box, 'cd %s/tools && sudo -n %s %s.py %s' % (d, py, t, ' '.join(q(x) for x in a[2:])))
+    if action == 'capture':
+        need(len(a) >= 4 and NIC_RE.match(a[1]) and a[2].isdigit(), 'usage: capture <scratch> <nic> <secs> <out> [filter...]')
+        d = '/tmp/' + name(a[0])
+        return run(box, 'sudo -n timeout %s tcpdump -i %s -U -w %s/%s %s' % (a[2], q(a[1]), d, q(name(a[3], 'output')), ' '.join(q(x) for x in a[4:])))
+    if action == 'ping':
+        need(len(a) in (2, 3) and NIC_RE.match(a[0]) and re.match(r'^[0-9a-fA-F.:]+$', a[1]), 'usage: ping <nic> <ip> [count]')
+        n = a[2] if len(a) == 3 else '3'
+        need(n.isdigit(), 'count must be a number')
+        return run(box, 'ping -c %s -W 1 -I %s %s' % (n, q(a[0]), q(a[1])))
+    if action == 'case':
+        need(len(a) >= 2 and a[1].endswith('.py'), 'usage: case <scratch> <script.py> [args...]')
+        d = '/tmp/' + name(a[0])
+        return run(box, 'cd %s && %s ./%s %s' % (d, py, q(name(a[1], 'script')), ' '.join(q(x) for x in a[2:])))
+    if action == 'pdu':
+        need(len(a) in (3, 4) and re.match(r'^[0-9.]+$', a[0]) and a[1].isdigit() and a[2] in ('on', 'off', 'status', 'cycle'),
+             'usage: pdu <ip> <outlet> on|off|status|cycle [secs]')
+        secs = a[3] if len(a) == 4 else '10'
+        need(secs.isdigit(), 'secs must be a number')
+        body = {'on': 'p.on()', 'off': 'p.off()', 'status': 'print("outlet %s on:" % n, p.is_on())',
+                'cycle': 'p.off(); time.sleep(%s); p.on()' % secs}[a[2]]
+        code = 'import time; from framework.ATDrivers.ATPower import PduPower as P; n=%s; p=P(%r, socketNum=n); %s' % (a[1], a[0], body)
+        return run(box, 'mkdir -p /tmp/tbpdu && cd /tmp/tbpdu && PYTHONPATH=/home/st-art python3 -c %s' % q(code))
+
+    if action in ('fwprep', 'fw'):
+        need(len(a) >= 2 and re.match(r'^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$', a[0]),
+             'usage: %s <case>/<run> ...' % action)
+        work = '/home/st-art/pytest-create/' + a[0]
+        if action == 'fwprep':
+            for f in a[1:]:
+                need(os.path.isfile(f), 'no local file %r' % f)
+            rc = run(box, 'mkdir -p %s && ln -sfn /home/st-art/framework %s/framework && '
+                          'cp ~/claude/Test-cases/ask-ck/tools/pt_media.py %s/ck_media.py' % (work, work, work))
+            return rc or run(box, None, a[1:], work + '/')
+        need(len(a) >= 3 and a[1].endswith('.py'), 'usage: fw <case>/<run> <script.py> <setup> [extra...]')
+        script, setup, extra = name(a[1], 'script'), a[2], a[3:]
+        need(re.match(r'^[A-Za-z0-9/._-]+$', setup), 'bad setup path %r' % setup)
+        need(not any(x in ('--update', '--defaultcfg') for x in extra), '--noupdate --nodefaultcfg are always passed')
+        inner = ('sudo -n PYTHONPATH=/home/st-art python3 %s/%s -s %s -v --noupdate --nodefaultcfg %s > %s/run.log 2>&1; '
+                 'echo $? > %s/run.exit' % (work, script, setup, ' '.join(q(x) for x in extra), work, work))
+        return run(box, 'cd %s && rm -f run.exit && setsid nohup sh -c %s < /dev/null > /dev/null 2>&1 & '
+                        'echo "tb: started in %s (pid $!); waitfor %s/run.exit"' % (work, q(inner), work, work))
+
+    if action == 'killmine':
+        need(len(a) == 1 and a[0].isdigit(), 'usage: killmine <pid>')
+        pid = a[0]
+        return run(box, (
+            'u=$(ps -o user= -p {p}) || {{ echo "tb: no process {p}"; exit 3; }}; c=$(ps -o args= -p {p}); '
+            'echo "tb: {p} $u $c"; case "$c" in *minicom*|*screen*|*tmux*|*picocom*) '
+            'echo "tb: refusing -- {p} is an interactive console session, never ours to kill"; exit 5;; esac; '
+            'if echo "$c" | grep -qE "python3?[0-9.]* .*(/tmp/[^ ]+/tools/|bench_probe\\.py|/home/st-art/pytest-create/)"; then :; '
+            'else echo "tb: refusing -- {p} is not a device-testing tool, probe or framework run"; exit 5; fi; '
+            'for f in $(ls -l /proc/{p}/fd 2>/dev/null | grep -o "/dev/ttyUSB[0-9]*" | sort -u); do stty -F $f -hupcl 2>/dev/null; done; '
+            'if [ "$u" = "$(whoami)" ]; then kill {p}; elif echo "$c" | grep -q /home/st-art/pytest-create/; then sudo -n kill {p}; '
+            'else echo "tb: refusing -- {p} belongs to $u"; exit 5; fi; sleep 1; '
+            'ps -p {p} > /dev/null && echo "tb: {p} still running" || echo "tb: {p} stopped"').format(p=pid))
+
+    die('unknown action %r (tools/tb --help)' % action)
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

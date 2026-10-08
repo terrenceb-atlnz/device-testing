@@ -125,8 +125,10 @@ rules file or catalogue, and never read a spilled tool result back in full.
 - `/home/st-art/framework` and Ask-CK's `ck.db` are **read-only**. Copy into the run workdir to
   change anything.
 - **Root on the box goes through the Test Engineer** (keys, sshd, routes, mounts, device trust).
-- `pkill -f` / `pgrep -f` over ssh match your own wrapper. Use `fuser` on device nodes, and
-  kill by **PID**, only your own processes, after `ps -o user,lstart,cmd -p <pid>`. A
+- `pkill -f` / `pgrep -f` over ssh match your own wrapper. Use `tools/tb holders <TB> <U-list>`
+  and `tools/tb ps <TB> <regex>`, and kill with `tools/tb killmine <TB> <pid>`. It kills only this
+  repo's tools, probes and framework runs, never a minicom: the Test Engineer runs as the same
+  Unix user. A
   rejected or killed tool call can still be running on the box, so check `ps` before assuming
   it stopped.
 - **Stop on any `% ` line** from a device, and gate each dependent step on proven state.
@@ -134,14 +136,19 @@ rules file or catalogue, and never read a spilled tool result back in full.
 
 ## Pre-run gate — every run, no exceptions
 
-`<PY>` is a Python ≥ 3.7 with pyserial on the box (tb105: `python3.8`). The ssh agent socket is
-`/run/user/$(id -u)/keyring/ssh` (TESTBOX-ACCESS.md §0).
+**Every step on the box goes through `tools/tb <action> <TB>`** (run from the repo root;
+`tools/tb --help`, `tools/README.md`). Never hand-build `SSH_AUTH_SOCK=… ssh <TB> '…'` (Ask-CK
+decision D6, 2026-10-09). Ask-CK-launched campaigns allow only the wrapper's actions, and a
+leading `VAR=` assignment never matches a permission rule. The wrapper:
+- sets the keyring agent itself;
+- picks the box's Python (tb105: `python3.8`);
+- refuses (exit 5) to open a console that another process holds.
 
-1. **Occupancy check, no console opened:**
-   ```bash
-   SSH_AUTH_SOCK=$sock ssh -o BatchMode=yes <TB> \
-     'cd ~/claude/device-testing/bench-setup && <PY> bench_probe.py --box <TB> precheck --consoles <U-list>'
-   ```
+The `case` action (a case script you `put` into `/tmp/<scratch>/`) has no allow rule, so the
+classifier judges it: prefer a `tools/` script.
+
+1. **Occupancy check, no console opened:** `tools/tb precheck <TB> <U-list>`. Then
+   `tools/tb scratch <TB> <run>` copies `tools/` to the box's `/tmp/<run>/`.
    - **Exit 0 (CLEAR):** carry on.
    - **Exit 5 (FOUND: a holder, a lock file, a screen/tmux/minicom-type session, a python
      script, or UNKNOWN for want of sudo):** do not probe and do not displace anything. Send the
@@ -149,17 +156,17 @@ rules file or catalogue, and never read a spilled tool result back in full.
      framework run (`stk_a_<test>_<run>` hostnames, `[SCRIPT]` log lines) is somebody's test,
      not drift.
 2. **No console is parked mid-state.** A bare CR on each of YOUR consoles must return an exec
-   prompt.
+   prompt (`tools/tb peek <TB> <run> <uN> <baud>`).
    - A `[root@… ~]#` shell, left by a killed run, is one problem: the next run's `show` returns
      `ash: show: not found`, and discovery then reads links as absent.
    - A `(config…)#` prompt is another.
    - Record what state the console was in, in the working log, before you `exit` or `end` it.
-3. **The box's template path resolves** — tb470: `/nfsHome` is mounted (`findmnt /nfsHome`;
+3. **The box's template path resolves** (`tools/tb template <TB>`) — tb470: `/nfsHome` is mounted (`findmnt /nfsHome`;
    memory `tb470-reboot-nfshome-unmounted`); any box: `/home/st-art/st-art/configs/<TB>.setup`
    exists, or the box has no template yet (say so).
 4. **The bench is the template, measured with the session facts:**
    ```bash
-   <PY> bench_probe.py --box <TB> run --consoles <U-list> --no-prompt \
+   tools/tb probe <TB> --consoles <U-list> --no-prompt \
         --pdu <pdu> --outlet <outlets> [--name <names>] [--read-only] [--baud <rate>]
    ```
    Use `--read-only` when the constraints say shared box, or the box is not the Test
@@ -221,21 +228,24 @@ rules file or catalogue, and never read a spilled tool result back in full.
   - reboots every device;
   - TFTP-copies `<platform>-<TB>.rel` from the box's `/tftproot`, which on tb470 is a tmpfs, so
     the copy hangs.
-- Launch as `TESTBOX-ACCESS.md` §3 describes:
-  - `WORK=/home/st-art/pytest-create/<CASE>/<RUN>`;
-  - invoke the script by **absolute path** with cwd = the workdir;
-  - command: `sudo -n PYTHONPATH=/home/st-art python3 <script>.py -s <the box's .setup> -v --noupdate --nodefaultcfg`;
-  - run it detached (`setsid nohup … > run.log 2>&1 &`) and watch it by **PID**.
-- **Copy `ck_media.py` into `WORK` beside the script**:
-  `cp ~/claude/Test-cases/ask-ck/tools/pt_media.py $WORK/ck_media.py`. Without it the run dies
-  with `ModuleNotFoundError: ck_media`.
+- Launch with the wrapper. It does what `TESTBOX-ACCESS.md` §3 describes:
+  - `tools/tb fwprep <TB> <CASE>/<RUN> <script>.py [<lib>.py …]` creates
+    `/home/st-art/pytest-create/<CASE>/<RUN>/`, copies the files in, links `framework`, and
+    copies `ck_media.py` (without it the run dies with `ModuleNotFoundError: ck_media`);
+  - `tools/tb fw <TB> <CASE>/<RUN> <script>.py <the box's .setup> [--include-test-cases N …]`
+    starts it detached, as `sudo -n PYTHONPATH=/home/st-art python3 <abs script> -s … -v
+    --noupdate --nodefaultcfg`, writing `run.log` and `run.exit` in the workdir;
+  - `tools/tb waitfor <TB> <workdir>/run.exit <secs>` waits for it (run that in the background),
+    and `tools/tb tail|grep <TB> … <workdir>/run.log` reads it.
 - **The framework's post-failure power cycle reboots every unit the `.setup` lists.** Only
   units on the session's consoles are in that `.setup`. If a session fact says "no PDU", the
   cycle silently does nothing: record that in the working log.
 - **Timeouts:** the framework's defaults assume flash-booting units; say so in the working log
   when you raise one. On a hang, keep the partial output: completed TestCases are evidence.
-- Console captures for your own gates use `tools/console.py` or the `tools/` drivers built on
-  it (orient-dt §0/§3), never minicom.
+- Console captures for your own gates use the `tools/` drivers built on `tools/console.py`
+  (orient-dt §0/§3), through `tools/tb <ckcon|ckyn|cfg|qmark|peek|…> <TB> <run> <uN> <baud> …`.
+  Never minicom. Configuration (`configure terminal` …) goes through `cfg`/`ckyn`, and help
+  probes through `qmark --mode …`.
   - When you leave a console: `end` FIRST, then `terminal no monitor`. Both `terminal` commands
     are exec-only, so in config mode they fail (`Command [terminal no monitor] failed` in the
     device log), and typed into a busy console they queue and run later in whatever mode it is
@@ -257,7 +267,8 @@ again on every later call (the 10-08 modbus REVIEW.md measured it).
   `show running-config`, `show log` or a 32-word register dump into the context; the file holds
   it for the working log.
 - **One round trip per case** when no step depends on reading an earlier one: run setup, all
-  steps and teardown in one ssh, then grep. Split only where a later step needs a value you must
+  steps and teardown in one `tools/tb` console call (a console tool takes many commands), then
+  grep. Split only where a later step needs a value you must
   read first.
 - **Use a plan when one exists:** `<TB>/<FAMILY>/plans/<suite>/<id>.plan` with its runner (for
   Modbus, `tools/mbplan.py`): it grades each line against the expected result and prints one row
@@ -313,5 +324,6 @@ These are bench-level, not test-level:
 
 Rebooting a member, `write` and a DUT power-cycle are yours when the case calls for them, on the
 session's consoles and the session's PDU outlets only. `ping` the PDU before a `powerlink` step,
-since an unreachable PDU takes the framework's silent-False path. Topology pairs live in
+since an unreachable PDU takes the framework's silent-False path. A power-cycle by hand within
+a test: `tools/tb pdu <TB> <ip> <outlet> cycle`. Topology pairs live in
 `Test-cases/ask-ck/functions/test-composer/templates/<setup>/`.
