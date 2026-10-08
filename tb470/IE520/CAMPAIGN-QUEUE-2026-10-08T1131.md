@@ -59,8 +59,25 @@ Constraints: "Run now, no power cycles" (option text: "Same scope, and a failing
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | AWPTCM-T22650, T22651, T22652, T22653, T22654, T22655 on the IE520 stack (u2,u4,u5) | tb470/IE520/modbus-2026-10-08T1131/ | **RESUMED 13:08, RUN dispatching** (device-testing-8a = sentinel; was TRIAGED, NOT LAUNCHED after the 13:0x wrap) | probe 12:42 exit 4 USER-CONFLICT = u2 login_failed + u4 silent (not a fact disagreement); u5 = member 3 master 115200; member 2 still Provisioned (T22650 0x0049 expected FAIL again); build main-calanm (Oct 6 19:44 UTC), bootloader 9.2.0 x3; master flash 176 KB free. Cable 1 eth1-port3.0.13 linked, ping v4 + link-local OK. Cable 2 port1.0.2-x230 port1.0.2 linked (LLDP), but port1.0.2 is in static-channel-group 2 (sa2) -> exception 4 on T22655 API write, as 09-29. N=6 runnable (need only u5 + eth1), M=0, K=6 gated on the Test Engineer ruling on u2/u4. NEEDS TE: u4 silent at 115200 since 12:42; may it be re-probed, or probe u2,u5 only? |
+| 1 | AWPTCM-T22650, T22651, T22652, T22653, T22654, T22655 on the IE520 stack (u2,u4,u5) | tb470/IE520/modbus-2026-10-08T1131/ | **RUNNING from 13:16** (bench-runner; gates 13:10-13:15: precheck CLEAR; probe exit 4 again = u2/u4 login_failed (backup-console session drops right after a correct password), sent as NEEDS TE; cases need only u5 + eth1). Next: T22650 | probe 12:42 exit 4 USER-CONFLICT = u2 login_failed + u4 silent (not a fact disagreement); u5 = member 3 master 115200; member 2 still Provisioned (T22650 0x0049 expected FAIL again); build main-calanm (Oct 6 19:44 UTC), bootloader 9.2.0 x3; master flash 176 KB free. Cable 1 eth1-port3.0.13 linked, ping v4 + link-local OK. Cable 2 port1.0.2-x230 port1.0.2 linked (LLDP), but port1.0.2 is in static-channel-group 2 (sa2) -> exception 4 on T22655 API write, as 09-29. N=6 runnable (need only u5 + eth1), M=0, K=6 gated on the Test Engineer ruling on u2/u4. NEEDS TE: u4 silent at 115200 since 12:42; may it be re-probed, or probe u2,u5 only? |
 | 2 | AWPTCM-T22650, T22651, T22652, T22653, T22654, T22655 on the x230v2-28GS (u0) | tb470/x230v2-28GS/modbus-2026-10-08T1131/ | DROPPED 12:2x | Test Engineer: "The DUT will be the IE520 stack" |
+
+## Group 1 (modbus) bench setup and restore recipe (written by the RUN tester 13:16, before the first case)
+
+- **Bench setup for the group: none.** No cabling, aggregator, VLAN or boot change. The cases run on the stack master's
+  console (u5 now; re-read `show stack` before driving: master = whichever member reads Active Master) and the Modbus/TCP
+  client `tools/mb.py` on tb470 (eth1 10.38.215.1/27, fd32:b1f0:dff8:d701::1/64) -> stack vlan1 10.38.215.10 (port3.0.13).
+  Tools are copied to tb470 `/tmp/modbus-1008/tools`; the console transcript is `/tmp/modbus-1008/console-u5.log`.
+- **Baseline** = the stack running-config captured 13:12 by the gate probe:
+  `bench-setup/captures/2026-10-08T001201Z/u5.show_running-config.txt` (184 lines; no `scada`, no `alarm` lines;
+  vlan1 = 10.38.215.10/27 + .40, .66 secondaries, `ipv6 enable`, `ipv6 address dhcp`). Boot config `flash:/tb470-bench.cfg`.
+  **Nothing is written to startup** (master flash 176 KB free).
+- **Restore recipe (a fresh tester can run it from any point in the group)**, on the master console in `configure terminal`:
+  `no scada modbus tcp server port` · `no scada modbus tcp server access` · `no scada modbus tcp server` ·
+  `interface vlan1` / `no ipv6 address fd32:b1f0:dff8:d701::10/64` (only if present) ·
+  `no alarm facility …` for any `alarm` line in `show running-config | include alarm` (or clear it over Modbus: write 0x0000 to its config word) ·
+  `interface port1.0.1` / `no shutdown` and `interface port1.0.2` / `no shutdown` (only if a `shutdown` line was added) · `end`.
+  Then `show running-config` and diff it against the baseline above: it must be IDENTICAL. Do not `write`.
 
 ## Results
 
