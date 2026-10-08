@@ -70,3 +70,4 @@
 - [Reboot-heavy runs after hours](reboot-heavy-runs-after-hours.md) — 2026-10-07: hours of PDU cycles distressed the office and a colleague stopped 2005.5; ask office vs after-hours at triage, no new reboot-heavy case into office hours
 - [Session restart leaves the old copy alive](session-restart-leaves-old-copy.md) — 2026-10-07: two --resume copies = two testers on u0; ps-check before resuming; unattended starts go in tmux with a one-shot cron
 - [Unattended session stalls on a prompt](unattended-session-stalls-on-permission-prompt.md) — 2026-10-08: tmux sentinel sat 11 h on an `rm` of a root-owned file after its run; results post + wrap never ran. Prompting steps LAST; trailing tool_use with no result = pending prompt
+- [Campaigns measured for token waste](campaigns-measured-for-token-waste.md) — 2026-10-08: /create-logs reviews per-case tokens; up-front reading dominates; read by section, reuse REVIEW.md/plans

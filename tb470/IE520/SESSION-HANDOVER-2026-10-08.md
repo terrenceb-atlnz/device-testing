@@ -1,3 +1,97 @@
+# Session handover — 2026-10-08 (~14:15): IE520 Modbus campaign RUN (5 PASS / 1 FAIL), final logs created, review implemented
+
+Session `45fd427a…` (`device-testing-8a`, VS Code). It took over from `device-testing-ac` (the
+section below), resumed the queue with `/test-mode --resume` as the sentinel, dispatched one
+bench-runner tester, ran `/create-logs`, then implemented the process review at the Test
+Engineer's request (*"implement the review suggestions for modbus (and overall), then run /wrap-dt"*).
+
+## Session facts
+Test Engineer: terrenceb@terrenceb-dl
+Testbox: tb470
+Consoles: u2,u4,u5 (the IE520 stack; the cases drove u5 only)
+PDU: 10.36.150.14; outlets u2=6, u4=4, u5=5
+Constraints: "Run now, no power cycles" (only the listed consoles and outlets)
+
+(The go, 13:08: *"member two is contactable, but lets start the campaign anyway"*. All rulings verbatim in
+[CAMPAIGN-QUEUE-2026-10-08T1131.md](CAMPAIGN-QUEUE-2026-10-08T1131.md).)
+
+## TL;DR
+- **Campaign DONE, final logs created.** T22650–T22655 on the IE520 stack, 13:16–13:37: **5 PASS, 1 FAIL**
+  (T22650: 0x0049 counts the provisioned, absent member 2). Logs + `stk_a.cfg` per case and the README in
+  [modbus-2026-10-08T1131/](modbus-2026-10-08T1131/) (`/create-logs` commit `9498e06`), ready for Zephyr.
+- **Bench whole and idle, not parked.** Nothing written to startup, nothing reloaded, no PDU action; the
+  running-config after the run was identical to before; all three consoles logged out.
+- **No wrap probe** (Test Engineer's choice, 14:1x): the tester's 13:37 after-run reads are the final state.
+  OPEN 1 below (full u0–u5 probe, then `apply`) is unchanged.
+- **New this session:** per-case token review in `/create-logs` (`tools/case_tokens.py`, `<id>-review.md`,
+  group `REVIEW.md`), and its suggestions implemented: `tools/mbplan.py` + graded plans
+  [plans/modbus/](plans/modbus/), `mb.py` exception codes, `bench_probe.py --baud`, leaner tester reading.
+
+## Bench state left (tester's after-run reads, 13:37; not re-read at this wrap)
+- Stack `IE520-stk`: members 1 / 3 / 4 Ready, **member 3 = Active Master (u5)**, member 2 `Provisioned`
+  (no unit). `main-calanm` on all three, bootloader 9.2.0. Virtual MAC 0000.cd37.0d6f.
+- `show boot`: boot config `flash:/tb470-bench.cfg (file exists)`, image `flash:/IE520-tb470.rel`.
+  **Master flash 176 KB free.**
+- Running-config = the 13:16 group baseline (`rcdiff.py` identical after every case); `scada` not configured.
+- Consoles u2, u4, u5 at `login:` (logged out). u2/u4 cannot hold a login on this build (Findings).
+- tb470: eth1 → stack port3.0.13 (1000/full); scratch `/tmp/modbus-1008/` (tmpfs, can go).
+- x230 (u0): still has the running-only `no lacp global-passive-mode enable` + `lldp run` (section below).
+
+Verify:
+```
+sock=/run/user/$(id -u)/keyring/ssh; SSH_AUTH_SOCK=$sock ssh tb470 \
+ 'cd ~/claude/device-testing/bench-setup && python3 bench_probe.py --box tb470 precheck --consoles u0-u5'
+# then (Test Engineer, OPEN 1) the full probe with the rate locked, no 9600 fallback:
+#   python3 bench_probe.py --box tb470 run --consoles u0-u5 --baud 115200 --no-prompt --pdu 10.36.150.14 --outlet u0=1,u2=6,u4=4,u5=5
+```
+
+## Results
+| case | verdict | log |
+| --- | --- | --- |
+| T22650 read System information | FAIL — 0x0049 = 124 vs CLI 93 (member 2 provisioned, counted) | [22650-fail.log](modbus-2026-10-08T1131/22650/22650-fail.log) |
+| T22651 read Sensor information | PASS | [22651.log](modbus-2026-10-08T1131/22651/22651.log) |
+| T22652 read alarm information | PASS (graded at MV5 0x3000; case's 0x3600 answers exception) | [22652.log](modbus-2026-10-08T1131/22652/22652.log) |
+| T22653 read port information | PASS, PoE steps UNSUPPORTED | [22653.log](modbus-2026-10-08T1131/22653/22653.log) |
+| T22654 write | PASS (LED = 0x8000; literal 0x0001 no effect), PoE step UNSUPPORTED | [22654.log](modbus-2026-10-08T1131/22654/22654.log) |
+| T22655 dynamic changes | PASS (exception 4 on the sa2-member port write, change applied) | [22655.log](modbus-2026-10-08T1131/22655/22655.log) |
+
+All runs *clean*. **Final logs created** (`9498e06`); `work/` removed (git history).
+
+## Findings
+- **Measured:** a login on a backup member's console (u2; u4 by the probe) is accepted and drops straight
+  back to `login:`; the master's console is fine. Now a row in [platforms/IE520.md](../../platforms/IE520.md) §3.
+  **Inferred, not proven:** a link to the running-config's `no username manager`.
+- **Measured:** pymodbus 3.8.6's own `Exception response 131 / 0` line prints 0 for the code; the response's
+  `exception_code` is correct (2 on a loopback server). `mb.py` now prints it.
+- **Measured (token review):** 87 API calls, 17.5M cache-read tokens; the 45 gate/overhead calls and
+  ~300k chars read before the first case dominated
+  ([REVIEW.md](modbus-2026-10-08T1131/REVIEW.md)).
+
+## OPEN
+1. (unchanged) Full u0–u5 probe, then `apply` (cable 1 = eth1-port3.0.13, stack consoles 115200). Use the
+   new `--baud 115200`. Your call.
+2. Member 2 is provisioned but absent: keep (T22650 keeps failing on 0x0049) or `no switch 2 provision`?
+3. `tools/mbplan.py` `cli`/`log` lines have never run against a console: check them on first real use.
+4. The x230's running-only changes: keep or revert (section below). Master flash 176 KB free.
+5. The lab-home `CLAUDE.md` requires TESTBOX-ACCESS.md read in full before any testbox work (33k chars per
+   tester): relaxing it is yours alone.
+
+## Next steps
+1. Push (`git push origin main`; this repo is ahead of origin).
+2. Attach the six logs + `stk_a.cfg` files in Zephyr.
+3. Decide OPEN 1/2; a re-run of these cases is now `mbplan.py` per [plans/modbus/README.md](plans/modbus/README.md).
+
+## Recipes
+- Per-case tokens for a finished group: `python3 -I tools/case_tokens.py --find ~/.claude/projects/-media-terrenceb-mnt-testbox-home-claude-device-testing --cases <ids in run order>`.
+- A Modbus case from its plan (on tb470, from a copy of tools/): see [plans/modbus/README.md](plans/modbus/README.md).
+
+## Pointers
+Queue: [CAMPAIGN-QUEUE-2026-10-08T1131.md](CAMPAIGN-QUEUE-2026-10-08T1131.md) · reviews: `modbus-2026-10-08T1131/REVIEW.md`, `<id>/<id>-review.md` ·
+rules: logged-output.md §5, create-logs §5b · tester rules: `.claude/agents/bench-runner.agent.md` ("Keep the context small").
+Sentinel stood down at this wrap (Monitor expired 13:39, cron deleted, no stray `sentinel.sh`).
+
+---
+
 # Session handover — 2026-10-08 (~13:1x): IE520 Modbus campaign TRIAGED, not launched
 
 Session `d849bdea…` (VS Code). It oriented without a probe, set up and triaged the Modbus campaign,

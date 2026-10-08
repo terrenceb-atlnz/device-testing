@@ -99,3 +99,6 @@ Constraints: "Run now, no power cycles" (option text: "Same scope, and a failing
   server, no stray sentinel.sh. Nothing was killed.
 - 2026-10-08 wrap: `bench_probe.py apply` NOT run — the only fence (capture 2026-10-07T234226Z, u5 only) would cut tb470.setup
   from 6 devices to 1. Decision with the Test Engineer (SESSION-HANDOVER-2026-10-08.md OPEN 1).
+- 2026-10-08 13:5x: `/create-logs` done -- 6 final logs + `stk_a.cfg` + README, plus per-case `<id>-review.md` and group
+  `REVIEW.md` (`9498e06`). Review implemented (`c6ad29e`). Wrapped ~14:15 by device-testing-8a: no wrap probe (Test
+  Engineer's choice; the tester's 13:37 after-run reads stand); sentinel stood down. Handover SESSION-HANDOVER-2026-10-08.md.
