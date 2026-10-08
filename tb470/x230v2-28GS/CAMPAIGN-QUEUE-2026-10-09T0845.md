@@ -121,3 +121,12 @@ Totals now: **18 runnable / 0 blocked by topology / 19 blocked otherwise** (T441
     - Stack: `interface port1.0.17,port1.0.3` / `switchport access vlan 1`; then `vlan database` / `no vlan 103,104`.
     - x230: `interface port1.0.3-1.0.4` / `switchport access vlan 1`; then `vlan database` / `no vlan 103,104`.
     - Reverting re-creates the loop unless links B and C are unplugged first.
+- **2026-10-09 11:23:49–11:24:03 NZDT, bench change authorised by the Test Engineer ("Own VLAN, running-only"), x230 only, NO `write`.**
+  - Why: eth3 on x230 port1.0.5 (VLAN 1) had joined eth1's L2 domain through the stack's VLAN1.
+  - What changed, on the x230 via u0: `vlan database` / `vlan 105`; `interface port1.0.5` / `switchport access vlan 105`. VLAN 105 was unused on both the x230 and the stack beforehand. No `% ` line.
+  - Verified by re-reading:
+    - x230 `show vlan brief`: 105 = port1.0.5(u).
+    - x230 `show interface status`: port1.0.5 connected 105, a-full a-1000.
+    - tb470 eth3: UP, LOWER_UP.
+    - Stack: eth3's MAC 00f0.4d00.7718 was still on sa2 at 11:24 (the dynamic entry had not aged out) and was gone at 11:29:58 after normal ageing. I did not clear it.
+  - Lost at the next x230 reload. Revert by hand: `interface port1.0.5` / `switchport access vlan 1`; then `vlan database` / `no vlan 105`. Reverting re-joins eth3 to eth1's L2 domain.
