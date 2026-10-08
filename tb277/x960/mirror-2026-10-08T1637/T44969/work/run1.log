@@ -1,0 +1,142 @@
+# T44969 (AWP-5318) -- CLI show mirror interface direction set to both -- run 1 -- 2026-10-09
+
+## Session facts
+Testbox    tb277 (Test Engineer bidhanc@bidhanc-dl).  Consoles u2=swi_c (DUT), u3=swi_b, u5=swi_a.
+PDU        10.36.230.212 outlet 1 (u2), outlet 7 (u3); 10.36.230.35 outlet 3 (u5).
+Constraints none stated. Power cycles allowed. Sentinel: parent session.
+Group      mirror-2026-10-08T1637. Setup G0-G4 / restore R0-R6 in the queue file (2df8463).
+           THIS CASE CARRIES D3 for the group.
+
+## Devices
+swi_c DUT /dev/u2 115200 AT-x960-56YSQ S/N A2WQS7004, bridge MAC e01a.ead4.72cb,
+          Marvell 98CX8514 Falcon, sin_x96056-20260921-9 (x960-tb277.rel), NETBOOTS,
+          boot config flash:/default.cfg
+swi_b     /dev/u3 9600 AT-x960-28YSQ S/N A10737A261700021, bridge MAC 0000.cd42.3029, STP root
+swi_a     /dev/u5 -- deliberately isolated for this group
+
+## Links and host NICs
+tb eth4 00:0d:b9:55:77:0f 10.38.22.65/27 ---- swi_c port1.0.48   SOURCE / MONITORED port
+swi_c sa1 = port1.0.2 + port1.0.16 ---- swi_b sa1 (VLAN 100)
+swi_b vlan100 10.38.22.70/27                                     far-side endpoint
+tb eth3 00:0d:b9:55:77:0e ---- swi_c port1.0.10                  MIRROR DESTINATION, tcpdump here
+
+## Tools
+cfg.py, ckcon.py, ckyn.py, ckreload.py, cap.sh. Captures preserved in this folder.
+Method per defects M1/M2 found in T44967/T44968: every mirror change is
+`no mirror interface <src>` -> apply -> bounce the destination -> only then measure.
+`show mirror` is never accepted as proof on its own.
+
+## Steps and evidence
+
+### STEP 1 -- "set the mirror direction to both" and read it back
+x960-56YSQ(config-if)#interface port1.0.10
+x960-56YSQ(config-if)#no mirror interface port1.0.48
+x960-56YSQ(config-if)#mirror interface port1.0.48 direction both
+x960-56YSQ#show mirror
+  Mirror Test Port Name: port1.0.10
+  Mirror option: Enabled
+  Mirror direction: both
+  Monitored Port Name: port1.0.48
+x960-56YSQ#show mirror interface port1.0.48
+  Mirror Test Port Name: port1.0.10
+  Mirror option: Enabled
+  Mirror direction: both
+  Monitored Port Name: port1.0.48
+x960-56YSQ#show running-config interface port1.0.10
+   mirror interface port1.0.48 direction both
+  => STEP 1 PASS: the CLI accepts `direction both` and both show forms and the running-config
+     report it. The CONFIGURATION half of the case is correct.
+
+### STEP 2 -- frame-level proof that `both` mirrors both directions         FAIL
+Expected: the 6 echo REQUESTS the DUT receives on port1.0.48 AND the 6 echo REPLIES it
+transmits out of it -- 12 frames. Measured, after the destination port was bounced:
+host# ./cap.sh both          (cap-both.txt 1 B, cap-both.err)
+  0 packets captured / 0 packets received by filter / 0 packets dropped by kernel
+  ping: 6 transmitted, 6 received, 0% packet loss
+  counted: echo REQUESTS = 0 ; echo REPLIES = 0
+  => STEP 2 FAIL: nothing at all was copied, while the identical flow passed end to end.
+
+### STEP 3 -- everything tried to rule out method, before grading
+  a) re-measure without changing anything (settle time)
+     cap-both-retry.txt 1 B  -> 0 requests, 0 replies
+  b) a SECOND destination-port bounce, 25 s settle
+     cap-both-bounce2.txt 1 B -> 0 requests, 0 replies
+  c) port and host state during the failure
+     x960-56YSQ#show interface port1.0.10 status
+       port1.0.10  -  connected  1  a-full a-1000  10GBASE-TM        <-- link up
+     host# ip -br link show dev eth3
+       eth3 UP 00:0d:b9:55:77:0e <BROADCAST,MULTICAST,UP,LOWER_UP>   <-- host NIC up
+     tcpdump reported "0 packets RECEIVED BY FILTER" -- nothing reached eth3 at all, so this
+     is not a filter, decode or promiscuity problem.
+  d) IS THE MIRROR ENGINE WEDGED? Re-applied `direction transmit`, clean + bounce, same session:
+     cap-tx-control-after-both.txt 541 B -> 6 echo REPLIES, 0 requests      WORKS
+     So the engine is NOT wedged and the measurement method is sound.
+  e) clean re-apply of `both` to confirm reproducibility
+     cap-both-confirm.txt 1 B -> 0 requests, 0 replies
+  => STEP 3 done: the failure is specific to `direction both`, reproducible, and not explained
+     by link state, host capture, settle time, or the M1 re-application defect.
+
+### STEP 4 -- D3 persistence, and the conclusive pristine-boot test
+Pre-flight: /tftproot/x960-tb277.rel present, 57,496,435 bytes (the DUT netboots).
+x960-56YSQ#show boot
+  Current software   : x960-tb277.rel
+  Current boot config: flash:/default.cfg (file exists)
+x960-56YSQ#copy running-config startup-config   -> Building configuration... [OK]
+x960-56YSQ#reload   -> 'reboot system? (y/n):' y ; login seen after 119 s
+
+AFTER THE RELOAD -- configuration persisted:
+x960-56YSQ#show mirror
+  Mirror Test Port Name: port1.0.10
+  Mirror option: Enabled
+  Mirror direction: both                     <-- SURVIVED
+  Monitored Port Name: port1.0.48
+x960-56YSQ#show running-config interface port1.0.10
+   mirror interface port1.0.48 direction both <-- SURVIVED
+x960-56YSQ#show static-channel-group
+  Member: port1.0.2, port1.0.16               <-- SURVIVED
+x960-56YSQ#show boot
+  Current boot config: flash:/default.cfg (file exists)
+
+AFTER THE RELOAD -- behaviour, on a pristine boot with NO reconfiguration history:
+host# ./cap.sh both-afterboot   (cap-both-afterboot.txt 1 B, cap-both-afterboot.err)
+  0 packets captured / 0 packets received by filter
+  ping-both-afterboot.txt: 6 transmitted, 6 received, 0% packet loss
+  counted: 0 requests, 0 replies
+
+SAME BOOT, the two controls, each clean-applied and bounced:
+host# ./cap.sh tx-sameboot   (cap-tx-sameboot.txt 535 B)
+  09:30:52.719028 IP 10.38.22.70 > 10.38.22.65: ICMP echo reply, id 1777, seq 1, length 64
+  ... 6 replies ...                            -> 0 requests, 6 REPLIES    transmit WORKS
+host# ./cap.sh rx-sameboot   (cap-rx-sameboot.txt 547 B)
+  09:32:09.987654 IP 10.38.22.65 > 10.38.22.70: ICMP echo request, id 2071, seq 1, length 64
+  ... 6 requests ...                           -> 6 REQUESTS, 0 replies    receive WORKS
+  => STEP 4: D3 CONFIG PERSISTENCE PASSES -- the mirror configuration and the aggregator
+     survived a save and reload intact. D3 BEHAVIOUR cannot pass, because the behaviour was
+     absent both before and after; it is consistently absent, which is itself the point. The
+     pristine boot eliminates defect M1 (no re-application history existed) and the two
+     same-boot controls eliminate the bench, the cabling and the method.
+
+## Defect M3 -- `mirror interface <src> direction both` copies NO frames
+Summary of the discriminating evidence, all on one boot, one cabling, one 6-ping flow
+(a 1-byte capture file means nothing arrived; ~535-547 B means frames arrived):
+
+  direction   capture file                  size   requests  replies  verdict
+  transmit    cap-tx-sameboot.txt           535 B      0        6     works
+  receive     cap-rx-sameboot.txt           547 B      6        0     works
+  both        cap-both-afterboot.txt          1 B      0        0     NOTHING COPIED
+
+`show mirror`, `show mirror interface port1.0.48` and the running-config all report the mirror
+as Enabled with direction both and the correct monitored port throughout. There is no error,
+no log message and no CLI indication that anything is wrong -- only a frame capture reveals it.
+Taken with M2 from T44968, the pattern is that this platform's mirror status output cannot be
+relied on to describe what the dataplane is doing.
+Reproduced 5 times: cap-both.txt, cap-both-retry.txt, cap-both-bounce2.txt, cap-both-confirm.txt,
+cap-both-afterboot.txt -- all 1 byte.
+CR wording is the Test Engineer's call; these are the measurements.
+
+VERDICT: FAIL -- `mirror interface port1.0.48 direction both` is accepted and reported correctly
+by every CLI status command, and survives a save and reload, but copies NO frames to the mirror
+destination. `direction transmit` and `direction receive` both work on the same boot, same
+cabling and same traffic, so the platform's mirroring and the test method are sound and the
+fault is specific to `both`. Reproduced five times including on a pristine boot with no
+reconfiguration history.
