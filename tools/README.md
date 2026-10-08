@@ -273,6 +273,16 @@ pre-case versus post-case teardown check (STANDING-ORDERS §1).
 - **Limits:** it needs ckcon-style `HH:MM:SS >>> cmd` headers, and crashes if a file has no running-config
 - **Status:** verified 2026-10-02 on tb470 (two real IE520 captures, identical -> no output)
 
+### `rc2cfg.py`
+Turns the first `show running-config` in a saved `ckcon.py` stdout into a loadable per-device
+`<dev>.cfg` (logged-output.md §2): the given header lines first (each prefixed `! `), then the
+config with the echoed command, bare prompts, pager remnants, CRs and blank lines removed.
+- **Run:** `rc2cfg.py <ckcon-stdout> <out.cfg> <header-line> [<header-line> ...]`
+- **Where:** anywhere; **needs:** nothing beyond Python
+- **Imports:** none
+- **Limits:** it reads the ckcon `HH:MM:SS >>> cmd` stdout format only (as `rcdiff.py` does)
+- **Status:** verified 2026-10-08 on tb470, IE520 stack master (u5): T22650 `stk_a.cfg`, 186 config lines
+
 ## Traffic, frames and protocol emulators
 
 ### `linerate.py`
@@ -424,4 +434,4 @@ probes. Use it for AW+ SCADA Modbus gateway cases.
 - **Limits:**
   - The register decodings were written for the IE520 Modbus map (Mapping Version 5).
   - Exit 2 means either an argument error or "no connection".
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified 2026-10-08 on tb470/IE520 stack (main-calanm), T22650 reads over IPv4, units 0-4

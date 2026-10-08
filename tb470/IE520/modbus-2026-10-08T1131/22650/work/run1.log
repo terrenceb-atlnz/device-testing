@@ -1,0 +1,156 @@
+T22650 run 1 -- working log (bench-runner) -- clean
+=====================================================================================
+Case:      AWPTCM-T22650 "S2166.1.10, S2166.1.11, S2166.1.12 -  modbus -  read System information"
+           (ck.db zephyr_cases, Draft, folder /Modbus/Proj 2166 Modbus Support), objective "Able to read
+           system information", 10 steps, no precondition.
+Run:       2026-10-08 13:16:44-13:18:00 NZDT (DUT clock UTC, shows 00:18 = 13:18 NZDT; offset 0)
+Session:   testbox tb470; consoles u2,u4,u5 (this case drove u5 only); Test Engineer terrenceb@terrenceb-dl;
+           PDU 10.36.150.14 (u2=6, u4=4, u5=5); constraints "Run now, no power cycles" (only the listed
+           consoles and outlets). Sentinel = parent session device-testing-8a. Queue
+           tb470/IE520/CAMPAIGN-QUEUE-2026-10-08T1131.md row 1, case 1 of 6.
+Go:        Test Engineer 13:08 (relayed): "member two is contactable, but lets start the campaign anyway".
+Tester:    bench-runner subagent, by hand (no framework script):
+           tools/ckcon.py /dev/u5 115200 /tmp/modbus-1008/console-u5.log --stop-on-error <cmds>
+           tools/mb.py --host 10.38.215.10 --log /tmp/modbus-1008/mb-22650.log [--slave N] read ADDR COUNT TYPE DESC
+           (pymodbus 3.8.6 on tb470), tools/rcdiff.py, tools/rc2cfg.py. Driver: work/22650.sh (setup|reads|teardown).
+           Full stdout: work/22650.out; client trace: work/mb-22650.log; console transcript stays on tb470.
+
+GATES (13:10-13:16)
+  precheck u2,u4,u5: CLEAR (exit 0).
+  peek @115200 13:11: u5 'IE520-stk#' (exec, left logged in by the 12:42 probe); u2 'IE520-stk-1 login:';
+       u4 'IE520-stk-4 login:'. No config mode, no root shell.
+  /nfsHome mounted; /home/st-art/st-art/configs/tb470.setup present (Oct 6 06:12, stale per handover OPEN 1; not
+       used -- no framework run).
+  probe 13:12 (bench_probe.py --box tb470 run --consoles u2,u4,u5 --no-prompt --pdu 10.36.150.14 --outlet u2=6
+       --outlet u4=4 --outlet u5=5 --out /tmp/modbus-1008/bench-state-pre.md; capture
+       bench-setup/captures/2026-10-08T001201Z): EXIT 4 USER-CONFLICT -- u2 and u4 login_failed at 115200 (banners
+       IE520-stk-1 / IE520-stk-4 read). A ckcon login on u2 13:12-13:14: password accepted ("Last login: Thu Oct 8
+       00:12:51 UTC 2026 on ttyS0") and the console returns at once to "IE520-stk-1 login:" (3 of 3) -- the
+       backup-console relay session drops. Sent to the sentinel as NEEDS TEST ENGINEER 13:15; carried on (the
+       Test Engineer ruled the same u2/u4 conflict 12:5x; this case needs only u5 + eth1).
+       Probe on u5: stack Normal operation, members 1/3/4 Ready, member 2 Provisioned; main-calanm x3,
+       bootloader 9.2.0 x3; link tb470 eth1 -> swi_c port3.0.13 (MAC learned on a physical port).
+       eth2, eth3: no carrier.
+  boot (gate 7): show boot 'Current boot config: flash:/tb470-bench.cfg (file exists)', boot image
+       flash:/IE520-tb470.rel (file exists). Baseline.
+  gate 10: qmark.py (no CR) 13:15: `scada modbus tcp server ?` in config offers access|connection|logging|port|<cr>;
+       `show scada modbus ?` offers tcp. Commands exist on main-calanm.
+  group baseline running-config 13:16: /tmp/modbus-1008/baseline-rc.out (copied to work/baseline-rc.out) =
+       the probe's u5.show_running-config.txt line for line (no `scada`, no `alarm` lines).
+
+TOPOLOGY AS TESTED
+  DUT     : stk_a (AT-IE520-28GSX VCStack, hostname IE520-stk), Normal operation, stack MAC 0000.cd37.0d6f (virtual)
+            member 1 = swi_a S/N 264A23061 MAC 84e3.2787.0ac0, Backup Member, console u2
+            member 2 = Provisioned only (`switch 2 provision ie520-28`; no MAC, no unit)
+            member 3 = swi_c S/N 264A23066 MAC 84e3.2787.0740, ACTIVE MASTER, console u5 (driven)
+            member 4 = swi_d S/N 264A23052 MAC 84e3.2787.09c0, Backup Member, console u4
+            software main-calanm (IE520-tb470.rel, build date Tue Oct 6 19:44:28 UTC 2026) on all; bootloader 9.2.0
+            vlan1 10.38.215.10/27 (+ .40, .66 secondaries), ipv6 enable, ipv6 address dhcp
+  host    : tb470 eth1 10.38.215.1/27 (fd32:b1f0:dff8:d701::1/64, fe80::f667:7041:7dff:3cfc) -> stk_a port3.0.13
+            (member 3, 1000BASE-T, a-full a-1000, VLAN 1)
+  tools   : mb.py Modbus/TCP client on tb470 -> 10.38.215.10:502; ckcon.py on tb470 /dev/u5
+  config  : 22650/stk_a.cfg (running-config 13:17 after setup; saved to startup: no)
+
+STEP 0 -- baseline (server OFF) 13:16:49-13:16:51                                             done
+IE520-stk# show stack            -> 1 Ready Backup / 2 - - - - Provisioned / 3 Ready Active Master / 4 Ready Backup
+IE520-stk# show scada modbus tcp server
+  MODBUS is disabled
+host$ mb.py probe -> "Connection to (10.38.215.10, 502) failed: [Errno 111] Connection refused"
+                     CONNECT 10.38.215.10:502 slave=0 -> FAILED (no TCP connection)
+
+SETUP 13:16:56-13:17:01                                                                     done
+IE520-stk(config)# scada modbus tcp server
+IE520-stk# show scada modbus tcp server
+  MODBUS is enabled / Write access: disabled / Master heartbeat status: Not set / Master heartbeat timeout: 0
+  Port : 502 / Max Connections : 1 / every statistic 0
+IE520-stk# show running-config | include scada
+  scada modbus tcp server
+Saved: 22650/stk_a.cfg (rc2cfg.py from the 13:17 `show running-config`; the only difference from the
+baseline is the `scada modbus tcp server` line).
+
+CLI REFERENCE 13:17:21-13:17:32 (full text in work/22650.out)
+  show system: members 1/3/4 "Base 717 Base AT-IE520-28GSX X1-0" serials 264A23061 / 264A23066 / 264A23052;
+     Environment Status Normal on each; "Software version : main-calanm"; "System Name IE520-stk".
+  show system mac: 1 84e3.2787.0ac0, 3 84e3.2787.0740, 4 84e3.2787.09c0; "Virtual MAC Address 0000.cd37.0d6f".
+  show stack detail: "Stack member 2: ID 2 / Product type ie520-28 / Role Provisioned" (no MAC, no status, no
+     stack-port neighbour). Members 1/3/4 stack ports: 1.0.27<->3.0.28, 1.0.28<->4.0.27, 3.0.27<->4.0.28 (a ring of
+     three; nothing learnt toward a member 2).
+  show running-config | include hostname|provision: hostname IE520-stk; switch 1|2|3|4 provision ie520-28.
+  show system environment: 5 sensors per member, all Ok (member 1 Temp 48, member 3 42, member 4 44).
+     -> 15 sensors, 0 faults.
+  show alarm facility settings: Global alarms EPSR, Loop detect, G8032, UFO (4); per member 1, 3, 4: External PSU 1,
+     External PSU 2, Link down portN.0.1..portN.0.28, Temperature = 31 each -> 93 per-member alarms. All Outputs "-".
+  show alarm facility status: header only.
+  MEMBER 2 MEASURED (dispatch asked for it): it is NOT a stack member now -- `show stack` "2 - - - - Provisioned",
+     `show stack detail` Role Provisioned with no MAC, bitmap 0x0044 = 0x000d (bits 1,3,4), and every unit-id-2 read
+     below is a Modbus exception. Whether the unit is "contactable" off-stack is not visible from the
+     stack, and its console is not in this session's list, so it was not looked for.
+
+READS 13:17:33-13:17:37 (unit 0 unless stated; TX bytes in work/mb-22650.log)
+ The case's literal addresses (version-1 map):
+  s1  READ 0x0000 x1 UINT  -> ['0x0005'] 5
+  s2  READ 0x0001 x32 ASCII -> 'IE520-stk'        (v5: System Name)
+  s3  READ 0x0021 x32 ASCII -> 'main-calanm'      (v5: Software Version)
+  s4  READ 0x0041 x1 UINT  -> 0                   (v5: MAC word 1)
+  s5  READ 0x0042 x1 UINT  -> 52535 = 0xcd37      (v5: MAC word 2)
+  s6  READ 0x0043 x1 UINT  -> 3439 = 0x0d6f       (v5: MAC word 3)
+  s7  READ 0x0044 x1 UINT  -> 13 = 0x000d         (v5: stack-member bitmap)
+  s8  READ 0x0045 x32 ASCII -> EXCEPTION          (v5: 1-word count; 32 words run off the block)
+  s9  READ 0x0065 x32 ASCII -> EXCEPTION
+  s10 READ 0x0085 x3 HEX   -> '000000050000'
+  => the case text carries the version-1 layout; the DUT reports Mapping Version 5, so each item is graded at
+     its version-5 address:
+ Mapping Version 5 addresses:
+  Mapping Version   0x0000 x1 UINT  -> 5
+  System Name       0x0001 x32 ASCII -> 'IE520-stk'       = hostname IE520-stk / show system "System Name IE520-stk"
+  Software Version  0x0021 x32 ASCII -> 'main-calanm'     = show system "Software version : main-calanm"
+  HW MAC            0x0041 x3 HEX   -> '0000cd370d6f'     = "Virtual MAC Address 0000.cd37.0d6f"
+  member bitmap     0x0044 x1 HEX   -> '000d'             = members 1, 3, 4 Ready
+  Number of Ports   0x0045 x1 UINT  -> 84                 = 3 x 28 (unit 1/3/4 0x0121 = 28)
+  Number of Faults  0x0046 x1 UINT  -> 0                  = all 15 sensors Ok, Environment Status Normal
+  Number of Sensors 0x0047 x1 UINT  -> 15                 = 3 x 5 (show system environment)
+  Alarms (global)   0x0048 x1 UINT  -> 4                  = EPSR, Loop detect, G8032, UFO
+  Alarms (members)  0x0049 x1 UINT  -> 124 = 0x007c       CLI lists 93 (31 x 3 members); 124 = 31 x 4
+ Per member (unit id = member):
+  unit 1: 0x0120 x5 -> [1, 28, 0, 5, 31]; 0x0200 -> 1 (Base); 0x0202 -> 'AT-IE520-28GSX'; 0x0222 -> '264A23061';
+          0x0242 -> '84e327870ac0'
+  unit 2: 0x0120, 0x0200, 0x0202, 0x0222, 0x0242 -> EXCEPTION on every one (the provisioned slot has no block)
+  unit 3: [1, 28, 0, 5, 31]; 1; 'AT-IE520-28GSX'; '264A23066'; '84e327870740'
+  unit 4: [1, 28, 0, 5, 31]; 1; 'AT-IE520-28GSX'; '264A23052'; '84e3278709c0'
+  -> every per-member value equals show system / show system mac / show system environment /
+     show alarm facility settings for that member.
+ Server statistics 13:17:42: holding registers 40; illegal data address 2 (s8, s9); illegal data value 5
+  (the five unit-2 reads). Write requests 0.
+
+STEP VERDICTS (each item at its Mapping-Version-5 address)
+  1 Mapping Version ......... PASS  (1 word, value 5; the case's "1" is the version-1 map)
+  2 Board Name .............. PASS  (unit 1/3/4 0x0202 'AT-IE520-28GSX' = show system Board Name)
+  3 Serial Number ........... PASS  (unit 1/3/4 0x0222 = 264A23061 / 264A23066 / 264A23052)
+  4 Number of Sensors ....... PASS  (0x0047 = 15 = 3 x 5)
+  5 Number of Alarms ........ FAIL  (0x0048 global 4 = CLI 4; 0x0049 per-member 124 vs CLI 93 = 3 x 31.
+                                     124 = 4 x 31: the provisioned-but-absent member 2 is counted, although its
+                                     own unit-2 block answers exception and the bitmap excludes it)
+  6 Number of Ports ......... PASS  (0x0045 = 84 = 3 x 28)
+  7 Number of Faults ........ PASS  (0x0046 = 0; all sensors Ok)
+  8 Software Version ........ PASS  (0x0021 'main-calanm')
+  9 System Name ............. PASS  (0x0001 'IE520-stk')
+  10 HW Mac Address ......... PASS  (0x0041 '0000cd370d6f' = virtual MAC)
+
+TEARDOWN 13:17:48-13:18:00
+IE520-stk(config)# no scada modbus tcp server
+IE520-stk# show scada modbus tcp server -> MODBUS is disabled
+IE520-stk# show running-config | include scada -> (empty)
+host$ mb.py probe -> [Errno 111] Connection refused
+rcdiff.py baseline-rc.out 22650-rc-after-teardown.out -> no output = IDENTICAL to the group baseline.
+Nothing written to startup; no reload; no PDU action. Console u5 left at exec, terminal no monitor (ckcon cleanup).
+
+FAIL CONDITION: step 5 -- register 0x0049 (per-member Number of Alarms) = 124 while `show alarm facility settings`
+  lists 93 per-member alarms (31 on each of members 1, 3, 4). Expected the register to equal the CLI. The excess is
+  exactly one member's 31 alarms and matches the stack's provisioned-but-absent member 2 (`switch 2 provision
+  ie520-28`, `show stack` "Provisioned"). The other count registers (ports 84, sensors 15, faults 0) count only the
+  three present members, so the alarm count is inconsistent with them: a product mismatch, not the method.
+CAVEAT: the case text's register addresses are the version-1 layout; the DUT is Mapping Version 5, and the
+  steps were graded at the version-5 address of each named item. Whether 0x0049 SHOULD include a provisioned
+  slot is a product question for the case owner; this run reports the mismatch with the CLI.
+
+VERDICT: FAIL -- 9/10 items equal the CLI at their Mapping-Version-5 addresses; Number of Alarms 0x0049 = 124 vs CLI 93 (provisioned, absent member 2 counted)
