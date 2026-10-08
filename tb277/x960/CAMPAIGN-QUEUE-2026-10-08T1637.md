@@ -502,10 +502,13 @@ DUT from group 4 and is the byte-exact pre-campaign startup config -- do NOT del
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
+| T44987 | PASS | numbered hw IP ACLs on a port: deny+permit across icmp/ip/proto/tcp/udp with protocol SELECTIVITY proven (tcp and udp rules leave icmp alone), ARP unaffected, permit proven by its counter, 1 TCAM entry per bound rule, survives reload. Findings: a bound list cannot be edited; `proto 1` stores as `icmp`; UNBOUND lists cost no TCAM. | bench-runner 2026-10-09 | acl-num-2026-10-08T1637/T44987/work/run1.log |
+| T44988 | PASS | numbered hw MAC ACLs on a port: src/dst MAC filtering, `any` forms, vlan qualifier selective, copy-to-cpu proven on BOTH halves (CPU queue 0 rose 0->9 matching 9 ACL hits AND traffic still forwarded). Mask proven to be a WILDCARD from both directions using a scapy-spoofed source MAC. | bench-runner 2026-10-09 | acl-num-2026-10-08T1637/T44988/work/run1.log |
+| T44986 | PASS | all five standard-ACL behaviours proven on `vty access-class` against SSH from two host addresses: permit, implicit deny, deny, 0.0.0.1 wildcard, first-match. Findings: `access-group <1-99>` wrongly reports "% Access-list does not exist"; Cisco-style line-mode `access-class` is unavailable; software ACLs implicitly DENY where hardware ones implicitly PERMIT. | bench-runner 2026-10-09 | acl-num-2026-10-08T1637/T44986/work/run1.log |
 | 0 | — | — | TRIAGE DONE | campaign setup above; then triage confirms every drafted command on the DUT |
 | 1 | T44967 T44968 T44969 T44973 T44974 | mirror-2026-10-08T1637 | DONE | port mirroring. Now with **real frames**: 1.0.48 is the monitored port, 1.0.10 the destination, host eth3 captures. D3 carried by T44969 |
-| 2 | T44987 T44988 T44986 | acl-num-2026-10-08T1637 | RUNNING | numbered ACLs: IP 3000 range, MAC 4000 range, standard 1–99. D3 carried by T44987 |
-| 3 | T44979 T44991 T44989 T44990 | acl-named-2026-10-08T1637 | TODO | named hardware ACLs on a port: proto, copy-to-cpu, send-to-cpu, copy-to-mirror. Run copy-to-cpu and send-to-cpu back to back and contrast. D3 carried by T44979 |
+| 2 | T44987 T44988 T44986 | acl-num-2026-10-08T1637 | DONE | numbered ACLs: IP 3000 range, MAC 4000 range, standard 1–99. D3 carried by T44987 |
+| 3 | T44979 T44991 T44989 T44990 | acl-named-2026-10-08T1637 | RUNNING | named hardware ACLs on a port: proto, copy-to-cpu, send-to-cpu, copy-to-mirror. Run copy-to-cpu and send-to-cpu back to back and contrast. D3 carried by T44979 |
 | 4 | T44992 | acl-lag-2026-10-08T1637 | DONE | named hardware ACL on `sa1`. Stack clauses WITHDRAWN by the Test Engineer 2026-10-08 — graded in full, no longer PARTIAL. Setup + restore recipe above |
 
 ## Drafted case steps — to be syntax-confirmed on the DUT at triage

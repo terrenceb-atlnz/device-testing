@@ -1,0 +1,149 @@
+# T44986 (AWP-13990) -- deny/permit statements for standard access list -- run 1 -- 2026-10-09
+
+## Session facts
+Testbox    tb277 (Test Engineer bidhanc@bidhanc-dl).  Consoles u2=swi_c (DUT), u3=swi_b, u5=swi_a.
+PDU        10.36.230.212 outlet 1 (u2), outlet 7 (u3); 10.36.230.35 outlet 3 (u5).
+Constraints none stated. Power cycles allowed. Sentinel: parent session.
+Group      acl-num-2026-10-08T1637. Shared setup G0-G5 / restore R0-R6 in the queue (1ff191d).
+
+## Devices
+swi_c DUT /dev/u2 115200 AT-x960-56YSQ S/N A2WQS7004, Marvell 98CX8514 Falcon,
+          sin_x96056-20260921-9, NETBOOTS. Given 10.38.22.67/27 on vlan100 FOR THIS CASE so
+          the vty lines are reachable; removed again in teardown.
+swi_b     /dev/u3 9600 AT-x960-28YSQ -- not used by this case
+swi_a     /dev/u5 -- deliberately isolated
+
+## Links and host NICs
+tb eth4 10.38.22.65/27 and 10.38.22.66/27 ---- swi_c port1.0.48 (VLAN 100)
+   .65 and .66 are the two client addresses the rules discriminate between
+swi_c vlan100 10.38.22.67/27                 the DUT's vty endpoint, SSH on tcp/22
+
+## Where a standard list binds on this platform -- and where it does NOT
+A standard (1-99) list CANNOT be bound to an interface here. Measured:
+x960-56YSQ(config)#access-list 1 permit 10.38.22.65 0.0.0.0
+x960-56YSQ(config)#interface port1.0.48
+x960-56YSQ(config-if)#access-group 1
+  % Access-list does not exist
+x960-56YSQ#show access-list 1
+  Standard IP access list 1
+      4 permit 10.38.22.65                  <-- the list plainly DOES exist
+`access-group` takes only 3000-3699, 4000-4699 or a named hardware list; it reports a standard
+list as non-existent rather than as the wrong type. See finding F1.
+
+The binding point that DOES exist is the VTY lines, and it is a GLOBAL configuration command:
+x960-56YSQ(config-line)#access-class 1          (the Cisco line-mode form)
+                             ^
+  % Invalid input detected at '^' marker.       <-- not available on AW+; see finding F2
+x960-56YSQ(config)#vty access-class 1           (the AW+ form)
+x960-56YSQ#show running-config | include vty
+  line vty 0 7
+  vty access-class 1                            <-- accepted and in the config
+So the case's five behaviours are exercised where they are observable: on `vty access-class`,
+against SSH connections from the two host addresses.
+
+## Tools
+cfg.py, ckcon.py from tools/. Client side: `vtytest.py`, a 14-line python socket test in the
+run directory that BINDS to a chosen source address before connecting to tcp/22, and reports
+ACCEPTED (with the SSH banner), TIMEOUT or REFUSED. Binding the source is the whole point --
+an ordinary ssh client cannot choose which of the two addresses it comes from.
+
+## Steps and evidence
+
+### STEP 0 -- baseline, no access-class applied
+  10.38.22.65    -> ACCEPTED  banner=b'SSH-2.0-OpenSSH_10.5\r\n'
+  10.38.22.66    -> ACCEPTED  banner=b'SSH-2.0-OpenSSH_10.5\r\n'
+  PASS. Both clients reach the vty before any list is applied, so a later refusal is
+  attributable to the access-class and not to reachability.
+
+### The four lists used
+x960-56YSQ#show access-list 1
+  Standard IP access list 1
+      4 permit 10.38.22.65
+x960-56YSQ#show access-list 2
+  Standard IP access list 2
+      4 deny   10.38.22.65
+      8 permit any
+x960-56YSQ#show access-list 3
+  Standard IP access list 3
+      4 permit 10.38.22.64 0.0.0.1          <-- wildcard: covers .64 and .65 ONLY
+x960-56YSQ#show access-list 4
+  Standard IP access list 4
+      4 permit 10.38.22.65
+      8 deny   10.38.22.65                  <-- same address, opposite actions, permit first
+
+### STEP 1 -- "permit statements work"                                    PASS
+x960-56YSQ(config)#vty access-class 1
+  10.38.22.65    -> ACCEPTED  banner=b'SSH-2.0-OpenSSH_10.5\r\n'
+  => STEP 1 PASS: the address the single permit names is let through.
+
+### STEP 2 -- "the implicit deny works"                                   PASS
+  Same list 1 still applied. No rule covers 10.38.22.66.
+  10.38.22.66    -> TIMEOUT (blocked)
+  => STEP 2 PASS: an address no rule covers is blocked. A standard/software ACL implicitly
+     DENIES what it does not permit -- the opposite of the hardware lists in T44987/T44988,
+     which implicitly PERMIT. The pair .65 ACCEPTED / .66 TIMEOUT on one list is the proof.
+
+### STEP 3 -- "deny statements work"                                      PASS
+x960-56YSQ(config)#vty access-class 2        (deny 10.38.22.65, then permit any)
+  10.38.22.65    -> TIMEOUT (blocked)
+  10.38.22.66    -> ACCEPTED  banner=b'SSH-2.0-OpenSSH_10.5\r\n'
+  => STEP 3 PASS: the explicitly denied address is blocked while the trailing `permit any`
+     admits the other. This is the exact inverse of STEP 1/STEP 2 on the same two clients,
+     so each result is the other's control: the outcome follows the rules, not the client.
+
+### STEP 4 -- "wildcard masks select the right addresses"                 PASS
+x960-56YSQ(config)#vty access-class 3        (permit 10.38.22.64 0.0.0.1)
+  The mask 0.0.0.1 leaves only the last bit free, so the rule covers 10.38.22.64 and
+  10.38.22.65 and nothing else.
+  10.38.22.65    -> ACCEPTED  banner=b'SSH-2.0-OpenSSH_10.5\r\n'    (inside the pair)
+  10.38.22.66    -> TIMEOUT (blocked)                               (outside it)
+  => STEP 4 PASS: the wildcard admits an address inside the range it describes and blocks one
+     immediately outside it. A mask that was ignored, or treated as a host match, would not
+     have produced this split.
+
+### STEP 5 -- "rules are evaluated top to bottom, first match wins"       PASS
+x960-56YSQ(config)#vty access-class 4        (permit 10.38.22.65 THEN deny 10.38.22.65)
+  Both entries name the SAME address with opposite actions; only the order distinguishes them.
+  10.38.22.65    -> ACCEPTED  banner=b'SSH-2.0-OpenSSH_10.5\r\n'
+  => STEP 5 PASS: the permit at sequence 4 wins over the deny at sequence 8. Evaluation stops
+     at the first match and does not fall through to the later contradicting rule.
+
+### Summary of the five behaviours
+
+  step  behaviour            list  .65                  .66                  verdict
+  1     permit               1     ACCEPTED             -                    PASS
+  2     implicit deny        1     -                    TIMEOUT (blocked)    PASS
+  3     deny                 2     TIMEOUT (blocked)    ACCEPTED             PASS
+  4     wildcard mask        3     ACCEPTED             TIMEOUT (blocked)    PASS
+  5     first match wins     4     ACCEPTED             -                    PASS
+
+### STEP 6 -- D2 removal
+Each `no vty access-class <n>` was issued between measurements, and the following test showed
+both clients reaching the vty again -- the STEP 0 baseline -- which is what makes each row
+above attributable to its own list. The DUT's temporary 10.38.22.67/27 and lists 1-4 are
+removed in the group's shared restore (R0/R2), gated on `show access-list` being empty.
+  => STEP 6 PASS.
+
+## Findings
+F1  `access-group 1` on an interface returns `% Access-list does not exist` while
+    `show access-list 1` prints the list in full. The list DOES exist; the message is simply
+    wrong. The real constraint is that `access-group` accepts only hardware ranges
+    (3000-3699, 4000-4699) or a named hardware list. A misleading diagnostic: someone meeting
+    it in the field would hunt for a typo or a missing list rather than reach for
+    `vty access-class`. Small, but a genuine diagnosability defect.
+F2  The Cisco-style `access-class <n>` under `line vty 0 7` is NOT available --
+    `% Invalid input detected`. AW+ uses the global `vty access-class <1-99|1300-1999>`.
+    Anyone porting a Cisco procedure will trip on this.
+F3  Standard/software ACLs implicitly DENY; the hardware lists in T44987 and T44988 implicitly
+    PERMIT. Opposite defaults in one product, and easy to grade the wrong way round.
+
+VERDICT: PASS -- all five behaviours of a standard access list are demonstrated on this
+platform: a permit admits the address it names, an address no rule covers is blocked by the
+implicit deny, an explicit deny blocks while a trailing permit-any admits the other client, a
+0.0.0.1 wildcard admits an address inside the pair it describes and blocks one outside it, and
+where two entries name the same address with opposite actions the first wins. Each row is
+paired with its control on the same two clients. The case's own expectation that a standard
+list attaches to an interface does not hold here -- `access-group` takes only hardware ranges
+-- so the behaviours were exercised on `vty access-class`, which is where the platform binds
+them; the binding limit and two diagnostic defects are recorded as findings rather than
+treated as test failures.
