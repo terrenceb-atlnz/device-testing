@@ -130,3 +130,12 @@ Totals now: **18 runnable / 0 blocked by topology / 19 blocked otherwise** (T441
     - tb470 eth3: UP, LOWER_UP.
     - Stack: eth3's MAC 00f0.4d00.7718 was still on sa2 at 11:24 (the dynamic entry had not aged out) and was gone at 11:29:58 after normal ageing. I did not clear it.
   - Lost at the next x230 reload. Revert by hand: `interface port1.0.5` / `switchport access vlan 1`; then `vlan database` / `no vlan 105`. Reverting re-joins eth3 to eth1's L2 domain.
+- **2026-10-09 11:34:47 NZDT: `bench_probe.py --box tb470 apply`, authorised by the Test Engineer ("Apply now").**
+  - Pre-apply probe `2026-10-08T223419Z` (precheck CLEAR): MISMATCH with exactly the three expected items and no NEEDS-CHECK or USER-CONFLICT:
+    - `swi_a-swi_f` = port1.0.17-port1.0.3, port1.0.2-port1.0.2, port1.0.3-port1.0.4;
+    - `tb-swi_b eth3` missing;
+    - `tb-swi_f eth3-port1.0.5` extra.
+  - Apply: render 63d4a21d24f4aa8facb1c2eb306634615e7dc4de (1256 B) replaced live f3fb487a1dc3d9f96f505493f20b47b34dce5c97 (1213 B), verified by readback.
+  - Snapshots: `bench-setup/backups/2026-10-08T223447Z.tb470.setup` and `bench-setup/backups/2026-10-08T223447Z.bench-state.md`.
+  - Confirming probe `2026-10-08T223456Z`: **exit 0 MATCH**. The deployed `/home/st-art/st-art/configs/tb470.setup` sha1 is 63d4a21d.
+  - The VLAN 103/104/105 isolation (running-only, above) is not written; a reload of the x230 or the stack undoes it.
