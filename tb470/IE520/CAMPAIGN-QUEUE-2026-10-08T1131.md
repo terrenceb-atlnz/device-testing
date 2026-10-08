@@ -84,6 +84,7 @@ Constraints: "Run now, no power cycles" (option text: "Same scope, and a failing
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
 | AWPTCM-T22650 | modbus - read System information | 1 (IE520 stack) | FAIL | 9/10 items equal the CLI at their Mapping-Version-5 addresses; Number of Alarms 0x0049 = 124 vs CLI 93 (member 2 is Provisioned only: no MAC, its unit-2 block answers an exception, bitmap 0x000d, yet the count includes it) | [22650/work/run1.log](modbus-2026-10-08T1131/22650/work/run1.log) (13238ad) | tester |
+| AWPTCM-T22651 | S2166.1.10, S2166.1.11, S2166.1.12 - modbus - read Sensor information | 1 (IE520 stack) | PASS | the sensor #1/#2 type, reading (big-endian float 48.0/42.0/44.0), units and status registers equal show system environment on members 1, 3 and 4, and sensors 3-5 agree too | [22651/work/run1.log](modbus-2026-10-08T1131/22651/work/run1.log) (473b0d9) | tester |
 
 ## Issues
 
