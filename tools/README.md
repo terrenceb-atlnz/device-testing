@@ -98,6 +98,13 @@ on; this one does not (orient-dt §3).
   - The prompt regex expects AW+ `host#` / `host(mode)#`.
   - `stty -hupcl` is an IE520 DTR/BREAK workaround and is harmless elsewhere.
   - It raises at a forced password change rather than guessing.
+- **Advisory `% ` lines (2026-10-09):** `console.ADVISORY` / `console.is_advisory(line)` is the
+  ONE home for the AW+ `% ` lines that are advisories rather than rejections — currently
+  `is currently configured as a mirror-port` and `This access-list is attached to an interface`.
+  `cfg.py` and `qmark.py` both import it instead of keeping copies that could drift. A driver
+  that treats an advisory as an error stops its batch and **silently skips every command after
+  it**: that cost a run on tb277 2026-10-08 (T44992) and tripped `qmark.py` again on 2026-10-09
+  (T44973). Add an entry only with a transcript showing the command took effect.
 - **Mode-aware terminal settings (2026-10-02):** `to_exec()`, `set_monitor(on)` and
   `monitor_off()`. `terminal monitor` / `terminal no monitor` / `terminal length` are exec-only
   and `terminal monitor` does not toggle, so these methods confirm a prompt first, `end` out of

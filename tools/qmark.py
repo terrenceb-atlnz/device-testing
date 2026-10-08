@@ -89,7 +89,10 @@ try:
     print("self-test OK: 'show clock ?' then Ctrl-U then CR executed nothing")
     for m in modes:
         out = c.cmd(m, timeout=30.0); print("{} >>> {}".format(time.strftime("%H:%M:%S"), m)); print(out)
-        if any(l.lstrip().startswith("%") for l in out.splitlines()):
+        pct = [l.strip() for l in out.splitlines() if l.lstrip().startswith("%")]
+        for l in [x for x in pct if console.is_advisory(x)]:
+            print("    (advisory, not an error -- continuing): %s" % l[:110])
+        if [l for l in pct if not console.is_advisory(l)]:
             print("!!! mode command refused -- stopping"); sys.exit(2)
     for p in prefixes:
         out = qmark(p)

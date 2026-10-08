@@ -19,16 +19,7 @@ except ValueError as e:
 import console, awlogin as L
 cmds = sys.argv[4:]
 
-# AW+ prints some "% " lines that are ADVISORIES, not rejections: the command SUCCEEDED and the
-# prompt advanced. Treating them as errors stops the batch and silently skips every command after
-# it -- which happened on T44992 (tb277, 2026-10-08) and was only caught because a later ping did
-# not change. Each entry must be a line that is known to accompany a SUCCESSFUL command; anything
-# not matched here still stops the run. Add to this list only with a transcript showing the
-# command took effect.
-ADVISORY = re.compile(
-    r"is currently configured as a mirror-port"          # setting a mirror destination
-    r"|This access-list is attached to an interface",    # re-entering a bound hardware ACL sub-mode
-    re.I)
+# Advisory "% " lines live in console.ADVISORY (one home, imported by every driver).
 c = console.Console(tty, tr, baud=baud)
 rc = 0; ok = False
 try:
@@ -62,7 +53,7 @@ try:
         print("%s >>> %s" % (L.stamp(), cmd))
         print(out.replace("\r", ""))
         pct = [l.strip() for l in out.replace("\r", "").splitlines() if l.lstrip().startswith("%")]
-        advisory = [l for l in pct if ADVISORY.search(l)]
+        advisory = [l for l in pct if console.is_advisory(l)]
         for l in advisory:
             print("    (advisory, not an error -- continuing): %s" % l[:110])
         if [l for l in pct if l not in advisory]:

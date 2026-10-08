@@ -35,6 +35,21 @@ BAUD = 115200
 # AW+ factory defaults; override with CK_USER / CK_PASSWORD for a unit that
 # uses other credentials.  Sibling scripts read these too, so one env setting
 # covers every tool.
+# AW+ prints some "% " lines that are ADVISORIES, not rejections: the command SUCCEEDED and the
+# prompt advanced. A driver that treats them as errors stops its batch and silently skips every
+# command after it. That cost a run on tb277 2026-10-08 (T44992) and tripped qmark.py again on
+# 2026-10-09 (T44973), so the list lives here and every driver imports it rather than keeping a
+# copy that can drift. Each entry must be a line known to accompany a SUCCESSFUL command; add to
+# it only with a transcript showing the command took effect.
+ADVISORY = re.compile(
+    r"is currently configured as a mirror-port"          # altering a mirror destination port
+    r"|This access-list is attached to an interface",    # re-entering a bound hardware ACL sub-mode
+    re.I)
+
+def is_advisory(line):
+    """True when a '% ' line is a known advisory rather than a rejection."""
+    return bool(ADVISORY.search(line))
+
 USERNAME = os.environ.get('CK_USER', 'manager')
 PASSWORD = os.environ.get('CK_PASSWORD', 'friend')
 
