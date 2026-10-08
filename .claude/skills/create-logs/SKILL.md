@@ -1,6 +1,6 @@
 ---
 name: create-logs
-description: Build a campaign's final uploadable output, ON REQUEST ONLY — after the Test Engineer has reviewed the results list. For each attempted case it writes the final <id><suffix>.log from the logged-output.md template using the tester's latest working log, checks the per-device .cfg files, writes each group's README verdict table, measures each case's token usage from the tester's transcript and writes a process review (<id>-review.md per case, REVIEW.md per group: wasted input, repetition, accuracy risks, expected outputs, scripts and references for a faster next run), then deletes the case's work/ folder and commits. Use when the Test Engineer runs /create-logs, or says "create the logs", "make the final logs", "build the uploadable output". Never run it on your own initiative, and never as part of /test-mode or /wrap-dt.
+description: Build a campaign's final uploadable output, ON REQUEST ONLY — after the Test Engineer has reviewed the results list. For each attempted case it writes the final <id><suffix>.log from the logged-output.md template using the tester's latest working log, checks the per-device .cfg files, writes each group's README verdict table, measures each case's token usage from the tester's transcript and writes a process review (<id>-review.md per case, REVIEW.md per group: wasted input, repetition, accuracy risks, expected outputs, scripts and references for a faster next run), then deletes the case's work/ folder and commits. Use when the Test Engineer runs /create-logs, or says "create the logs", "make the final logs", "build the uploadable output". Never run it on your own initiative, and never as part of /test-mode or /wrap-dt, except `--auto`, which the sentinel runs at the end of a campaign whose queue says Driver: ask-ck (manual cases only, no confirm, work/ kept).
 ---
 
 # /create-logs — the final logged output, on request
@@ -11,7 +11,10 @@ This file is only the procedure. Where they disagree, logged-output.md wins, and
 
 **Who runs it.** The Test Engineer, after reviewing the campaign's results list. `/test-mode`
 ends a campaign with *"please run /create-logs after reviewing the results for the final
-uploadable product."* Nothing runs this skill automatically.
+uploadable product."* Nothing runs this skill automatically, **except a campaign whose queue
+says `Driver: ask-ck`**: there the sentinel runs `/create-logs --auto` at the end (§0 below).
+User-driven campaigns are unchanged (Terrence, 2026-10-09: *"I still do not want user-driven
+/test-mode sessions to create logs automatically."*).
 
 **What it needs.** Only what is committed in the repo:
 - the campaign's queue file and its `## Results` table;
@@ -23,10 +26,32 @@ touches a testbox:** no ssh, no console, no probe.
 
 ---
 
+## 0. `--auto` — Ask-CK campaigns only (Terrence, 2026-10-09)
+
+`/create-logs --auto <queue file>` is the one automatic form. It differs from the normal run in
+exactly these ways:
+- **It refuses unless the queue's `## Session facts` has a `Driver: ask-ck (<run id>)` line**
+  (written by `/test-mode --from-ask-ck`). Without it, say "`--auto` is for Ask-CK campaigns only"
+  and stop. A person typing `/create-logs` gets the normal run.
+- **Manual cases only.** A case run from a framework script keeps its framework TestSet log as
+  the final output, so skip it. A script case is one whose queue row or working log names the
+  `.py` it ran. List what was skipped.
+- **No confirm.** Skip §2's AskUserQuestion. Re-grading happens in Ask-CK's results table, and
+  Terrence has the final say on every grade.
+- **Keep `work/`.** Skip §6 step 1: *"we may require the evidence"*. A re-grade before acceptance
+  is a re-run, `/create-logs --auto <queue file> <id>`. It rebuilds that case's final log from
+  `work/`, replacing the old one.
+  - `work/` is deleted only when Terrence presses "Accept results" in Ask-CK.
+  - How that acceptance reaches this repo is open (Ask-CK `plans/PLAN-agent-sessions.md`). Until
+    it is designed, nothing here deletes an Ask-CK campaign's `work/`.
+- Everything else (the §3 template, the §4 checks, the §5 README, the §5b review, one commit per
+  group, never push) is unchanged.
+
 ## 1. Find the campaign and its results
 
 1. **Arguments:** an optional queue file path, optionally followed by case ids to limit the run
-   (`/create-logs tb470/IE520/CAMPAIGN-QUEUE-2026-10-02T0900.md 24032`).
+   (`/create-logs tb470/IE520/CAMPAIGN-QUEUE-2026-10-02T0900.md 24032`). `--auto` first selects
+   §0's Ask-CK mode; it needs the queue file named.
    - With no queue file, take this session's campaign if it ran one. Otherwise take the newest
      `*/*/CAMPAIGN-QUEUE-*.md` whose Session facts name this Test Engineer (`whoami`@`hostname`).
      Say which file you took.
@@ -39,6 +64,7 @@ touches a testbox:** no ssh, no console, no probe.
      at least one `run<N>.log`. The latest run's `VERDICT:` line must agree with the table, or
      the table's graded-by must say the Test Engineer re-graded it.
    - **A row whose case already has its final log and no `work/`** is done. Skip it and say so.
+     (An `--auto` campaign keeps `work/` beside the final log; §0 says when its log is rebuilt.)
    - **A case with a `work/` folder but no Results row** is still running, or was never
      reported. Leave it alone and list it.
    - **NOT TESTED** needs no folder. It still gets its README row.
@@ -154,7 +180,8 @@ reads the working files as well as the tester's transcript.
 
 ## 6. Clean up and commit
 
-1. **Delete `<id>/work/`** (`git rm -r`) for each case that passed §4. Delete nothing else: the
+1. **Delete `<id>/work/`** (`git rm -r`) for each case that passed §4. **Not with `--auto`**:
+   an Ask-CK campaign keeps `work/` (§0). Delete nothing else: the
    `.cfg` files and the final log are the deliverables, and `<id>-review.md` stays beside them.
 2. Afterwards each case folder holds exactly its one `.log`, its `.cfg` files and its
    `<id>-review.md`. Check that with `ls`.

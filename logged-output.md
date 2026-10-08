@@ -1,5 +1,5 @@
 ---
-verified: 2026-10-08
+verified: 2026-10-09
 ---
 # Logged output — what a campaign leaves behind (any testbox, any product)
 
@@ -14,8 +14,16 @@ here uploads anything.
 Everything else (STANDING-ORDERS, `bench-runner`, `/test-mode`, `/wrap-dt`, the memories) points
 here and does not restate it. Change the rules here and nowhere else.
 
-**The final `.log` is never created automatically.** Only `/create-logs` creates it, and only
-when the Test Engineer runs it after reviewing the campaign's results (§3).
+**The final `.log` is never created automatically, except in a campaign whose queue says `Driver:
+ask-ck`.** Only `/create-logs` creates it, and only when the Test Engineer runs it after reviewing
+the campaign's results (§3).
+- **The Ask-CK exception** (Terrence, 2026-10-09):
+  - In a campaign Ask-CK launched, the sentinel runs `/create-logs --auto` at the end, for manual
+    cases only.
+  - Re-grading moves to Ask-CK's results table, and Terrence has the final say on every grade.
+  - `work/` is kept until he accepts the results in Ask-CK.
+- *"I still do not want user-driven /test-mode sessions to create logs automatically"*: a
+  campaign without that line is unchanged.
 
 **Each run stands alone.** A final log describes one run: this bench, this build, these
 results. It never refers to an earlier run of the case or to another campaign. History is for
@@ -175,6 +183,9 @@ exactly:
 
 > please run /create-logs after reviewing the results for the final uploadable product.
 
+Except in a campaign whose queue says `Driver: ask-ck`. There the sentinel runs `/create-logs
+--auto` instead (§3).
+
 ## 3. `/create-logs` — the final logged output
 
 The Test Engineer runs `/create-logs` in the sentinel session, after reviewing the results list
@@ -203,6 +214,11 @@ and re-grading anything they disagree with. For each attempted case in the list,
    the group's `REVIEW.md`.
 7. **Cleans up:** deletes `<id>/work/`. That leaves each case folder holding exactly its one
    `.log`, its `.cfg` files and its `<id>-review.md`.
+   - **Except `--auto`** (a `Driver: ask-ck` campaign), which KEEPS `work/`: *"we may require the
+     evidence"*.
+   - A re-grade before acceptance rebuilds that case's final log from it.
+   - `work/` is deleted only when Terrence accepts the results in Ask-CK. How that acceptance
+     reaches this repo is open (Ask-CK `plans/PLAN-agent-sessions.md`).
 8. Commits once per group. The working files remain in git history.
 
 `/create-logs` adds nothing to a final log that is not in the working log. A claim it cannot

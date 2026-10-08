@@ -44,6 +44,17 @@ away.
 1. **Arguments.** Either a list of cases (ids, titles, or a mix), or `--resume [queue file]`.
    With neither, ask for the list and stop. Read `STANDING-ORDERS.md` in full; do not re-ask
    anything it answers.
+   - **`--from-ask-ck <handoff>`** (Terrence, 2026-10-09): passed only by Ask-CK's launcher.
+     A person typing `/test-mode` never passes it.
+     - **Refuse it unless the named hand-off file exists** (`test -f <handoff>`). Say "no
+       hand-off file at `<handoff>`; `--from-ask-ck` is for Ask-CK's launcher only" and stop,
+       so a user-started session can never be marked by accident.
+     - When it is accepted, §2 writes `Driver: ask-ck (<run id>)` into the queue's Session facts,
+       on the line after `Test Engineer:`. That line is what turns on the Ask-CK exceptions in
+       §7–§8 and `/create-logs --auto`.
+     - The hand-off's format, its location and where the run id comes from are Ask-CK's
+       (`Test-cases/ask-ck/plans/PLAN-agent-sessions.md`, not written yet). Until that exists,
+       `<run id>` is the hand-off file's basename, and nothing else here reads the hand-off.
 2. **Ask the setup questions in ONE AskUserQuestion call**, before touching any box. Each is
    free text through "Other"; offer the obvious options:
    - **Testbox:** which box (`tbNNN`)? Offer the box `/orient-dt` §0b finds, if any: the last
@@ -108,8 +119,9 @@ stay as they are.
 - **The queue file**: copy the layout of the newest existing one, not its rows.
   - The header names the ask verbatim and says "**This file is the resume point**".
   - A **`## Session facts`** block holds the Test Engineer's §1 answers word for word, dated. Its
-    first line is `Test Engineer: <whoami>@<hostname>`, then `Testbox:`, `Consoles:`, `PDU:` and
-    `Constraints:`. This is the layout `/orient-dt` §0b and `/wrap-dt` read to find "the last test
+    first line is `Test Engineer: <whoami>@<hostname>`, then (only with `--from-ask-ck`)
+    `Driver: ask-ck (<run id>)`, then `Testbox:`, `Consoles:`, `PDU:` and `Constraints:`.
+    This is the layout `/orient-dt` §0b and `/wrap-dt` read to find "the last test
     bench run".
   - The rules block cites `logged-output.md` for verdicts, working logs and the final output.
   - A `## Queue` table has one row per group: `# | case(s) | group dir | state | note`.
@@ -278,7 +290,8 @@ unacknowledged NEEDS YOU on the table.
   3. Report it to the Test Engineer as **one line**:
      `T<id> <VERDICT> -- <reason>  (<done>/<total>: <n> PASS, <n> FAIL, …)`.
      Batch the lines when several arrive together. This is the running results list they
-     review; nothing more is written for them until `/create-logs`.
+     review; nothing more is written for them until `/create-logs` (except a campaign whose
+     queue says `Driver: ask-ck`: its results go to Ask-CK's results table, §8).
   4. No reply to the tester is needed.
 - **The Test Engineer re-grades a case** ("12589 is a PASS") → change that Results row to the
   new verdict with graded-by `Test Engineer, re-graded from <old> on <date>`, commit, and confirm
@@ -319,6 +332,13 @@ When every group is DONE or BLOCKED:
    - Do **not** run `/create-logs` yourself, and do **not** run `/wrap-dt` in the same turn. The
      Test Engineer reviews first, and may re-grade (§7) before running `/create-logs`.
      `/create-logs` ends by reminding them to run `/wrap-dt`.
+   - **Except a campaign whose queue says `Driver: ask-ck`** (Terrence, 2026-10-09). There, run
+     `/create-logs --auto <queue file>` yourself instead of the line above.
+     - It covers manual cases only; script cases' framework logs are already final.
+     - It asks no confirm and keeps `work/`.
+     - Re-grading happens in Ask-CK's results table.
+     - A user-driven campaign is unchanged: *"I still do not want user-driven /test-mode sessions
+       to create logs automatically."*
    - Leave the sentinel armed until they run `/wrap-dt`. They may still send direction.
 
 When the Test Engineer runs `/wrap-dt`:
