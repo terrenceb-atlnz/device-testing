@@ -62,7 +62,11 @@ IE520s before they gave this procedure.
   - The x230 had no IP. A temporary `interface vlan11` / `ip address 10.38.215.20/27` worked,
     running-only and cleared by the reload. Its port1.0.2 (vlan11) lands untagged in the stack's
     VLAN 1, the same segment as tb470 eth1.
-  - **AR4050S:** reachable only on 10.10.10.0/27 behind the stack, and tb470 has no route back,
-    so it needs the Test Engineer's `sudo ip route add 10.10.10.0/27 via 10.38.215.10`. It was
-    skipped.
+  - **AR4050S** (done 2026-10-09). Its bootloader 5.2.8 is ALSO set to a fixed file (banner
+    `forced to boot from a non-standard location`), so `boot system` + `reload` brought back the
+    OLD build. It needs the same Boot Menu park (`2` → `1` Flash → file → `9`).
+  - Path: the Test Engineer cabled tb470 eth2 to its port1.0.1 (vlan1), plus a temporary
+    `ip address 10.38.215.40/27 secondary` on vlan1. TFTP of 67.7 MB took about 10 s.
+  - Its queued Ctrl+B presses re-drew the main menu about 9 times and hid the `2`. That fix is now
+    in `tools/bootmenu_park.py`.
 - Related: [[ie520-4stack-flashprep]], [[read-the-transcripts-before-driving-hardware]].

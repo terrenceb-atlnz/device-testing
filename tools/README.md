@@ -227,6 +227,34 @@ SAVES the default boot source).
   boot` and running-config unchanged. The version before it read `Enter selection ==>` as a CLI
   prompt and sent `9\r` from any menu, which in `Select device` changes the boot source
 
+### `bootmenu_park.py`
+Catches a rebooting unit at `Press <Ctrl+B>`, then sets the bootloader's default boot source to
+Flash + a named file: main menu `2`, the Flash digit, the file's number + Enter, `Saving
+settings... Complete`. It leaves the unit **parked at the main menu**. Release it with
+`bootmenu_escape.py`, so several units can be parked first and released together (memory
+`ie520-image-update-procedure`).
+- **Run:** `bootmenu_park.py <tty> <flash-file> [--baud 115200] [--transcript PATH] [--reload] [--watch 600]`
+  - **A stack member:** start this first, then send `reload stack-member N` on the master.
+  - **The master or a standalone:** pass `--reload`. The tool logs in on the same port, sends
+    `reload`, answers `y`, then watches.
+- **Where:** testbox; **needs:** pyserial, `stty`
+- **Imports:** console, awlogin (only with `--reload`)
+- **Exit codes:**
+  - 0: parked;
+  - 2: unexpected screen; the unit is left in the bootloader, so read it, then run `bootmenu_escape.py`;
+  - 3: no Ctrl+B prompt;
+  - 7: `--reload` could not log in.
+- **Limits:**
+  - The menu strings are the AW+ bootloader's: IE520 9.2.0 and AR4050S 5.2.8. Check them on any
+    other product first.
+  - It never sends `9`.
+- **Status:**
+  - The park sequence ran on tb470 on 2026-10-08 as session scratch: IE520 stack members 1, 3 and
+    4 plus `IE520-sa`, bootloader 9.2.0, all parked and released. On 2026-10-09 the AR4050S
+    (5.2.8) was then finished by hand after the first version misread queued Ctrl+B redraws.
+  - **This consolidated version** (drain the redraws, re-draw with a bare CR, `--reload` built in)
+    **has not yet run on hardware**: check its first run.
+
 ## Product-specific stress
 
 ### `i2c_stress.py`

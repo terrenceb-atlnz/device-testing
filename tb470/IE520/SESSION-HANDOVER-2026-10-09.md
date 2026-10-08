@@ -1,3 +1,38 @@
+# Re-wrap 2026-10-09 (~08:30 NZDT): AR4050S updated, member 2 de-provisioned, /tftproot cleaned, bootmenu_park.py
+
+Same session, after the wrap below. The Session facts are unchanged.
+
+The Test Engineer, verbatim:
+- *"i just plugged eth2 into 4050 1.0.1 use that for now"*
+- Answers on the OPEN list: *"2. yes 3. keep them, it doesnt matter 4. yes, remove the provisioning 5. please clean it up"*
+
+- **AR4050S (u1) is now on `awplus_main-20261008-57` from flash:**
+  - TFTP from tb470 eth2 (10.38.215.33) through a temporary vlan1 secondary 10.38.215.40/27 (running
+    only, gone after the reload, re-read).
+  - Its bootloader (5.2.8) was set to a fixed file, so `boot system` + `reload` came back on the old
+    build. I parked it at the Boot Menu (`2` → `1` → file 1 → `Saving settings... Complete`), then
+    `9`; the old `AR4050S-tb470.rel` is deleted.
+  - The first automated attempt stopped safely: queued Ctrl+B presses re-drew the menu about 9 times
+    and hid the `2`. I finished it one key at a time.
+- **Member 2 de-provisioned:** `no switch 2 provision` + `write memory` (synced to members 1 and 4).
+  `show stack` lists 1, 3 and 4. Before the write, running and startup differed only by the new
+  build's rendering: running had `security-password minimum-length 8` / `history 1` and no
+  `service password-encryption` line. Those were saved with it. T22650's 0x0049 count should now
+  match the CLI.
+- **`/tftproot` cleaned** (`sudo rm`): `x250-tb470.rel` + `.info` + `.sha256sum`,
+  `x230-copy-tb470.rel`, and the `x230-tb470.rel` symlink.
+- **New tool [tools/bootmenu_park.py](../../tools/bootmenu_park.py)** (OPEN 2 answered yes). It is
+  the park recipe below plus `--reload`, drain-after-menu and a bare-CR re-draw. **It has not yet
+  run on hardware in this form**; check its first run.
+- **Image names:** keep the dated names (OPEN 3: "it doesnt matter").
+- **Probe `2026-10-08T192750Z`: MISMATCH, one item only**: the new `tb-swi_e eth2-port1.0.1`
+  (host MAC learned on 4050 port1.0.1). Every unit runs `awplus_main-20261008-57`.
+  **`apply` is NOT run**: the cable is "for now", so whether the `.setup` should declare it is the
+  Test Engineer's call. Until then the deployed `tb470.setup` lacks that link.
+- OPEN 1 (AR4050S), 2, 3, 4 and 5 below are closed by this section.
+
+---
+
 # Session handover — 2026-10-09 (~08:20 NZDT): tb470 image update to awplus_main-20261008-57, probe MATCH, applied
 
 Session `50f164f5…` (VS Code), 2026-10-08 15:4x to 2026-10-09 08:2x NZDT.
