@@ -386,13 +386,125 @@ flash:/default.cfg as it is the default config file").
 
 Nothing in G0-G4 is saved to startup-config, so a reload of either unit clears G1-G4 by itself.
 
+## Groups 2 and 3 bench setup, and its exact restore recipe (2026-10-09)
+
+Written BEFORE group 2's first case (bench-runner RUN obligation) so a fresh tester can
+restore if the session dies mid-group.
+
+**ONE setup covers BOTH groups.** Groups 2 and 3 need the identical bench: a deterministic
+VLAN-100 path from the host through the DUT to swi_b, with a second host source address for
+non-matching controls. Rather than tear down and rebuild an identical setup between them,
+the setup is applied ONCE before group 2 and restored ONCE after group 3. Group 3 adds
+nothing physical -- the ACL-driven mirror destination T44990 needs is that case's own step,
+not bench setup. This is consistent with STANDING-ORDERS §6 (bench setup is set once before
+the TestSet and restored once after it, and nothing is adjusted between cases); the two
+groups are one bench configuration. If only group 2 is run, apply R0-R6 at its end instead.
+
+Pre-change baselines are captured to `work/pre-u2.txt` and `work/pre-u3.txt` in group 2's
+first case folder. The repo copies are authoritative -- tb277's `/tmp` does not survive a
+box reboot.
+
+### Setup, in order
+
+```
+G0  both   clock set <HH:MM:SS> <DD MMM YYYY>     exec-only, NO running-config footprint,
+                                                  so it needs no restore
+G1  swi_b  interface port1.0.16 ; shutdown
+    DUT    interface port1.0.16 ; shutdown
+G2  swi_b  interface port1.0.4  ; no static-channel-group
+           interface port1.0.16 ; switchport access vlan 100 ; static-channel-group 1
+           interface port1.0.8  ; shutdown        (off-bench, was live in vlan 100)
+           interface port1.0.1  ; shutdown        (isolates swi_a)
+           interface port1.0.11 ; shutdown        (isolates swi_a)
+           interface vlan100    ; ip address 10.38.22.70/27
+G3  DUT    interface port1.0.4  ; no static-channel-group ; switchport access vlan 1 ; shutdown
+           interface port1.0.14 ; shutdown        (isolates swi_a)
+           interface port1.0.8  ; shutdown        (off-bench, was live in vlan 100)
+           interface port1.0.16 ; switchport access vlan 100 ; static-channel-group 1
+           interface port1.0.48 ; switchport access vlan 100   ACL BINDING POINT for both groups
+G4  swi_b  interface port1.0.16 ; no shutdown
+    DUT    interface port1.0.16 ; no shutdown
+G5  host   ip addr add 10.38.22.66/27 dev eth4    the NON-MATCHING control source. .65 is the
+                                                  matching source; both reach swi_b .70 over
+                                                  the same path, so a rule that denies one and
+                                                  not the other is proven by the pair.
+```
+
+Why `port1.0.48` is the binding point: host->swi_b traffic INGRESSES the DUT there, and
+`access-group` is an ingress filter, so a rule written src=host dst=swi_b matches directly.
+(Contrast T44992, where the ACL was on the aggregator `sa1` and the matching flow was the
+RETURN direction -- see that case's log.)
+
+Gate before group 2's first case:
+- `show static-channel-group` reads `port1.0.2` + `port1.0.16` on BOTH units
+- `show mirror`, `show access-list`, `show class-map`, `show policy-map` all EMPTY on the DUT
+- `show platform classifier statistics utilization brief` recorded as the TCAM baseline
+- CONTROL PINGS: 10.38.22.65 -> 10.38.22.70 AND 10.38.22.66 -> 10.38.22.70 both 0% loss
+
+### Restore -- run it whole, AFTER group 3
+
+```
+R0  DUT    remove every ACL, class-map, policy-map and mirror the cases created:
+           interface port1.0.48 ; no access-group <each> ; no service-policy input <each>
+           interface port1.0.10 ; no mirror interface <src>|none
+           no access-list hardware <each> ; no access-list <3000-3699|4000-4699> <each>
+           no policy-map <each> ; no class-map <each> ; no mls qos   (NOT `no mls qos enable`)
+           no access-class on any vty line the standard-ACL case touched; no access-list <1-99>
+           `show access-list`, `show class-map`, `show policy-map`, `show mirror` must ALL be
+           empty, and the TCAM reading must be back to the recorded baseline
+R1  DUT    interface port1.0.16 ; shutdown
+    swi_b  interface port1.0.16 ; shutdown
+R2  DUT    interface port1.0.48 ; switchport access vlan 1
+           interface port1.0.16 ; no static-channel-group ; switchport access vlan 1
+           interface port1.0.8  ; no shutdown
+           interface port1.0.14 ; no shutdown
+           interface port1.0.4  ; no shutdown ; switchport access vlan 100 ; static-channel-group 1
+R3  swi_b  interface vlan100    ; no ip address
+           interface port1.0.11 ; no shutdown
+           interface port1.0.1  ; no shutdown
+           interface port1.0.8  ; no shutdown
+           interface port1.0.16 ; no static-channel-group ; switchport access vlan 1
+           interface port1.0.4  ; static-channel-group 1      (it kept vlan 100)
+R4  swi_b  interface port1.0.16 ; no shutdown
+    DUT    interface port1.0.16 ; no shutdown
+R5  host   ip addr del 10.38.22.66/27 dev eth4 ; stop any tcpdump by PID
+R6  DUT    copy running-config startup-config   (a direct copy back from flash:/precampaign.cfg
+           is REFUSED: "% Cannot overwrite flash:/default.cfg as it is the default config
+           file"), then diff both running-configs against the pre-change baselines and re-run
+           bench_probe
+```
+
+**D3 is carried by T44987 for group 2 and by T44979 for group 3.** Before either reload:
+re-read `/tftproot/x960-tb277.rel` (the DUT netboots) and confirm `show boot` reads
+`Current boot config: flash:/default.cfg (file exists)`. **`flash:/precampaign.cfg` is on the
+DUT from group 4 and is the byte-exact pre-campaign startup config -- do NOT delete it.**
+
+### Carried warnings for these two groups
+
+- **T44990 uses `mirror interface none`.** Defects M1, M2 and M3 from group 1 apply to it
+  directly: a re-applied mirror copies nothing until the destination port is bounced, an
+  in-place direction change is silently ignored, and `direction both` copies nothing at all.
+  **Its mirror evidence must be frame-level; `show mirror` is not proof on this platform.**
+- **T44989 is send-to-cpu and its precondition cites CR30477 (STP interference).** Capture
+  `show spanning-tree brief` on the DUT before and after every send-to-cpu step and record any
+  change. RSTP is running on all three units.
+- **Never enable `access-list hardware-deny-log`** while a copy-to-cpu/send-to-cpu ACL exists:
+  matching packets are then dropped.
+- **Interface ACLs are matched BEFORE QoS on the same port.** For every "repeat via service
+  policy" step the `access-group` must be removed and PROVEN gone first, or the QoS path is
+  never exercised and the result is a false pass.
+- **T44986's binding limit is a platform fact, not a bench gap:** `access-group` takes only
+  3000-3699, 4000-4699 or a named hardware list, so a standard 1-99 list cannot bind to an
+  interface. Exercise its five behaviours on `vty access-class`, where they are observable,
+  and state the limit in the log.
+
 ## Queue
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
 | 0 | — | — | TRIAGE DONE | campaign setup above; then triage confirms every drafted command on the DUT |
 | 1 | T44967 T44968 T44969 T44973 T44974 | mirror-2026-10-08T1637 | DONE | port mirroring. Now with **real frames**: 1.0.48 is the monitored port, 1.0.10 the destination, host eth3 captures. D3 carried by T44969 |
-| 2 | T44987 T44988 T44986 | acl-num-2026-10-08T1637 | TODO | numbered ACLs: IP 3000 range, MAC 4000 range, standard 1–99. D3 carried by T44987 |
+| 2 | T44987 T44988 T44986 | acl-num-2026-10-08T1637 | RUNNING | numbered ACLs: IP 3000 range, MAC 4000 range, standard 1–99. D3 carried by T44987 |
 | 3 | T44979 T44991 T44989 T44990 | acl-named-2026-10-08T1637 | TODO | named hardware ACLs on a port: proto, copy-to-cpu, send-to-cpu, copy-to-mirror. Run copy-to-cpu and send-to-cpu back to back and contrast. D3 carried by T44979 |
 | 4 | T44992 | acl-lag-2026-10-08T1637 | DONE | named hardware ACL on `sa1`. Stack clauses WITHDRAWN by the Test Engineer 2026-10-08 — graded in full, no longer PARTIAL. Setup + restore recipe above |
 
