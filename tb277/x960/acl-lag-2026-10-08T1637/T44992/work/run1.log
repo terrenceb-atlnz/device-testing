@@ -1,0 +1,98 @@
+# T44992 -- ACL: Named Hardware on static LAG - IP -- run 1 -- HALTED BEFORE THE CASE RAN
+# Box tb277, DUT swi_c /dev/u2 (AT-x960-56YSQ, Falcon 98CX8514), partner swi_b /dev/u3.
+# Tester: bench-runner, dispatch stamp 2026-10-08T1637. Sentinel: parent session.
+
+## Status
+
+RUN HALTED during bench setup, at step S4, by the Claude Code auto-mode permission
+classifier ("Modify Shared Resources"). The case itself was never started: no ACL was
+created, no access-group applied, no traffic sent. The bench is left HALF-APPLIED and
+ASYMMETRIC. See "Bench state as left" below -- this is the durable record.
+
+## How this run came about
+
+Dispatch mode was TRIAGE (read-only, no device state, do not apply the campaign setup).
+Triage completed and was reported (commit 1cb17f2). The Test Engineer then said, verbatim:
+
+  "AWPTCM-T44992 (1.0) ACL: Named Hardware on static LAG - IP does not need a stack,
+   so please perform the test on a current setup."
+
+That withdraws the stack clauses triage had marked NOT RUN, so the case is gradeable in
+full on a standalone DUT. I began applying the bench setup. The Test Engineer stopped me
+mid-way, I explained, and he said "carry on". The group's setup and exact restore recipe
+were then written into the queue and committed (0282d75) BEFORE any further device change,
+per the bench-runner RUN obligation.
+
+## Timeline of device changes, complete
+
+All times NZDT 2026-10-08. Transcripts on tb277:
+/tmp/ck-t44992-2026-10-08/console-u2.log and console-u3.log (volatile -- /tmp does not
+survive a box reboot). Pre-change baselines are in this folder: pre-u2.txt, pre-u3.txt.
+
+17:13  S0  DUT    copy flash:/default.cfg flash:/precampaign.cfg
+                  -> "Copying... Successful operation"; dir flash: shows
+                     precampaign.cfg 1703 B, default.cfg 1703 B (unchanged). OK
+17:13  S1  swi_b  configure terminal; interface port1.0.16; shutdown; end     exit 0, no % lines
+17:13  S2  DUT    configure terminal; interface port1.0.16; shutdown; end     exit 0, no % lines
+           NOTE: port1.0.16 was already STP Alternate/Discarding on BOTH ends before this,
+           so shutting it moved no traffic and broke no path.
+17:19  S3  swi_b  interface port1.0.4  ; no static-channel-group
+                  interface port1.0.16 ; switchport access vlan 100 ; static-channel-group 1
+                  interface port1.0.8  ; shutdown
+                  interface port1.0.1  ; shutdown
+                  interface port1.0.11 ; shutdown
+                  interface vlan100    ; ip address 10.38.22.70/27
+                  end
+                  -> exit 0, every command echoed clean, NO "% " line anywhere. OK
+17:21  S4  DUT    BLOCKED by the permission classifier. NOT SENT. Nothing executed.
+           S5      not reached.
+
+A read-only verification pass (show static-channel-group / show interface status /
+show ip interface brief) was also blocked, so the state below is derived from the
+command transcripts, not from a fresh capture. It should be re-verified before anything
+further is done.
+
+## Bench state as left -- ASYMMETRIC, needs finishing or reverting
+
+swi_b (u3) -- S3 fully applied:
+  - sa1 members: port1.0.2 (up, -> DUT) and port1.0.16 (in the group but SHUT)
+  - port1.0.4  removed from sa1; still switchport access vlan 100
+  - port1.0.1, port1.0.8, port1.0.11  SHUT
+  - interface vlan100  ip address 10.38.22.70/27
+DUT (u2) -- only S2 applied:
+  - port1.0.16 SHUT; NOT in sa1; still vlan 1
+  - sa1 members UNCHANGED: port1.0.2 (-> swi_b) + port1.0.4 (-> swi_a)  <-- still straddles
+  - port1.0.48 still vlan 1; port1.0.8 still up in vlan 100; port1.0.14 still up
+  - flash:/precampaign.cfg present (inert backup)
+
+Consequences while it sits here:
+  - The DUT<->swi_b path on port1.0.2 is still up and still in both units' sa1, so VLAN 100
+    still forwards between them. No outage, no loop.
+  - The DUT's sa1 still straddles swi_b and swi_a, which is the pre-existing fault I-2.
+  - swi_a is now cut off from swi_b (swi_b 1.0.1/1.0.11 shut) but still reachable from the
+    DUT on 1.0.4 and 1.0.14. swi_a holds no config across reboot (I-3) and is otherwise idle.
+  - NOTHING was saved to startup-config on either unit. A reload of either clears S1-S5 on
+    that unit by itself. S0 leaves only an extra file in the DUT's flash.
+
+## What remains to finish the setup (S4, S5) or to revert
+
+Both paths are written out in full in the queue file, section
+"Group 4 bench setup AS APPLIED, and its exact restore recipe (2026-10-08T1637)":
+  - finish  = S4 then S5, then the gate (static-channel-group reads port1.0.2 + port1.0.16
+              on BOTH units with both members Forwarding; show log clean of loop-protection;
+              control ping 10.38.22.65 <-> 10.38.22.70 passes both ways)
+  - revert  = R1..R6 as written there; R3 restores swi_b, R2 the DUT, R5 deletes the backup.
+Either needs console config access to /dev/u2 and /dev/u3 on tb277.
+
+## Triage facts this case depends on (measured 2026-10-08, see commit 1cb17f2)
+
+  - access-group on `interface sa1` -> <3000-3699> | <4000-4699> | WORD   CONFIRMED
+  - service-policy input NAME on `interface sa1`                          CONFIRMED
+  - access-list hardware WORD                                             CONFIRMED
+  - access-list 3000 {deny|permit|copy-to-cpu|send-to-cpu} {icmp|ip|proto|tcp|udp}  CONFIRMED
+  - send-to-mirror and deny-and-not-cpu are ABSENT from the numbered forms (finding against
+    platforms/x960.md section 5; neither is needed by this case)
+  - TCAM baseline: ingress 2 / 1024 (0.20%), Global ACL/ACL/VACL/QoS all 0
+
+VERDICT: NOT TESTED -- bench setup halted at S4 by the permission classifier; the case was
+never started and the bench is left half-applied (see "Bench state as left").
