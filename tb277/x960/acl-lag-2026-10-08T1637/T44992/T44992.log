@@ -1,0 +1,362 @@
+================================================================================
+TEST T44992 -- ACL: Named Hardware on static LAG - IP
+================================================================================
+Run:      2026-10-08 17:13-17:59 NZDT (device clocks differ: swi_c logs in UTC,
+          NZDT-13h; swi_b's clock runs ~12h ahead of swi_c's. Times below are NZDT.)
+Bench:    tb277, consoles u2, u3, u5; Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWP-8659, objective "a named hardware IP ACL applied to a static link
+          aggregation group is effective on the aggregator and on each of its
+          member ports", 9 steps
+Build:    swi_c  sin_x96056-20260921-9 (x960-tb277.rel, build date Mon Sep 21 11:25:03 UTC 2026)
+          swi_b  sin_x96056-20260921-9 (boot image flash:/backup.rel)
+Configs:  swi_c.cfg, swi_b.cfg (running-config after setup; saved to startup: yes, for STEP 8)
+
+VERDICT: PASS -- a named hardware IP ACL bound to the static LAG `sa1` filters correctly
+         on the aggregator and on each member individually.
+      ACL bound to the aggregator ..... works      (access-group accepted on interface sa1)
+      matching traffic ............... denied     (100% loss, hit counter tracks exactly)
+      non-matching traffic ........... permitted  (0% loss on an identical path)
+      effective on member 1.0.16 ..... yes        (1.0.2 shut, still denied, hits 4->10)
+      effective on member 1.0.2 ...... yes        (1.0.16 shut, still denied, hits 10->13)
+      host src/dst form .............. selects    (/32 denies only that host)
+      network src/dst form ........... selects    (/27 denies both hosts in it)
+      vlan qualifier ................. selects    (vlan 100 denies, vlan 1 does not)
+      first match wins ............... yes        (seq 1 permit beats seq 4 deny)
+      non-IP (ARP) traffic ........... unaffected (re-resolved while ICMP denied)
+      same ACL via service-policy .... works      (access-group proven gone first)
+      persistence across a reload .... holds      (config and enforcement both survived)
+      removal ........................ clean      (no config residue, TCAM back to baseline)
+CAVEAT:  The case's stored steps also ask for the LAG to straddle stack members and for
+         retesting after stack failover, rejoin and reboot. The Test Engineer withdrew those
+         clauses for this platform on 2026-10-08 ("does not need a stack"); they were NOT run
+         and are not covered by this verdict. The DUT is a standalone unit.
+         swi_b.cfg is reconstructed, not a direct capture -- see its header.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+   tb277 eth4  10.38.22.65/27  (+10.38.22.66/27, the non-matching control source)
+        |
+        v   ICMP echo request, VLAN 100  -- this direction is NOT filtered
+   port1.0.48
+  +==========================================================+
+  |   swi_c   AT-x960-56YSQ   *** DUT ***   Marvell Falcon   |
+  |                                                          |
+  |   sa1  <-- access-group t44992-lag   (ingress filter)    |
+  +==========================================================+
+        |  sa1 = port1.0.2 + port1.0.16
+        ^  ICMP echo REPLY ingresses sa1  -- this direction IS filtered
+        |
+   port1.0.2 + port1.0.16
+  +----------------------------------+
+  |  swi_b  AT-x960-28YSQ            |
+  |  vlan100 10.38.22.70/27          |   far side: "was it forwarded?"
+  +----------------------------------+
+
+  Shut for this case, and so carrying nothing:
+    swi_c port1.0.4, port1.0.14 -> swi_a        (swi_a isolated)
+    swi_c port1.0.8, swi_b port1.0.8            (off-bench, far ends unidentified)
+    swi_b port1.0.1, port1.0.11 -> swi_a        (swi_a isolated)
+
+  DUT      : swi_c (AT-x960-56YSQ) console u2 @115200, S/N A2WQS7004,
+             bridge MAC e01a.ead4.72cb, standalone member 1, netboots x960-tb277.rel,
+             boot config flash:/default.cfg
+  far side : swi_b (AT-x960-28YSQ) console u3 @9600, S/N A10737A261700021,
+             bridge MAC 0000.cd42.3029, STP root bridge for VLAN 100
+  LAG      : swi_c sa1 = port1.0.2 + port1.0.16  <->  swi_b sa1 = port1.0.2 + port1.0.16
+             static channel group 1, VLAN 100 access, both members Forwarding,
+             sa1 is the DUT's STP root port
+  link     : swi_c port1.0.48 <-> tb277 eth4 (1000BASE-T copper SFP, VLAN 100 access)
+  host     : tb277 eth4 00:0d:b9:55:77:0f, 10.38.22.65/27 and 10.38.22.66/27
+             -> swi_c port1.0.48
+  tools    : ping and ip(8) on tb277; console driving with tools/ckcon.py, tools/ckyn.py,
+             tools/qmark.py, tools/ckreload.py, tools/rcdiff.py on tb277
+
+STEP 0 -- baseline (feature OFF)                                          done
+--------------------------------------------------------------------------------
+x960-56YSQ#show static-channel-group
+  Static Aggregator: sa1
+  Member:
+   port1.0.2
+   port1.0.16
+x960-56YSQ#show spanning-tree brief
+  Default: Root Id 8000:0000cd423029
+  Default: Bridge Id 8000:e01aead472cb
+  sa1             8000:0000cd423029    8195       Rootport         Forwarding
+  port1.0.48      8000:e01aead472cb    83b8       Designated       Forwarding
+  port1.0.4       8000:e01aead472cb    838c       Disabled         Discarding
+  port1.0.8       8000:e01aead472cb    8390       Disabled         Discarding
+  port1.0.14      8000:e01aead472cb    8396       Disabled         Discarding
+x960-56YSQ#show access-list
+                                           <-- empty: no ACL exists yet
+x960-56YSQ#show platform classifier statistics utilization brief
+  Loop Detection      2
+  Global ACL          0
+  ACL                 0
+  QoS                 0
+  Total               2 / 1024 (0.20%)    <-- TCAM baseline, no ACL and no QoS rule
+
+host# ping -c 5 -I 10.38.22.65 10.38.22.70
+  5 packets transmitted, 5 received, 0% packet loss, rtt 0.440/0.845/2.203 ms
+host# ping -c 3 -I 10.38.22.66 10.38.22.70  -> 0% packet loss
+host# ip neigh show dev eth4
+  10.38.22.70 lladdr 00:00:cd:42:30:29 REACHABLE   <-- swi_b reached THROUGH the DUT
+
+STEP 1 -- "Apply a named hardware IP ACL to the static LAG; matching traffic
+           denied, non-matching permitted"                                PASS
+--------------------------------------------------------------------------------
+  Method: `access-group` is an INGRESS filter. Host->swi_b traffic ingresses port1.0.48 and
+  only EGRESSES sa1, so the flow that meets an ingress ACL on the aggregator is the REPLY,
+  swi_b -> host. The rule is therefore written in that direction. A control run with the
+  rule written the other way is included below, because it is what distinguishes "the ACL
+  does not work on a LAG" from "the ACL is not in that packet's ingress path".
+
+  CONTROL -- rule written in the direction that never ingresses sa1:
+x960-56YSQ(config)#access-list hardware t44992-lag
+x960-56YSQ(config-ip-hw-acl)#deny ip 10.38.22.65/32 10.38.22.70/32
+x960-56YSQ(config-if)#interface sa1
+x960-56YSQ(config-if)#access-group t44992-lag
+x960-56YSQ#show running-config interface sa1
+  interface sa1
+   switchport
+   switchport mode access
+   switchport access vlan 100
+   access-group t44992-lag                 <-- the binding is accepted on the aggregator
+x960-56YSQ#show platform classifier statistics utilization brief
+  ACL                 1
+  Total               3 / 1024 (0.29%)     <-- the rule IS programmed into hardware
+x960-56YSQ#show access-list counters
+  Packet Hits: 0                           <-- nothing ingressing sa1 matches it
+host# ping -c 3 -I 10.38.22.65 10.38.22.70 -> 0% packet loss   (correctly NOT denied)
+
+  MEASUREMENT -- rule written in the direction that does ingress sa1:
+x960-56YSQ(config-ip-hw-acl)#no deny ip 10.38.22.65/32 10.38.22.70/32
+x960-56YSQ(config-ip-hw-acl)#deny ip 10.38.22.70/32 10.38.22.65/32
+x960-56YSQ#show access-list
+  Hardware IP access list t44992-lag
+      4 deny ip 10.38.22.70/32 10.38.22.65/32
+host# ping -c 4 -I 10.38.22.65 10.38.22.70 -> 100% packet loss   <-- DENIED
+host# ping -c 4 -I 10.38.22.66 10.38.22.70 ->   0% packet loss   <-- PERMITTED
+x960-56YSQ#show access-list counters
+  Packet Hits: 4                           <-- exactly the 4 echo replies that were dropped
+  => STEP 1 PASS: a named hardware IP ACL bound to the aggregator denies the traffic its rule
+     matches and leaves every other flow on the same path untouched. The hit counter matching
+     the packet count, and the TCAM ACL entry appearing on binding, are both positive proof
+     the rule is enforced in hardware rather than merely accepted by the parser.
+
+STEP 2 -- "The ACL is effective on the member ports of the LAG"           PASS
+--------------------------------------------------------------------------------
+  Method: with the deny in place, each member is shut in turn so the remaining member is the
+  only path to swi_b. If the ACL were bound to the aggregator in name only, one of these would
+  forward.
+
+  A) force the traffic onto port1.0.16
+x960-56YSQ(config)#interface port1.0.2
+x960-56YSQ(config-if)#shutdown
+host# ping -c 3 -I 10.38.22.65 10.38.22.70 -> 100% packet loss   <-- still DENIED
+host# ping -c 3 -I 10.38.22.66 10.38.22.70 ->   0% packet loss   <-- still PERMITTED
+x960-56YSQ#show access-list counters  -> Packet Hits: 10         (was 4)
+
+  B) force the traffic onto port1.0.2
+x960-56YSQ(config-if)#interface port1.0.2
+x960-56YSQ(config-if)#no shutdown
+x960-56YSQ(config-if)#interface port1.0.16
+x960-56YSQ(config-if)#shutdown
+host# ping -c 3 -I 10.38.22.65 10.38.22.70 -> 100% packet loss   <-- still DENIED
+host# ping -c 3 -I 10.38.22.66 10.38.22.70 ->   0% packet loss   <-- still PERMITTED
+x960-56YSQ#show access-list counters  -> Packet Hits: 13         (was 10)
+
+x960-56YSQ(config-if)#interface port1.0.16
+x960-56YSQ(config-if)#no shutdown
+x960-56YSQ#show static-channel-group
+  Member:
+   port1.0.2
+   port1.0.16                              <-- both members restored
+  => STEP 2 PASS: one ACL bound to `sa1` enforces on each member port independently. The deny
+     held with either member carrying the traffic alone, and the hit counter advanced in both
+     cases, so the rule is programmed against both members and not just one.
+
+STEP 3 -- "Non-IP traffic is unaffected"                                  PASS
+--------------------------------------------------------------------------------
+host# ip neigh flush dev eth4
+host# ping -c 3 -I 10.38.22.65 10.38.22.70       -> 100% packet loss (ICMP denied)
+host# ip neigh show dev eth4
+  10.38.22.70 lladdr 00:00:cd:42:30:29 REACHABLE  <-- ARP re-resolved THROUGH the LAG
+  => STEP 3 PASS: with the ARP cache emptied, ARP request and reply crossed the LAG in both
+     directions and the entry was relearned, while the IP traffic between the same two hosts
+     stayed denied. An IP hardware ACL does not filter non-IP frames.
+
+STEP 4 -- "Rules are evaluated top to bottom, first match wins"           PASS
+--------------------------------------------------------------------------------
+x960-56YSQ(config-ip-hw-acl)#1 permit ip 10.38.22.70/32 10.38.22.65/32
+x960-56YSQ#show access-list
+  Hardware IP access list t44992-lag
+      1 permit ip 10.38.22.70/32 10.38.22.65/32
+      4 deny ip 10.38.22.70/32 10.38.22.65/32   <-- identical match, lower precedence
+host# ping -c 3 -I 10.38.22.65 10.38.22.70 -> 0% packet loss      <-- PERMITTED
+x960-56YSQ(config-ip-hw-acl)#no 1
+x960-56YSQ#show access-list
+  Hardware IP access list t44992-lag
+      4 deny ip 10.38.22.70/32 10.38.22.65/32
+host# ping -c 3 -I 10.38.22.65 10.38.22.70 -> 100% packet loss    <-- DENIED again
+  => STEP 4 PASS: two rules matching the identical flow with opposite actions resolve to the
+     lower sequence number, and removing it restores the later rule. Evaluation is first-match,
+     ordered by sequence, and removal by sequence number works.
+
+STEP 5 -- "Specify source and destination as host and as network addresses"  PASS
+--------------------------------------------------------------------------------
+  host form (STEP 1): 4 deny ip 10.38.22.70/32 10.38.22.65/32
+     .65 -> 100% loss (denied)      .66 -> 0% loss (permitted)
+  network form:
+x960-56YSQ(config-ip-hw-acl)#no 4
+x960-56YSQ(config-ip-hw-acl)#deny ip 10.38.22.70/32 10.38.22.64/27
+x960-56YSQ#show access-list
+      4 deny ip 10.38.22.70/32 10.38.22.64/27
+host# ping -c 3 -I 10.38.22.65 10.38.22.70 -> 100% packet loss
+host# ping -c 3 -I 10.38.22.66 10.38.22.70 -> 100% packet loss
+  => STEP 5 PASS: the /32 form denied only the host it named while its neighbour passed; the
+     /27 form denied both addresses inside the prefix. Masks select the intended range, and
+     the two forms differ exactly where the mask says they should.
+
+STEP 6 -- "With and without the vlan qualifier"                           PASS
+--------------------------------------------------------------------------------
+x960-56YSQ(config-ip-hw-acl)#no 4
+x960-56YSQ(config-ip-hw-acl)#deny ip 10.38.22.70/32 10.38.22.64/27 vlan 100
+x960-56YSQ#show access-list
+      4 deny ip 10.38.22.70/32 10.38.22.64/27 vlan 100
+host# ping -c 3 -I 10.38.22.65 10.38.22.70 -> 100% packet loss   <-- matching VLAN, DENIED
+x960-56YSQ(config-ip-hw-acl)#no 4
+x960-56YSQ(config-ip-hw-acl)#deny ip 10.38.22.70/32 10.38.22.64/27 vlan 1
+x960-56YSQ#show access-list
+      4 deny ip 10.38.22.70/32 10.38.22.64/27 vlan 1
+host# ping -c 3 -I 10.38.22.65 10.38.22.70 -> 0% packet loss     <-- wrong VLAN, PERMITTED
+  => STEP 6 PASS: the same address rule denied the traffic when qualified with the VLAN the
+     traffic is actually in, and stopped denying it when qualified with a different VLAN. The
+     qualifier narrows the match rather than being ignored.
+
+STEP 7 -- "Repeat with the ACL applied via a service policy"              PASS
+--------------------------------------------------------------------------------
+  Method: an interface ACL is matched BEFORE any QoS policy on the same port, so the
+  access-group is removed and proven gone first. Without that, the QoS path is never exercised.
+
+  a) remove the access-group and prove the ACL path is dead
+x960-56YSQ(config-if)#interface sa1
+x960-56YSQ(config-if)#no access-group t44992-lag
+x960-56YSQ#show running-config interface sa1
+  interface sa1
+   switchport
+   switchport mode access
+   switchport access vlan 100              <-- no access-group line
+x960-56YSQ#show access-list
+  Hardware IP access list t44992-lag
+      4 deny ip 10.38.22.70/32 10.38.22.64/27   <-- the ACL still exists, just unbound
+host# ping -c 3 -I 10.38.22.65 10.38.22.70 -> 0% packet loss    <-- proof the path is dead
+
+  b) bind the same ACL through QoS
+x960-56YSQ(config)#mls qos enable
+  Traffic will stop while configuration is applied. Continue? (y/n): y
+x960-56YSQ(config)#class-map t44992-cm
+x960-56YSQ(config-cmap)#match access-group t44992-lag
+x960-56YSQ(config)#policy-map t44992-pm
+x960-56YSQ(config-pmap)#class t44992-cm
+x960-56YSQ(config-if)#interface sa1
+x960-56YSQ(config-if)#service-policy input t44992-pm
+x960-56YSQ#show running-config interface sa1
+  interface sa1
+   service-policy input t44992-pm          <-- bound via QoS, and no access-group
+x960-56YSQ#show platform classifier statistics utilization brief
+  ACL                 0
+  QoS                 3
+  Total               5 / 1024 (0.49%)     <-- same single rule now costs 3 QoS entries, not 1
+
+  c) with the rule narrowed back to a single host so .66 is a true control
+x960-56YSQ#show access-list  ->  4 deny ip 10.38.22.70/32 10.38.22.65/32
+host# ping -c 4 -I 10.38.22.65 10.38.22.70 -> 100% packet loss   <-- DENIED
+host# ping -c 4 -I 10.38.22.66 10.38.22.70 ->   0% packet loss   <-- PERMITTED
+x960-56YSQ#show access-list counters
+  Packet Hits: 0                           <-- hit counters do NOT advance on the QoS path,
+                                               although the deny is demonstrably enforced
+  => STEP 7 PASS: the same named hardware ACL enforces on the aggregator through
+     `service-policy input` as it does through `access-group`, with the access-group proven
+     removed beforehand so the QoS path carried the result. Two platform behaviours are worth
+     recording: the identical rule occupies 1 ingress classifier entry via access-group but 3
+     via the service-policy path, and `show access-list counters` stays at zero hits on the
+     QoS path, so that counter cannot be used to confirm a QoS-bound ACL is working.
+
+STEP 8 -- "The configuration persists across a reload"                    PASS
+--------------------------------------------------------------------------------
+  Pre-flight: /tftproot/x960-tb277.rel present, 57,496,435 bytes (the DUT netboots).
+x960-56YSQ#show boot
+  Current software   : x960-tb277.rel
+  Current boot config: flash:/default.cfg (file exists)
+x960-56YSQ(config-if)#interface sa1
+x960-56YSQ(config-if)#no service-policy input t44992-pm
+x960-56YSQ(config-if)#access-group t44992-lag
+host# ping -c 3 -I 10.38.22.65 10.38.22.70 -> 100% packet loss   (back on the ACL path)
+x960-56YSQ#copy running-config startup-config
+  Building configuration...
+  [OK]
+x960-56YSQ#reload
+  reboot system? (y/n): y
+  ... login prompt returned after 117 s
+
+  AFTER THE RELOAD:
+x960-56YSQ#show access-list
+  Hardware IP access list t44992-lag
+      4 deny ip 10.38.22.70/32 10.38.22.65/32   <-- survived
+x960-56YSQ#show running-config interface sa1
+  interface sa1
+   switchport access vlan 100
+   access-group t44992-lag                      <-- survived
+x960-56YSQ#show static-channel-group
+  Member:
+   port1.0.2
+   port1.0.16                                   <-- survived
+x960-56YSQ#show boot
+  Current boot config: flash:/default.cfg (file exists)
+host# ping -c 4 -I 10.38.22.65 10.38.22.70 -> 100% packet loss   <-- STILL DENIED
+host# ping -c 4 -I 10.38.22.66 10.38.22.70 ->   0% packet loss   <-- STILL PERMITTED
+  => STEP 8 PASS: the ACL definition, its binding to the aggregator and the aggregator's own
+     membership all survived a save and reload, and the deny was still enforced afterwards
+     with its control still passing. Persistence is of the behaviour, not only of the text.
+
+STEP 9 -- "Remove the ACL and confirm it leaves nothing behind"           PASS
+--------------------------------------------------------------------------------
+x960-56YSQ(config-if)#interface sa1
+x960-56YSQ(config-if)#no access-group t44992-lag
+x960-56YSQ(config)#no policy-map t44992-pm
+x960-56YSQ(config)#no class-map t44992-cm
+x960-56YSQ(config)#no access-list hardware t44992-lag
+x960-56YSQ(config)#no mls qos enable
+                                 ^
+  % Invalid input detected at '^' marker.    <-- `enable` is not accepted on the negation
+x960-56YSQ(config)#no mls qos
+                                           <-- accepted, and unlike `mls qos enable` it
+                                               does not prompt
+x960-56YSQ#show access-list
+                                           <-- empty
+x960-56YSQ#show class-map
+                                           <-- empty
+x960-56YSQ#show policy-map
+                                           <-- empty
+x960-56YSQ#show running-config interface sa1
+  interface sa1
+   switchport
+   switchport mode access
+   switchport access vlan 100              <-- identical to STEP 0, no residue
+x960-56YSQ#show platform classifier statistics utilization brief
+  Loop Detection      2
+  Global ACL          0
+  ACL                 0
+  QoS                 0
+  Total               2 / 1024 (0.20%)     <-- exactly the STEP 0 baseline
+host# ping -c 3 -I 10.38.22.65 10.38.22.70 -> 0% packet loss     <-- traffic restored
+  => STEP 9 PASS: the ACL, the class-map, the policy-map and the binding all removed cleanly,
+     the interface returned to its STEP 0 configuration, the denied traffic flowed again, and
+     the classifier returned to its exact baseline occupancy, so nothing was stranded in
+     hardware. Note that the negation of `mls qos enable` is `no mls qos`; `no mls qos enable`
+     is rejected by the parser.
+================================================================================
