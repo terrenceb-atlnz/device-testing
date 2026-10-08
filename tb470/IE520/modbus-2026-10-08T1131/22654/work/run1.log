@@ -1,0 +1,153 @@
+T22654 run 1 -- working log (bench-runner) -- clean
+=====================================================================================
+Case:      AWPTCM-T22654 "modbus -  write" (ck.db, Draft, /Modbus/Proj 2166 Modbus Support). Objective "Able to write
+           to register for Alarm Configuration Port Configured State Port POE Configuration". 5 steps:
+           1 "Perform write to alarm configuration: 0x3001 1 word HEX R/W #1 Alarm Configuration (bit 0 = LED, bit n =
+             Relay n)" -> "Confirm write successful to the register and using read to confirm it is written and CLI to confirm"
+           2 "Perform write to port configuration: 0x5001 1 word HEX R/W #1 Port Configured State (4 nibbles: enabled,
+             duplex, polarity, speed)" -> "Confirm write successful, relevant log generated and using read to confirm it
+             is written and CLI to confirm port configuration is accurate"
+           3 "Perform write to port configuration: 0x5002 1 word HEX R/W #1 Port POE Configuration (2 bytes: data pairs
+             enabled, spare pairs enabled)" -> "... CLI to confirm interface PoE configuration is accurate"
+           4 "Repeat one of the write with global IPv6 address" -> "Confirm write successful and relevant log generated"
+           5 "Repeat one of the write with link local IPv6 address" -> "Confirm write successful and relevant log generated"
+Run:       2026-10-08 13:26:36-13:30:27 NZDT. DUT clock UTC and ~50 s AHEAD of tb470 (write sent 13:27:16 NZDT is
+           logged 00:28:06 UTC; `show clock` 00:28:04 at tb470 13:27:15). DUT log times below are DUT clock.
+Session:   tb470; consoles u2,u4,u5 (this case drove u5 only); Test Engineer terrenceb@terrenceb-dl; PDU 10.36.150.14
+           (u2=6, u4=4, u5=5); constraints "Run now, no power cycles". Sentinel = parent (device-testing-8a).
+           Queue row 1, case 5 of 6.
+Tester:    bench-runner, by hand: tools/ckcon.py /dev/u5 115200 /tmp/modbus-1008/console-u5.log [--stop-on-error];
+           tools/mb.py --log /tmp/modbus-1008/mb-22654.log --host <10.38.215.10 | fd32:b1f0:dff8:d701::10 |
+           fe80::200:cdff:fe37:d6f%eth1> --slave 1 {read|write} ...; tools/rc2cfg.py; tools/rcdiff.py.
+           Driver work/22654.sh (setup|s1|s2|s3|s4|s5|teardown); stdout work/22654.out; client trace work/mb-22654.log.
+Gates:     as T22650 run 1 (precheck CLEAR 13:10; probe 13:12 exit 4 = u2/u4 login_failed, sent as NEEDS TEST
+           ENGINEER; u5 = master; eth1 -> port3.0.13; boot config flash:/tb470-bench.cfg). Pre-case running-config =
+           group baseline (T22653 teardown IDENTICAL 13:25).
+
+TOPOLOGY AS TESTED
+  DUT   : stk_a IE520-stk (AT-IE520-28GSX VCStack): member 1 swi_a S/N 264A23061 MAC 84e3.2787.0ac0 Backup (u2);
+          member 2 Provisioned only; member 3 swi_c S/N 264A23066 MAC 84e3.2787.0740 Active Master (u5, driven);
+          member 4 swi_d S/N 264A23052 MAC 84e3.2787.09c0 Backup (u4). main-calanm (IE520-tb470.rel, built
+          Tue Oct 6 19:44:28 UTC 2026), bootloader 9.2.0. vlan1 10.38.215.10/27, link-local fe80::200:cdff:fe37:d6f;
+          for step 4 vlan1 also fd32:b1f0:dff8:d701::10/64 (added by this case, removed at teardown).
+          Target port: port1.0.1 (member 1, port #1; empty SFP cage, link down -- a state change touches no traffic).
+  host  : tb470 eth1 10.38.215.1/27, fd32:b1f0:dff8:d701::1/64, fe80::f667:7041:7dff:3cfc -> stk_a port3.0.13
+          (1000BASE-T, VLAN 1). Modbus/TCP 502, unit id 1.
+  config: 22654/stk_a.cfg (running-config after setup = baseline + `scada modbus tcp server access read-write` +
+          `scada modbus tcp server`; startup not written)
+
+STEP 0 -- baseline 13:26:41-13:26:47                                                               done
+IE520-stk# show stack -> 1 Backup / 2 Provisioned / 3 Active Master / 4 Backup
+IE520-stk# show scada modbus tcp server -> MODBUS is disabled
+IE520-stk# show running-config | include scada|alarm -> (empty)
+IE520-stk# show ipv6 interface brief -> vlan1 fe80::200:cdff:fe37:d6f/64 preferred (no global address)
+host$ mb.py probe -> Connection refused
+
+SETUP 13:26:52-13:26:58                                                                            done
+IE520-stk(config)# scada modbus tcp server
+IE520-stk(config)# scada modbus tcp server access read-write
+IE520-stk# show scada modbus tcp server -> MODBUS is enabled / Write access: enabled / Port : 502
+IE520-stk# show running-config | include scada -> scada modbus tcp server access read-write / scada modbus tcp server
+
+STEP 1 -- alarm #1 configuration 0x3001, unit 1 (member 1, External PSU 1), 13:27:12-13:27:45        PASS
+IE520-stk# show alarm facility settings | include PSU -> External PSU 1 "-" / 2 "-" on all three members
+IE520-stk# show running-config | include alarm -> (empty)
+  READ  0x3000 x6 -> [1, 0, 0, 0, 0, 0]              (type 1 External PSU, config 0x0000, status 0)
+ a) the case's literal "bit 0 = LED" as the value 0x0001:
+  TX 00 01 00 00 00 06 01 06 30 01 00 01
+  WRITE 0x3001 = 0x0001 -> ok (echo addr=0x3001 value=0x0001)
+  READ  0x3001 -> '0000'                              <-- not stored
+  CLI: External PSU 1 still "-" on member 1; running-config | include alarm still empty
+  DUT log 00:28:06 "modbusd[522]: MODBUS: Performed write request from 10.38.215.1:13515: Write Single
+  Register(FC=0x06) to member 1 starting at Stack member alarm info 1 Config (Members 1 to 4)(REG=0x3001) for 1 word
+  with data 0x0001"                                   <-- acknowledged and logged as performed, no effect, no exception
+ b) the LED bit counted from the MSB (0x8000; ART decoder `bitmap << bit & 0x8000`):
+  TX 00 01 00 00 00 06 01 06 30 01 80 00
+  WRITE 0x3001 = 0x8000 -> ok (echo addr=0x3001 value=0x8000)
+  READ  0x3000 x6 -> [1, 0x8000, 0, 0, 0, 0]          <-- written
+  IE520-stk# show alarm facility settings | include PSU
+    External PSU             1            L           <-- member 1 (first block); members 3, 4 stay "-"
+  IE520-stk# show running-config | include alarm
+    alarm facility power-supply 1 input-member 1 led
+  DUT log 00:28:15 "MODBUS: Performed write request from 10.38.215.1:38074: ... (REG=0x3001) for 1 word with data 0x8000"
+ c) clear: WRITE 0x3001 = 0x0000 -> ok; READ -> '0000'; CLI External PSU 1 "-" on all; running-config | include alarm
+    empty; log 00:28:28 "... (REG=0x3001) for 1 word with data 0x0000".
+  => STEP 1 PASS: the write is accepted, read back, shown by the CLI (settings "L" and the running-config line) and
+     logged, and a write of 0 removes it again. The LED bit is the MSB (0x8000); the literal 0x0001 is acknowledged
+     and logged but changes nothing (observation, below).
+
+STEP 2 -- port #1 configured state 0x5001, unit 1 (port1.0.1), 13:27:58-13:28:26                      PASS
+IE520-stk# show interface port1.0.1 -> Link is DOWN, administrative state is UP; configured duplex/speed/polarity auto
+IE520-stk# show running-config interface port1.0.1 -> switchport / switchport mode access
+  READ  0x5001 -> 'f000'
+  TX 00 01 00 00 00 06 01 06 50 01 00 00
+  WRITE 0x5001 = 0x0000 -> ok (echo addr=0x5001 value=0x0000)
+  READ  0x5001 -> '0000' (configured down, auto/auto/auto); READ 0x5000 -> '0000'
+  IE520-stk# show interface port1.0.1 -> "Link is DOWN, administrative state is DOWN"; configured auto/auto/auto
+  IE520-stk# show running-config interface port1.0.1 -> switchport / switchport mode access / shutdown
+  IE520-stk# show interface port1.0.1 status -> port1.0.1 - disabled 1 auto auto not present
+  DUT log 00:28:51 "NSM[613]: port1.0.1 user shutdown"
+          00:28:51 "modbusd[522]: MODBUS: Performed write request from 10.38.215.1:5816: Write Single Register(FC=0x06)
+                    to member 1 starting at port1.0.1 Config State(REG=0x5001) for 1 word with data 0x0000"
+  WRITE 0x5001 = 0xf000 -> ok; READ -> 'f000'
+  CLI: "Link is DOWN, administrative state is UP"; running-config back to switchport / switchport mode access
+  DUT log 00:29:05 "NSM[613]: port1.0.1 user no shutdown" + "... (REG=0x5001) for 1 word with data 0xf000"
+  => STEP 2 PASS: write acknowledged, log lines generated (NSM + modbusd), read-back matches, CLI admin state and
+     running-config follow the write both ways; duplex/speed/polarity stay auto as written.
+
+STEP 3 -- PoE configuration 0x5002, unit 1, 13:28:27-13:28:43                                       UNSUPPORTED
+  READ  0x5002 -> EXCEPTION (exception response 131 = FC 0x03 | 0x80)
+  TX 00 01 00 00 00 06 01 06 50 02 ff 00
+  WRITE 0x5002 = 0xff00 -> EXCEPTION (exception response 134 = FC 0x06 | 0x80)
+  READ  0x5002 -> EXCEPTION
+  IE520-stk# show power-inline -> % Invalid input detected at '^' marker.
+  IE520-stk# show power-inline interface port1.0.1 -> % Invalid input detected at '^' marker.
+  DUT log 00:29:18 "user.err modbusd[522]: MODBUS: Request failed" / "MODBUS: Performed write request from
+  10.38.215.1:17597: ... port1.0.1 PoE Config(REG=0x5002) for 1 word with data 0xff00"
+  => STEP 3 UNSUPPORTED: the AT-IE520-28GSX has no PoE (no power-inline CLI at all); the server refuses the PoE
+     register with an exception (counter: illegal data address +3).
+
+STEP 4 -- the port write over a GLOBAL IPv6 address, 13:28:56-13:29:28                                 PASS
+IE520-stk(config)# interface vlan1
+IE520-stk(config-if)# ipv6 address fd32:b1f0:dff8:d701::10/64
+IE520-stk# show ipv6 interface brief -> vlan1 fd32:b1f0:dff8:d701::10/64 preferred
+host$ ping -6 -c 3 -I eth1 fd32:b1f0:dff8:d701::10 -> 3 transmitted, 3 received, 0% packet loss
+  CONNECT [fd32:b1f0:dff8:d701::10]:502 slave=1 -> ok
+  WRITE 0x5001 = 0x0000 -> ok; READ (over IPv6) -> '0000'
+  CLI: "Link is DOWN, administrative state is DOWN"
+  DUT log 00:29:57 "NSM[613]: port1.0.1 user shutdown"; "MODBUS: Performed write request from
+          fd32:b1f0:dff8:d701::1:19106: Write Single Register(FC=0x06) to member 1 starting at port1.0.1 Config
+          State(REG=0x5001) for 1 word with data 0x0000"
+  WRITE 0x5001 = 0xf000 -> ok; READ -> 'f000'; CLI "administrative state is UP"
+  DUT log 00:30:08 "NSM[613]: port1.0.1 user no shutdown"; "... from fd32:b1f0:dff8:d701::1:23759 ... data 0xf000"
+  => STEP 4 PASS: write over global IPv6 successful, logged with the IPv6 source address, applied.
+
+STEP 5 -- the port write over LINK-LOCAL IPv6, 13:29:29-13:29:54                                     PASS
+host$ ping -6 -c 3 -I eth1 fe80::200:cdff:fe37:d6f -> 3 received, 0% packet loss
+  CONNECT [fe80::200:cdff:fe37:d6f%eth1]:502 slave=1 -> ok
+  WRITE 0x5001 = 0x0000 -> ok; READ -> '0000'; CLI "Link is DOWN, administrative state is DOWN"
+  DUT log 00:30:22 "NSM[613]: port1.0.1 user shutdown"; "MODBUS: Performed write request from
+          fe80::f667:7041:7dff:3cfc:19153: ... port1.0.1 Config State(REG=0x5001) for 1 word with data 0x0000"
+  WRITE 0x5001 = 0xf000 -> ok; READ -> 'f000'; CLI "administrative state is UP"; running-config interface port1.0.1
+  back to switchport / switchport mode access
+  DUT log 00:30:33 "NSM[613]: port1.0.1 user no shutdown"; "... from fe80::f667:7041:7dff:3cfc:18096 ... data 0xf000"
+  => STEP 5 PASS: write over link-local IPv6 successful, logged with the link-local source, applied.
+Server statistics 13:29:55: single register writes 10; illegal data address 17, illegal data value 6, slave device
+failure 5 (cumulative over the group).
+
+TEARDOWN 13:30:15-13:30:27
+IE520-stk(config)# interface vlan1 / no ipv6 address fd32:b1f0:dff8:d701::10/64 / exit
+IE520-stk(config)# no scada modbus tcp server access
+IE520-stk(config)# no scada modbus tcp server
+IE520-stk# show scada modbus tcp server -> MODBUS is disabled
+IE520-stk# show running-config | include scada|alarm|ipv6 address -> ipv6 address dhcp (pre-existing) only
+host$ mb.py probe -> Connection refused
+rcdiff.py baseline-rc.out 22654-rc-after-teardown.out -> no output = IDENTICAL. Nothing written to startup; no
+reload; no PDU. u5 at exec, terminal no monitor.
+
+CAVEAT: step 1's "bit 0 = LED" is the LSB in the case text but the MSB (0x8000) on the DUT; a write of 0x0001 is
+  acknowledged (FC06 echo) and logged "Performed write request" with no effect and no exception, so a client cannot
+  tell from the response that nothing was configured. Recorded as an observation for the case owner; the write
+  path itself (0x8000) works and is graded.
+
+VERDICT: PASS -- alarm-config (0x8000 = LED), port configured-state writes over IPv4, global IPv6 and link-local IPv6 are acknowledged, logged, read back and reflected by the CLI; step 3 PoE write UNSUPPORTED (no PoE)
