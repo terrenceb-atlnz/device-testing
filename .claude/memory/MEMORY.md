@@ -33,7 +33,7 @@
 - [IE520 console prints no kernel log](ie520-console-prints-no-kernel-log.md) — boot goes silent at `Starting kernel ...`
 - [Never send CLI help through a CR driver](never-send-cli-help-through-a-cr-driver.md) — `<cmd> ?` + trailing CR EXECUTES the command if `<cr>` is valid
 - [IE520 first copper port is x.0.2](ie520-first-copper-port-is-x-0-2.md) — portN.0.1 is an EMPTY SFP CAGE so "uN port1" = portN.0.2 (a copper SFP); .9/.13 look fixed copper; check `show system pluggable` before blaming a cable (2026-10-06)
-- [Rejected tool calls keep running remotely](rejected-tool-calls-keep-running-remotely.md) — a rejection stops YOUR output, not the ssh command
+- [Rejected tool calls keep running remotely](rejected-tool-calls-keep-running-remotely.md) — a rejection stops YOUR output, not the ssh command; kill only YOUR tool's PID by command line: Terrence's minicom runs as the same Unix user (killed it 2026-10-08)
 - [ssh pgrep watchers self-match](ssh-pgrep-watchers-self-match.md) — `ssh tb470 'pgrep -f X'` matches its own bash -c wrapper, so the loop never exits and the notification never fires
 - [ssh PATH has no sbin](ssh-path-has-no-sbin.md) — `ssh tbNNN 'command -v foo'` misses /usr/sbin and /sbin; it proves presence, never absence. Check absolute paths, dpkg, or a listening socket
 - [AW+ config prompts abort and log you out](awplus-config-prompts-abort-and-logout.md) — `mls qos enable`/`no mls qos`/`atmf secure-mode enable-all` PROMPT (y/n)
@@ -62,7 +62,7 @@
 - [Refused stack command lands on backups](stack-refused-command-lands-on-backups.md) — 2026-10-02: master refused `flowcontrol` yet backups got `flowcontrol both`; after stack work check `remote-diff all show running-config`
 - [terminal (no) monitor is exec-only](terminal-monitor-exec-only.md) — does NOT toggle; config-mode/busy-console sends caused the "Command [terminal no monitor] failed" lines; `end` first or console.py monitor_off()
 - [AW+ GUI update via Load-gui9.sh](awplus-gui-load-script.md) — `activate flash:/Load-gui9.sh` on the switch; needs temp IP + route to 10.32.18.135 via tb470 eth2; delete old .gui after
-- [IE520 image update procedure](ie520-image-update-procedure.md) — Test Engineer 2026-10-05: TFTP→master, sync, park EACH unit at Boot Menu 2→1 (Flash)→file, then 9 on all; delete old .rel after. Forced-flash banner = expected; re-read /tftproot size+.info just before TFTP; `boot system` is config-mode
+- [IE520 image update procedure](ie520-image-update-procedure.md) — Test Engineer 2026-10-05: TFTP→master, sync, park EACH unit at Boot Menu 2→1 (Flash)→file, then 9 on all; delete old .rel after. Forced-flash banner = expected; re-read /tftproot size+.info just before TFTP; stage under the .info name with room on EVERY member (2026-10-08)
 - [Ignore the Microsoft Learn connector](ignore-microsoft-learn-connector.md) — Terrence 2026-10-06: never report its "needs auth" notice; use WebFetch/WebSearch if MS docs are ever needed
 - [Testbox stale ARP after a recable](tb-host-stale-arp-after-recable.md) — 2026-10-06 eth2→x230: the box ARP-cached the OLD unit's MAC so pings failed; `ip neigh show dev ethN` first; wait for FAILED→re-ARP or root `ip neigh flush`
 - [Files to a unit: device-side copy tftp](file-to-unit-via-device-copy-tftp.md) — Terrence 2026-10-06: put it in the box's /tftproot, then on the unit `copy tftp://<box IP in its subnet>/<file> flash:/<name>`; no helper hunting

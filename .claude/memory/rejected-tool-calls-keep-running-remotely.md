@@ -46,6 +46,13 @@ later `precheck` showed my `python3` (pid 338371) AND his `minicom` both on `/de
 showed minicom only. A second rejected call the same afternoon (a `show log` on u0) had already exited when checked.
 Step 0 below caught both; `bench_probe precheck --consoles <list>` is the one-call version of steps 1–2.
 
+**Incident 6 (2026-10-08, 15:5x): the cleanup killed Terrence's minicom.** He rejected a `ckcon` read on u5 and said
+"stop the tool running on u5, ill fix it". `fuser` showed my `python3 ckcon.py` AND his `minicom --wrap -D /dev/u5`; I
+killed every holder whose `ps -o user=` matched `whoami` — **he and I are the same Unix user (`terrenceb`) on the box**, so
+that filter matched his minicom too, and both died. He had to reopen u5. **The user filter tells nothing apart here: kill
+only the PID whose command line is MY tool (`ckcon.py`, `bench_probe.py`, `python3 -`), never `minicom`/`screen`, which are
+his.** Also skipped step 3 (`-hupcl` before the kill).
+
 **How to apply — after ANY rejected or interrupted tool call that touched the bench:**
 0. Do this FIRST, in the very next call, before replying: a rejection often means Terrence
    is about to use the hardware himself, so a leftover process means two readers on his port.
