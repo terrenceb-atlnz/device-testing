@@ -254,6 +254,11 @@ classifier judges it: prefer a `tools/` script.
     `terminal-monitor-exec-only`).
   - Write the transcript to the box's `/tmp/<run>/console-<uN>.log`: that is the path the
     sentinel's normal mode watches.
+  - **Report a console's final state from that transcript, never from the tool's stdout**
+    (`tools/tb tail <TB> /tmp/<run>/console-<uN>.log`). The stdout tail stops before the
+    driver's own cleanup. On 2026-10-09 two test sessions reported u0 "left in config-if with
+    `duplex ` typed" after a `qmark`; the transcript showed the line erased, `end` →
+    `awplus#`, `terminal no monitor`, and the console closed at exec.
 - **Never send a secret down a console** (licence keys, passwords) unless the Test Engineer asks
   for exactly that. The echo wraps at the terminal width, so a plain string match misses it
   (Test-cases memory `console-secret-redaction-wraps`).
