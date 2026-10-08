@@ -1,6 +1,6 @@
 # tb470 — bench state
 
-> **Generated 2026-10-08T192750Z by `bench_probe.py`** from `captures/2026-10-08T192750Z/` on tb470. Measured state only;
+> **Generated 2026-10-08T194710Z by `bench_probe.py`** from `captures/2026-10-08T194710Z/` on tb470. Measured state only;
 > nothing here is hand-written. Regenerate with `./bench_probe.py run` on tb470. The
 > `setup` fence at the end IS `tb470.setup`; `./bench_probe.py apply` writes it to the box.
 > Names and PDU outlets come from `tb470.static`; platform mechanics live in the orient-dt
@@ -38,7 +38,7 @@
 ## tb470.setup
 
 ```setup
-### GENERATED 2026-10-08T192750Z by bench_probe.py from a console capture -- DO NOT HAND-EDIT.
+### GENERATED 2026-10-08T194710Z by bench_probe.py from a console capture -- DO NOT HAND-EDIT.
 ### Source: claude/device-testing/bench-setup/bench-state.md (regenerate with
 ### `bench_probe.py run` on tb470; `bench_probe.py apply` writes this file).
 ### Names and PDU outlets come from bench-setup/tb470.static.
@@ -107,5 +107,5 @@ eth3 up swi_b:port1.0.2
 ```
 
 ```probe-meta
-capture 2026-10-08T192750Z
+capture 2026-10-08T194710Z
 ```
