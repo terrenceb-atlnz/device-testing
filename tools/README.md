@@ -449,4 +449,24 @@ probes. Use it for AW+ SCADA Modbus gateway cases.
 - **Limits:**
   - The register decodings were written for the IE520 Modbus map (Mapping Version 5).
   - Exit 2 means either an argument error or "no connection".
-- **Status:** verified 2026-10-08 on tb470/IE520 stack (main-calanm), T22650 reads over IPv4, units 0-4
+  - An exception prints `EXCEPTION code=N (<name>) fc=0xNN`, the Modbus exception code itself
+    (2026-10-08; before that it printed only `status=1`, and codes were inferred from the server's
+    counters). pymodbus' own stderr line `Exception response 131 / 0` shows 0 for the code: ignore it.
+- **Status:** verified 2026-10-08 on tb470/IE520 stack (main-calanm), T22650 reads over IPv4, units 0-4;
+  exception codes verified 2026-10-08 against a pymodbus 3.8.6 server on tb470 loopback (code 2)
+
+### `mbplan.py`
+Runs a Modbus/TCP test **plan** and grades every line against its expected result, printing one
+PASS / FAIL / INFO / ERROR row per line; the raw TX bytes and full CLI text go to `--log` /
+`--out`. Plan actions: `step`, `read`, `write`, `probe <tcp-port> ok|refused`, `cli <cmd> [;;
+<cmd>...] [=~ regex]` (through `ckcon.py`, one session), `log <regex>` (`show log | include`),
+`sleep`, `port <tcp-port>`. Expectations: a value, `~` (record only), `>N`/`<N`, `exc`/`exc:N`,
+`ok`. Port registers by name: `@1.0.2[+offset]` = unit 1, 0x5000 + 13*(port-1). Plans live per
+bench and suite: `tb470/IE520/plans/modbus/` (T22650-T22655, with their README).
+- **Run:** `mbplan.py --host H [--port 502] [--console /dev/uN --baud B --transcript F] [--log mb.log] [--out plan.out] [--var NAME=VALUE] PLAN`
+- **Where:** the testbox (TCP to the DUT); **needs:** pymodbus 3.x; `mb.py`, `ckcon.py`, `console.py` beside it (copy `tools/` whole)
+- **Imports:** `mb.py` (decode, exception text); runs `ckcon.py` for `cli`/`log` lines
+- **Limits:** one TCP connection per line (the IE520 allows 1); per-member register maps beyond the
+  port block are written as plain addresses in the plan; FLOAT values compare at 3 decimals
+- **Status:** Modbus lines (read/write/exception/probe/port/@port) verified 2026-10-08 against a pymodbus
+  3.8.6 server on tb470 loopback; `cli`/`log` lines NOT yet run against a console (first real use: check them)

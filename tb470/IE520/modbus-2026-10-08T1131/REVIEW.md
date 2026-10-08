@@ -32,7 +32,7 @@ copied to files, the working log written once.
 | #2-#4 | 2k + 55k + 24k | `cat platforms/IE520.md; sed -n 1,400p orient-dt/SKILL.md` spilled to a file, then the whole file Read; then orient-dt 400-700 + STANDING-ORDERS | bench-runner's own gate list covers orient-dt for a run; read orient-dt §1/§3 only if a gate fails. platforms/IE520.md: the Modbus and console sections only |
 | #5-#6 | 2k + 45k | `cat logged-output.md; cat tools/README.md`, spilled, Read in full | logged-output.md §2 only (the tester's part); tools/README.md: `grep -A8 '### \`mb.py\`\|### \`ckcon.py\`\|### \`rcdiff.py\`'` |
 | #8-#11 | 5k + 8k + 11k + 27k | the previous modbus group's README and **all six of its final logs** | that README's register-map lines only (or platforms/IE520.md once it holds the map, below) |
-| #12-#13 | 2k + 33k | TESTBOX-ACCESS.md, spilled, Read in full | already summarised in the dispatch; read §3 only if ssh fails |
+| #12-#13 | 2k + 33k | TESTBOX-ACCESS.md, spilled, Read in full | none: the lab-home CLAUDE.md requires reading it in full before touching a testbox. Only the Test Engineer can relax that rule |
 | #7 | 13k | the session handover + bench-state head | the handover's OPEN list (`sed -n '/OPEN/,/^## /p'`) |
 | #15 | 11k | three memories in full | the dispatch already carried their rules |
 | #19 | 9k | `cat mb.py` + ckcon.py head | `mb.py --help` |

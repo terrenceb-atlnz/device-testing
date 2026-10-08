@@ -126,8 +126,11 @@ running configuration to `<id>/<dev>.cfg`:
 The tester writes `work/run<N>.log` **as it goes**, numbering each run of the case. It must hold
 everything the §4 template needs, because `/create-logs` may use nothing else:
 - the session facts: the box, consoles, Test Engineer and constraints;
+- the case's title, objective and **each step's text and expected result, verbatim** from the
+  test-case database (the final log's STEP headings quote them; 2026-10-08 two logs could not);
 - each device's role, model, serial, console, MAC and build;
-- the links and host NICs used;
+- the links and host NICs used, with each NIC's MAC and addresses, and the DUT clock against the
+  box's (once per group; later cases may point to the first case's log);
 - every command sent with its device prompt, and every configuration line exactly as sent;
 - the device output that proves each step, verbatim, and each step's verdict;
 - the tools from `tools/` and their exact arguments;

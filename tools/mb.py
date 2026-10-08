@@ -12,8 +12,8 @@ it has no default because it is a bench fact.
 TYPE: UINT ASCII HEX ENUM FLOAT BOOL RAW  (ART library_1359 decodings; RAW = the word list).
 Every request/response is traced as raw bytes (pymodbus trace_packet) and appended,
 with the decoded value, to --log (default ./mb.log). Exit 0 = a Modbus response came
-back (an exception response still exits 0 and is printed as EXCEPTION), 2 = no
-connection / no response.
+back (an exception response still exits 0 and is printed as EXCEPTION code=N <name>,
+the Modbus exception code from the response PDU), 2 = no connection / no response.
 """
 import argparse, struct, sys, time
 
@@ -38,6 +38,25 @@ def decode(regs, typ):
     if typ == 'BOOL':
         return regs[0] == 0xFFFF
     return list(regs)
+
+EXC_NAMES = {1: 'illegal function', 2: 'illegal data address', 3: 'illegal data value',
+             4: 'slave device failure', 5: 'acknowledge', 6: 'slave device busy',
+             8: 'memory parity error', 10: 'gateway path unavailable', 11: 'gateway target failed'}
+
+def exc_text(rsp, pkts):
+    """'code=N <name> fc=0xNN' for an exception response. The code comes from the RX PDU when the
+    trace has it (byte after the 0x80|fc function byte), else from pymodbus' exception_code."""
+    code = None
+    for d, h in pkts:
+        if d == 'RX':
+            b = bytes.fromhex(h.replace(' ', ''))
+            if len(b) >= 9 and b[7] & 0x80:
+                code = b[8]
+    if code is None:
+        code = getattr(rsp, 'exception_code', None)
+    fc = getattr(rsp, 'function_code', None)
+    return 'code={} ({}) fc={}'.format(code, EXC_NAMES.get(code, 'unknown'),
+                                      '0x{:02x}'.format(fc) if isinstance(fc, int) else fc)
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -89,7 +108,7 @@ def main():
             if rsp is not None:
                 for d, h in pkts: out('  {} {}'.format(d, h))
                 if rsp.isError():
-                    out('READ  0x{:04x} x{} {} {} -> EXCEPTION {}'.format(addr, a.count, a.type, a.desc, rsp))
+                    out('READ  0x{:04x} x{} {} {} -> EXCEPTION {}'.format(addr, a.count, a.type, a.desc, exc_text(rsp, pkts)))
                 else:
                     regs = rsp.registers
                     out('READ  0x{:04x} x{} {} {} -> words={} value={!r}'.format(
@@ -103,7 +122,7 @@ def main():
             if rsp is not None:
                 for d, h in pkts: out('  {} {}'.format(d, h))
                 if rsp.isError():
-                    out('WRITE 0x{:04x} = 0x{:04x} {} -> EXCEPTION {}'.format(addr, val, a.desc, rsp))
+                    out('WRITE 0x{:04x} = 0x{:04x} {} -> EXCEPTION {}'.format(addr, val, a.desc, exc_text(rsp, pkts)))
                 else:
                     out('WRITE 0x{:04x} = 0x{:04x} {} -> ok (echo addr=0x{:04x} value=0x{:04x})'.format(addr, val, a.desc, rsp.address, rsp.registers[0] if rsp.registers else -1))
     finally:

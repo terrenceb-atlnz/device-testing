@@ -1828,6 +1828,10 @@ def main(argv=None):
         s.add_argument("--no-prompt", action="store_true", help="never ask about unnamed units")
         s.add_argument("--read-only", action="store_true",
                        help="change nothing (shared testboxes): no `lldp run`, no host-NIC pings")
+        s.add_argument("--baud", type=int, default=None, choices=BAUDS,
+                       help="try ONLY this console rate, never fall back to the other: a CR sent at "
+                            "the wrong rate can reach a unit's Linux console as a BREAK (sysrq; IE520 "
+                            "u4, 2026-10-08). A console that is silent at this rate reads unreachable")
         if name == "run":
             s.add_argument("--template", default=None, help="the .setup to diff against")
             s.add_argument("--out", default=None, help="where to write bench-state.md")
@@ -1860,6 +1864,8 @@ def main(argv=None):
         except ValueError as e:
             ap.error(str(e))
 
+    if getattr(args, "baud", None):
+        BAUDS[:] = [args.baud]          # detect_baud() tries only what is in BAUDS
     if args.cmd == "precheck":
         return precheck(args.consoles)
     if args.cmd == "capture":

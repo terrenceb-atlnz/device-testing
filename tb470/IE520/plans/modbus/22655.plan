@@ -1,0 +1,47 @@
+# T22655 modbus dynamic changes. port1.0.2 is in static-channel-group 2: a state write there is
+# applied but answered exception 4 (slave device failure); port1.0.1 (no LAG) is the control.
+step PRECONDITION
+cli configure terminal ;; scada modbus tcp server ;; scada modbus tcp server access read-write ;; end
+read 0 0x0000 1 UINT 5 client retrieves information
+step 1 dynamic change tcp port
+cli configure terminal ;; scada modbus tcp server port 5020 ;; end
+cli show scada modbus tcp server =~ Port\s+:\s+5020
+probe 502 refused
+port 5020
+read 0 0x0000 1 UINT 5
+log TCP Port changed to 5020
+cli configure terminal ;; no scada modbus tcp server port ;; end
+probe 5020 refused
+port 502
+read 0 0x0000 1 UINT 5
+step 2 dynamic enable and disable modbus
+cli configure terminal ;; no scada modbus tcp server ;; end
+probe 502 refused
+cli configure terminal ;; scada modbus tcp server ;; end
+read 0 0x0000 1 UINT 5
+cli show scada modbus tcp server =~ Write access: enabled
+step 3 API disables and enables a port (port1.0.2, LAG member)
+read - @1.0.2 1 HEX f103
+write - @1.0.2+1 0x0000 exc:4
+sleep 5
+read - @1.0.2 1 HEX 0000
+cli show interface port1.0.2 =~ administrative state is DOWN
+write - @1.0.2+1 0xf000 exc:4
+sleep 10
+read - @1.0.2 1 HEX f103
+cli show interface port1.0.2 =~ Link is UP, administrative state is UP
+step 3 control (port1.0.1, no LAG)
+write - @1.0.1+1 0x0000 ok
+write - @1.0.1+1 0xf000 ok
+step 4 CLI disables a port
+cli configure terminal ;; interface port1.0.2 ;; shutdown ;; end
+sleep 4
+read - @1.0.2 1 HEX 0000
+read - @1.0.2+1 1 HEX 0000
+cli configure terminal ;; interface port1.0.2 ;; no shutdown ;; end
+sleep 10
+read - @1.0.2 1 HEX f103
+read - @1.0.2+1 1 HEX f000
+step TEARDOWN
+cli configure terminal ;; no scada modbus tcp server access ;; no scada modbus tcp server ;; end
+probe 502 refused

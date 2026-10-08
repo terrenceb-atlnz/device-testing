@@ -67,6 +67,9 @@ refers to these by NAME**; when something moves, fix this table and nothing else
     with `<TB>.static` or the bench; nothing recorded is changed).
 - Without `--read-only` it switches `lldp run` on where a device has it off and LEAVES it on
   (2026-09-30; running-config only). `--read-only` (shared boxes) changes nothing.
+- `--baud <rate>` (2026-10-08) tries only that console rate and never falls back: a CR at the
+  wrong rate reached an IE520's Linux console as a BREAK (`sysrq: HELP`, u4, 2026-10-08). Use it
+  whenever the session facts or the handover give the consoles' rate.
 - `apply` writes the fence to the box: it snapshots the pair into `backups/`, reads it back, and
   refuses over a hand-edit. It is the Test Engineer's call.
 - `generate <capture-dir>` re-parses a saved capture without the bench; `diff`/`render` run
