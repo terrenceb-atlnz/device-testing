@@ -275,6 +275,19 @@ CAVEAT:  <the scope limit of the proof, if any: what this run did NOT establish>
 --------------------------------------------------------------------------------
 TOPOLOGY AS TESTED
 --------------------------------------------------------------------------------
+  <An ASCII diagram of THIS case's environment. Show only what the case used, mark
+   the DUT, label every port, and show the direction traffic actually flowed:>
+
+        <TB> <nic> <addr>
+             |
+             v  <what this link carries in this case>
+    +------------------------+
+    |  <dev> <model>   DUT   |
+    +------------------------+
+         | <port>      | <port>
+         v             v
+    <dev> <port>   <TB> <nic>  (<role: capture / mirror dest / far side>)
+
   <role>  : <dev> (<model>) console <uN>, S/N <serial>, MAC <mac>
             <stack: members, IDs, master>
   <role>  : <dev> ...
@@ -341,6 +354,18 @@ In detail:
 - **TOPOLOGY AS TESTED is complete enough to rebuild the case**: devices, serials, consoles,
   links, host NICs and tools. With the `.cfg` files, a Test Engineer or an agent can set the
   case up again on the same bench, or map it onto another.
+- **TOPOLOGY AS TESTED opens with an ASCII diagram** (Test Engineer, 2026-10-08). The itemised
+  lines carry the serials, MACs and addresses; the diagram carries the shape, which no list
+  reads back quickly. Rules for it:
+  - **Only what this case used.** Not the whole bench. A link the case never carried traffic on
+    is noise; leave it out, or mark it `(unused)` when its presence matters.
+  - **Mark the DUT**, and label every port and host NIC by name.
+  - **Show direction.** Arrows follow the traffic this case actually sent, not cable topology.
+  - **Name each link's job in this case** — source, capture, mirror destination, far-side
+    forwarding check, partner.
+  - **It is drawn from what the run measured**, the same as every other line in the log, not
+    copied from the campaign's setup section. If a port was STP-blocked or a member was dropped
+    from an aggregator during the case, the diagram shows the state the case ran under.
 
 **Out: everything that is not this run's evidence.** That means:
 - earlier runs and other campaigns (each run stands alone);
