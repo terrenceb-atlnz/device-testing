@@ -16,6 +16,12 @@ Consoles: "u0-u5 all" (option text: "u0 = DUT; every other unit (stack, IE520-sa
 PDU: "10.36.150.14 per tb470.static" (u0=1, u1=7, u2=6, u3=8, u4=4, u5=5)
 Constraints: "Triage only for now" (option text: "Probe and triage; report what is runnable and what each blocked case needs; run nothing yet.")
 
+**Updated 2026-10-09 ~10:1x–10:5x (Test Engineer):**
+- Blocker changes: *"B: done  C: done  D: done"*; on A: *"x230 port1.0.1 is already connected to the 4050, would that break other tests? or would we route traffic over the stack to the 4050 instead"*, then *"its connected to the 4050 port1.0.2, but the light is off"* (4050 port1.0.2 admin-shut since 09-03).
+- Loop from B+C (all VLAN 1, STP off): *"VLAN-isolate the new links"* → done by the tester 10:43, running-config only (Issues list).
+- eth3: *"I unplugged it pending your direction as to where it should actually go"* → answer: **"x230 port1.0.5"** (option text: "Move the AT-SPTXc from stack port4.0.14 (free) into x230 port1.0.5 and cable eth3 to it. … IE520-sa loses its host link.") — **pending the Test Engineer's recable**.
+- AR4050S USB stick (D): **"Clear before the case"** (option text: "The tester deletes atmf/ and the old .rel files from usb: within the ATMF test setup.")
+
 ## Rules carried with the queue
 
 - Verdicts, working logs, the `RESULT` line, the results list: [logged-output.md](../../logged-output.md).
