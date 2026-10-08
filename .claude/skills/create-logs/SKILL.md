@@ -1,6 +1,6 @@
 ---
 name: create-logs
-description: Build a campaign's final uploadable output, ON REQUEST ONLY — after the Test Engineer has reviewed the results list. For each attempted case it writes the final <id><suffix>.log from the logged-output.md template using the tester's latest working log, checks the per-device .cfg files, writes each group's README verdict table, then deletes the case's work/ folder and commits. Use when the Test Engineer runs /create-logs, or says "create the logs", "make the final logs", "build the uploadable output". Never run it on your own initiative, and never as part of /test-mode or /wrap-dt.
+description: Build a campaign's final uploadable output, ON REQUEST ONLY — after the Test Engineer has reviewed the results list. For each attempted case it writes the final <id><suffix>.log from the logged-output.md template using the tester's latest working log, checks the per-device .cfg files, writes each group's README verdict table, measures each case's token usage from the tester's transcript and writes a process review (<id>-review.md per case, REVIEW.md per group: wasted input, repetition, accuracy risks, expected outputs, scripts and references for a faster next run), then deletes the case's work/ folder and commits. Use when the Test Engineer runs /create-logs, or says "create the logs", "make the final logs", "build the uploadable output". Never run it on your own initiative, and never as part of /test-mode or /wrap-dt.
 ---
 
 # /create-logs — the final logged output, on request
@@ -122,12 +122,42 @@ gives it:
 Rewrite the whole file each time from the Results table, so a later `/create-logs` run for the
 same group leaves it complete.
 
+## 5b. Review the process — token usage, waste, repetition (Test Engineer, 2026-10-08)
+
+The rules and the file layout are logged-output.md §5. Do this **before §6 deletes `work/`**: it
+reads the working files as well as the tester's transcript.
+
+1. **Measure.** From the repo root:
+   `python3 -I tools/case_tokens.py --find ~/.claude/projects/<repo slug> --cases <ids, run order>`
+   (`<repo slug>` = the repo root path with every non-alphanumeric character turned into `-`).
+   Add `--json > <scratchpad>/tokens.json` for the numbers you will tabulate. It names the
+   transcript it used; check that its `RESULT` lines are this campaign's. No transcript found
+   → say so in each review and go on from the working files.
+2. **Read the process, not just the numbers.** For each case, the tool's largest outputs and
+   repeated commands are where to look first. Then read that case's tool calls in the
+   transcript segment (never the whole transcript into context: extract the segment's tool
+   inputs and result sizes with a short script in the scratchpad), and its `work/` scripts.
+3. **Find, per case** (logged-output.md §5 "What it looks at"): wasted input, repetition,
+   accuracy risk — each citing the call or working-file line — and what the next run should
+   reuse: expected outputs per step, scripts (an existing `tools/` entry, or a proposed one
+   with its arguments), and references to read instead of rethinking.
+   - Include the claims the final-log writers had to leave out for lack of a source (§3 step
+     3); they are accuracy risks with a known fix.
+   - Anything that applies to every case of the group (gate overhead, rules re-read per case,
+     a driver rebuilt per case) goes once in the group `REVIEW.md`, and the case file points
+     to it rather than repeating it.
+4. **Write** `<id>/<id>-review.md` for each attempted case and `<group>-<STAMP>/REVIEW.md` for
+   the group, in the layout logged-output.md §5 gives. Never change a verdict here; a doubt
+   about one goes in the report to the Test Engineer.
+5. **Do not build the proposed scripts in this skill.** List them; building one is the Test
+   Engineer's call (and a hand-built `.py` belongs in `tools/`, never loose in the lab tree).
+
 ## 6. Clean up and commit
 
 1. **Delete `<id>/work/`** (`git rm -r`) for each case that passed §4. Delete nothing else: the
-   `.cfg` files and the final log are the deliverables.
-2. Afterwards each case folder holds exactly its one `.log` and its `.cfg` files. Check that
-   with `ls`.
+   `.cfg` files and the final log are the deliverables, and `<id>-review.md` stays beside them.
+2. Afterwards each case folder holds exactly its one `.log`, its `.cfg` files and its
+   `<id>-review.md`. Check that with `ls`.
 3. **Commit once per group**:
    `create-logs: <group>-<STAMP> — <n> logs (<counts by verdict>)`, with the Co-Authored-By
    trailer. The working files remain in git history.
@@ -137,6 +167,8 @@ same group leaves it complete.
 
 End with:
 - the table of final logs: case, verdict, log path, `.cfg` files;
+- the token table (per case plus overhead and total) and the three biggest savings the
+  reviews propose, with a link to the group `REVIEW.md`;
 - anything skipped or failing a check, and why;
 - any claim left out for lack of a source;
 - any tool moved into `tools/`;

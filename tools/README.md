@@ -283,6 +283,21 @@ config with the echoed command, bare prompts, pager remnants, CRs and blank line
 - **Limits:** it reads the ckcon `HH:MM:SS >>> cmd` stdout format only (as `rcdiff.py` does)
 - **Status:** verified 2026-10-08 on tb470, IE520 stack master (u5): T22650 `stk_a.cfg`, 186 config lines
 
+### `case_tokens.py`
+Per-case token usage and process metrics from a tester's Claude Code transcript, for
+`/create-logs`' process review (logged-output.md §5). Splits the transcript at the tester's
+`RESULT <id>` lines: a case runs from its first tool call into its own `<id>/` folder to its
+`RESULT`; everything else is group overhead. Per segment: API calls, input / cache-write /
+cache-read / output tokens, tool calls by name, wall time, characters of tool output read back,
+the five largest outputs and the commands repeated verbatim.
+- **Run:** `case_tokens.py --find ~/.claude/projects/<repo slug> --cases <id,id,...> [--json]`,
+  or `--transcript <file.jsonl>` instead of `--find`
+- **Where:** the dev host that ran the session (transcripts are local); **needs:** nothing beyond Python
+- **Imports:** none
+- **Limits:** needs the `RESULT` SendMessage lines (logged-output.md §2); a case that never
+  touched `<id>/` before its RESULT counts from the RESULT call alone
+- **Status:** verified 2026-10-08 on the modbus group (T22650–T22655, one bench-runner transcript)
+
 ## Traffic, frames and protocol emulators
 
 ### `linerate.py`
