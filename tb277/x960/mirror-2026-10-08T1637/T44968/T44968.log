@@ -1,0 +1,170 @@
+================================================================================
+TEST T44968 -- CLI show mirror interface direction set to receive
+================================================================================
+Run:      2026-10-09 08:56-09:03 NZ (box local; both device clocks set to box local time
+          before the run, so device and host stamps are directly comparable)
+Bench:    tb277, consoles u2, u3, u5; Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWP-5317, objective "set a port mirror's direction to receive and confirm, from
+          the CLI and on the wire, that only received traffic is copied", 4 steps
+Build:    swi_c  sin_x96056-20260921-9 (x960-tb277.rel, build Mon Sep 21 11:25:03 UTC 2026)
+          swi_b  sin_x96056-20260921-9
+Configs:  swi_c.cfg, swi_b.cfg (running-config after setup; saved to startup: no)
+
+VERDICT: PASS -- `direction receive` is reported correctly by both show commands and copies
+         ONLY the frames the DUT receives on the monitored port, the exact inverse of
+         `direction transmit` on identical cabling.
+      command accepted on destination .... yes      (entered on port1.0.10 naming port1.0.48)
+      show mirror ....................... correct  (dest port1.0.10, receive, src port1.0.48)
+      show mirror interface <src> ....... correct
+      ingress frames copied ............. 6        (echo requests seen at the destination)
+      egress frames copied .............. 0        (echo replies correctly NOT copied)
+      inverse of transmit ............... yes      (6/0 here against 0/6 for transmit)
+      forwarding undisturbed ............ yes      (ping 6/6, 0% loss while mirroring)
+CAVEAT:  The mirror did not take effect on first application and copied nothing until the
+         destination port was bounced. That is recorded below as a defect of mirror
+         RE-APPLICATION, not of `direction receive`, which behaved correctly once programmed.
+         A second defect found here -- an in-place direction change being silently ignored --
+         means `show mirror` is not evidence of what the dataplane is doing on this platform.
+         This verdict therefore rests entirely on captured frames.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+   tb277 eth4  10.38.22.65/27                 tb277 eth3  (tcpdump, promiscuous)
+        |                                          ^
+        |  ICMP echo request ->                    |  mirrored copies
+        v    RECEIVED by the DUT here              |
+   port1.0.48  (MONITORED)                    port1.0.10  (MIRROR DESTINATION)
+  +==========================================================+
+  |   swi_c   AT-x960-56YSQ   *** DUT ***   Marvell Falcon   |
+  |   mirror interface port1.0.48 direction receive          |
+  |   entered ON port1.0.10, naming port1.0.48               |
+  +==========================================================+
+        |  sa1 = port1.0.2 + port1.0.16, VLAN 100
+        v
+  +----------------------------------+
+  |  swi_b  AT-x960-28YSQ            |
+  |  vlan100 10.38.22.70/27          |   replies come back this way and are NOT copied,
+  +----------------------------------+   which is what makes this the inverse of transmit
+
+  DUT      : swi_c (AT-x960-56YSQ) console u2 @115200, S/N A2WQS7004,
+             bridge MAC e01a.ead4.72cb, standalone, netboots x960-tb277.rel
+  far side : swi_b (AT-x960-28YSQ) console u3 @9600, S/N A10737A261700021,
+             bridge MAC 0000.cd42.3029, STP root bridge for VLAN 100
+  monitored: swi_c port1.0.48 <-> tb277 eth4 00:0d:b9:55:77:0f (1000BASE-T, VLAN 100 access)
+  mirror   : swi_c port1.0.10 <-> tb277 eth3 00:0d:b9:55:77:0e (10GBASE-TM module at 1 Gbps)
+  LAG      : swi_c sa1 = port1.0.2 + port1.0.16 <-> swi_b, VLAN 100, both members Forwarding
+  excluded : swi_a isolated (swi_c port1.0.4/1.0.14 and swi_b port1.0.1/1.0.11 shut);
+             swi_c port1.0.8 and swi_b port1.0.8 shut -- live off-bench ports that were in
+             VLAN 100 and would otherwise have put unaccounted frames into the capture
+  tools    : tcpdump and ping on tb277; tools/cfg.py and tools/ckcon.py driving console u2
+
+STEP 0 -- baseline, no mirror configured                                  done
+--------------------------------------------------------------------------------
+x960-56YSQ#show mirror
+                                            <-- empty
+host# tcpdump -i eth3 -n 'icmp'  while pinging 10.38.22.70 from 10.38.22.65
+  0 packets captured
+  0 packets received by filter
+  ping: 6 packets transmitted, 6 received, 0% packet loss
+  <-- the destination port is silent before this case configures anything
+
+STEP 1 -- "set the mirror direction to receive and read it back"          PASS
+--------------------------------------------------------------------------------
+x960-56YSQ(config)#interface port1.0.10
+x960-56YSQ(config-if)#mirror interface port1.0.48 direction receive
+x960-56YSQ#show mirror
+  Mirror Test Port Name: port1.0.10
+  Mirror option: Enabled
+  Mirror direction: receive                 <-- direction as set
+  Monitored Port Name: port1.0.48
+x960-56YSQ#show mirror interface port1.0.48
+  Mirror Test Port Name: port1.0.10
+  Mirror option: Enabled
+  Mirror direction: receive
+  Monitored Port Name: port1.0.48
+  => STEP 1 PASS: the command is accepted and both show forms report the destination, the
+     direction and the monitored port correctly.
+
+STEP 2 -- first measurement: nothing copied, and what it was not          done
+--------------------------------------------------------------------------------
+  The mirror reported itself Enabled and correct, yet copied nothing. Everything below was
+  checked before concluding anything, because "the DUT is not mirroring" and "the host is not
+  capturing" look identical from one empty capture file.
+host# tcpdump -i eth3 -n 'icmp'  while pinging 10.38.22.70 from 10.38.22.65
+  0 packets captured
+  0 packets received by filter               <-- nothing reached eth3 AT ALL, so this is not
+                                                 a filter, decode or promiscuity problem
+  ping: 6 packets transmitted, 6 received, 0% packet loss
+x960-56YSQ#show interface port1.0.10 status
+  port1.0.10  -  connected  1  a-full a-1000  10GBASE-TM     <-- DUT side of the link is up
+host# ip -br link show dev eth3
+  eth3 UP 00:0d:b9:55:77:0e <BROADCAST,MULTICAST,UP,LOWER_UP> <-- host side is up
+x960-56YSQ#show interface port1.0.10        (before and after a 10-ping burst)
+  output packets 86779 ...  ->  output packets 86790          <-- +11 in about 11 s, which
+    matches the one-per-second loop-detect frames this bench runs on every port, NOT mirrored
+    traffic. The DUT genuinely was not copying.
+  An unfiltered capture over 14 s caught not one frame of any kind.
+  => STEP 2 done: the absence is real and is on the DUT side.
+
+STEP 3 -- "confirm on the wire that only received traffic is copied"      PASS
+--------------------------------------------------------------------------------
+  Method: the destination port was bounced, which is what makes a re-applied mirror take
+  effect on this platform (see the defects below). Nothing else was changed.
+x960-56YSQ(config-if)#interface port1.0.10
+x960-56YSQ(config-if)#shutdown
+x960-56YSQ(config-if)#no shutdown
+host# tcpdump -i eth3 -n 'icmp'  while pinging 10.38.22.70 from 10.38.22.65
+  09:02:23.565262 IP 10.38.22.65 > 10.38.22.70: ICMP echo request, id 26228, seq 1, length 64
+  09:02:24.070480 IP 10.38.22.65 > 10.38.22.70: ICMP echo request, id 26228, seq 2, length 64
+  09:02:24.582518 IP 10.38.22.65 > 10.38.22.70: ICMP echo request, id 26228, seq 3, length 64
+  09:02:25.094491 IP 10.38.22.65 > 10.38.22.70: ICMP echo request, id 26228, seq 4, length 64
+  09:02:25.606498 IP 10.38.22.65 > 10.38.22.70: ICMP echo request, id 26228, seq 5, length 64
+  09:02:26.118491 IP 10.38.22.65 > 10.38.22.70: ICMP echo request, id 26228, seq 6, length 64
+  ping: 6 packets transmitted, 6 received, 0% packet loss
+  counted: echo REQUESTS (what the DUT RECEIVES on port1.0.48) = 6
+           echo REPLIES  (what the DUT TRANSMITS out of port1.0.48) = 0
+  => STEP 3 PASS: six requests and zero replies -- the exact inverse of the transmit case's
+     six replies and zero requests, on the same cabling with the same flow. Only the received
+     direction was copied, which is what `direction receive` means. Neither result could be
+     produced by a mirror that ignored direction, so each is the other's control. Forwarding
+     was undisturbed.
+
+STEP 4 -- defects found while proving the above                           done
+--------------------------------------------------------------------------------
+  A re-applied mirror copies nothing until the destination port is bounced.
+  Seven measurements, same flow, ping 6/6 at 0% loss throughout:
+
+    state                                               frames copied
+    ------------------------------------------------    -------------
+    no mirror (baseline)                                none   correct
+    transmit, FIRST EVER apply on this port             YES
+    removed, receive applied fresh                      none   <-- defect
+    removed, three further fresh applies                none   <-- defect
+    receive + destination port bounced                  YES
+    removed, transmit applied fresh, no bounce          none   <-- defect
+    same, then destination bounced                      YES
+
+  The only mirror that worked without a bounce was the very first one on a port that had never
+  been a mirror destination. `show mirror` reported the mirror Enabled with the correct
+  direction and source throughout.
+
+  An in-place `direction` change is silently ignored. With `direction receive` live:
+x960-56YSQ(config-if)#interface port1.0.10
+x960-56YSQ(config-if)#mirror interface port1.0.48 direction transmit
+                                            <-- accepted, no error of any kind
+x960-56YSQ#show mirror
+  Mirror option: Enabled
+  Mirror direction: receive                 <-- STILL reports receive, not transmit
+  and the capture still showed 6 requests and 0 replies, i.e. receive behaviour. Bouncing the
+  port did not help. Only `no mirror interface port1.0.48` followed by a fresh apply changed
+  the reported direction, after which `show mirror` read `transmit` and the capture held 6
+  replies and 0 requests.
+  => STEP 4 done: the running configuration is not always what was typed, and `show mirror`
+     agrees with the stale value, so there is no way to detect either defect from the CLI.
+     A test that reads back `show mirror` and stops there would record a false pass. That is
+     why every verdict in this case rests on captured frames.
+================================================================================

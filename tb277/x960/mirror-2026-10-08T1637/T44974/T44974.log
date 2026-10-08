@@ -1,0 +1,157 @@
+================================================================================
+TEST T44974 -- Mirror set to interface none
+================================================================================
+Run:      2026-10-09 09:36-09:39 NZ (box local; both device clocks set to box local time
+          before the run, so device and host stamps are directly comparable)
+Bench:    tb277, consoles u2, u3, u5; Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWP-25167, objective "CR56263 regression -- set a mirror destination to
+          `interface none` and confirm the system stays stable (was an NSM crash)", 5 steps
+Build:    swi_c  sin_x96056-20260921-9 (x960-tb277.rel, build Mon Sep 21 11:25:03 UTC 2026)
+          swi_b  sin_x96056-20260921-9
+Configs:  swi_c.cfg, swi_b.cfg (running-config after setup; saved to startup: no)
+
+VERDICT: PASS -- the CR56263 crash regression did not reproduce. `mirror interface none`
+         makes the port an ACL-driven mirror destination and removes cleanly, and NSM and
+         the system were unaffected throughout.
+      command accepted .................. yes      (no error)
+      reported as ACL-driven ............ yes      (Monitored Port Name: none (via ACL))
+      NSM process ....................... unchanged (pid 795, 12 threads, before and after)
+      NSM restarts ...................... none     (an unchanged pid rules out crash+respawn)
+      system reboots .................... none     (uptime monotonic 00:10:12 -> 00:12:09)
+      crash/restart log entries ......... none
+      dataplane during and after ........ serving  (ping 6/6, 0% loss)
+      control plane during and after .... serving  (CLI answered, aggregation intact)
+      removal ........................... clean    (no residue, NSM still pid 795)
+CAVEAT:  This case is a crash regression, not a feature test, so it is graded on stability
+         rather than on mirroring behaviour. `mirror interface none` is the ACL-driven
+         destination form used by `copy-to-mirror`; it is not an "off" switch, and no
+         ACL-driven mirroring was exercised here. Defects found elsewhere in this group mean
+         mirror status output on this platform is not evidence of dataplane behaviour, so it
+         is recorded below as observation only -- the verdict rests on the process, uptime,
+         log and service evidence.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+   tb277 eth4  10.38.22.65/27
+        |
+        |  ICMP echo request ->   (the dataplane check: must keep flowing throughout)
+        v
+   port1.0.48
+  +==========================================================+
+  |   swi_c   AT-x960-56YSQ   *** DUT ***   Marvell Falcon   |
+  |                                                          |
+  |   port1.0.10:  mirror interface none                     |
+  |                -> ACL-driven mirror destination          |
+  |   WATCHED: NSM process, system uptime, log               |
+  +==========================================================+
+        |  sa1 = port1.0.2 + port1.0.16, VLAN 100
+        v
+  +----------------------------------+
+  |  swi_b  AT-x960-28YSQ            |
+  |  vlan100 10.38.22.70/27          |   far end of the dataplane check
+  +----------------------------------+
+
+  tb277 eth3 <-> swi_c port1.0.10 is cabled but carries no measurement in this case: no
+  ACL-driven mirroring was configured, so nothing was expected at the destination.
+
+  DUT      : swi_c (AT-x960-56YSQ) console u2 @115200, S/N A2WQS7004,
+             bridge MAC e01a.ead4.72cb, standalone, netboots x960-tb277.rel
+  far side : swi_b (AT-x960-28YSQ) console u3 @9600, S/N A10737A261700021,
+             bridge MAC 0000.cd42.3029, STP root bridge for VLAN 100
+  link     : swi_c port1.0.48 <-> tb277 eth4 00:0d:b9:55:77:0f (1000BASE-T, VLAN 100 access)
+  link     : swi_c port1.0.10 <-> tb277 eth3 00:0d:b9:55:77:0e (10GBASE-TM module at 1 Gbps)
+  LAG      : swi_c sa1 = port1.0.2 + port1.0.16 <-> swi_b, VLAN 100, both members Forwarding
+  excluded : swi_a isolated; swi_c port1.0.8 and swi_b port1.0.8 shut
+  tools    : ping on tb277; tools/cfg.py and tools/ckcon.py driving console u2
+
+STEP 0 -- baseline before the command                                     done
+--------------------------------------------------------------------------------
+x960-56YSQ#show process
+  pid name            thrds  cpu%  mem%   pri     state
+  795 nsm                12   0.0   0.2    20 sleep
+x960-56YSQ#show system
+  Uptime             : 0 days 00:10:12
+  <-- NSM running normally as pid 795 with 12 threads; uptime counting from this group's
+      earlier reload. These are the two numbers the regression would disturb.
+
+STEP 1 -- "set mirror to interface none"                                  PASS
+--------------------------------------------------------------------------------
+x960-56YSQ(config)#interface port1.0.10
+x960-56YSQ(config-if)#mirror interface none
+                                            <-- accepted, no error
+x960-56YSQ#show mirror
+  Mirror Test Port Name: port1.0.10
+  Mirror option: Enabled
+  Mirror direction: receive
+  Monitored Port Name: none (via ACL)       <-- the ACL-driven destination form
+x960-56YSQ#show running-config interface port1.0.10
+  interface port1.0.10
+   switchport
+   switchport mode access
+   mirror interface none
+  => STEP 1 PASS: the command is accepted and the port becomes an ACL-driven mirror
+     destination, reported as `none (via ACL)`. This is the mechanism `copy-to-mirror` uses.
+     Recorded as observation: the direction field still reads `receive`, carried over from
+     the port's previous configuration -- on this platform that field is not authoritative.
+
+STEP 2 -- "NSM stayed up"                                                 PASS
+--------------------------------------------------------------------------------
+x960-56YSQ#show process
+  795 nsm                12   0.0   0.2    20 sleep
+  => STEP 2 PASS: NSM is still pid 795, with the same 12 threads and in the same state. The
+     pid is unchanged, so the process did not restart -- a crash and respawn would have
+     produced a new one. This is the regression CR56263 describes, and it did not occur.
+
+STEP 3 -- "the system stayed up"                                          PASS
+--------------------------------------------------------------------------------
+x960-56YSQ#show system
+  Uptime             : 0 days 00:11:03      <-- was 00:10:12 at STEP 0; monotonic, no reboot
+x960-56YSQ#show log tail 25
+  <date> <time> <facility>.<severity> <program[<pid>]>: <message>
+  -------------------------------------------------------------------------
+                                            <-- no crash, restart, exception or NSM entry
+  => STEP 3 PASS: uptime advanced continuously across the command, so the unit did not
+     reboot, and the log carries no crash, restart or exception entry.
+
+STEP 4 -- "control plane and dataplane still serving"                     PASS
+--------------------------------------------------------------------------------
+host# ping -c 4 -I 10.38.22.65 10.38.22.70
+  0% packet loss                            <-- forwarding across the DUT unaffected
+x960-56YSQ#show static-channel-group
+  Member:
+   port1.0.2
+   port1.0.16                               <-- CLI responsive, aggregation intact
+  => STEP 4 PASS: the switch continued to answer on the console and to forward traffic
+     between the host and the far side while the ACL-driven destination was in place.
+
+STEP 5 -- "remove it, and confirm stability across the removal"           PASS
+--------------------------------------------------------------------------------
+x960-56YSQ(config-if)#interface port1.0.10
+x960-56YSQ(config-if)#no mirror interface none
+  % port1.0.10 is currently configured as a mirror-port. Use caution when altering its config
+                                            <-- advisory, not a rejection
+x960-56YSQ#show mirror
+                                            <-- empty
+x960-56YSQ#show running-config interface port1.0.10
+  interface port1.0.10
+   switchport
+   switchport mode access                   <-- no residue
+x960-56YSQ#show process
+  795 nsm                12   0.0   0.2    20 sleep         <-- STILL pid 795
+x960-56YSQ#show system
+  Uptime             : 0 days 00:12:09      <-- still monotonic
+  => STEP 5 PASS: `no mirror interface none` removes the ACL-driven destination with no
+     residue, and NSM and the system survived the removal as well as the application.
+
+  Stability summary -- the actual subject of this case:
+
+    point in time                      NSM pid   threads   uptime      log
+    ---------------------------------  -------   -------   --------    -----
+    before `mirror interface none`       795       12      00:10:12    clean
+    after  `mirror interface none`       795       12      00:11:03    clean
+    after  `no mirror interface none`    795       12      00:12:09    clean
+================================================================================

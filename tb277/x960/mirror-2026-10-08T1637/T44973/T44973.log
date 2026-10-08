@@ -1,0 +1,133 @@
+================================================================================
+TEST T44973 -- CLI Remove mirror interface
+================================================================================
+Run:      2026-10-09 09:33-09:36 NZ (box local; both device clocks set to box local time
+          before the run, so device and host stamps are directly comparable)
+Bench:    tb277, consoles u2, u3, u5; Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWP-6299, objective "remove a configured port mirror and confirm the destination
+          port returns to normal operation", 5 steps
+Build:    swi_c  sin_x96056-20260921-9 (x960-tb277.rel, build Mon Sep 21 11:25:03 UTC 2026)
+          swi_b  sin_x96056-20260921-9
+Configs:  swi_c.cfg, swi_b.cfg (running-config after setup; saved to startup: no)
+
+VERDICT: PASS -- the bare `no mirror interface` is correctly rejected and leaves the mirror
+         intact; `no mirror interface <source>` removes it from the configuration, stops the
+         frame copying, and returns the destination port to normal switching.
+      bare form rejected ................ yes      (% Incomplete command.)
+      mirror survives the rejection ..... yes      (show mirror unchanged)
+      correct form accepted ............. yes
+      removed from running-config ....... yes      (plain access port again)
+      frame copying stopped ............. yes      (6 mirrored frames before, 0 after)
+      forwarding undisturbed ............ yes      (ping 6/6, 0% loss before and after)
+      destination back in switching ..... yes      (LLDP and VLAN-1 broadcast reappear)
+CAVEAT:  Proven against a mirror that was demonstrably copying frames beforehand, which
+         matters here: defects found elsewhere in this group mean a mirror can be reported
+         as Enabled while copying nothing, so "no frames after removal" is only meaningful
+         if frames were being copied before.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+   tb277 eth4  10.38.22.65/27                 tb277 eth3  (tcpdump, promiscuous)
+        |                                          ^
+        |  ICMP echo request ->                    |  6 mirrored frames BEFORE removal
+        v                                          |  0 mirrored frames AFTER
+   port1.0.48  (MONITORED)                    port1.0.10  (MIRROR DESTINATION, then
+  +==========================================================+  returned to a plain
+  |   swi_c   AT-x960-56YSQ   *** DUT ***   Marvell Falcon   |  VLAN-1 access port)
+  |   mirror interface port1.0.48 direction receive          |
+  |        -> removed during this case                       |
+  +==========================================================+
+        |  sa1 = port1.0.2 + port1.0.16, VLAN 100
+        v
+  +----------------------------------+
+  |  swi_b  AT-x960-28YSQ            |
+  |  vlan100 10.38.22.70/27          |
+  +----------------------------------+
+
+  DUT      : swi_c (AT-x960-56YSQ) console u2 @115200, S/N A2WQS7004,
+             bridge MAC e01a.ead4.72cb, standalone, netboots x960-tb277.rel
+  far side : swi_b (AT-x960-28YSQ) console u3 @9600, S/N A10737A261700021,
+             bridge MAC 0000.cd42.3029, STP root bridge for VLAN 100
+  monitored: swi_c port1.0.48 <-> tb277 eth4 00:0d:b9:55:77:0f (1000BASE-T, VLAN 100 access)
+  mirror   : swi_c port1.0.10 <-> tb277 eth3 00:0d:b9:55:77:0e (10GBASE-TM module at 1 Gbps)
+  LAG      : swi_c sa1 = port1.0.2 + port1.0.16 <-> swi_b, VLAN 100, both members Forwarding
+  excluded : swi_a isolated; swi_c port1.0.8 and swi_b port1.0.8 shut (live off-bench ports
+             that were in VLAN 100)
+  tools    : tcpdump and ping on tb277; tools/cfg.py and tools/ckcon.py driving console u2
+
+STEP 0 -- a working mirror must exist before removal can mean anything    done
+--------------------------------------------------------------------------------
+x960-56YSQ#show mirror
+  Mirror Test Port Name: port1.0.10
+  Mirror option: Enabled
+  Mirror direction: receive
+  Monitored Port Name: port1.0.48
+host# tcpdump -i eth3 -n 'icmp'  while pinging 10.38.22.70 from 10.38.22.65
+  counted: echo REQUESTS = 6 ; echo REPLIES = 0
+  ping: 6 packets transmitted, 6 received, 0% packet loss
+  <-- the mirror is live and demonstrably copying frames, so a later absence is attributable
+      to the removal and not to a mirror that never worked
+
+STEP 1 -- "the bare `no mirror interface` is rejected"                    PASS
+--------------------------------------------------------------------------------
+x960-56YSQ(config)#interface port1.0.10
+  % port1.0.10 is currently configured as a mirror-port. Use caution when altering its config
+                                            <-- advisory on ENTERING the interface, not a
+                                                rejection; the prompt advanced
+x960-56YSQ(config-if)#no mirror interface
+  % Incomplete command.                     <-- the bare form IS rejected by the parser
+x960-56YSQ#show mirror
+  Mirror Test Port Name: port1.0.10
+  Mirror option: Enabled
+  Mirror direction: receive
+  Monitored Port Name: port1.0.48           <-- UNCHANGED: the rejection removed nothing
+  => STEP 1 PASS: `no mirror interface` without a source argument is refused with
+     `% Incomplete command.` and the existing mirror survives the attempt intact. The command
+     requires an argument -- the CLI offers either an interface range or `none`.
+
+STEP 2 -- "the correct form removes it from the configuration"            PASS
+--------------------------------------------------------------------------------
+x960-56YSQ(config-if)#interface port1.0.10
+x960-56YSQ(config-if)#no mirror interface port1.0.48
+  % port1.0.10 is currently configured as a mirror-port. Use caution when altering its config
+                                            <-- advisory again; the command succeeded
+x960-56YSQ#show mirror
+                                            <-- empty
+x960-56YSQ#show running-config interface port1.0.10
+  interface port1.0.10
+   switchport
+   switchport mode access                   <-- mirror line gone, plain access port again
+  => STEP 2 PASS: the removal is accepted and leaves no residue in the running-config.
+
+STEP 3 -- "confirm the frame copying actually stopped"                    PASS
+--------------------------------------------------------------------------------
+host# tcpdump -i eth3 -n 'icmp'  while pinging 10.38.22.70 from 10.38.22.65
+  0 packets captured
+  0 packets received by filter
+  ping: 6 packets transmitted, 6 received, 0% packet loss
+  counted: echo REQUESTS = 0 ; echo REPLIES = 0
+  => STEP 3 PASS: the identical flow that produced 6 mirrored frames at STEP 0 now produces
+     none, while still passing end to end. Mirroring stopped in the dataplane, not merely in
+     the configuration -- which has to be shown separately on this platform, because the
+     configuration display and the dataplane can disagree.
+
+STEP 4 -- "the destination port returned to normal operation"             PASS
+--------------------------------------------------------------------------------
+  Method: a mirror destination leaves every VLAN and stops participating in switching, so
+  proving it came back is part of proving the removal. `show interface status` cannot show
+  this -- it reports a mirror destination identically with and without a mirror. A capture
+  can: while port1.0.10 was a mirror destination, eth3 saw no ordinary VLAN traffic at all.
+host# tcpdump -i eth3 -n -c 5
+  ...
+  09:36:11.954256 LLDP, length 50
+  5 packets captured
+  5 packets received by filter
+  => STEP 4 PASS: with the mirror removed, eth3 again receives ordinary VLAN-1 traffic --
+     LLDP and broadcast -- which it had not seen while the port was a mirror destination.
+     The port is back in normal switching. This is positive proof of a kind the status
+     commands are incapable of giving.
+================================================================================
