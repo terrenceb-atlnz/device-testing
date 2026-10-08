@@ -227,6 +227,78 @@ destination leaves every VLAN and stops normal switching, and **only one mirror 
 supported per switch** — so host eth3 sees mirrored frames only, and no case may configure a
 second destination.
 
+## Group 4 bench setup AS APPLIED, and its exact restore recipe (2026-10-08T1637)
+
+Written BEFORE the group's first case so a fresh tester can restore the bench if this
+session dies mid-group (bench-runner RUN obligation). **T44992's stack clauses were
+withdrawn by the Test Engineer 2026-10-08:** *"AWPTCM-T44992 (1.0) ACL: Named Hardware on
+static LAG - IP does not need a stack, so please perform the test on a current setup."*
+The case is therefore graded in full on a standalone DUT, and its row is no longer PARTIAL.
+
+Pre-change baselines (full `show running-config`, `show static-channel-group`,
+`show spanning-tree brief`, `show access-list`, `show mirror`, `show boot`) are captured at
+`/tmp/ck-t44992-2026-10-08/pre-u2.txt` and `pre-u3.txt` on tb277, and copied into
+`tb277/x960/acl-lag-2026-10-08T1637/T44992/work/`. **The repo copies are authoritative** —
+tb277's `/tmp` does not survive a box reboot.
+
+This adopts triage recommendations (a), (c) and (e): the two off-bench VLAN-100 ports are
+shut, the LAG rework is done shut-first, and `flash:/default.cfg` is backed up.
+
+### Setup, in the order applied
+
+```
+S0  DUT    copy flash:/default.cfg flash:/precampaign.cfg        [done 17:13]
+S1  swi_b  interface port1.0.16 ; shutdown                        [done 17:13]
+S2  DUT    interface port1.0.16 ; shutdown                        [done 17:13]
+S3  swi_b  interface port1.0.4  ; no static-channel-group
+           interface port1.0.16 ; switchport access vlan 100 ; static-channel-group 1
+           interface port1.0.8  ; shutdown        (off-bench, was in vlan 100)
+           interface port1.0.1  ; shutdown        (isolates swi_a)
+           interface port1.0.11 ; shutdown        (isolates swi_a)
+           interface vlan100    ; ip address 10.38.22.70/27
+S4  DUT    interface port1.0.4  ; no static-channel-group ; switchport access vlan 1 ; shutdown
+           interface port1.0.14 ; shutdown        (isolates swi_a)
+           interface port1.0.8  ; shutdown        (off-bench, was in vlan 100)
+           interface port1.0.16 ; switchport access vlan 100 ; static-channel-group 1
+           interface port1.0.48 ; switchport access vlan 100
+S5  swi_b  interface port1.0.16 ; no shutdown
+    DUT    interface port1.0.16 ; no shutdown
+```
+
+Gate before case 1: `show static-channel-group` must read `port1.0.2` + `port1.0.16` on BOTH
+units, both members Forwarding; `show log` must show no loop-protection action; and the
+control ping 10.38.22.65 (host eth4) <-> 10.38.22.70 (swi_b vlan100) must pass BOTH ways.
+That round trip transits the DUT and is what every ACL step is read against.
+
+### Restore — exact reverse, run it whole
+
+```
+R1  DUT    interface port1.0.16 ; shutdown
+    swi_b  interface port1.0.16 ; shutdown
+R2  DUT    interface port1.0.48 ; switchport access vlan 1
+           interface port1.0.16 ; no static-channel-group ; switchport access vlan 1
+           interface port1.0.8  ; no shutdown
+           interface port1.0.14 ; no shutdown
+           interface port1.0.4  ; no shutdown ; switchport access vlan 100 ; static-channel-group 1
+R3  swi_b  interface vlan100    ; no ip address
+           interface port1.0.11 ; no shutdown
+           interface port1.0.1  ; no shutdown
+           interface port1.0.8  ; no shutdown
+           interface port1.0.16 ; no static-channel-group ; switchport access vlan 1
+           interface port1.0.4  ; static-channel-group 1      (it kept vlan 100)
+R4  swi_b  interface port1.0.16 ; no shutdown
+    DUT    interface port1.0.16 ; no shutdown
+R5  DUT    delete flash:/precampaign.cfg      (only after any D3 save has been undone)
+R6  diff both running-configs against the pre-change baselines; re-run bench_probe.
+```
+
+**If D3 wrote startup-config on the DUT**, restore it before R5:
+`copy flash:/precampaign.cfg flash:/default.cfg`, then confirm `show boot` still reads
+`Current boot config: flash:/default.cfg (file exists)`.
+
+Nothing in S0-S5 was saved to startup-config on either unit, so a reload of either clears
+S1-S5 by itself. S0 leaves only an inert extra file in the DUT's flash.
+
 ## Queue
 
 | # | case(s) | group dir | state | note |
@@ -235,7 +307,7 @@ second destination.
 | 1 | T44967 T44968 T44969 T44973 T44974 | mirror-2026-10-08T1637 | TODO | port mirroring. Now with **real frames**: 1.0.48 is the monitored port, 1.0.10 the destination, host eth3 captures. D3 carried by T44969 |
 | 2 | T44987 T44988 T44986 | acl-num-2026-10-08T1637 | TODO | numbered ACLs: IP 3000 range, MAC 4000 range, standard 1–99. D3 carried by T44987 |
 | 3 | T44979 T44991 T44989 T44990 | acl-named-2026-10-08T1637 | TODO | named hardware ACLs on a port: proto, copy-to-cpu, send-to-cpu, copy-to-mirror. Run copy-to-cpu and send-to-cpu back to back and contrast. D3 carried by T44979 |
-| 4 | T44992 | acl-lag-2026-10-08T1637 | TODO | named hardware ACL on `sa1`. Expected PARTIAL — see its entry |
+| 4 | T44992 | acl-lag-2026-10-08T1637 | RUNNING | named hardware ACL on `sa1`. Stack clauses WITHDRAWN by the Test Engineer 2026-10-08 — graded in full, no longer PARTIAL. Setup + restore recipe above |
 
 ## Drafted case steps — to be syntax-confirmed on the DUT at triage
 
