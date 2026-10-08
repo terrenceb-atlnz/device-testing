@@ -183,7 +183,7 @@ second destination.
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 0 | — | — | TODO | campaign setup above; then triage confirms every drafted command on the DUT |
+| 0 | — | — | TRIAGE DONE | campaign setup above; then triage confirms every drafted command on the DUT |
 | 1 | T44967 T44968 T44969 T44973 T44974 | mirror-2026-10-08T1637 | TODO | port mirroring. Now with **real frames**: 1.0.48 is the monitored port, 1.0.10 the destination, host eth3 captures. D3 carried by T44969 |
 | 2 | T44987 T44988 T44986 | acl-num-2026-10-08T1637 | TODO | numbered ACLs: IP 3000 range, MAC 4000 range, standard 1–99. D3 carried by T44987 |
 | 3 | T44979 T44991 T44989 T44990 | acl-named-2026-10-08T1637 | TODO | named hardware ACLs on a port: proto, copy-to-cpu, send-to-cpu, copy-to-mirror. Run copy-to-cpu and send-to-cpu back to back and contrast. D3 carried by T44979 |
