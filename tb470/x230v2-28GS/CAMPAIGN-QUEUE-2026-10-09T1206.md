@@ -41,12 +41,14 @@ Hand-off case entries (both `kind: script`):
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | port (scripts): T33234, T33235 | tb470/x230v2-28GS/port-2026-10-09T1206/ | TRIAGED: 0 run / 1 binding-blocked / 1 UNSUPPORTED | triage only (session constraint). T33235 is BLOCKED on the DUT binding: the scripts take `swi_a` = IE520 stk_a (u2), not the x230 (u0 = swi_f). Remedy, the TE's call: rename swi_a<->swi_f in tb470.static + probe + apply, OR a Test-Composer pair with that swap. Once bound, it is runnable on the present cabling (copper x230 1.0.3, fibre 1.0.4, monitored 1.0.2), with 1 x230 reload, so ask office vs after hours. T33234 is UNSUPPORTED (platform): the x230v2-28GS has no fixed copper switchport, so all 14 TestCases are pre-marked UNSUPPORTED, nothing is sent and nothing cycles. No bench change unblocks it. See `## Triage 2026-10-09` |
+| 1 | port (scripts): T33234, T33235 | tb470/x230v2-28GS/port-2026-10-09T1206/ | BLOCKED (sentinel 2026-10-09 ~12:35: session constraint triage-only, and 0 runnable) | triage only (session constraint). T33235 is BLOCKED on the DUT binding: the scripts take `swi_a` = IE520 stk_a (u2), not the x230 (u0 = swi_f). Remedy, the TE's call: rename swi_a<->swi_f in tb470.static + probe + apply, OR a Test-Composer pair with that swap. Once bound, it is runnable on the present cabling (copper x230 1.0.3, fibre 1.0.4, monitored 1.0.2), with 1 x230 reload, so ask office vs after hours. T33234 is UNSUPPORTED (platform): the x230v2-28GS has no fixed copper switchport, so all 14 TestCases are pre-marked UNSUPPORTED, nothing is sent and nothing cycles. No bench change unblocks it. See `## Triage 2026-10-09` |
 
 ## Results
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
+| T33234 | Port - Auto MDI/MDI-X | port | NOT TESTED | Session constraint: triage only. Triage: UNSUPPORTED (platform) expected -- x230v2-28GS has no fixed copper switchport, all 14 TestCases pre-marked; also bound to swi_a = IE520 stk_a, not the x230 | -- | tester |
+| T33235 | (3) Port - Fixed port Speed | port | NOT TESTED | Session constraint: triage only. Triage: BLOCKED on DUT binding (swi_a = IE520 stk_a u2; x230 = swi_f) -- TE: swap swi_a<->swi_f in tb470.static + probe + apply, or a Test-Composer pair; then runnable on present cabling, 1 x230 reload (office vs after hours) | -- | tester |
 
 ## Issues
 
