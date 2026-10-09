@@ -108,6 +108,8 @@ group (manual CLI cases driven with `tools/ckcon.py` / `ckreload.py` on u0 only)
      `configure terminal` / `vlan database` / `vlan 103,104,105` / `interface port1.0.3` / `switchport access vlan 103` /
      `interface port1.0.4` / `switchport access vlan 104` / `interface port1.0.5` / `switchport access vlan 105` / `end`;
      verify `show vlan brief`. Do NOT `write`.
+     Also `lldp run` (config mode): it was in the x230's running-config only (bench_probe.py turns it on) and the reload
+     drops it (found in T31858, 18:09). Verify with a running-config diff against the pre-case capture.
   2. T31858 changes the x230 clock: set it back to the baseline (the box's NZ local time, written as the x230's UTC, since
      the x230 has `no clock timezone`): `clock set <tb470 local hh:mm:ss> <dd> <Mon> <yyyy>`; verify `show clock`.
   3. T31863/T31866: `line con 0` / `exec-timeout 0` is set by the case; remove it (`line con 0` / `no exec-timeout`) unless
