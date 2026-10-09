@@ -73,7 +73,11 @@ away.
        - `kind` at the top: `validation` and `composer` are a normal TRIAGE then RUN of
          `cases[]`. **`composer-validate` is a TRIAGE only, with no cases:** the probe runs with
          `--template ~/claude/Test-cases/<template_setup_rel>` (the `.setup` inside a template
-         folder is not always named after it) and the triage report is the result;
+         folder is not always named after it) and the triage report is the result. After the
+         probe, print one line, exactly `PROBE <MATCH|MISMATCH|NEEDS-CHECK> <template>`, and put
+         the differences in plain words in the report (Ask-CK shows its green check only on
+         `PROBE MATCH`);
+       - **`validation`** (one script case) adds the repair loop and the review of §11;
        - `options` (email, start_after) are Ask-CK's server's. This session sends no mail.
 2. **Ask the setup questions in ONE AskUserQuestion call**, before touching any box. (A
    `Driver: ask-ck` campaign takes these answers from the hand-off; a missing one goes through
@@ -429,3 +433,50 @@ ENGINEER:`), do this instead:
    §8 says.
 
 §8's completion still applies: an Ask-CK campaign then runs `/create-logs --auto` (§8).
+
+## 11. Ask-CK Validation (`kind: validation`) — repair, then review (Terrence, 2026-10-09)
+
+Ask-CK's `plans/PLAN-test-validation.md` §3–§5. Only for a `Driver: ask-ck` campaign whose
+hand-off says `kind: validation` (one script case). Everything in §10 still applies.
+
+**1. The repair loop: "make it run end to end, even if the test fails."** You direct
+`bench-runner` (RUN, with `validation: repair` in the dispatch) until the run is **clean**.
+Terrence's definition: *"the script ran with no exception errors, no device errors from config,
+the CLI commands worked, didnt miss a config step to enable a feature and make a test case read
+UNSUPPORTED, no Python Syntax errors … no issues at all, contextually or otherwise."* A FAIL
+from a real DUT fault is still clean.
+- **Edit a copy only:** `<group dir>/<case>/work/<script>` here, and the box's `/tmp` scratch.
+  Never the Test-cases file; approving a repaired copy happens on Ask-CK's page.
+- **Allowed edits are mechanics:** imports, syntax, framework API use, timing and waits, console
+  handling, a defaulting command the platform rejects, a missing config step that made a case
+  read UNSUPPORTED.
+- **Not allowed:** removing or loosening a check; asserting a weaker field (configured instead
+  of current); hardcoding a port or any other bench fact; overriding the framework's
+  post-failure power cycle (STANDING-ORDERS §6).
+- **Log every change** in `<group dir>/<case>/work/repairs.md`, numbered, each with its reason
+  and the run that showed the need.
+- **Systematic failures stop the run** (STANDING-ORDERS §6): repair before the next run, never
+  let N cases pay N power cycles. STANDING-ORDERS §4 decisions still block (§10).
+- **Every re-run that fails a TestCase power-cycles the whole bench.** Re-runs count as
+  reboot-heavy: respect the session constraints and memory `reboot-heavy-runs-after-hours`. After
+  5 runs that are still not clean, stop: §10 notice, the case BLOCKED with what is left.
+- When the repaired copy is final, print one line, exactly
+  `REPAIRED <case-id> <its path, relative to the device-testing root>`. With no edits needed,
+  print nothing for this step.
+
+**2. The review, at the end of a clean run.** You do it, in context, one exhaustive pass:
+- (a) the logs: any false positive or false negative;
+- (b) the case's objective and test steps (`case_payload_rel`, resolved as in §1) against the
+  script: does each test meet them, and does the script make sense for them;
+- (c) improvements: structure or efficiency without reducing the quality of the output;
+  outdated tests.
+
+Write it to `<group dir>/<case>/review.md` (not `/create-logs`' `<id>-review.md`, which reviews
+token use), commit, and print one line, exactly
+`REVIEWED <case-id> <that path, relative to the device-testing root>`. **The framework's verdict
+stands** (memory `grading-authority-tier-list`): the review is analysis only, and changes no
+Results row.
+
+Ask-CK's page reads exactly the `REPAIRED`, `REVIEWED` and `PROBE` lines, alongside `RESULT` and
+`NOTIFY`. Nothing on this side writes Test-cases. Then §8's end: `/create-logs --auto` (a script
+case is skipped), stand down, `ASKCK-DONE <run id>`.

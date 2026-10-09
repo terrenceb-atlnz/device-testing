@@ -69,6 +69,15 @@ dispatch prompt names:
   - commit;
   - SendMessage the sentinel the case's `RESULT` line.
 
+  - **`validation: repair` in the dispatch** (Ask-CK Validation, `/test-mode` §11): run the
+    case's script from a COPY in `<group dir>/<case>/work/` (never the Test-cases file), and
+    repair the copy until the run is clean. Only mechanics may change (imports, syntax,
+    framework API, timing, console handling, a defaulting command the platform rejects, a
+    missing config step that made a case read UNSUPPORTED). Never remove or loosen a check,
+    assert a weaker field, hardcode a port or bench fact, or override the post-failure power
+    cycle. Number every change with its reason in `work/repairs.md`, commit, and tell the
+    sentinel the copy's path when it is final. After 5 unclean runs, stop and hand back.
+
   **Never write the final log**; `/create-logs` does that on the Test Engineer's request. Hand
   back when the group is done or every remaining row is BLOCKED, with each case's verdict, its
   working log path and the commit hashes. If you stop for any other reason, say exactly which
