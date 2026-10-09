@@ -388,14 +388,20 @@ the five largest outputs and the commands repeated verbatim.
 ### `linerate.py`
 Sends a UDP stream at a set rate, up to 1G line rate, from one host NIC and counts what arrives
 on the others. It uses tcpreplay and tcpdump.
-- **Run:** `sudo linerate.py --tx NIC --dst-mac MAC [--rx NIC,NIC] [--rate Mbps|top] [--secs 10] [--size 1500] [--dport 9] [--sport 5010] [--ttl 2] [--src-mac M] [--src-ip IP] [--dst-ip 192.0.2.1] [--pcap PATH]`
+- **Run:** `sudo linerate.py --tx NIC --dst-mac MAC [--rx NIC,NIC] [--rate Mbps|top] [--secs 10] [--size 1500] [--dport 9] [--sport 5010] [--ttl 2] [--src-mac M] [--src-ip IP] [--dst-ip 192.0.2.1] [--pcap PATH] [--ipv6] [--src-macs N] [--rx-mac MAC|any] [--rx-len]`
+- **Options added 2026-10-09:** `--rx-mac` counts frames arriving with that source MAC (a router's egress MAC: routed
+  traffic is re-sourced, so the default sender-MAC filter counts 0) or `any`; `--rx-len` counts only frames of exactly the
+  length sent (a lost or extra tag is then not counted); `--ipv6` builds IPv6/UDP (`--ttl` = hop limit; needs `--src-ip`
+  and `--dst-ip`); `--src-macs N` rotates N source MACs (the sender's, then 02:cc:00:00:xx:xx). The receive filter now
+  always names `ip`/`ip6`.
 - **Where:** testbox (root); **needs:** scapy, tcpreplay, tcpdump, iproute2
 - **Imports:** none
 - **Limits:**
   - About 984 Mbps of frame bytes measured on 1G NICs.
-  - IPv4/UDP only.
+  - UDP only (IPv4 or, with `--ipv6`, IPv6).
   - The pcap is a temporary file unless `--pcap` is given.
-- **Status:** verified on tb470 2026-10-02 at `--rate 10 --secs 5`: 4178 sent (10.2 Mbps on the wire), 4178 received on eth3, 0 kernel drops. Line rate itself not re-run
+- **Status:** verified on tb470 2026-10-02 at `--rate 10 --secs 5`: 4178 sent (10.2 Mbps on the wire), 4178 received on eth3, 0 kernel drops. Line rate itself not re-run. 2026-10-09 on tb470 (x230 T38294): line rate re-run, 822501 frames at 999.7 Mbps on the wire bridged; routed with
+  `--rx-mac --rx-len` at 1500/1518/64 bytes, 100% counted (64-byte frames top out at ~274 kpps from this host)
 
 ### `l2flows.py`
 Runs four sequence-numbered L2 flows between two host NICs, through the DUT, and records every

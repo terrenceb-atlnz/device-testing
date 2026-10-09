@@ -49,22 +49,40 @@ def nic_ipv4(nic):
     return m.group(1) if m else "10.0.0.1"
 
 
+def src_mac_list(src_mac, n):
+    """n source MACs: the given one, then locally-administered 02:cc:00:00:HH:LL variants."""
+    if n <= 1:
+        return [src_mac]
+    return [src_mac] + ["02:cc:00:00:%02x:%02x" % (i >> 8, i & 0xFF) for i in range(1, n)]
+
+
 def build_pcap(path, src_mac, dst_mac, src_ip, dst_ip, dport, wire_size, count=500,
-               sport=5010, ttl=2):
-    from scapy.all import Ether, IP, UDP, Raw, wrpcap
+               sport=5010, ttl=2, ipv6=False, src_macs=1):
+    from scapy.all import Ether, IP, IPv6, UDP, Raw, wrpcap
     built = wire_size - 4                                 # FCS is added by the NIC
-    payload = built - 14 - 20 - 8                         # Ether + IPv4 + UDP headers
+    l3 = 40 if ipv6 else 20
+    payload = built - 14 - l3 - 8                         # Ether + IP + UDP headers
     if payload < 0:
         sys.exit("frame too small: %d on the wire" % wire_size)
-    p = Ether(src=src_mac, dst=dst_mac) / IP(src=src_ip, dst=dst_ip, ttl=ttl) / \
-        UDP(sport=sport, dport=dport) / Raw(bytes(payload))
-    assert len(p) == built, len(p)
-    wrpcap(path, [p] * count)                             # 500 copies: tcpreplay loops it
+    macs = src_mac_list(src_mac, src_macs)
+    count = max(count, len(macs))
+    frames = []
+    for i in range(count):
+        ip = IPv6(src=src_ip, dst=dst_ip, hlim=ttl) if ipv6 else IP(src=src_ip, dst=dst_ip, ttl=ttl)
+        p = Ether(src=macs[i % len(macs)], dst=dst_mac) / ip / \
+            UDP(sport=sport, dport=dport) / Raw(bytes(payload))
+        assert len(p) == built, len(p)
+        frames.append(p)
+    wrpcap(path, frames)                                  # tcpreplay loops it
+    return built
 
 
 def run(args):
     src_mac = args.src_mac or nic_mac(args.tx)
+    if args.ipv6 and not (args.src_ip and args.dst_ip):
+        sys.exit("--ipv6 needs --src-ip and --dst-ip (IPv6 addresses)")
     src_ip = args.src_ip or nic_ipv4(args.tx)
+    args.dst_ip = args.dst_ip or "192.0.2.1"
     if args.pcap:
         pcap = args.pcap
     else:                                                 # scratch: removed after the run
@@ -79,16 +97,25 @@ def run(args):
 
 
 def send_and_count(args, pcap, src_mac, src_ip):
-    build_pcap(pcap, src_mac, args.dst_mac, src_ip, args.dst_ip, args.dport, args.size,
-               sport=args.sport, ttl=args.ttl)
+    built = build_pcap(pcap, src_mac, args.dst_mac, src_ip, args.dst_ip, args.dport, args.size,
+                       sport=args.sport, ttl=args.ttl, ipv6=args.ipv6, src_macs=args.src_macs)
 
     # receivers first, so the first frame is counted; -s 64 keeps the kernel copy tiny and
-    # -B 65536 the ring big enough that "packets dropped by kernel" stays 0 at line rate
+    # -B 65536 the ring big enough that "packets dropped by kernel" stays 0 at line rate.
+    # Filter: the frames' source MAC as they ARRIVE (--rx-mac: the router's egress MAC for a
+    # routed stream, 'any' for none), the UDP source port, and with --rx-len the exact
+    # length sent (a frame that lost or gained bytes on the way is then not counted).
+    rx_mac = args.rx_mac or (src_mac if args.src_macs <= 1 else "any")
+    flt = ["%s and udp src port %d" % ("ip6" if args.ipv6 else "ip", args.sport)]
+    if rx_mac != "any":
+        flt.insert(0, "ether src %s" % rx_mac)
+    if args.rx_len:
+        flt.append("len = %d" % built)
+    flt = " and ".join(flt)
     tds = {}
     for rx in args.rx:
         tds[rx] = subprocess.Popen(
-            ["tcpdump", "-i", rx, "-nn", "-s", "64", "-B", "65536", "-w", "/dev/null",
-             "ether src %s and udp src port %d" % (src_mac, args.sport)],
+            ["tcpdump", "-i", rx, "-nn", "-s", "64", "-B", "65536", "-w", "/dev/null", flt],
             stderr=subprocess.PIPE, text=True)
     time.sleep(2)
 
@@ -114,8 +141,10 @@ def send_and_count(args, pcap, src_mac, src_ip):
         sys.exit("tcpreplay gave no summary:\n" + out)
     sent, mbps, pps = int(m.group(1)), float(m.group(3)), float(m.group(4))
     wire = pps * (args.size + 20) * 8 / 1e6               # + 8 preamble/SFD + 12 IFG
-    print("%s-%s  tx %s -> %s  %d-byte frames  rate=%s" % (t0, t1, args.tx, args.dst_mac,
-                                                          args.size, args.rate))
+    print("%s-%s  tx %s -> %s  %d-byte frames  rate=%s  %s %s -> %s ttl/hlim %d  src MACs %d"
+          % (t0, t1, args.tx, args.dst_mac, args.size, args.rate, "IPv6" if args.ipv6 else "IPv4",
+             src_ip, args.dst_ip, args.ttl, args.src_macs))
+    print("  rx filter: %s" % flt)
     print("  sent %d   tcpreplay %.1f Mbps (frame bytes)  %.0f pps  = %.1f Mbps on the wire"
           % (sent, mbps, pps, wire))
     for rx, (n, kd) in got.items():
@@ -133,7 +162,7 @@ def main(argv=None):
                     help="destination MAC: a learned host MAC (unicast) or an unlearned one (DLF)")
     ap.add_argument("--src-mac", default=None, help="default: the sending NIC's MAC")
     ap.add_argument("--src-ip", default=None, help="default: the sending NIC's IPv4")
-    ap.add_argument("--dst-ip", default="192.0.2.1")
+    ap.add_argument("--dst-ip", default=None, help="default 192.0.2.1 (IPv4); required with --ipv6")
     ap.add_argument("--dport", type=int, default=9)
     ap.add_argument("--sport", type=int, default=5010,
                     help="UDP source port; receivers filter on it (default 5010)")
@@ -141,6 +170,15 @@ def main(argv=None):
     ap.add_argument("--size", type=int, default=1500, help="frame size ON THE WIRE (default 1500)")
     ap.add_argument("--rate", default="top", help="Mbps, or 'top' for line rate (default)")
     ap.add_argument("--secs", type=int, default=10)
+    ap.add_argument("--ipv6", action="store_true",
+                    help="IPv6/UDP instead of IPv4 (needs --src-ip and --dst-ip; --ttl is the hop limit)")
+    ap.add_argument("--src-macs", type=int, default=1,
+                    help="rotate this many source MACs (the sender's, then 02:cc:00:00:xx:xx; default 1)")
+    ap.add_argument("--rx-mac", default=None,
+                    help="count frames ARRIVING with this source MAC (a router's egress MAC for routed "
+                         "traffic), or 'any'; default the sender's MAC (any with --src-macs > 1)")
+    ap.add_argument("--rx-len", action="store_true",
+                    help="count only frames of exactly the length sent (catches a lost/added tag)")
     ap.add_argument("--pcap", default=None, help="write the pcap here and keep it (default: a temp file, removed after the run)")
     args = ap.parse_args(argv)
     args.rx = [x for x in args.rx.split(",") if x]
