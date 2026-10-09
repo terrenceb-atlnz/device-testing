@@ -170,6 +170,14 @@ Totals now: **18 runnable / 0 blocked by topology / 19 blocked otherwise** (T441
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
+| T47226 | show version | platform | PASS | show version answers in full (AW+ 0.0.0, build 2026-10-08 00:10:09); build name x220-awplus_main-20261008-57 is the x230v2 build target (same in every earlier x230v2 log) | platform-2026-10-09T0845/47226/work/run1.log | tester |
+| T47227 | show license | platform | PASS | show license lists Base License (Full) and ACCESS (Full) with features | platform-2026-10-09T0845/47227/work/run1.log | tester |
+| T47215 | show system environment | platform | PASS | Overall Normal, fan 3691 rpm, all 8 voltage/temp sensors Ok | platform-2026-10-09T0845/47215/work/run1.log | tester |
+| T31852 | licences (sh lic) | platform | PASS | Base License and ACCESS both Full, no errors | platform-2026-10-09T0845/31852/work/run1.log | tester |
+| T31853 | flash contents (dir all) | platform | PASS | flash lists .configs/ .home/ .rnd .certs/ log/; gui-userdata/ absent (used unit, no GUI), noted for re-grade | platform-2026-10-09T0845/31853/work/run1.log | tester |
+| T31855 | system MAC | platform | PASS | system MAC = vlan1 MAC = 00c2.8f3f.0f5d, valid unicast; step 3 N/A (no eth0 on x230v2) | platform-2026-10-09T0845/31855/work/run1.log | tester |
+| T31856 | exception log | platform | PASS | show exception log: None | platform-2026-10-09T0845/31856/work/run1.log | tester |
+| T31861 | show system | platform | PASS | show system carries all 15 fields with reasonable values | platform-2026-10-09T0845/31861/work/run1.log | tester |
 
 ## Issues
 
