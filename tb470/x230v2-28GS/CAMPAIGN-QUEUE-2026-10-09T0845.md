@@ -89,6 +89,9 @@ between sessions, and have it let you know when it is completely done so you bot
   Tell test-cases-2b the wrap is done, and both stand down.
 - 13:59: test-cases-2b released tb470 (2 Ask-CK E2E runs: probe MATCH, no device state changed, consoles at exec, no
   holders). It needs NO bench time after the run; it will still send "completely done" before the wrap.
+- 14:12: test-cases-2b sent "completely done". After the run, go straight to /wrap-dt (no "tb470 free" round needed),
+  then tell it the wrap is done. Wrap note: its deliberate 14:10 test against a nonexistent box left `tb999/NO-FAMILY/`
+  (commit 0b5cc3e); list it in the handover for the TE to keep or delete, do not delete it.
 
 Unattended end-of-run order (memory `unattended-session-stalls-on-permission-prompt`): commit the Results, post the
 results list, THEN anything that can prompt. Nothing that touches root-owned files or anything outside the repo.
