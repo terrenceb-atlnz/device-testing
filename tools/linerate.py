@@ -49,22 +49,22 @@ def nic_ipv4(nic):
     return m.group(1) if m else "10.0.0.1"
 
 
-def src_mac_list(src_mac, n):
-    """n source MACs: the given one, then locally-administered 02:cc:00:00:HH:LL variants."""
+def src_mac_list(src_mac, n, prefix="02:cc:00:00"):
+    """n source MACs: the given one, then locally-administered <prefix>:HH:LL variants."""
     if n <= 1:
         return [src_mac]
-    return [src_mac] + ["02:cc:00:00:%02x:%02x" % (i >> 8, i & 0xFF) for i in range(1, n)]
+    return [src_mac] + ["%s:%02x:%02x" % (prefix, i >> 8, i & 0xFF) for i in range(1, n)]
 
 
 def build_pcap(path, src_mac, dst_mac, src_ip, dst_ip, dport, wire_size, count=500,
-               sport=5010, ttl=2, ipv6=False, src_macs=1):
+               sport=5010, ttl=2, ipv6=False, src_macs=1, mac_prefix="02:cc:00:00"):
     from scapy.all import Ether, IP, IPv6, UDP, Raw, wrpcap
     built = wire_size - 4                                 # FCS is added by the NIC
     l3 = 40 if ipv6 else 20
     payload = built - 14 - l3 - 8                         # Ether + IP + UDP headers
     if payload < 0:
         sys.exit("frame too small: %d on the wire" % wire_size)
-    macs = src_mac_list(src_mac, src_macs)
+    macs = src_mac_list(src_mac, src_macs, mac_prefix)
     count = max(count, len(macs))
     frames = []
     for i in range(count):
@@ -98,7 +98,8 @@ def run(args):
 
 def send_and_count(args, pcap, src_mac, src_ip):
     built = build_pcap(pcap, src_mac, args.dst_mac, src_ip, args.dst_ip, args.dport, args.size,
-                       sport=args.sport, ttl=args.ttl, ipv6=args.ipv6, src_macs=args.src_macs)
+                       sport=args.sport, ttl=args.ttl, ipv6=args.ipv6, src_macs=args.src_macs,
+                       mac_prefix=args.mac_prefix)
 
     # receivers first, so the first frame is counted; -s 64 keeps the kernel copy tiny and
     # -B 65536 the ring big enough that "packets dropped by kernel" stays 0 at line rate.
@@ -174,6 +175,9 @@ def main(argv=None):
                     help="IPv6/UDP instead of IPv4 (needs --src-ip and --dst-ip; --ttl is the hop limit)")
     ap.add_argument("--src-macs", type=int, default=1,
                     help="rotate this many source MACs (the sender's, then 02:cc:00:00:xx:xx; default 1)")
+    ap.add_argument("--mac-prefix", default="02:cc:00:00",
+                    help="first 4 octets of the generated source MACs (default 02:cc:00:00); use a different "
+                         "one per direction so two senders never share a MAC")
     ap.add_argument("--rx-mac", default=None,
                     help="count frames ARRIVING with this source MAC (a router's egress MAC for routed "
                          "traffic), or 'any'; default the sender's MAC (any with --src-macs > 1)")

@@ -1,0 +1,202 @@
+WORKING LOG -- AWPTCM-T18570, run 1 (bench-runner, RUN mode, queue row 4 "L2/L3", run 3 of the 18:00 plan)
+Started: 2026-10-09 19:48:5x NZDT
+Group dir: tb470/x230v2-28GS/l2l3-2026-10-09T0845/18570/
+
+== Session facts
+As in 15255/work/run1.log (tb470; consoles u0-u5, u0 = x230v2-28GS DUT; PDU 10.36.150.14, outlets u0=1,u1=7,u2=6,u3=8,
+u4=4,u5=5; after hours; no root changes on tb470; nothing written; baud 115200; sentinel = parent).
+
+== Case text (Ask-CK ck.db zephyr_cases, read-only)
+Case:          AWPTCM-T18570  (Approved)
+Title:         802.1Q Trunk a Static Aggreator
+Objective:     To confirm that the static aggreagator will work as normally as a trunked port
+Precondition:  change the configuration such that the trunked port
+Step 1 text (verbatim):     The 802.1Q trunked port should work equally as well being a static Aggregator. Multiple source mac addresses should be sent from the Ixia
+Step 1 test data:           (empty)
+Step 1 expected (verbatim): There should be no 4 byte deficit per frame in traffic flow
+
+== Method
+No Ixia on tb470: tools/linerate.py (tcpreplay) on tb470's 1G NICs stands in, with 64 rotating source MACs per sender.
+Topology: tb470 eth3 -> x230 port1.0.5 (access VLAN 106) -> x230 static aggregator sa2 = port1.0.2 + port1.0.3, an
+802.1Q trunk carrying VLAN 106 tagged (native VLAN 1) -> stack static aggregator sa2 = port1.0.2 + port1.0.17 (+ the
+existing non-present member port1.0.9), same trunk -> stack port3.0.13 (access VLAN 106) -> tb470 eth1.
+"No 4 byte deficit per frame": frames of the maximum standard untagged size (1518 bytes on the wire) gain the 4-byte
+802.1Q tag on the aggregated trunk (1522 bytes) and must leave the far access port at exactly the length sent; every
+receive counter uses --rx-len (counts only frames of exactly the sent length). Line rate (top speed) both ways, plus
+1500-byte frames, with the x230's per-member counters to show the aggregator spreads the source MACs over both links.
+The destination MAC is never learned (02:00:00:00:99:99 / :98), so frames flood VLAN 106, which holds only the two access
+ports and the aggregators; TTL 1, so tb470 cannot forward anything it receives.
+
+== Devices
+DUT swi_f: x230v2-28GS, as in 15255/work/run1.log (`lacp global-passive-mode enable`, STP disabled).
+Partner stk_a: IE520 stack, master member 3 on u5, as in 15255/work/run1.log (`no lacp global-passive-mode enable`).
+Links: x230 port1.0.2 (AT-SPTX) <-> stack port1.0.2 (AT-SPTXa); x230 port1.0.3 (AT-SPTX) <-> stack port1.0.17 (AT-SPTXa);
+  x230 port1.0.5 (AT-SPTXc) <-> tb470 eth3 (00:f0:4d:00:77:18); stack port3.0.13 <-> tb470 eth1 (00:f0:4d:00:77:16).
+  All 1000 full. Host NIC addresses and clocks: 15255/work/run1.log.
+Gate and probe: group gate in 15255/work/run1.log (probe 2026-10-09T062916Z MATCH). VLAN 106 unused on both units
+  beforehand (prerun captures). The links that join the aggregator were shut while reconfigured, so no loop formed.
+
+== Tools
+tools/linerate.py: --src-macs, --rx-len (added in T38294) and --mac-prefix (added here, so the two directions never share
+  a generated MAC and the stack sees no station moves); tools/ckcon.py (tools/tb ckcon, incl. @poll), tools/rc2cfg.py,
+  tools/rcdiff.py.
+
+== Setup
+1) x230 (u0), 19:49:01-19:49:25: tools/tb ckcon tb470 x230l2l3-1928 u0 115200 --stop-on-error ... -> exit 0, no '% ' line.
+   Stdout: work/setup-u0-a.out. Configuration sent, exactly:
+   awplus#configure terminal
+   awplus(config)#vlan database
+   awplus(config-vlan)#vlan 106
+   awplus(config-vlan)#exit
+   awplus(config)#interface port1.0.3
+   awplus(config-if)#shutdown
+   awplus(config-if)#switchport access vlan 1
+   awplus(config-if)#exit
+   awplus(config)#interface port1.0.2-1.0.3
+   awplus(config-if)#static-channel-group 2
+   awplus(config-if)#exit
+   awplus(config)#interface sa2
+   awplus(config-if)#switchport mode trunk
+   awplus(config-if)#switchport trunk allowed vlan add 106
+   awplus(config-if)#exit
+   awplus(config)#interface port1.0.5
+   awplus(config-if)#switchport access vlan 106
+   awplus(config-if)#end
+   show static-channel-group: "Static Aggregator: sa2 / Member: port1.0.2 port1.0.3"
+   show vlan brief: "1 default ... sa2(u) port1.0.1(u) port1.0.2(u) ..."; "106 VLAN0106 STATIC ACTIVE sa2(t) port1.0.2(t)
+     port1.0.3(t) port1.0.5(u)"; 103 and 105 now empty.
+2) Stack (u5, master), 19:49:39-19:50:05: tools/tb ckcon tb470 x230l2l3-1928 u5 115200 --stop-on-error ... -> exit 0, no
+   '% ' line. Stdout: work/setup-u5.out. Configuration sent, exactly:
+   IE520-stk#configure terminal
+   IE520-stk(config)#vlan database
+   IE520-stk(config-vlan)#vlan 106
+   IE520-stk(config-vlan)#exit
+   IE520-stk(config)#interface port1.0.17
+   IE520-stk(config-if)#shutdown
+   IE520-stk(config-if)#switchport access vlan 1
+   IE520-stk(config-if)#static-channel-group 2
+   IE520-stk(config-if)#exit
+   IE520-stk(config)#interface sa2
+   IE520-stk(config-if)#switchport mode trunk
+   IE520-stk(config-if)#switchport trunk allowed vlan add 106
+   IE520-stk(config-if)#exit
+   IE520-stk(config)#interface port3.0.13
+   IE520-stk(config-if)#switchport access vlan 106
+   IE520-stk(config-if)#exit
+   IE520-stk(config)#interface port1.0.17
+   IE520-stk(config-if)#no shutdown
+   IE520-stk(config-if)#end
+   show static-channel-group: "Static Aggregator: sa2 / Member: port1.0.2 port1.0.9 port1.0.17"
+   show vlan brief: "106 VLAN0106 STATIC ACTIVE sa2(t) port1.0.2(t) port1.0.9(t) port1.0.17(t) port3.0.13(u)"
+3) x230 (u0), 19:50:1x: "configure terminal" / "interface port1.0.3" / "no shutdown" / "end" (accepted, no '% ').
+   The same call's next directive, `@poll 30 port1.0.3\s+-\s+connected show\sinterface\sbrief`, was mis-written by the
+   tester (the \s escapes belong in the regex only, so the command was sent literally and answered "% Invalid input" for
+   30 s; exit 3). No configuration was involved. Re-run 19:51:07 with the command spelled with spaces:
+   tools/tb ckcon ... u0 115200 --stop-on-error "@poll 30 port1\.0\.3\s+-\s+connected show interface status"
+     "show static-channel-group" "show lldp neighbors" "show running-config" "show interface port1.0.2,port1.0.3,port1.0.5"
+     "show log tail 25" "show clock" -> exit 0 ("@poll MATCHED after 1.4 s"). Stdout: work/setup-u0-b.out.
+   show interface status (verbatim):
+     port1.0.2   -                  connected       trunk a-full a-1000  1000BASE-T
+     port1.0.3   -                  connected       trunk a-full a-1000  1000BASE-T
+     port1.0.4   -                  connected         104 a-full a-1000  1000BASE-SX
+     port1.0.5   -                  connected         106 a-full a-1000  1000BASE-T
+     sa2         -                  connected       trunk a-full a-1000  -
+   show lldp neighbors (x230): port1.0.2 -> 0000.cd37.0d6f port1.0.2; port1.0.3 -> 0000.cd37.0d6f port1.0.17;
+     port1.0.4 -> 0000.cd37.0d6f port1.0.3 (both aggregator links see the stack).
+4) Stack capture 19:51:4x (work/setup-u5-b.out): port1.0.2 connected trunk a-full a-1000; port1.0.9 notconnect trunk (not
+   present); port1.0.17 connected trunk a-full a-1000; port3.0.13 connected 106; sa2 connected trunk a-full a-1000.
+   Stack log (stack clock true UTC, ~48 s ahead): "06:50:41 ... Port up notification received for vlan106", "sa2 updated
+   vlans", "06:50:45 port3.0.13 port mode access updated VLAN", "06:51:11 Port up notification received for port1.0.17".
+Saved: 18570/swi_f.cfg (x230 show running-config 19:51, 79 config lines); 18570/stk_a.cfg (stack master's show
+  running-config 19:51, 208 config lines). Both after setup, before step 1.
+
+== Step 1 -- traffic over the trunked static aggregator (19:52:01-19:53:09)
+x230 per-port counters read before, between and after each run (show interface port1.0.2,port1.0.3,port1.0.5:
+work/setup-u0-b.out, counters-mid1-u0.out, counters-mid2-u0.out, counters-after-u0.out).
+Run A: tools/tb sudotool tb470 x230l2l3-1928 linerate --tx eth3 --rx eth1 --dst-mac 02:00:00:00:99:99 --src-macs 64
+  --mac-prefix 02:cc:00:00 --rx-len --ttl 1 --size 1518 --rate top --secs 10
+  19:52:01-19:52:11  tx eth3 -> 02:00:00:00:99:99  1518-byte frames  rate=top  IPv4 10.38.215.65 -> 192.0.2.1 ttl/hlim 1  src MACs 64
+    rx filter: ip and udp src port 5010 and len = 1514
+    sent 813001   tcpreplay 984.2 Mbps (frame bytes)  81259 pps  = 999.8 Mbps on the wire
+    rx eth1     813001  (100.0%)  kernel drops 0
+  x230: port1.0.5 input +813001 (8999658 -> 9812659, dropped 0); out on the aggregator members:
+    port1.0.2 output +406502 (8986831 -> 9393333), port1.0.3 output +406503 (298 -> 406801)  -> 50/50 split.
+Run B (reverse): tools/tb sudotool ... linerate --tx eth1 --rx eth3 --dst-mac 02:00:00:00:99:98 --src-macs 64
+  --mac-prefix 02:cd:00:00 --rx-len --ttl 1 --size 1518 --rate top --secs 10
+  19:52:23-19:52:33  tx eth1 -> 02:00:00:00:99:98  1518-byte frames  rate=top  IPv4 10.38.215.1 -> 192.0.2.1 ttl/hlim 1  src MACs 64
+    rx filter: ip and udp src port 5010 and len = 1514
+    sent 812501   tcpreplay 984.0 Mbps (frame bytes)  81242 pps  = 999.6 Mbps on the wire
+    rx eth3     812501  (100.0%)  kernel drops 0
+  x230: in on the aggregator members port1.0.2 +406251 (4690 -> 410941), port1.0.3 +406295 (4646 -> 410941), dropped 0
+    (sum 812546 = 812501 + 45 others: the stack also spreads over both links); port1.0.5 output +812523.
+Run C: as run A with --size 1500:
+  19:52:46-19:52:56  tx eth3 -> 02:00:00:00:99:99  1500-byte frames  rate=top  IPv4 10.38.215.65 -> 192.0.2.1 ttl/hlim 1  src MACs 64
+    rx filter: ip and udp src port 5010 and len = 1496
+    sent 822501   tcpreplay 983.9 Mbps (frame bytes)  82209 pps  = 999.7 Mbps on the wire
+    rx eth1     822501  (100.0%)  kernel drops 0
+  x230: port1.0.5 input +822501; port1.0.2 output +411251, port1.0.3 output +411252.
+(Verbatim tool output: work/lag-traffic.out.) x230 log tail after the runs: IMISH command echoes only, no error line.
+Result: at line rate, in both directions, every maximum-size frame (1518 bytes untagged, 1522 bytes tagged on the
+  aggregated trunk) crossed the static aggregator and arrived at exactly its sent length: no frame lost, none shortened
+  or lengthened by 4 bytes, and no drop counted on any x230 port. The 64 source MACs were spread evenly over both
+  members (50.0/50.0 % each way).
+Step 1: PASS.
+
+== Teardown (19:53:3x-19:55:00), loop-safe order: x230 port1.0.3 shut first, the stack restored, then the x230.
+1) x230: "configure terminal" "interface port1.0.3" "shutdown" "end" -> exit 0 (work/teardown-u0-a.out).
+2) Stack (u5), exactly (exit 0, no '% ' line; work/teardown-u5.out):
+   IE520-stk(config)#interface port1.0.17
+   IE520-stk(config-if)#shutdown
+   IE520-stk(config-if)#no static-channel-group
+   IE520-stk(config-if)#switchport mode access
+   IE520-stk(config-if)#switchport access vlan 103
+   IE520-stk(config-if)#exit
+   IE520-stk(config)#interface sa2
+   IE520-stk(config-if)#switchport mode access
+   IE520-stk(config-if)#exit
+   IE520-stk(config)#interface port3.0.13
+   IE520-stk(config-if)#switchport access vlan 1
+   IE520-stk(config-if)#exit
+   IE520-stk(config)#vlan database
+   IE520-stk(config-vlan)#no vlan 106
+   IE520-stk(config-vlan)#exit
+   IE520-stk(config)#interface port1.0.17
+   IE520-stk(config-if)#no shutdown
+   IE520-stk(config-if)#end
+   tools/rcdiff.py 15255/work/prerun-u5-1933.out work/teardown-u5.out -> no output (identical to the pre-run).
+   show vlan brief: 103 = port1.0.17(u), 104 = port1.0.3(u).
+3) x230, exactly (exit 0, no '% ' line; work/teardown-u0-b.out):
+   awplus(config)#interface port1.0.5
+   awplus(config-if)#switchport access vlan 105
+   awplus(config-if)#exit
+   awplus(config)#interface sa2
+   awplus(config-if)#switchport mode access
+   awplus(config-if)#exit
+   awplus(config)#interface port1.0.2-1.0.3
+   awplus(config-if)#no static-channel-group
+   awplus(config-if)#exit
+   awplus(config)#interface port1.0.2
+   awplus(config-if)#switchport mode access
+   awplus(config-if)#switchport access vlan 1
+   awplus(config-if)#exit
+   awplus(config)#interface port1.0.3
+   awplus(config-if)#switchport mode access
+   awplus(config-if)#switchport access vlan 103
+   awplus(config-if)#exit
+   awplus(config)#vlan database
+   awplus(config-vlan)#no vlan 106
+   awplus(config-vlan)#exit
+   awplus(config)#interface port1.0.3
+   awplus(config-if)#no shutdown
+   awplus(config-if)#end
+   "@poll MATCHED after 3.2 s" (port1.0.3 connected); show vlan brief: 103 = port1.0.3, 104 = port1.0.4, 105 = port1.0.5,
+   port1.0.2 in VLAN 1.
+   tools/rcdiff.py 15255/work/prerun-u0-1932.out work/teardown-u0-b.out -> no output (identical to the pre-run).
+Consoles u0 and u5 left at exec by ckcon; transcripts /tmp/x230l2l3-1928/console-u0.log, console-u5.log.
+
+== Files saved
+18570/swi_f.cfg, 18570/stk_a.cfg; work/setup-u0-a.out, setup-u5.out, setup-u0-b.out, setup-u5-b.out, lag-traffic.out,
+counters-mid1-u0.out, counters-mid2-u0.out, counters-after-u0.out, teardown-u0-a.out, teardown-u5.out, teardown-u0-b.out.
+
+Run: clean (one tester-written @poll directive mis-spelled and re-run; no device effect).
+VERDICT: PASS -- 802.1Q trunk (VLAN 106 tagged) as a static aggregator x230 sa2 (port1.0.2+1.0.3) <-> stack sa2 carried line-rate 1518-byte frames from 64 source MACs both ways with 0 loss and exact length (813001/813001, 812501/812501; 1500-byte 822501/822501), evenly spread over both links; configs restored, diffs empty

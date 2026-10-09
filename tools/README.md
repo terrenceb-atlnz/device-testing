@@ -388,11 +388,12 @@ the five largest outputs and the commands repeated verbatim.
 ### `linerate.py`
 Sends a UDP stream at a set rate, up to 1G line rate, from one host NIC and counts what arrives
 on the others. It uses tcpreplay and tcpdump.
-- **Run:** `sudo linerate.py --tx NIC --dst-mac MAC [--rx NIC,NIC] [--rate Mbps|top] [--secs 10] [--size 1500] [--dport 9] [--sport 5010] [--ttl 2] [--src-mac M] [--src-ip IP] [--dst-ip 192.0.2.1] [--pcap PATH] [--ipv6] [--src-macs N] [--rx-mac MAC|any] [--rx-len]`
+- **Run:** `sudo linerate.py --tx NIC --dst-mac MAC [--rx NIC,NIC] [--rate Mbps|top] [--secs 10] [--size 1500] [--dport 9] [--sport 5010] [--ttl 2] [--src-mac M] [--src-ip IP] [--dst-ip 192.0.2.1] [--pcap PATH] [--ipv6] [--src-macs N] [--mac-prefix 02:cc:00:00] [--rx-mac MAC|any] [--rx-len]`
 - **Options added 2026-10-09:** `--rx-mac` counts frames arriving with that source MAC (a router's egress MAC: routed
   traffic is re-sourced, so the default sender-MAC filter counts 0) or `any`; `--rx-len` counts only frames of exactly the
   length sent (a lost or extra tag is then not counted); `--ipv6` builds IPv6/UDP (`--ttl` = hop limit; needs `--src-ip`
-  and `--dst-ip`); `--src-macs N` rotates N source MACs (the sender's, then 02:cc:00:00:xx:xx). The receive filter now
+  and `--dst-ip`); `--src-macs N` rotates N source MACs (the sender's, then `--mac-prefix`:xx:xx, default 02:cc:00:00; give
+  each direction its own prefix so two senders never share a MAC). The receive filter now
   always names `ip`/`ip6`.
 - **Where:** testbox (root); **needs:** scapy, tcpreplay, tcpdump, iproute2
 - **Imports:** none
