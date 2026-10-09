@@ -7,7 +7,11 @@ sent only when a login prompt is showing, nothing else is sent until a prompt is
 and the exit preamble is sent only after a successful login.
 <tty> is the unit's console device on the testbox you run it on; <transcript> is a path
 you choose. Env: CKTO = per-command timeout s (default 90); CK_USER / CK_PASSWORD =
-login credentials (default manager / friend)."""
+login credentials (default manager / friend).
+Directives (sent to nothing): `@sleep <s>` pauses; `@poll <s> <regex> <cmd>` re-runs <cmd>
+about every 0.5 s (plus its own run time) until its output matches <regex> (re.M) or <s>
+seconds pass, then prints MATCHED/TIMED OUT with the elapsed time and the last output; with
+--stop-on-error a timeout stops the run (exit 3). <regex> must contain no space."""
 import sys, time, re, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 USAGE = "usage: ckcon.py <tty> <baud> <transcript> [--stop-on-error] CMD [CMD ...]"
@@ -76,6 +80,28 @@ ok = False
 try:
     login(); ok = True
     for line in args:
+        if line.startswith("@sleep "):        # directive: pause, send nothing
+            secs = float(line.split()[1])
+            print("{} >>> {}".format(time.strftime("%H:%M:%S"), line))
+            c._t.write("\n>>> {} (directive, nothing sent)\n".format(line))
+            time.sleep(secs)
+            continue
+        if line.startswith("@poll "):         # directive: @poll <secs> <regex> <cmd>
+            _, secs, rx, pcmd = line.split(" ", 3)
+            print("{} >>> {}".format(time.strftime("%H:%M:%S"), line))
+            t0 = time.time(); hit = False; out = ""; n = 0
+            while time.time() - t0 < float(secs):
+                out = c.cmd(pcmd, timeout=float(os.environ.get("CKTO", "90"))); n += 1
+                if re.search(rx, out, re.M):
+                    hit = True; break
+                time.sleep(0.5)
+            print("@poll {} after {:.1f} s ({} reads) of {!r}".format(
+                "MATCHED" if hit else "TIMED OUT", time.time() - t0, n, pcmd))
+            if out:
+                print(out)
+            if stop and not hit:
+                print("!!! @poll timed out -- stopping"); rc = 3; break
+            continue
         out = c.cmd(line, timeout=float(os.environ.get("CKTO", "90")))
         print("{} >>> {}".format(time.strftime("%H:%M:%S"), line))
         if out:

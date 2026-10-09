@@ -126,6 +126,10 @@ Runs a list of CLI commands on one console and prints each with its output. With
   - It does not answer (y/n) prompts; use `ckyn.py` or `cfg.py` for those.
   - It is slow on a console flooded by `terminal monitor`; use `cfg.py` there.
 - **Status:** verified 2026-10-02 on tb470, IE520 standalone (u3), read-only; also x230-10GP (u0) at 9600
+- **Directives (2026-10-09):** a CMD that starts with `@` is not sent. `@sleep <s>` pauses; `@poll <s> <regex> <cmd>`
+  re-runs `<cmd>` until its output matches `<regex>` (no spaces; use `\s`) or `<s>` seconds pass, and prints
+  `@poll MATCHED|TIMED OUT after <t> s` with the last output (a link-up timer, for example). With `--stop-on-error`
+  a timeout stops the run (exit 3). Not yet verified on hardware.
 
 ### `ckyn.py`
 Like `ckcon.py --stop-on-error`, but it answers expected (y/n) confirmations:
