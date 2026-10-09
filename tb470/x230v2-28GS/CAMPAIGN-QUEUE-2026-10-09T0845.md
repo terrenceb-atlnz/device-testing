@@ -359,6 +359,8 @@ Totals now: **18 runnable / 0 blocked by topology / 19 blocked otherwise** (T441
 | T47120 | Confim telnet cannot be enabled CLI/GUI | secure | NOT TESTED | CLI half runnable in secure mode, but the GUI half needs a person at a browser (x230 vlan1 IP via eth1); not in the 18:00 scope | | tester |
 | T47119 | confirm secure mode algorithm sets for SSH match other devices that support secure mode | secure | NOT TESTED | needs a reference device named by the Test Engineer (the AR4050S supports secure mode = 2 more 4050 reloads); not in the 18:00 scope | | tester |
 | T47121 | confirm the TLS algorithms match other devices with crypto secure-mode | secure | NOT TESTED | needs a reference device named by the Test Engineer (the AR4050S supports secure mode = 2 more 4050 reloads); not in the 18:00 scope | | tester |
+| T28218 | ATMF (x230 as master) | atmf | NOT TESTED | triaged UNSUPPORTED as master (the x230 lacks AMF-MASTER); member role needs an AR4050S master setup (atmf network-name + atmf-link); not in the 18:00 scope | - | sentinel |
+| T46810 | ATMF backup to USB media | atmf | NOT TESTED | AR4050S USB stick holds an old `atmf/` dir (2026-09-21) the Test Engineer chose to clear within the case; Draft with no steps; not in the 18:00 scope | - | sentinel |
 
 ## Issues
 
