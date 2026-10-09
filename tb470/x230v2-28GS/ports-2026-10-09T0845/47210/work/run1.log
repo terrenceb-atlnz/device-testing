@@ -1,0 +1,237 @@
+WORKING LOG -- AWPTCM-T47210, run 1 (bench-runner, RUN mode, queue row 3 "ports", run 2 of the 18:00 plan)
+Started: 2026-10-09 19:02:59 NZDT
+Group dir: tb470/x230v2-28GS/ports-2026-10-09T0845/47210/
+
+== Session facts, devices, host NICs, DUT clock, pre-run gate: as in ../../46421/work/run1.log (same group, same session;
+   probe before 2026-10-09T054049Z MATCH; x230 boot config flash:/default.cfg; AR4050S flash:/tb470-bench.cfg).
+Testbox tb470; consoles u0-u5 (u0 = x230v2-28GS DUT); PDU 10.36.150.14 (u0=1,u1=7,...); constraints: 18:00 start, scope
+"18 + after-hours reloads"; baud 115200; sentinel = parent session. Test Engineer terrenceb@terrenceb-dl.
+Partner AR4050S swi_e (details in ../../47208/work/run1.log): AR4050S-5G S/N A10401G214000005, u1, 4050-5g, awplus_main-20261008-57.
+
+== Case text (Ask-CK ck.db zephyr_cases, read-only)
+Case:          AWPTCM-T47210  (Draft)
+Title:         MAC/Phy TLV with combination of user defined speed, duplex and auto nego
+Objective:     (empty)
+Precondition:  (empty)
+Step 1 text (verbatim):     (empty)
+Step 1 test data:           (empty)
+Step 1 expected (verbatim): (empty)
+
+== Method chosen by the tester (no steps in the DB)
+Link: x230 port1.0.1 (AT-SPTXa copper SFP) <-> AR4050S port1.0.2 (fixed copper, 10/100/1000, half and full). It is the only
+x230 link whose partner runs 10 Mb/s and half duplex (T47208: the IE520 SFP ports refuse 10; eth3 is a host NIC, root to
+change). The x230 sends the IEEE 802.3 MAC/PHY Configuration/Status TLV (`lldp tlv-select mac-phy-config`); the 4050 decodes
+it in `show lldp neighbors detail`. For each user-defined combination: change the x230 (and, for forced modes, the 4050
+first), wait for the x230 port to connect, then poll the 4050 until the TLV shows the expected fields.
+Expected TLV fields per IEEE 802.3 Annex 79 (Auto-negotiation support/status, advertised capability, operational MAU type):
+  autoneg (speed auto [<list>], duplex auto|half) -> "Supported, Enabled", advertised = exactly the restricted set,
+     MAU = the negotiated speed/duplex;
+  forced (speed <n> + duplex full|half on both ends) -> "Supported, Disabled", advertised [none], MAU = the forced pair.
+
+== Setup (19:02:59-19:03:3x)
+x230 (awplus#): tools/tb ckcon tb470 x230port-1840 u0 115200 --stop-on-error "show clock" "show running-config"
+  "show lldp interface port1.0.1" "configure terminal" "vlan database" "vlan 101" "interface port1.0.1"
+  "switchport access vlan 101" "lldp tlv-select mac-phy-config" "end" "show lldp interface port1.0.1"
+  "show running-config interface port1.0.1" -> exit 0, no "% ". Stdout work/setup-u0.out.
+  show lldp interface port1.0.1 before: " 1.0.1    Rx Tx  -- --  00c2.8f3f.0f5d   ---------- -------- -------- McNpLoPe--"
+                                after:  " 1.0.1    Rx Tx  -- --  00c2.8f3f.0f5d   ---------- -------- Mp------ McNpLoPe--"
+  (port1.0.1 alone in VLAN 101: the loop rule while 4050 port1.0.2 is up.)
+AR4050S (4050-5g#): tools/tb ckcon tb470 x230port-1840 u1 115200 --stop-on-error "show clock" "show running-config"
+  "show lldp interface port1.0.2" "configure terminal" "interface port1.0.2" "lldp tlv-select mac-phy-config" "no shutdown"
+  "@poll 30 connected do show interface port1.0.2 status" "end" "show lldp interface port1.0.2" -> exit 0; link up in 2.8 s.
+  Stdout work/setup-u1.out.
+.cfg files: the setup was re-applied at 19:11:4x after the teardown, to capture a real post-setup show running-config
+  (swi_f.cfg 19:11:54; swi_e.cfg 19:12:06, which shows port1.0.2 'shutdown' because only the tlv-select was re-applied there;
+  during the case it was 'no shutdown'). Then torn down again (work/cfgcap-u0.out, cfgcap-u1.out, td2-u0.out, td2-u1.out).
+
+== Step C1 -- both ends auto (baseline). 4050: tools/tb ckcon ... u1 115200 "@poll 60 MAU do show lldp neighbors detail
+   interface port1.0.2" "show lldp neighbors detail interface port1.0.2" (work/c1-u1.out; the @poll used "do" at exec and
+   timed out on "% Invalid input" -- tester error, harmless; the plain show that followed is the evidence):
+  Neighbors table last updated 0 hrs 1 mins 26 secs ago
+  MAC/PHY Auto-negotiation ......... Supported, Enabled
+       Advertised Capability ....... 1000BaseTFD, 100BaseTXFD, 100BaseTX,
+                                     10BaseTFD, 10BaseT
+       Operational MAU Type ........ 1000BaseTFD (30)
+   x230 status: port1.0.1 connected 101 a-full a-1000. -> PASS
+
+== Steps C2-C9 -- per combination (tool calls, identical shape for each):
+   [forced combos only] tools/tb ckcon tb470 x230port-1840 u1 115200 "configure terminal" "interface port1.0.2" <4050 cmds> "end"
+   tools/tb ckcon tb470 x230port-1840 u0 115200 "configure terminal" "interface port1.0.1" <x230 cmds> "end"
+     "@poll 40 <status regex> show interface port1.0.1 status" "show interface port1.0.1"
+     "show lldp neighbors detail interface port1.0.1"
+   tools/tb ckcon tb470 x230port-1840 u1 115200 "@poll 75 <TLV regex> show lldp neighbors detail interface port1.0.2"
+     "show interface port1.0.2 status"
+   Files work/cN-u0.out, cN-u1.out, cN-u1set.out. No "% " line from either unit in any combination.
+--- C2: x230 speed auto 100 (duplex auto); 4050 auto. Expected TLV: 100BaseTXFD, Enabled, advertised 100BaseTXFD+100BaseTX
+19:05:39 >>> speed auto 100
+@poll MATCHED after 2.8 s (2 reads) of 'show interface port1.0.1 status'
+port1.0.1   -                  connected         101 a-full a-100   1000BASE-T
+  current duplex full, current speed 100, current polarity auto
+  configured duplex auto, configured speed auto 100, configured polarity auto
+4050 (4050-5g#):
+19:05:51 >>> @poll 75 Supported,\sEnabled[\s\S]*Operational\sMAU\sType\s\.+\s100BaseTXFD show lldp neighbors detail interface port1.0.2
+@poll MATCHED after 1.2 s (1 reads) of 'show lldp neighbors detail interface port1.0.2'
+  Neighbors table last updated 0 hrs 0 mins 6 secs ago
+  MAC/PHY Auto-negotiation ......... Supported, Enabled
+       Advertised Capability ....... 100BaseTXFD, 100BaseTX
+       Operational MAU Type ........ 100BaseTXFD (16)
+port1.0.2   -                  connected          10 a-full a-100   1000BASE-T
+   -> PASS
+
+--- C3: x230 speed auto 100 + duplex half; 4050 auto. Expected TLV: 100BaseTXHD, Enabled, advertised 100BaseTX only
+19:06:02 >>> speed auto 100
+19:06:03 >>> duplex half
+@poll TIMED OUT after 41.3 s (25 reads) of 'show interface port1.0.1 status'
+port1.0.1   -                  connected         101 half   a-100   1000BASE-T
+  current duplex half, current speed 100, current polarity auto
+  configured duplex half, configured speed auto 100, configured polarity auto
+4050 (4050-5g#):
+19:06:54 >>> @poll 75 Supported,\sEnabled[\s\S]*Operational\sMAU\sType\s\.+\s100BaseTXHD show lldp neighbors detail interface port1.0.2
+@poll MATCHED after 1.2 s (1 reads) of 'show lldp neighbors detail interface port1.0.2'
+  Neighbors table last updated 0 hrs 0 mins 46 secs ago
+  MAC/PHY Auto-negotiation ......... Supported, Enabled
+       Advertised Capability ....... 100BaseTX
+       Operational MAU Type ........ 100BaseTXHD (15)
+port1.0.2   -                  connected          10 a-half a-100   1000BASE-T
+   -> PASS
+
+--- C9: x230 speed auto 10 + duplex auto; 4050 auto. Expected TLV: 10BaseTFD, Enabled, advertised 10BaseTFD+10BaseT
+19:07:05 >>> speed auto 10
+19:07:06 >>> duplex auto
+@poll MATCHED after 2.8 s (2 reads) of 'show interface port1.0.1 status'
+port1.0.1   -                  connected         101 a-full a-10    1000BASE-T
+  current duplex full, current speed 10, current polarity auto
+  configured duplex auto, configured speed auto 10, configured polarity auto
+4050 (4050-5g#):
+19:07:18 >>> @poll 75 Supported,\sEnabled[\s\S]*Operational\sMAU\sType\s\.+\s10BaseTFD show lldp neighbors detail interface port1.0.2
+@poll MATCHED after 1.2 s (1 reads) of 'show lldp neighbors detail interface port1.0.2'
+  Neighbors table last updated 0 hrs 0 mins 8 secs ago
+  MAC/PHY Auto-negotiation ......... Supported, Enabled
+       Advertised Capability ....... 10BaseTFD, 10BaseT
+       Operational MAU Type ........ 10BaseTFD (11)
+port1.0.2   -                  connected          10 a-full a-10    1000BASE-T
+   -> PASS
+
+--- C8: x230 speed 1000 + duplex full (fixed); 4050 auto. Expected TLV: 1000BaseTFD
+19:07:29 >>> speed 1000
+19:07:30 >>> duplex full
+@poll MATCHED after 2.8 s (2 reads) of 'show interface port1.0.1 status'
+port1.0.1   -                  connected         101 full   1000    1000BASE-T
+  current duplex full, current speed 1000, current polarity auto
+  configured duplex full, configured speed 1000, configured polarity auto
+4050 (4050-5g#):
+19:07:42 >>> @poll 75 Operational\sMAU\sType\s\.+\s1000BaseTFD show lldp neighbors detail interface port1.0.2
+@poll MATCHED after 1.2 s (1 reads) of 'show lldp neighbors detail interface port1.0.2'
+  Neighbors table last updated 0 hrs 0 mins 6 secs ago
+  MAC/PHY Auto-negotiation ......... Supported, Disabled
+       Advertised Capability ....... [none]
+       Operational MAU Type ........ 1000BaseTFD (30)
+port1.0.2   -                  connected          10 a-full a-1000  1000BASE-T
+   -> PASS
+
+--- C4: both ends speed 100 + duplex full (forced). Expected TLV: 100BaseTXFD, Disabled, [none]
+19:08:18 >>> speed 100
+19:08:19 >>> duplex full
+@poll MATCHED after 2.8 s (2 reads) of 'show interface port1.0.1 status'
+port1.0.1   -                  connected         101 full   100     1000BASE-T
+  current duplex full, current speed 100, current polarity auto
+  configured duplex full, configured speed 100, configured polarity auto
+4050 (4050-5g#):
+19:08:31 >>> @poll 75 Supported,\sDisabled[\s\S]*Operational\sMAU\sType\s\.+\s100BaseTXFD show lldp neighbors detail interface port1.0.2
+@poll MATCHED after 1.2 s (1 reads) of 'show lldp neighbors detail interface port1.0.2'
+  Neighbors table last updated 0 hrs 0 mins 7 secs ago
+  MAC/PHY Auto-negotiation ......... Supported, Disabled
+       Advertised Capability ....... [none]
+       Operational MAU Type ........ 100BaseTXFD (16)
+port1.0.2   -                  connected          10 full   100     1000BASE-T
+   -> PASS
+
+--- C5: both ends duplex half (speed 100 kept, forced). Expected TLV: 100BaseTXHD, Disabled, [none]
+19:08:52 >>> duplex half
+@poll MATCHED after 1.2 s (1 reads) of 'show interface port1.0.1 status'
+port1.0.1   -                  connected         101 half   100     1000BASE-T
+  current duplex half, current speed 100, current polarity auto
+  configured duplex half, configured speed 100, configured polarity auto
+4050 (4050-5g#):
+19:09:02 >>> @poll 75 Supported,\sDisabled[\s\S]*Operational\sMAU\sType\s\.+\s100BaseTXHD show lldp neighbors detail interface port1.0.2
+@poll MATCHED after 1.2 s (1 reads) of 'show lldp neighbors detail interface port1.0.2'
+  Neighbors table last updated 0 hrs 0 mins 7 secs ago
+  MAC/PHY Auto-negotiation ......... Supported, Disabled
+       Advertised Capability ....... [none]
+       Operational MAU Type ........ 100BaseTXHD (15)
+port1.0.2   -                  connected          10 half   100     1000BASE-T
+   -> PASS
+
+--- C6: both ends speed 10 + duplex full (forced). Expected TLV: 10BaseTFD, Disabled, [none]
+19:09:25 >>> speed 10
+19:09:26 >>> duplex full
+@poll MATCHED after 1.2 s (1 reads) of 'show interface port1.0.1 status'
+port1.0.1   -                  connected         101 full   10      1000BASE-T
+  current duplex full, current speed 10, current polarity auto
+  configured duplex full, configured speed 10, configured polarity auto
+4050 (4050-5g#):
+19:09:36 >>> @poll 75 Supported,\sDisabled[\s\S]*Operational\sMAU\sType\s\.+\s10BaseTFD show lldp neighbors detail interface port1.0.2
+@poll MATCHED after 1.2 s (1 reads) of 'show lldp neighbors detail interface port1.0.2'
+  Neighbors table last updated 0 hrs 0 mins 7 secs ago
+  MAC/PHY Auto-negotiation ......... Supported, Disabled
+       Advertised Capability ....... [none]
+       Operational MAU Type ........ 10BaseTFD (11)
+port1.0.2   -                  connected          10 full   10      1000BASE-T
+   -> PASS
+
+--- C7: both ends duplex half (speed 10 kept, forced). Expected TLV: 10BaseTHD, Disabled, [none]
+19:09:57 >>> duplex half
+@poll MATCHED after 1.2 s (1 reads) of 'show interface port1.0.1 status'
+port1.0.1   -                  connected         101 half   10      1000BASE-T
+  current duplex half, current speed 10, current polarity auto
+  configured duplex half, configured speed 10, configured polarity auto
+4050 (4050-5g#):
+19:10:07 >>> @poll 75 Supported,\sDisabled[\s\S]*Operational\sMAU\sType\s\.+\s10BaseTHD show lldp neighbors detail interface port1.0.2
+@poll MATCHED after 1.2 s (1 reads) of 'show lldp neighbors detail interface port1.0.2'
+  Neighbors table last updated 0 hrs 0 mins 7 secs ago
+  MAC/PHY Auto-negotiation ......... Supported, Disabled
+       Advertised Capability ....... [none]
+       Operational MAU Type ........ 10BaseTHD (10)
+port1.0.2   -                  connected          10 half   10      1000BASE-T
+   -> PASS
+
+
+== Reverse direction (the x230 decoding the 4050's TLV), from the x230 calls:
+C2: Neighbors table last updated 0 hrs 0 mins 0 secs ago / MAC/PHY Auto-negotiation ......... Supported, Enabled / Advertised Capability ....... 1000BaseTFD, 100BaseTXFD, 100BaseTX, / 10BaseTFD, 10BaseT / Operational MAU Type ........ 100BaseTXFD (16)
+C3: Neighbors table last updated 0 hrs 0 mins 39 secs ago / MAC/PHY Auto-negotiation ......... Supported, Enabled / Advertised Capability ....... 1000BaseTFD, 100BaseTXFD, 100BaseTX, / 10BaseTFD, 10BaseT / Operational MAU Type ........ 100BaseTXHD (15)
+C9: Neighbors table last updated 0 hrs 0 mins 1 secs ago / MAC/PHY Auto-negotiation ......... Supported, Enabled / Advertised Capability ....... 1000BaseTFD, 100BaseTXFD, 100BaseTX, / 10BaseTFD, 10BaseT / Operational MAU Type ........ 10BaseTFD (11)
+C8: Neighbors table last updated 0 hrs 0 mins 1 secs ago / MAC/PHY Auto-negotiation ......... Supported, Enabled / Advertised Capability ....... 1000BaseTFD, 100BaseTXFD, 100BaseTX, / 10BaseTFD, 10BaseT / Operational MAU Type ........ 1000BaseTFD (30)
+C4: Neighbors table last updated 0 hrs 0 mins 1 secs ago / MAC/PHY Auto-negotiation ......... Supported, Disabled / Advertised Capability ....... [none] / Operational MAU Type ........ 100BaseTXFD (16)
+C5: Neighbors table last updated 0 hrs 0 mins 1 secs ago / MAC/PHY Auto-negotiation ......... Supported, Disabled / Advertised Capability ....... [none] / Operational MAU Type ........ 100BaseTXHD (15)
+C6: Neighbors table last updated 0 hrs 0 mins 1 secs ago / MAC/PHY Auto-negotiation ......... Supported, Disabled / Advertised Capability ....... [none] / Operational MAU Type ........ 10BaseTFD (11)
+C7: (no 802.3 TLV in the x230 table at that moment: the link had just come up)
+
+== Restore and teardown (19:10:28-19:11:3x)
+4050: "speed auto" "duplex auto"; x230: "speed auto" "duplex auto" -> port1.0.1 connected 101 a-full a-1000 (2.8 s); the
+  x230 sees the 4050 at "Supported, Enabled ... 1000BaseTFD (30)" and the 4050 sees the x230 at
+  "MAC/PHY Auto-negotiation ......... Supported, Enabled" ... 1000BaseTFD (work/r1-u0.out, td-u1.out).
+4050: "no lldp tlv-select mac-phy-config" "shutdown" -> port1.0.2 disabled. x230: "no lldp tlv-select mac-phy-config"
+  "switchport access vlan 1" "vlan database" "no vlan 101" -> show lldp interface port1.0.1 back to "-------- " for 802.3.
+Final x230 status:
+port1.0.1   -                  notconnect          1 auto   auto    1000BASE-T  
+port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T  
+port1.0.3   -                  connected         103 a-full a-1000  1000BASE-T  
+port1.0.4   -                  connected         104 a-full a-1000  1000BASE-SX 
+port1.0.5   -                  connected         105 a-full a-1000  1000BASE-T  
+Running-config diffs against the group's pre-run captures (tools/rcdiff.py ../../46421/work/prerun-uN-1842.out):
+  x230 vs work/td-u0.out -> empty; 4050 vs work/td-u1.out -> empty; after the .cfg re-capture: x230 vs td2-u0.out -> empty,
+  4050 vs td2-u1.out -> empty.
+Consoles: each ckcon call ended `end` / `terminal no monitor` at exec (transcripts /tmp/x230port-1840/console-u0.log, -u1.log).
+
+== Summary
+All 9 combinations: the x230's MAC/PHY TLV, as decoded by the AR4050S, carried the right autoneg status, advertised set and
+operational MAU type for the user-defined speed/duplex/autoneg; the link came up at the configured speed and duplex each time.
+Observation (not graded as a fault): with `speed 1000` + `duplex full` (C8) the x230 reports autoneg "Supported, Disabled"
+  and advertised [none] while the 4050 end reads a-full a-1000. 1000BASE-T always negotiates (clause 40), so the x230 PHY
+  still auto-negotiated 1000/full only; the TLV reflects the configured (fixed) mode. Worth a note for the case owner.
+Status-column note (C3): `speed auto 100` + `duplex half` reads "half   a-100" on the x230 (the duplex is configured, not
+  negotiated), so the status regex expecting "a-half" timed out; the link and the TLV (100BaseTXHD, Enabled, 100BaseTX
+  advertised) were correct.
+
+Run: clean.
+VERDICT: PASS -- for 9 user-defined speed/duplex/autoneg combinations (auto, auto-100, auto-100-half, auto-10, fixed 1000, forced 100/10 full/half) the x230's MAC/PHY TLV decoded at the AR4050S showed the matching autoneg state, advertised set and MAU type
