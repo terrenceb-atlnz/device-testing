@@ -57,7 +57,7 @@ The one way a device-testing session reaches a testbox: `tools/tb <action> <box>
   - It holds one allow rule per action (`case` deliberately has none), denies for
     `bench_probe.py apply`, and an `autoMode` block: the lab as trusted infrastructure, console
     configuration allowed, and the STANDING-ORDERS §4 items as `hard_deny`.
-  - It is a draft until Terrence approves it (2026-10-09).
+  - Approved by Terrence 2026-10-09.
 - **Status:** verified 2026-10-09 on tb470:
   - `hostname`, `precheck`, `holders`, `ps`, `nics`, `template`, `scratch`, `put` + `case`,
     `waitfor`, `tail`;
