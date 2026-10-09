@@ -53,7 +53,7 @@ Constraints: "Triage only for now" (option text: "Probe and triage; report what 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
 | 1 | platform/show + factory run-up: T47226, T47227, T47215, T47214, T45543, T31868, T31863, T31852, T31853, T31854, T31855, T31856, T31866, T31858, T31861, T31859 | tb470/x230v2-28GS/platform-2026-10-09T0845/ | DONE (run 1, 18:00-18:38): 9 PASS, 2 UNSUPPORTED; 5 NOT TESTED | RUNNABLE now (read-only): T47226, T47227, T47215, T31852, T31853, T31855 (no eth0 → step 3 N/A, confirm at run), T31856, T31861. AFTER HOURS (reload, no bench change): T31858 (1 reload; DUT clock reads NZ local time labelled UTC, +13 h), T31863 BIST (reload before+after), T31866 PRBS (reload after; parser takes `platform prbs {internal-fabric|stack-fabric|all-fabric}`, not the case's `all`), T31868 Autoboot (≥3 reloads; USB 28.8G present, no SD slot; 2nd .rel = x230-2.rel on the stick). HUMAN: T47214 (magnet on the fan), T31854 (LED watch; precondition no SFP/no cable), T31859 (CLI ready, fault-LED look needs a person). TE: T45543 steps 1–2 runnable (`show system tpm` answers `TPM is instantiated`, expected `TPM is OK`); step 3 needs an idevid account + x230 internet via eth1. |
-| 2 | crypto secure mode / mgmt protocols: T47120, T47119, T47121, T47114, T47115 | tb470/x230v2-28GS/secure-2026-10-09T0845/ | TRIAGED: 5 after-hours (secure mode reloads) | AFTER HOURS, no bench change: all five need x230 secure mode = write + reload in, `no crypto secure-mode` + reload out (`crypto secure-mode` present in config). All Draft with empty steps. T47120 CLI half runnable; GUI half needs a person at a browser (x230 vlan1 IP via eth1). T47119/T47121 need a reference device: TE to name it (AR4050S supports secure mode = 2 more 4050 reloads). T47115, T47114 runnable. Run T15255 (SNMPv2) BEFORE secure mode. |
+| 2 | crypto secure mode / mgmt protocols: T47120, T47119, T47121, T47114, T47115 | tb470/x230v2-28GS/secure-2026-10-09T0845/ | RUNNING (run 4, from 20:06): T47114 next; T47120, T47119, T47121 NOT TESTED | AFTER HOURS, no bench change: all five need x230 secure mode = write + reload in, `no crypto secure-mode` + reload out (`crypto secure-mode` present in config). All Draft with empty steps. T47120 CLI half runnable; GUI half needs a person at a browser (x230 vlan1 IP via eth1). T47119/T47121 need a reference device: TE to name it (AR4050S supports secure mode = 2 more 4050 reloads). T47115, T47114 runnable. Run T15255 (SNMPv2) BEFORE secure mode. |
 | 3 | ports, pluggables, link: T47228, T46421, T20358, T44179, T33234, T47209, T47208, T47210 | tb470/x230v2-28GS/ports-2026-10-09T0845/ | DONE (run 2, 18:45-19:26): T46421 PASS, T47208 PASS, T47210 PASS, T20358 PARTIAL (needs a BPDU-transparent loop: recable), T47209 FAIL; NOT TESTED T47228, T44179, T33234 | RE-TRIAGE 10:0x (B+C done). RUNNABLE: T46421, T47208 (SPTX on 1.0.2/1.0.3; the SPTXa on 1.0.1 against the 4050's fixed copper once 4050 port1.0.2 is up), T47210, T20358 (B done; in-test: RSTP on the x230 and loop-protection off on stack port1.0.17/1.0.3; broadcast from eth1), T47209 (C done: x230 port1.0.4 ↔ stack port1.0.3, 1000BASE-SX only). All have no steps. BLOCKED topology: T44179, see row 4's path. Jumbo also needs: x230 `platform jumboframe` (reload); 4050 `mru jumbo` per port; stack `platform jumboframe` (stack reload) if eth1 is the far end; root MTU on two tb470 NICs. UNSUPPORTED: T33234 (no fixed copper on the x230). TE: T47228 (no steps, API unspecified). RE-TRIAGE 11:2x: T44179 is no longer topology-blocked (eth3 → x230 port1.0.5 → port1.0.2 → stack → eth1). It still needs x230 `platform jumboframe` (write + reload, x2), stack `platform jumboframe` (stack reload, x2) and root MTU on eth3/eth1 → AFTER HOURS + TE. |
 | 4 | L2/L3 traffic + SNMP: T38294, T38295, T30403, T18570, T18571, T15255 | tb470/x230v2-28GS/l2l3-2026-10-09T0845/ | DONE (run 3, 19:28-20:04): 5 PASS (T15255, T38294, T38295, T18570, T18571); T30403 NOT TESTED (UNSUPPORTED) | RE-TRIAGE 11:2x (A' done: eth3 ↔ x230 port1.0.5). RUNNABLE: T15255. T38294: in-test, port1.0.5 → own VLAN + IP in 10.38.215.64/27 (ping-check first), vlan1 IP in 10.38.215.0/27, `ip route 192.0.2.0/24 10.38.215.1`; linerate.py --tx eth3 --rx eth1 --ttl 2, after an L2 baseline. T38295: same, plus an IPv6 pcap (linerate.py is IPv4-only; scapy pcap in /tmp, hop limit 2); next hop = eth1's link-local, so no root change on tb470. T18570/T18571: in-test, LAG x230 port1.0.2+1.0.3 ↔ stack sa2(port1.0.2)+port1.0.17 (out of VLAN 103), 802.1Q tagged; eth3 → port1.0.5 (access) → LAG → stack → eth1 (port3.0.13 in the test VLAN, or tagged + tcpdump); multi-MAC via l2flows.py; x230 has `lacp global-passive-mode enable`. UNSUPPORTED: T30403. |
 | 5 | ATMF: T28218, T46810 | tb470/x230v2-28GS/atmf-2026-10-09T0845/ | TRIAGED-2: 2 TE/after-hours | RE-TRIAGE 10:0x. D done: AR4050S usb: 28.9G is available and already holds an `atmf/` dir dated 2026-09-21 (old backups; TE to say keep or clear). T46810: no steps. Topology OK: AR4050S master (FULL has AMF-MASTER), x230 member via stack or the 4050 link. Needs atmf network-name + atmf-link on 4050, stack and x230, then reload of each → AFTER HOURS. T28218: TE decision; the x230 cannot be master (no AMF-MASTER). |
@@ -218,6 +218,41 @@ port1.0.2) + port1.0.9 (not present); stack vlan1 holds 10.38.215.10/27 + .40 an
 Unattended end-of-run order (memory `unattended-session-stalls-on-permission-prompt`): commit the Results, post the
 results list, THEN anything that can prompt. Nothing that touches root-owned files or anything outside the repo.
 
+### Run 4 (row 2 secure) — bench setup and restore recipe (bench-runner, written 20:12 before the first case)
+
+Gate 20:06–20:09 NZDT: precheck u0-u5 CLEAR; scratch `/tmp/x230sec-2007/` on tb470; `/nfsHome` mounted, deployed
+`tb470.setup` 1256 B; peek: u0 `awplus#`, u1 `4050-5g#`, u2/u4/u5 `IE520-stk#`, u3 `IE520-sa#` (none in config or a root
+shell); probe `2026-10-09T070729Z` (115200) **MATCH**. Boot configs: x230 `flash:/default.cfg` (643 B, `dir` date
+Oct 09 2026 18:35:16, header "saved on Thu Oct 8 09:59:19 2026"); the others `flash:/tb470-bench.cfg`. x230 `show
+secure-mode`: "Secure mode is disabled". Pre-run capture: `secure-2026-10-09T0845/47114/work/prerun-u0.out` (running-config,
+startup-config, boot, security-password configuration, telnet/ssh server, system). CLI checked read-only with `qmark`
+(`47114/work/qmark-u0.out`): `crypto secure-mode` `<cr>` in config mode; `security-password minimum-categories <1-4>`.
+No framework script (manual CLI cases on u0 only), so gates 6, 8 and 10 are N/A. Only the x230 (u0, swi_f) is touched.
+
+- **Bench setup for the group (x230 only):**
+  1. Backup the startup config on the x230's flash: `copy flash:/default.cfg flash:/default.cfg.pre-secure`; its contents
+     (`show file flash:/default.cfg`) kept in `47114/work/default.cfg.pre-secure.txt`.
+  2. T47114: `configure terminal` / `crypto secure-mode` (answer `y\r` if it asks) / `end`; `write` (this ALSO saves the
+     running-only VLAN 103/104/105 isolation and `lldp run` into flash:/default.cfg — undone by step R2 below); `reload`.
+     Secure mode then STAYS IN for T47115 (saves two reloads).
+  3. T47115 (in secure mode): `security-password minimum-length 12`, `security-password minimum-categories 3`; test users
+     `ckpw1` (privilege 1) and `ckpw15` (privilege 15); a non-compliant attempt on `manager` (`friend`, its current
+     password, so an accepted attempt changes nothing).
+- **Restore recipe (a fresh tester can run it if this run dies), on u0:**
+  - R1. If T47115 got that far: `configure terminal` / `no username ckpw1` / `no username ckpw15` / `no security-password
+    minimum-categories` / `security-password minimum-length 8` / `end`.
+  - R2. If `show secure-mode` says enabled: `configure terminal` / `no crypto secure-mode` (answer `y\r` if asked) / `end`.
+    Then, whatever the secure-mode state, if `flash:/default.cfg.pre-secure` exists:
+    `copy flash:/default.cfg.pre-secure flash:/default.cfg` (answer the overwrite question `y\r`). Verify `show
+    startup-config` equals `47114/work/default.cfg.pre-secure.txt` (643 B) and `show boot` → `flash:/default.cfg (file exists)`.
+    Do NOT `write` after this.
+  - R3. `reload` (needed only if secure mode was in). After boot: `show secure-mode` → disabled; re-apply the running-only
+    isolation: `vlan database` / `vlan 103,104,105`; `interface port1.0.3` / `switchport access vlan 103`; `interface
+    port1.0.4` / `switchport access vlan 104`; `interface port1.0.5` / `switchport access vlan 105`; `lldp run`; verify
+    `show vlan brief`; running-config diff against `47114/work/prerun-u0.out` must be empty.
+  - R4. `delete flash:/default.cfg.pre-secure` (answer `y\r`); `dir flash:/default.cfg*` shows only default.cfg.
+  - R5. `end`, `terminal no monitor` on u0; re-probe (must MATCH); 4050 port1.0.2 stays shut (not touched by this group).
+
 ## Triage 2026-10-09 (bench-runner, TRIAGE mode)
 
 Probe `2026-10-08T194710Z` (08:47 NZDT): **MATCH**, all six consoles OK at 115200. Boot configs: x230 `flash:/default.cfg`; AR4050S, stack and IE520-sa `flash:/tb470-bench.cfg`. Advisory: eth1 is learned on swi_c port3.0.13 AND swi_f port1.0.2, so the x230 shares eth1's L2 segment (10.38.215.0/27) through stack VLAN1. The x230's port1.0.2 is in **VLAN 1** (the dispatch said vlan11).
@@ -301,6 +336,9 @@ Totals now: **18 runnable / 0 blocked by topology / 19 blocked otherwise** (T441
 | T44179 | Jumbo Frames | ports | NOT TESTED | needs x230 `platform jumboframe` (write + reload, x2), stack `platform jumboframe` (stack reload, x2) and root MTU on tb470 eth3/eth1 (Test Engineer's); not in the 18:00 scope | | tester |
 | T33234 | Port - Auto MDI/MDI-X | ports | NOT TESTED | triaged UNSUPPORTED: no fixed copper on the x230v2-28GS (all 28 ports are SFP cages); not in the 18:00 scope | | tester |
 | T30403 | Check traffic is fowarded with static mroutes (IPv4) | l2l3 | NOT TESTED | triaged UNSUPPORTED: the x230v2-28GS has no multicast routing; re-checked 19:35 read-only, `ip multicast ?`, `ip mroute ?` and `ipv6 multicast ?` each answer "% Unrecognized command" in config mode (l2l3-2026-10-09T0845/15255/work/qmark-u0-1936.out); not in the 18:00 scope | | tester |
+| T47120 | Confim telnet cannot be enabled CLI/GUI | secure | NOT TESTED | CLI half runnable in secure mode, but the GUI half needs a person at a browser (x230 vlan1 IP via eth1); not in the 18:00 scope | | tester |
+| T47119 | confirm secure mode algorithm sets for SSH match other devices that support secure mode | secure | NOT TESTED | needs a reference device named by the Test Engineer (the AR4050S supports secure mode = 2 more 4050 reloads); not in the 18:00 scope | | tester |
+| T47121 | confirm the TLS algorithms match other devices with crypto secure-mode | secure | NOT TESTED | needs a reference device named by the Test Engineer (the AR4050S supports secure mode = 2 more 4050 reloads); not in the 18:00 scope | | tester |
 
 ## Issues
 
