@@ -1,0 +1,125 @@
+WORKING LOG -- AWPTCM-T20358, run 1 (bench-runner, RUN mode, queue row 3 "ports", run 2 of the 18:00 plan)
+Started: 2026-10-09 19:14:22 NZDT
+Group dir: tb470/x230v2-28GS/ports-2026-10-09T0845/20358/
+
+== Session facts, devices, host NICs, DUT clock, pre-run gate: as in ../../46421/work/run1.log (same group, same session;
+   probe before 2026-10-09T054049Z MATCH; x230 boot config flash:/default.cfg; stack flash:/tb470-bench.cfg).
+Testbox tb470; consoles u0-u5 (u0 = x230v2-28GS DUT); PDU 10.36.150.14; constraints: 18:00 start, scope "18 + after-hours
+reloads"; baud 115200; sentinel = parent session. Test Engineer terrenceb@terrenceb-dl.
+
+== Case text (Ask-CK ck.db zephyr_cases, read-only)
+Case:          AWPTCM-T20358  (Approved)
+Title:         Loopback between two ports on same switch
+Objective (verbatim): When a switch port receives its own BPDU from the same edge port, it sets the port to the blocking state.
+               When it no longer receives BPDUs, it sets the port to the forwarding state.
+Precondition:  (empty)
+Step 1 text (verbatim):
+  - Connect the RSTP switch and a hub/switch.
+  - Create a loop network switch.
+  - Send broadcast traffic from IXIA
+  - Confirm Port11 of RSTP switch. RSTP Port Role should be set to BackUp (Loopback Disabled) and State should set to Discarding.
+  - Confirm backup port should not transmit traffic
+Step 1 test data: (empty)
+Step 1 expected (verbatim): Backup port should not forward any packet in this state.
+
+== Plan (triage 10:0x: "in-test: RSTP on the x230 ... broadcast from eth1"; refined here)
+RSTP switch = the x230 (RSTP enabled for the case). "Hub/switch" = the IE520 stack, STP disabled (bench standing state), via
+the two x230<->stack links: x230 port1.0.3 <-> stack port1.0.17 (copper) and x230 port1.0.4 <-> stack port1.0.3 (SX fibre).
+Safe order (never a loop without a blocking port):
+  S1 x230 `spanning-tree rstp enable`; the two x230 ports stay in different VLANs (103 / 104), so no data loop exists.
+  S2 stack port1.0.3 -> VLAN 103, so the stack bridges port1.0.17 <-> port1.0.3: the x230's BPDUs sent on port1.0.3 should
+     come back on port1.0.4, which should go Backup / Discarding. GATE: S3 only if port1.0.4 reads Backup Discarding.
+  S3 x230 port1.0.4 -> VLAN 103 (the loop), S4 x230 port1.0.5 (eth3) -> VLAN 103 and broadcast from eth3 (linerate.py),
+     comparing x230 port1.0.3/1.0.4 output and stack port1.0.17/1.0.3 input counters, plus an inbound capture on eth3.
+  Stack loop-protection (vlan-disable, 7 s, on port1.0.17 and port1.0.3) deliberately LEFT ON as a safety net: with a working
+  Backup port the stack's loop-detect frames never return, so it cannot fire; if it did, that would itself show a leak.
+
+== S0 / S1 -- stack capture, then RSTP on the x230 (19:14:22-19:15:2x)
+Stack: tools/tb ckcon tb470 x230port-1840 u5 115200 "show clock" "show running-config" "show spanning-tree brief"
+  "show loop-protection" "show interface port1.0.3,port1.0.17 status" -> exit 0 (work/s0-u5.out):
+  "Default: Bridge up - Spanning Tree Disabled".
+x230: tools/tb ckcon tb470 x230port-1840 u0 115200 --stop-on-error "show clock" "show running-config" "configure terminal"
+  "spanning-tree rstp enable" "end" "@sleep 35" "show spanning-tree brief" "show spanning-tree" (work/s1-u0.out). Exit 2 only
+  because `show spanning-tree` prints its header lines with a leading "% " (output format, last command; no CLI error):
+Default: Bridge up - Spanning Tree Enabled
+Default: Root Path Cost 0 - Root Port 0 -  Bridge Priority 32768
+Default: Root Id 8000:00c28f3f0f5d
+Default: Bridge Id 8000:00c28f3f0f5d
+Port            Designated Bridge    Port Id    Role             State
+port1.0.1       8000:00c28f3f0f5d    8389       Disabled         Discarding
+port1.0.2       8000:00c28f3f0f5d    838a       Designated       Forwarding
+port1.0.3       8000:00c28f3f0f5d    838b       Designated       Forwarding
+port1.0.4       8000:00c28f3f0f5d    838c       Designated       Forwarding
+port1.0.5       8000:00c28f3f0f5d    838d       Designated       Forwarding
+
+== S2 -- the stack bridges its two x230 links (19:15:34-19:16:14)
+Stack (IE520-stk(config-if)#): tools/tb ckcon tb470 x230port-1840 u5 115200 --stop-on-error "configure terminal"
+  "interface port1.0.3" "switchport access vlan 103" "end" "show vlan brief" -> exit 0, no "% ":
+103     VLAN0103         STATIC  ACTIVE  port1.0.3(u) port1.0.17(u) 
+104     VLAN0104         STATIC  ACTIVE  
+x230: tools/tb ckcon tb470 x230port-1840 u0 115200 "@poll 20 port1\.0\.4\s+\S+\s+\S+\s+Backup\s+Discarding show spanning-tree brief"
+  "show spanning-tree interface port1.0.4" "show spanning-tree interface port1.0.3" (work/s2-u0.out):
+19:15:50 >>> @poll 20 port1\.0\.4\s+\S+\s+\S+\s+Backup\s+Discarding show spanning-tree brief
+@poll TIMED OUT after 20.4 s (11 reads) of 'show spanning-tree brief'
+Default: Bridge up - Spanning Tree Enabled
+Default: Root Path Cost 0 - Root Port 0 -  Bridge Priority 32768
+Default: Root Id 8000:00c28f3f0f5d
+Default: Bridge Id 8000:00c28f3f0f5d
+Port            Designated Bridge    Port Id    Role             State
+port1.0.1       8000:00c28f3f0f5d    8389       Disabled         Discarding
+port1.0.2       8000:00c28f3f0f5d    838a       Designated       Forwarding
+port1.0.3       8000:00c28f3f0f5d    838b       Designated       Forwarding
+port1.0.4       8000:00c28f3f0f5d    838c       Designated       Forwarding
+port1.0.5       8000:00c28f3f0f5d    838d       Designated       Forwarding
+port1.0.3       8000:00c28f3f0f5d    838b       Designated       Forwarding
+port1.0.4       8000:00c28f3f0f5d    838c       Designated       Forwarding
+%   port1.0.4: Port Number 908 - Ifindex 5004 - Port Id 838c - Role Designated - State Forwarding
+%   port1.0.4: Designated Path Cost 0
+%   port1.0.4: Designated Port Id 838c - Priority 128  - 
+%   port1.0.4: Designated Bridge 800000c28f3f0f5d
+%   port1.0.4: Version Rapid Spanning Tree Protocol - Received None - Send RSTP
+%   port1.0.3: Port Number 907 - Ifindex 5003 - Port Id 838b - Role Designated - State Forwarding
+%   port1.0.3: Designated Path Cost 0
+%   port1.0.3: Designated Port Id 838b - Priority 128  - 
+%   port1.0.3: Designated Bridge 800000c28f3f0f5d
+%   port1.0.3: Version Rapid Spanning Tree Protocol - Received None - Send RSTP
+GATE FAILED: for 20 s (10 hello intervals of 2 s) x230 port1.0.4 stayed "Designated Forwarding": it never received the
+  BPDU the x230 sends on port1.0.3. The IE520 stack, with spanning tree disabled, does not forward BPDUs between
+  port1.0.17 and port1.0.3 (it terminates them), so it cannot act as the case's "hub/switch". Going on to S3 would have
+  closed a real loop with no blocking port. S3 and S4 were NOT done.
+Reverted immediately (19:16:3x): stack "interface port1.0.3" "switchport access vlan 104" -> show vlan brief:
+103     VLAN0103         STATIC  ACTIVE  port1.0.17(u) 
+104     VLAN0104         STATIC  ACTIVE  port1.0.3(u) 
+Checked for a stack option to pass BPDUs (read-only qmark, work/qm-u5.out, qm2-u5.out, qm3-u5.out):
+  config "no spanning-tree rstp enable ?" -> only "bridge-forward  put all ports of the bridge into forwarding state
+  (default)" and <cr> (bridge-forward is already the default; it is about port states, not BPDU forwarding);
+  config-if "spanning-tree ?" -> autoedge/edgeport/force-version/guard/hello-time/link-type/mst/path-cost/portfast/
+  priority/restricted-role/restricted-tcn; "l2 ?" -> "% Unrecognized command" (no L2 protocol tunnelling on the IE520).
+  So the stack cannot be made BPDU-transparent.
+
+== Teardown (19:18:01-19:18:3x)
+x230: "show running-config" (RSTP-enabled config -> swi_f.cfg) "show spanning-tree brief" "configure terminal"
+  "no spanning-tree rstp enable" "end" "show spanning-tree brief" -> "Default: Bridge up - Spanning Tree Disabled";
+  `spanning-tree mode rstp` was never changed, so the mode-then-disable order did not arise (work/td-u0.out).
+Stack: "show loop-protection": port1.0.3 / port1.0.17 Yes vlan-dis Normal; its log holds no loop-protection event in the
+  case window (work/td-u5.out).
+Running-config diffs (tools/rcdiff.py, group pre-run captures ../../46421/work/prerun-uN-1842.out):
+  x230 vs work/td-u0-final.out -> empty; stack vs work/td-u5.out -> empty.
+Final x230 status: port1.0.2 VLAN 1, port1.0.3 VLAN 103, port1.0.4 VLAN 104, port1.0.5 VLAN 105, all connected a-full a-1000.
+Consoles: each ckcon/qmark call ended `end` / `terminal no monitor` at exec (transcripts /tmp/x230port-1840/console-u0.log,
+  console-u5.log; u5 transcript tail: "IE520-stk#" then "closed /dev/u5 at 2026-10-09 19:17:39" after the last qmark).
+Files: ../swi_f.cfg (19:18:07, RSTP enabled = the case setup), ../stk_a.cfg (19:14:29, before the stack's one change, which was
+  reverted); work/s0-u5.out s1-u0.out s2-u5.out s2-u0.out s2r-u5.out qm*-u5.out td-u0.out td-u0-final.out td-u5.out.
+
+== What unblocks it (STANDING-ORDERS §3; a recable, the Test Engineer's)
+The case needs a BPDU-transparent path between two x230 ports. Exact change, either:
+  (a) direct loop on the x230: take the AT-SPSX out of stack port3.0.7 (free, notconnect) into x230 port1.0.6, and the AT-SPSX
+      out of stack port4.0.7 (free, notconnect) into x230 port1.0.7; patch ONE multimode LC-LC lead from x230 port1.0.6 to
+      x230 port1.0.7. (Both cages are empty today; nothing else on the bench moves.)
+  (b) or a hub / unmanaged switch with two x230 ports cabled into it.
+Then the run is: RSTP on the x230 with port1.0.6/1.0.7 in one VLAN -> port1.0.7 Backup Discarding; eth3 broadcast into that
+VLAN (port1.0.5 moved in) and the port1.0.7 TX counter flat.
+
+Run: confounded -- the bench's only candidate "hub/switch" (the IE520 stack, STP off) does not pass BPDUs, so no loop could
+  be built safely; nothing of steps 2-5 was measured.
+VERDICT: PARTIAL -- the IE520 stack (STP disabled) terminates BPDUs, so x230 port1.0.4 never saw its own BPDU (stayed Designated Forwarding 20 s) and the loop could not be closed safely; needs a direct x230 port-to-port lead or a hub (recable, Test Engineer's)
