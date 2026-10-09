@@ -34,8 +34,8 @@ exactly these ways:
   (written by `/test-mode --from-ask-ck`). Without it, say "`--auto` is for Ask-CK campaigns only"
   and stop. A person typing `/create-logs` gets the normal run.
 - **Manual cases only.** A case run from a framework script keeps its framework TestSet log as
-  the final output, so skip it. A script case is one whose queue row or working log names the
-  `.py` it ran. List what was skipped.
+  the final output, so skip it. A script case is one whose queue row says `kind: script` (from the
+  Ask-CK hand-off, `/test-mode` §1). List what was skipped.
 - **No confirm.** Skip §2's AskUserQuestion. Re-grading happens in Ask-CK's results table, and
   Terrence has the final say on every grade.
 - **Keep `work/`.** Skip §6 step 1: *"we may require the evidence"*. A re-grade before acceptance

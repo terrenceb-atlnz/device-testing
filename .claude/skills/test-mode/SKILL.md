@@ -53,9 +53,23 @@ away.
      - When it is accepted, §2 writes `Driver: ask-ck (<run id>)` into the queue's Session facts,
        on the line after `Test Engineer:`. That line is what turns on the Ask-CK exceptions in
        §7–§8 and `/create-logs --auto`.
-     - The hand-off's format, its location and where the run id comes from are Ask-CK's
-       (`Test-cases/ask-ck/plans/PLAN-agent-sessions.md`, not written yet). Until that exists,
-       `<run id>` is the hand-off file's basename, and nothing else here reads the hand-off.
+     - **Read the hand-off** (schema 1, Ask-CK's `plans/PLAN-agent-sessions.md` §6; written by
+       its seat agent to `~/.local/share/ck-agent/runs/<run_id>/<run_id>.json`). A `schema`
+       other than 1 → §10 notice for the campaign, and end. The fields this skill uses:
+       - `run_id` is `<run id>` (it equals the file's basename);
+       - `testbox`, `consoles`, `pdu` (`{ip, outlets}` or `null` = no PDU) and `constraints`
+         are the §1 step 2 answers, written into Session facts word for word. A missing one is a
+         §10 notice, never an AskUserQuestion;
+       - `cases[]`: `key` is the case, and `kind` says how it runs. `kind: script` runs THAT
+         `script` (an absolute, read-only Test-cases path) through the framework with the usual
+         flags (`tools/tb fwprep` + `fw`); never edit it, copy it to change it. `kind: manual`
+         is run by hand as today. Write each case's kind, and a script case's path, into its
+         queue row: `--resume` and `/create-logs --auto` read it from there;
+       - `kind` at the top: `validation` and `composer` are a normal TRIAGE then RUN of
+         `cases[]`. **`composer-validate` is a TRIAGE only, with no cases:** the probe runs with
+         `--template ~/claude/Test-cases/templates/<template>/<template>.setup` (the box's path;
+         missing → §10 notice and end) and the triage report is the result;
+       - `options` (email, start_after) are Ask-CK's server's. This session sends no mail.
 2. **Ask the setup questions in ONE AskUserQuestion call**, before touching any box. (A
    `Driver: ask-ck` campaign takes these answers from the hand-off; a missing one goes through
    §10, never AskUserQuestion.) Each is
@@ -261,7 +275,8 @@ For each runnable group, in order:
    - `mode: RUN`;
    - `sentinel: parent` and the address;
    - **the same session block as §5**;
-   - the queue file and **this group's rows only**;
+   - the queue file and **this group's rows only**; in a `Driver: ask-ck` campaign, each row's
+     kind and, for a script case, its script path (§1);
    - "follow logged-output.md §2: per case, save the `<dev>.cfg` files after setup, keep
      `work/run<N>.log`, commit, and send me the `RESULT` line. Do NOT write the final log. Hand
      back when the group is done or every remaining row is BLOCKED; if you stop for any other
@@ -344,7 +359,14 @@ When every group is DONE or BLOCKED:
      - Re-grading happens in Ask-CK's results table.
      - A user-driven campaign is unchanged: *"I still do not want user-driven /test-mode sessions
        to create logs automatically."*
-   - Leave the sentinel armed until they run `/wrap-dt`. They may still send direction.
+     - **Then end the Ask-CK campaign cleanly:** every `RESULT` row recorded and committed,
+       `/create-logs --auto` done. Stand the sentinel down (stop its Monitor, `CronDelete` its
+       cron, sweep stray `sentinel.sh` as in the kit's ARMING step). Then print one last line,
+       exactly `ASKCK-DONE <run id>`, and stop. Ask-CK's seat agent closes the session on that
+       line; without it the Monitor keeps the session alive. `/wrap-dt` is not run; the bench is
+       left as each case's restore left it, and the handover is the Test Engineer's next wrap.
+   - Leave the sentinel armed until they run `/wrap-dt` (not in a `Driver: ask-ck` campaign,
+     above). They may still send direction.
 
 When the Test Engineer runs `/wrap-dt`:
 - Its §1 stands the sentinel down (Monitor, cron, stray sweep).
@@ -398,6 +420,7 @@ ENGINEER:`), do this instead:
    case.
 4. **If the block applies to EVERY remaining case**, end the campaign with the same notice,
    because moving on would only repeat it. Examples: no testbox access, every console occupied,
-   or a probe result no case can run under.
+   or a probe result no case can run under. Then stand down and print `ASKCK-DONE <run id>` as
+   §8 says.
 
 §8's completion still applies: an Ask-CK campaign then runs `/create-logs --auto` (§8).
