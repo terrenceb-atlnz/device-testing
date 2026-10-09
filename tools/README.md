@@ -129,7 +129,7 @@ Runs a list of CLI commands on one console and prints each with its output. With
 - **Directives (2026-10-09):** a CMD that starts with `@` is not sent. `@sleep <s>` pauses; `@poll <s> <regex> <cmd>`
   re-runs `<cmd>` until its output matches `<regex>` (no spaces; use `\s`) or `<s>` seconds pass, and prints
   `@poll MATCHED|TIMED OUT after <t> s` with the last output (a link-up timer, for example). With `--stop-on-error`
-  a timeout stops the run (exit 3). Not yet verified on hardware.
+  a timeout stops the run (exit 3). Verified 2026-10-09 on tb470 (x230 u0, 4050 u1, IE520 stack u5; ports run 2).
 
 ### `ckyn.py`
 Like `ckcon.py --stop-on-error`, but it answers expected (y/n) confirmations:
