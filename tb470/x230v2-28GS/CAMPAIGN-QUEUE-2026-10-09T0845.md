@@ -78,6 +78,16 @@ T47120, T47119, T47121, T47228, T44179, T33234, T30403, T28218, T46810.
 `switchport access vlan 104`; `interface port1.0.5` / `switchport access vlan 105`. Verify with `show vlan brief`. The
 stack keeps its side (103/104), so no loop forms in between, but eth3 shares eth1's domain until port1.0.5 is back in 105.
 
+**Shared with test-cases-2b (Test Engineer's instruction, 13:15):** *"work with the other peer session to execute tests
+before the 1800 window, and if it needs more testing after your x230 tests are complete. /wrap-dt after everything is done
+between sessions, and have it let you know when it is completely done so you both can stand down."*
+- Before 18:00 tb470 is test-cases-2b's. It releases it by 17:45 ("tb470 released"): consoles closed at exec, no tool
+  processes, the x230 VLAN 103/104/105 isolation in place, and any DUT changes restored or listed.
+- At the end of the run: message test-cases-2b "tb470 free". It tests again if it needs to, then sends "test-cases-2b
+  completely done".
+- Only THEN run /wrap-dt for tb470 (this overrides the cron prompt's "do not run /wrap-dt"; /create-logs stays the TE's).
+  Tell test-cases-2b the wrap is done, and both stand down.
+
 Unattended end-of-run order (memory `unattended-session-stalls-on-permission-prompt`): commit the Results, post the
 results list, THEN anything that can prompt. Nothing that touches root-owned files or anything outside the repo.
 
