@@ -1,0 +1,248 @@
+WORKING LOG -- AWPTCM-T47115, run 1 (bench-runner, RUN mode, queue row 2 "secure", run 4 of the 18:00 plan)
+Started: 2026-10-09 20:18 NZDT; group restore to 20:31 NZDT
+Group dir: tb470/x230v2-28GS/secure-2026-10-09T0845/47115/
+
+== Session facts, devices, DUT clock vs box, pre-run gate and probe: see 47114/work/run1.log (same group, same session).
+In short: tb470, consoles u0-u5 (u0 = x230v2-28GS DUT swi_f, S/N A10783G262900002, awplus_main-20261008-57, bootloader 6.2.40,
+console /dev/u0 115200, PDU outlet 1); probe before 2026-10-09T070729Z MATCH; x230 clock = NZ local time labelled UTC.
+Partners: none used. Links / host NICs: none (console-only case).
+
+== Case text (Ask-CK ck.db zephyr_cases, read-only)
+Case:          AWPTCM-T47115  (Draft)
+Title:         crypto secure mode: Set password requirements for users Confirm this applies to all users
+Objective:     (empty)
+Precondition:  (empty)
+Step 1 text (verbatim):     (empty)
+Step 1 test data:           (empty)
+Step 1 expected (verbatim): (empty)
+The case has ONE step with empty text/expected. The procedure below is the tester's, built from the title and the AW+
+security-password command pages (x230): with the DUT in secure mode, set password requirements
+(`security-password minimum-length`, `security-password minimum-categories`) and confirm every kind of user is held to them.
+Procedure (pass criteria in brackets):
+  1. new privilege-1 user: too short, then long but 1 category [both rejected], then compliant [accepted]
+  2. new privilege-15 user: same three [rejected, rejected, accepted]
+  3. existing users (the two just made, and `manager`): too short and 1-category passwords, with and without `privilege`
+     [all rejected; stored hashes unchanged]
+Not done: a console login as the new users with the compliant passwords. The console tools take another login only from the
+CK_USER/CK_PASSWORD environment, and tools/tb does not carry environment over ssh.
+
+== Precondition: secure mode in (from T47114, same group; reload at 20:12, boot 265 s)
+tools/tb ckcon tb470 x230sec-2007 u0 115200 --stop-on-error "show secure-mode" "show running-config"
+  "show security-password configuration" "show security-password user" -> exit 0 (work/precase-u0.out)
+20:18:4x >>> show secure-mode
+Secure mode is enabled
+20:18:52 >>> show security-password configuration
+Minimum password length ............................   8
+Minimum password character categories to match .....   1
+Number of previously used passwords to restrict.....   1
+Password lifetime ..................................   No Expiry
+20:18:53 >>> show security-password user
+manager            15            0 day(s) ago  No Expiry
+
+Observation (raised by the sentinel; T47114's verdict not touched): the secure-mode boot logged a release-verification warning.
+tools/tb ckcon tb470 x230sec-2007 u0 115200 "show log | include Verification|secure-mode|crypto verify"
+  "show log permanent | include Verification|secure-mode" "show running-config | include crypto" -> exit 0 (work/verify-obs-u0.out)
+20:19:43 >>> show log | include Verification|secure-mode|crypto verify
+2026 Oct 09 20:16:04 user.notice awplus IMI[683]: crypto secure-mode enabled
+2026 Oct 09 20:16:04 user.warning awplus IMI[683]: Verification of the release file has failed, please verify it.
+20:19:47 >>> show log permanent | include Verification|secure-mode
+2026 Oct 09 08:48:07 user.err awplus IMISH[11195]: Command [show crypto secure-mode] failed
+2026 Oct 09 20:16:04 user.warning awplus IMI[683]: Verification of the release file has failed, please verify it.
+20:19:49 >>> show running-config | include crypto
+crypto secure-mode
+- The warning appears ONLY for the 20:16 secure-mode boot. The permanent log has none for tonight's earlier plain boots
+  (18:0x-18:3x, run 1), and none after the 20:29 boot out of secure mode (below). The boot banner that time also said
+  "Please verify release with the 'crypto verify' command".
+- No `crypto verify <file> <hash>` pair is configured. Per the AW+ x230 `crypto verify` page, the hash is "the known correct
+  checksum ... listed in the sha256sum file that is available from the Allied Telesis Download Center". This dev build
+  (x230v2_28GS-awplus_main-20261008-57.rel) has no published sha256sum. The same page says "If the device is in Secure Mode
+  and the boot-up firmware file fails verification [against a saved pair], the device will not boot". So `crypto verify`
+  does not usefully apply to this dev build, and no pair was saved.
+- The 08:48:07 line is the morning triage's read-only `show crypto secure-mode` (not a valid command), not tonight's run.
+
+== Setup (in secure mode)
+tools/tb ckcon tb470 x230sec-2007 u0 115200 --stop-on-error "configure terminal" "security-password minimum-length 12"
+  "security-password minimum-categories 3" "end" "show running-config" "show security-password configuration" -> exit 0 (work/setup-u0.out)
+awplus(config)# security-password minimum-length 12
+awplus(config)# security-password minimum-categories 3
+(no `% ` line)
+20:19:10 >>> show security-password configuration
+Minimum password length ............................   12
+Minimum password character categories to match .....   3
+Running-config diff, pre-case vs after setup (tools/rcdiff.py work/precase-u0.out work/setup-u0.out):
+-security-password minimum-length 8
++security-password minimum-length 12
++security-password minimum-categories 3
+47115/swi_f.cfg saved from this 20:19:09 running-config (tools/rc2cfg.py).
+
+== Steps
+The test passwords below are made-up test data (not the Test Engineer's secrets). Categories: upper, lower, digit, special.
+Tool: tools/tb ckcon tb470 x230sec-2007 u0 115200 (no --stop-on-error, because rejections are expected) "configure terminal" <the 8
+username lines> "end" "show running-config | include username" "show security-password user" -> exit 0 (work/steps-u0.out)
+
+Step 1: new privilege-1 user
+20:20:21 >>> username ckpw1 privilege 1 password Ab1-short          (9 chars, 4 categories)
+% User password should have length of 12 or more characters.
+20:20:22 >>> username ckpw1 privilege 1 password abcdefghijklmn     (14 chars, 1 category)
+% Password does not match at least 3 character categories.
+20:20:27 >>> username ckpw1 privilege 1 password Ck-Pw-Test-2026    (15 chars, 4 categories)
+(accepted, no output)
+Step 1 verdict: PASS.
+
+Step 2: new privilege-15 user
+20:20:28 >>> username ckpw15 privilege 15 password Short-15a        (9 chars)
+% User password should have length of 12 or more characters.
+20:20:29 >>> username ckpw15 privilege 15 password ckpwfifteenusr   (14 chars, 1 category)
+% Password does not match at least 3 character categories.
+20:20:34 >>> username ckpw15 privilege 15 password Ck-Pw15-Test-2026 (17 chars, 4 categories)
+(accepted, no output)
+20:20:39 >>> show running-config | include username
+username manager privilege 15 password 8 $5$bJoGTc4D$rJWi6S..L0u7FYo4iPIgN0/q2xB77rJgCtgwoZhloyC
+username ckpw1 privilege 1 password 8 $5$CHUh0MjlptjYWLXb$0vFB9DJhSoLOvfcYSmDuO39BCwA1qS9HPhWo3eu9hLD
+username ckpw15 privilege 15 password 8 $5$J4Gwu.Tbl42RCktn$tFhIt/oBRHNguvlaRFNIJJjdaTWG8.TGQ122flnyczC
+20:20:40 >>> show security-password user
+manager            15            0 day(s) ago  No Expiry
+ckpw1              1             0 day(s) ago  No Expiry
+ckpw15             15            0 day(s) ago  No Expiry
+(the rejected attempts created no user; the accepted ones are stored as $5$ SHA-256 hashes)
+Step 2 verdict: PASS.
+
+Step 3: existing users
+First attempts, in the same call (both under 8 characters):
+20:20:35 >>> username ckpw1 password abc
+% password too short
+20:20:36 >>> username manager password friend
+% password too short
+Both rejected, but with a different message, and both are shorter than 8 characters (the default minimum). So they do not prove
+the 12-character / 3-category rule reached existing users. Re-tested with passwords of 9 characters / 1 category:
+- Recovery path proven first, in case a weak manager password were accepted (it would lock the console tools out):
+  tools/tb ckcon ... --stop-on-error "configure terminal" "username manager privilege 15 password 8 <manager's current hash>" "end"
+  "show running-config | include username manager" -> exit 0, hash unchanged (work/steps2a-u0.out)
+- tools/tb ckcon tb470 x230sec-2007 u0 115200 "configure terminal" <7 username lines> "end" "show running-config | include username"
+  -> exit 0 (work/steps2b-u0.out)
+20:21:35 >>> username ckpw1 password Ab1-shrt9
+% User password should have length of 12 or more characters.
+20:21:36 >>> username ckpw1 password abcdefghijklmnop
+% Password does not match at least 3 character categories.
+20:21:37 >>> username ckpw1 privilege 1 password Ab1-shrt9
+% User password should have length of 12 or more characters.
+20:21:38 >>> username ckpw15 password Ab1-shrt9
+% User password should have length of 12 or more characters.
+20:21:40 >>> username manager password Ab1-shrt9
+% User password should have length of 12 or more characters.
+20:21:41 >>> username manager password abcdefghijklmnop
+% Password does not match at least 3 character categories.
+20:21:42 >>> username manager privilege 15 password Ab1-shrt9
+% User password should have length of 12 or more characters.
+20:21:44 >>> show running-config | include username
+  (all three hashes identical to step 2's: no password changed)
+Step 3 verdict: PASS. The rules hold for new and existing users, privilege 1 and 15, the default `manager` account included.
+
+== Teardown of the case (secure mode still in)
+tools/tb ckyn tb470 x230sec-2007 u0 115200 "configure terminal" "YN?:no username ckpw1" "YN?:no username ckpw15"
+  "no security-password minimum-categories" ... -> exit 2 (work/teardown-u0.out): both users removed (no prompt), then
+no security-password minimum-categories
+% Invalid input detected at '^' marker.
+(The x230 has no `no` form for minimum-categories. ckyn's cleanup sent `end` -> awplus#, `terminal no monitor`, closed 20:22:11.)
+tools/tb ckcon tb470 x230sec-2007 u0 115200 --stop-on-error "configure terminal" "security-password minimum-categories 1"
+  "security-password minimum-length 8" "end" "show running-config" "show security-password configuration" "show security-password user"
+  -> exit 0 (work/teardown2-u0.out): length 8, categories 1, only manager left.
+Running-config diff, pre-case (20:18) vs after teardown (tools/rcdiff.py work/precase-u0.out work/teardown2-u0.out): no output (identical).
+
+== Group restore (queue "Run 4" recipe R2-R5): secure mode out, startup config restored
+R2a. tools/tb ckyn tb470 x230sec-2007 u0 115200 "configure terminal" "YN?:no crypto secure-mode" "end" -> exit 2 (work/restoreR2a-u0.out)
+awplus(config)# no crypto secure-mode
+% Save the config and restart the system for this change to take effect.
+(No (y/n) prompt; the `% ` line is an advisory; ckyn's cleanup ended at awplus#. Then `show secure-mode` = "Secure mode is
+disabled" at 20:23:00, before any reload; `show running-config | include crypto` empty.)
+R2b. Restore flash:/default.cfg from flash:/default.cfg.pre-secure. The x230 CLI refuses every direct route
+(work/restoreR2b..e-u0.out):
+20:23:05 copy flash:/default.cfg.pre-secure flash:/default.cfg
+% Cannot overwrite flash:/default.cfg as it is configured as the boot config file
+20:23:40 copy flash:/default.cfg.pre-secure startup-config
+% Config files must end in .cfg
+20:23:56 copy flash:/default.cfg.pre-secure flash:/pre-secure.cfg  -> Successful operation (643 B; a .cfg-named copy)
+20:24:00 copy flash:/pre-secure.cfg startup-config
+% Cannot overwrite flash:/default.cfg as it is configured as the boot config file
+20:24:27 configure terminal / boot config-file flash:/pre-secure.cfg / end  -> show boot: Current boot config: flash:/pre-secure.cfg (file exists)
+20:24:31 copy flash:/default.cfg.pre-secure flash:/default.cfg
+% Cannot overwrite flash:/default.cfg as it is the default config file
+20:24:51 delete flash:/default.cfg
+% Cannot delete flash:/default.cfg as it is the default config file
+% Failed to delete flash:/default.cfg
+So a byte-for-byte restore of default.cfg is not possible through the CLI. Only `write` updates it, and `write` stamps a
+new "Startup-config saved on" header. (A root shell copy, `start-shell` + cp, was NOT used: left for the Test Engineer to
+decide.) Route taken, as the sentinel also proposed at 20:25:
+R2c. (work/restoreR2f-u0.out) configure terminal / no boot config-file / end -> show boot: Default boot config: flash:/default.cfg,
+  Current boot config: flash:/default.cfg (file exists). Then the running-only isolation removed so running = the pre-secure
+  content: interface port1.0.3-1.0.5 / switchport access vlan 1 / exit / vlan database / no vlan 103-105 / exit / no lldp run / end
+  (no `% ` line). (No loop: the stack ends stay in VLAN 103/104.) Running vs the saved pre-secure file, before writing:
+  only the header, `service password-encryption` (file only; this build's running-config does not show it) and
+  `security-password minimum-length 8` / `security-password history 1` (running only; platform defaults shown since 10-08).
+R2d. tools/tb ckyn ... "YN?:write" "dir flash:/*.cfg*" "show boot" "show startup-config" -> exit 0 (work/restoreR2g-u0.out)
+20:26:19 >>> write
+Building configuration...
+[OK]
+       678 -rw- Oct 09 2026 20:26:16  flash:/default.cfg
+Current boot config: flash:/default.cfg (file exists)
+show startup-config vs 47114/work/default.cfg.pre-secure.txt (saved before the first write), full diff:
+-! Startup-config saved on Thu Oct  8 09:59:19 2026 +0000 by manager via con0 (ttyS0)
+-!
+-service password-encryption
++! Startup-config saved on Fri Oct  9 20:26:16 2026 +0000 by manager via con0 (ttyS0)
++!
++security-password minimum-length 8
++security-password history 1
+Everything else is identical (no crypto secure-mode, no VLAN 103-105, no lldp run). 678 B against 643 B before.
+RESIDUAL DIFFERENCE, reported to the sentinel: the startup config is NOT byte-for-byte the original. Beyond the header,
+`service password-encryption` is missing (the stored manager password is a $5$ hash either way) and the two default
+security-password lines are present. Saved: work/startup-after-restore.txt.
+R3. Reload out of secure mode: tools/tb ckreload tb470 x230sec-2007 u0 115200 720 -> exit 0 (work/restoreR3-reload.out)
+DEVHOST 2026-10-09 20:26:34 NZDT
+20:26:36 >>> reload
+reboot question: 'reboot system? (y/n):' -> y
+20:29:21 login seen after 165 s
+Boot transcript: "Verifying release... OK"; the "Secure mode setup" / "FIPS Provider Install" / "Secure mode enable" units still run
+(they appear to run on every boot), but there is no "Creating secure mode hostkey", no "Please verify release with the 'crypto
+verify' command" and no W A R N I N G banner.
+tools/tb ckcon tb470 x230sec-2007 u0 115200 --stop-on-error "show secure-mode" "show system" "show boot" "show exception log"
+  "show log | include secure-mode|Verification" "show ssh server" <isolation: vlan database / vlan 103,104,105 / exit / interface
+  port1.0.3 / switchport access vlan 103 / interface port1.0.4 / switchport access vlan 104 / interface port1.0.5 / switchport access
+  vlan 105 / exit / lldp run / end> "show vlan brief" "show running-config" "show startup-config" "show security-password configuration"
+  -> exit 0 (work/restoreR3-u0.out)
+Secure mode is disabled
+Uptime             : 0 days 00:02:42
+Current boot config: flash:/default.cfg (file exists)
+show exception log: None
+show log | include secure-mode|Verification: no secure-mode or Verification line this boot
+show ssh server: Ciphers chacha20-poly1305@openssh.com, aes128-gcm@openssh.com, aes256-gcm@openssh.com, aes128-ctr, ...; KEX
+  mlkem768x25519-sha256, ...; MAC umac-128-etm@openssh.com, ...; hostkeys ssh-ed25519-cert-v01@openssh.com, ...  (the pre-run, non-FIPS set)
+show vlan brief: 103 = port1.0.3(u), 104 = port1.0.4(u), 105 = port1.0.5(u)
+Running-config diff, GROUP pre-run (47114/work/prerun-u0.out, 20:07:57) vs now (tools/rcdiff.py): no output (identical).
+show startup-config after the boot = the 20:26:16 written file (work/startup-after-boot.txt; only capture artefacts differ).
+R4. tools/tb ckyn tb470 x230sec-2007 u0 115200 "YN?:delete flash:/pre-secure.cfg" "YN?:delete flash:/default.cfg.pre-secure"
+  "dir flash:/*.cfg*" "show boot" -> exit 0 (work/restoreR4-u0.out)
+Delete flash:/pre-secure.cfg?  (y/n)[n]:y  ... Successful operation
+Delete flash:/default.cfg.pre-secure?  (y/n)[n]:y  ... Successful operation
+       678 -rw- Oct 09 2026 20:28:50  flash:/default.cfg
+Current boot config: flash:/default.cfg (file exists)
+Note: default.cfg's dir date moved to 20:28:50, during the boot, with no write. So a boot touches the file's mtime. That also
+explains the 18:35:16 date at the gate (run 1's last reload was at 18:32:58).
+R5. After the run (20:30-20:31 NZDT):
+- tools/tb precheck tb470 u0,u1,u2,u3,u4,u5 -> CLEAR.
+- Probe after: tools/tb probe tb470 --consoles u0,u1,u2,u3,u4,u5 --no-prompt --pdu 10.36.150.14 --outlet u0=1,u1=7,u2=6,u3=8,u4=4,u5=5
+  --baud 115200 -> exit 0 MATCH, capture 2026-10-09T073051Z.
+- Boot configs: x230 flash:/default.cfg (file exists); AR4050S, stack, IE520-sa flash:/tb470-bench.cfg (file exists). Unchanged.
+- show running-config u0-u3 in capture 073051Z identical (diff -q) to the pre-run probe capture 070729Z.
+- AR4050S port1.0.2: `disabled` in the post-run capture (not touched by this group).
+- tools/tb ps tb470 'python|tcpdump|bench_probe' -> nothing running.
+- u0 closed at awplus# after `end` and `terminal no monitor` (transcript /tmp/x230sec-2007/console-u0.log, closed 20:30:26). peek at 20:31:
+  u0 'awplus#', u1 '4050-5g#', u2/u4/u5 'IE520-stk#', u3 'IE520-sa#'.
+
+Run label: clean for the case's steps. The group restore is complete for running-config, the boot pointer and the secure-mode state,
+but the startup config is NOT byte-for-byte (see R2d).
+Files saved: 47115/swi_f.cfg; work/precase-u0.out, verify-obs-u0.out, setup-u0.out, steps-u0.out, steps2a-u0.out, steps2b-u0.out,
+teardown-u0.out, teardown2-u0.out, restoreR2a..g-u0.out, qmark-copy-u0.out, startup-after-restore.txt, startup-after-boot.txt,
+restoreR3-reload.out, restoreR3-u0.out, restoreR4-u0.out.
+
+VERDICT: PASS -- in secure mode with minimum-length 12 / minimum-categories 3, every short or 1-category password was rejected for new privilege-1 and privilege-15 users and for existing users including manager (hashes unchanged), and compliant passwords were accepted; rules, users and secure mode restored
