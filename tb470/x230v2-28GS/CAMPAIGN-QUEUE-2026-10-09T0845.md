@@ -87,6 +87,8 @@ between sessions, and have it let you know when it is completely done so you bot
   completely done".
 - Only THEN run /wrap-dt for tb470 (this overrides the cron prompt's "do not run /wrap-dt"; /create-logs stays the TE's).
   Tell test-cases-2b the wrap is done, and both stand down.
+- 13:59: test-cases-2b released tb470 (2 Ask-CK E2E runs: probe MATCH, no device state changed, consoles at exec, no
+  holders). It needs NO bench time after the run; it will still send "completely done" before the wrap.
 
 Unattended end-of-run order (memory `unattended-session-stalls-on-permission-prompt`): commit the Results, post the
 results list, THEN anything that can prompt. Nothing that touches root-owned files or anything outside the repo.
