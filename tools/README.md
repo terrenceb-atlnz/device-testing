@@ -228,7 +228,7 @@ From a console already at `#`, it sends `reload`. It answers `y` only to the reb
 - **Limits:**
   - It does not log in; log in first, for example with `ckcon.py`.
   - The 720 s default boot wait was measured on IE520; other products may need another value.
-- **Status:** verified on tb470 u3, 2026-10-02 (reboot question only, `y`; login after 189 s; running-config unchanged)
+- **Status:** verified on tb470 u3, 2026-10-02 (reboot question only, `y`; login after 189 s; running-config unchanged); also on tb470 u0, x230v2-28GS at 115200, 2026-10-09 (5 reloads, login after 163-168 s; no save-config question asked)
 
 ### `flash_copy.py`
 Copies a file from any AW+ path into flash, then checks with `dir` that it landed at the right
