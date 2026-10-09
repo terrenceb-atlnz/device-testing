@@ -1,0 +1,214 @@
+WORKING LOG -- AWPTCM-T47209, run 1 (bench-runner, RUN mode, queue row 3 "ports", run 2 of the 18:00 plan)
+Started: 2026-10-09 19:19:48 NZDT
+Group dir: tb470/x230v2-28GS/ports-2026-10-09T0845/47209/
+
+== Session facts, devices, host NICs, DUT clock, pre-run gate: as in ../../46421/work/run1.log (same group, same session;
+   probe before 2026-10-09T054049Z MATCH; x230 boot config flash:/default.cfg; stack flash:/tb470-bench.cfg).
+Testbox tb470; consoles u0-u5 (u0 = x230v2-28GS DUT); PDU 10.36.150.14; constraints: 18:00 start, scope "18 + after-hours
+reloads"; baud 115200; sentinel = parent session. Test Engineer terrenceb@terrenceb-dl.
+
+== Case text (Ask-CK ck.db zephyr_cases, read-only)
+Case:          AWPTCM-T47209  (Draft)
+Title:         Fibre pluggable with supported speeds
+Objective:     (empty)
+Precondition:  (empty)
+Step 1 text (verbatim):     (empty)
+Step 1 test data:           (empty)
+Step 1 expected (verbatim): (empty)
+
+== Method chosen by the tester (no steps in the DB)
+Fibre pluggable in the x230: port1.0.4 AT-SPSX (1000BASE-SX, 850 nm, S/N A03240R151300357) <-> stack port1.0.3 AT-SPSX
+(A03240R192701669), multimode LC-LC, x230 VLAN 104 / stack VLAN 104 (re-triage 10:00: "C ... 1000BASE-SX only").
+1000BASE-SX has exactly one speed, 1000 Mb/s full duplex. So the case checks:
+  (1) the supported speed: 1000 full with autoneg (`speed auto`, default) and fixed (`speed 1000`), link up, frames passing;
+  (2) the unsupported speeds/duplex the CLI parser offers (it is media-blind: 10..400000): the x230 must not bring the SX
+      link up at a speed the module cannot run -- either reject the command or leave the port at 1000 / down, never report
+      a link at a speed the optic cannot carry.
+Frames-passing evidence: the stack's loop-protection sends a loop-detect frame out port1.0.3 every 1 s and both ends send
+LLDP every 30 s, so the input counter on each end must rise while the link is really up.
+
+== Step 1 -- x230 (awplus(config-if)#), tools/tb ckcon tb470 x230port-1840 u0 115200 "show clock" "show running-config"
+   "show system pluggable detail" "show system pluggable diagnostics" "show interface port1.0.4" "configure terminal"
+   "interface port1.0.4" "speed 100" "do show interface port1.0.4 status" "speed 10" "do show ..." "speed auto 100" "do show ..."
+   "speed 2500" "do show ..." "speed 10000" "do show ..." "duplex half" "do show ..." "duplex full"
+   "@poll 20 connected\s+\d+\s+\S*full\s+\S*1000\s do show interface port1.0.4 status" "duplex auto" "speed 1000"
+   "@poll 30 connected\s+\d+\s+\S*full\s+1000\s do show interface port1.0.4 status" "do show interface port1.0.4"
+   "do show running-config interface port1.0.4" "end"  -> exit 0, 19:19:48-19:20:5x. Stdout work/s1-u0.out.
+Pluggable (show system pluggable detail, port1.0.4, verbatim):
+Vendor Name:              ATI
+Device Name:              AT-SPSX
+Device Revision:          E
+Device Type:              1000BASE-SX
+Serial Number:            A03240R151300357
+Manufacturing Datecode:   15032801
+SFP Laser Wavelength:     850nm
+Link Length Supported 
+  Single Mode Fiber :     -
+  OM1 (62.5um) Fiber:     270m
+  OM2 (50um) Fiber  :     550m
+  OM3 (50um) Fiber  :     -
+  OM4 (50um) Fiber  :     -
+  OM5 (50um) Fiber  :     -
+Diagnostic Calibration:   -
+Power Monitoring:         -
+show system pluggable diagnostics: "port1.0.4 / Diagnostics information is not supported by device" (no DDM on this SPSX).
+Before: show interface port1.0.4: "current duplex full, current speed 1000" / "configured duplex auto, configured speed auto".
+Commands and the status after each (verbatim):
+  current duplex full, current speed 1000, current polarity auto
+  configured duplex auto, configured speed auto, configured polarity auto
+    input packets 2703, bytes 267288, dropped 0, multicast packets 91
+19:20:02 >>> speed 100
+19:20:03 >>> do show interface port1.0.4 status
+port1.0.4   -                  connected         104 a-full 100     1000BASE-SX
+19:20:04 >>> speed 10
+% port1.0.4: Unsupported speed/duplex combination port1.0.4
+19:20:06 >>> do show interface port1.0.4 status
+port1.0.4   -                  connected         104 a-full 100     1000BASE-SX
+19:20:07 >>> speed auto 100
+19:20:08 >>> do show interface port1.0.4 status
+port1.0.4   -                  connected         104 a-full a-100   1000BASE-SX
+19:20:09 >>> speed 2500
+% port1.0.4: Unsupported speed/duplex combination port1.0.4
+19:20:10 >>> do show interface port1.0.4 status
+port1.0.4   -                  connected         104 a-full a-100   1000BASE-SX
+19:20:11 >>> speed 10000
+% port1.0.4: Unsupported speed/duplex combination port1.0.4
+19:20:12 >>> do show interface port1.0.4 status
+port1.0.4   -                  connected         104 a-full a-100   1000BASE-SX
+19:20:14 >>> duplex half
+% Duplex set failed port1.0.4
+19:20:15 >>> do show interface port1.0.4 status
+port1.0.4   -                  connected         104 a-full a-100   1000BASE-SX
+19:20:16 >>> duplex full
+@poll TIMED OUT after 21.5 s (13 reads) of 'do show interface port1.0.4 status'
+port1.0.4   -                  connected         104 full   a-100   1000BASE-SX
+19:20:39 >>> duplex auto
+19:20:40 >>> speed 1000
+@poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.4 status'
+port1.0.4   -                  connected         104 a-full 1000    1000BASE-SX
+  current duplex full, current speed 1000, current polarity auto
+  configured duplex auto, configured speed 1000, configured polarity auto
+    input packets 2707, bytes 267688, dropped 0, multicast packets 91
+x230 log for these commands (show log, work/s3-u0.out; the x230 clock is NZ local time, ~2 s behind the box):
+2026 Oct 09 19:20:00 user.notice awplus IMISH[2614]: [manager@ttyS0]speed 100
+2026 Oct 09 19:20:00 user.notice awplus NSM[682]: Port down notification received for port1.0.4 
+2026 Oct 09 19:20:00 user.notice awplus NSM[682]: Port up notification received for port1.0.4 
+2026 Oct 09 19:20:02 user.notice awplus IMISH[2614]: [manager@ttyS0]speed 10
+2026 Oct 09 19:20:02 local7.err awplus EXFX[738]: DBG:exfx_port_physicalSpeedSet 1101: Invalid request vs capabilities for port
+2026 Oct 09 19:20:02 local6.err awplus EXFX[738]: Unsupported speed/duplex combination ifx 5004
+2026 Oct 09 19:20:04 user.notice awplus IMISH[2614]: [manager@ttyS0]speed auto 100
+2026 Oct 09 19:20:04 user.notice awplus NSM[682]: Port down notification received for port1.0.4 
+2026 Oct 09 19:20:05 user.notice awplus NSM[682]: Port up notification received for port1.0.4 
+2026 Oct 09 19:20:06 user.notice awplus IMISH[2614]: [manager@ttyS0]speed 2500
+2026 Oct 09 19:20:09 user.notice awplus IMISH[2614]: [manager@ttyS0]speed 10000
+2026 Oct 09 19:20:11 user.notice awplus IMISH[2614]: [manager@ttyS0]duplex half
+2026 Oct 09 19:20:11 local7.err awplus EXFX[738]: DBG:exfx_port_duplexSet 5365:rc=16
+2026 Oct 09 19:20:11 local6.err awplus EXFX[738]: Failed to set the duplex mode on ifx 5004, rc 16
+2026 Oct 09 19:20:13 user.notice awplus IMISH[2614]: [manager@ttyS0]duplex full
+2026 Oct 09 19:20:13 user.notice awplus NSM[682]: Port down notification received for port1.0.4 
+2026 Oct 09 19:20:14 user.notice awplus NSM[682]: Port up notification received for port1.0.4 
+2026 Oct 09 19:20:36 user.notice awplus IMISH[2614]: [manager@ttyS0]duplex auto
+2026 Oct 09 19:20:36 user.notice awplus NSM[682]: Port down notification received for port1.0.4 
+2026 Oct 09 19:20:37 user.notice awplus NSM[682]: Port up notification received for port1.0.4 
+2026 Oct 09 19:20:37 user.notice awplus IMISH[2614]: [manager@ttyS0]speed 1000
+2026 Oct 09 19:20:37 user.notice awplus NSM[682]: Port down notification received for port1.0.4 
+2026 Oct 09 19:20:38 user.notice awplus NSM[682]: Port up notification received for port1.0.4 
+2026 Oct 09 19:21:11 user.notice awplus IMISH[2614]: [manager@ttyS0]speed 100
+2026 Oct 09 19:21:12 user.notice awplus NSM[682]: Port down notification received for port1.0.4 
+2026 Oct 09 19:21:12 user.notice awplus NSM[682]: Port up notification received for port1.0.4 
+2026 Oct 09 19:22:53 user.notice awplus IMISH[2614]: [manager@ttyS0]speed auto
+2026 Oct 09 19:22:53 user.notice awplus NSM[682]: Port down notification received for port1.0.4 
+2026 Oct 09 19:22:54 user.notice awplus NSM[682]: Port up notification received for port1.0.4 
+2026 Oct 09 19:22:54 user.notice awplus IMISH[2614]: [manager@ttyS0]duplex auto
+Readings:
+  `speed 10`, `speed 2500`, `speed 10000`: rejected "% port1.0.4: Unsupported speed/duplex combination port1.0.4" -> correct.
+  `duplex half`: rejected "% Duplex set failed port1.0.4" -> correct (status unchanged).
+  `speed 1000` (fixed, no 1000BASE-X autoneg) with the partner at auto: "connected 104 a-full 1000", counters rising
+     (input 2703 -> 2707) -> PASS.
+  `speed 100` and `speed auto 100`: ACCEPTED with no "% " line and no EXFX error; the port flaps once and then reads
+     "connected 104 a-full 100" / "a-full a-100" on a 1000BASE-SX module. -> examined in step 2.
+  (`duplex full` with `speed auto 100` still read "full   a-100"; the @poll for 1000 timed out as expected.)
+
+== Step 2 -- what an SX link "at 100" really does (19:21:06-19:22:26)
+x230: "configure terminal" "interface port1.0.4" "speed 100" "end" "@sleep 5" "show interface port1.0.4 status"
+  "show interface port1.0.4" (work/s2a-u0.out)
+stack (IE520-stk#): "show interface port1.0.3 status" "show interface port1.0.3" "@sleep 40" "show interface port1.0.3 status"
+  "show interface port1.0.3" "show lldp neighbors detail interface port1.0.3" "show loop-protection" (work/s2b-u5.out)
+x230: "show interface port1.0.4 status" "show interface port1.0.4" "show lldp neighbors detail interface port1.0.4" (s2c-u0.out)
+x230 (s2a):
+port1.0.4   -                  connected         104 a-full 100     1000BASE-SX
+  current duplex full, current speed 100, current polarity auto
+  configured duplex auto, configured speed 100, configured polarity auto
+    input packets 2740, bytes 270955, dropped 0, multicast packets 92
+    output packets 246, bytes 17247, multicast packets 203, broadcast packets 9
+stack (s2b), t0 then t0+40 s:
+19:21:29 >>> show interface port1.0.3 status
+port1.0.3   -                  connected         104 a-full a-1000  1000BASE-SX
+19:21:30 >>> show interface port1.0.3
+  current duplex full, current speed 1000, current polarity auto
+    input packets 13770, bytes 1597090, dropped 0, multicast packets 10506
+    output packets 36148, bytes 3710396, multicast packets 5800, broadcast packets 0
+19:21:30 >>> @sleep 40
+19:22:11 >>> show interface port1.0.3 status
+port1.0.3   -                  connected         104 a-full a-1000  1000BASE-SX
+19:22:13 >>> show interface port1.0.3
+  current duplex full, current speed 1000, current polarity auto
+    input packets 13770, bytes 1597090, dropped 0, multicast packets 10506
+    output packets 36191, bytes 3714663, multicast packets 5801, broadcast packets 0
+19:22:14 >>> show lldp neighbors detail interface port1.0.3
+LLDP Detailed Neighbor Information:
+19:22:15 >>> show loop-protection
+Total Instances: 75 (75 packets/s)
+x230 (s2c):
+19:22:22 >>> show interface port1.0.4 status
+port1.0.4   -                  connected         104 a-full 100     1000BASE-SX
+19:22:23 >>> show interface port1.0.4
+  current duplex full, current speed 100, current polarity auto
+    input packets 2740, bytes 270955, dropped 0, multicast packets 92
+    output packets 248, bytes 17381, multicast packets 205, broadcast packets 9
+19:22:24 >>> show lldp neighbors detail interface port1.0.4
+LLDP Detailed Neighbor Information:
+Readings over ~75 s with the x230 at `speed 100`:
+  x230 says: connected, a-full 100, "current speed 100". The stack says: connected a-full a-1000, "current speed 1000".
+  x230 input packets 2740 -> 2740 (nothing received, though the stack sent +43 frames: output 36148 -> 36191 in 40 s).
+  stack input packets 13770 -> 13770 (nothing received, though the x230 counted output 246 -> 248).
+  LLDP: both ends' neighbour tables for this link are EMPTY ("LLDP Detailed Neighbor Information:" and nothing else).
+  => The x230 accepts an unsupported speed on a 1000BASE-SX optic, reports the link "connected" at 100 Mb/s, and the link
+     black-holes all traffic in both directions while the partner still shows link up at 1000. No error, no log line.
+
+== Step 3 -- restore, and a control on the partner (19:22:48-19:24:0x)
+x230: "configure terminal" "interface port1.0.4" "speed auto" "duplex auto" "end" "@poll 20 ...a-full\s+a-1000..."
+  "show log" -> @poll MATCHED after 1.2 s: "port1.0.4  -  connected  104 a-full a-1000  1000BASE-SX" (work/s3-u0.out).
+Control, stack (IE520-stk(config-if)#), work/s4-u5.out: "interface port1.0.3" "speed 100" "do show interface port1.0.3 status"
+  "speed auto" "@poll ..." "end" "@sleep 35" "show interface port1.0.3" "show lldp neighbors detail interface port1.0.3":
+19:23:17 >>> speed 100
+port1.0.3   -                  connected         104 a-full 100     1000BASE-SX
+19:23:20 >>> speed auto
+@poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.3 status'
+port1.0.3   -                  connected         104 a-full a-1000  1000BASE-SX
+    input packets 13773, bytes 1597291, dropped 0, multicast packets 10509
+  Neighbors table last updated 0 hrs 0 mins 35 secs ago
+  Chassis ID ....................... 00c2.8f3f.0f5d
+  -> The IE520 ALSO accepts `speed 100` on its 1000BASE-SX port and reads "a-full 100" (no "% "): the same behaviour on a
+     second AW+ platform, so likely common AW+ code rather than x230-specific. Reverted within 3 s.
+After restore: x230 port1.0.4 current speed 1000, input packets 2835 (rising again), LLDP neighbour 1.0.4 -> stack port1.0.3
+  back; stack port1.0.3 LLDP neighbour 00c2.8f3f.0f5d back ("last updated 0 hrs 0 mins 35 secs ago").
+
+== Teardown
+Running-config diffs (tools/rcdiff.py, group pre-run captures ../../46421/work/prerun-uN-1842.out):
+  x230 vs work/td-u0.out -> empty; stack vs work/td-u5.out -> empty.
+Final x230: port1.0.2/1.0.3/1.0.4/1.0.5 connected a-full a-1000 in VLAN 1/103/104/105; LLDP 3 neighbours (1.0.2, 1.0.3, 1.0.4).
+Consoles: each ckcon call ended `end` / `terminal no monitor` at exec (transcripts /tmp/x230port-1840/console-u0.log, -u5.log).
+Files: ../swi_f.cfg (19:19:55, no setup), ../stk_a.cfg (19:24:45, no setup; its one change was reverted);
+  work/s1-u0.out s2a-u0.out s2b-u5.out s2c-u0.out s3-u0.out s4-u5.out td-u0.out td-u5.out.
+
+== Summary
+PROVEN: the AT-SPSX on the x230 runs its supported speed, 1000 full, both with autoneg and fixed; 10 / 2500 / 10000 and half
+  duplex are rejected cleanly.
+FAILED: `speed 100` and `speed auto 100` are accepted on the 1000BASE-SX module; the x230 then reports the port "connected
+  a-full 100" while the link passes no frames either way (counters flat, LLDP lost) and the partner still sees 1000. A user
+  gets a dead link that the switch reports as up. The IE520 behaves the same way (control), so this is probably shared AW+
+  code; the expected behaviour is the "% Unsupported speed/duplex combination" the x230 already gives for 10 Mb/s.
+
+Run: clean.
+VERDICT: FAIL -- supported speed (1000 full, auto and fixed) works and 10/2500/10000/half are rejected, but `speed 100` / `speed auto 100` is accepted on the 1000BASE-SX module and the port reports "connected a-full 100" while passing no frames (counters flat 40 s, LLDP lost); the IE520 does the same
