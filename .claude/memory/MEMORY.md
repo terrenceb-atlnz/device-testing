@@ -72,3 +72,4 @@
 - [Unattended session stalls on a prompt](unattended-session-stalls-on-permission-prompt.md) — 2026-10-08: tmux sentinel sat 11 h on an `rm` of a root-owned file after its run; results post + wrap never ran. Prompting steps LAST; trailing tool_use with no result = pending prompt
 - [Campaigns measured for token waste](campaigns-measured-for-token-waste.md) — 2026-10-08: /create-logs reviews per-case tokens; up-front reading dominates; read by section, reuse REVIEW.md/plans
 - [Grading authority tier list](grading-authority-tier-list.md) — Terrence 2026-10-09: verdicts, highest first: Terrence > validated pytest script > sentinel > sub-agent > other; agents never override a validated script; always critique it
+- [AW+ default.cfg cannot be overwritten](awplus-default-cfg-cannot-be-overwritten.md) — x230v2 2026-10-09: copy/delete onto flash:/default.cfg refused; only `write` changes it, so backup+copy-back cannot undo a startup change
