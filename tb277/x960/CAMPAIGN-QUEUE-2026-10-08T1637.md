@@ -275,6 +275,10 @@ That round trip transits the DUT and is what every ACL step is read against.
 ```
 R1  DUT    interface port1.0.16 ; shutdown
     swi_b  interface port1.0.16 ; shutdown
+R1b DUT    interface vlan100 ; no ip address        <-- 10.38.22.67/27 was added MID-CASE by
+                                                 T44986 so the vty lines were reachable. It
+                                                 is NOT part of the original setup; without
+                                                 this line the final diff shows it as residue.
 R2  DUT    interface port1.0.48 ; switchport access vlan 1
            interface port1.0.16 ; no static-channel-group ; switchport access vlan 1
            interface port1.0.8  ; no shutdown
