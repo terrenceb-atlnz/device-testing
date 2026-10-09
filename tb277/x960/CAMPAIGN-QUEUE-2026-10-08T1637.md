@@ -624,6 +624,10 @@ pass with the `access-group` removed and proven gone** (trap 1 above). QoS path:
 | T44987 | PASS | numbered hardware IP ACLs (3000–3699) bind to a port and filter per protocol. All five forms tested in isolation with a non-matching `.66` control: `icmp`, `ip` and `proto 1` deny (100%/0% loss), **`tcp` correctly does NOT match ICMP** — the negative control that makes the others mean something. `permit` counted separately (hits 3→7). Five lists bound to one port simultaneously, accepted. D3 reload survived config and binding. TCAM linear: 5 lists = `ACL 5`, Total 7/1024 | tester | acl-num-2026-10-08T1637/T44987/work/run1.log |
 | T44988 | PASS | numbered hardware MAC ACLs (4000–4699) bind to a port and filter on src/dst MAC. Exact masks 6 hits/100% loss; non-existent MAC 0 hits; `deny any any`; VLAN qualifier matched pair (vlan 100 vs vlan 1). **Wildcard mask semantics proven BOTH ways** — from the traffic side (spoofed MAC matched an all-ones rule not naming it) and the rule side (list 4004). `copy-to-cpu` proven on both halves, CPU queue 0 via `sdmaRegs.rxDmaPcktCnt[0]` | tester | acl-num-2026-10-08T1637/T44988/work/run1.log |
 | T44986 | PASS | all five standard-ACL behaviours (permit, deny, implicit deny, wildcard mask, first-match top-to-bottom) demonstrated on **`vty access-class`**, each with its control. ⚠ A standard 1–99 list **cannot bind to an interface** on this platform, and Cisco-style line-mode `access-class` does not exist — the binding point is `vty access-class` in global config. See finding F3: `access-group <1-99>` reports `% Access-list does not exist` for a list that demonstrably does | tester | acl-num-2026-10-08T1637/T44986/work/run1.log |
+| T44979 | PASS | named hardware ACL matching an **IP protocol number** binds with `access-group` and denies exactly the matching flow: `proto 1` denies ICMP while `proto 6` leaves it alone on the same port and addresses — the negative control. Non-matching source unaffected, ARP unaffected, first match wins, removing the winning entry restores the later one. Enforces equally through `service-policy input` with the access-group proven gone first. D3: config and enforcement survive a reload. Removal returns config and classifier to exact baseline | tester | acl-named-2026-10-08T1637/T44979/work/run1.log |
+| T44991 | PASS | `copy-to-cpu` proven on **both halves**: CPU receive-queue 0 rose 0→8, exactly matching its 8 ACL hits, **and** the frames still reached the far side (0% loss). STP unchanged across the step. Run back to back with T44989 on identical setup, so the pair is each other's control: same hit count, opposite forwarding outcome, different CPU queue | tester | acl-named-2026-10-08T1637/T44991/work/run1.log |
+| T44989 | PASS | `send-to-cpu` proven on **both halves**: counter records all 8 matched while the far side receives **none** (100% loss), and a non-matching source on the same port is unaffected. Queue 0 — which `copy-to-cpu` advances — does not move. **CR30477 did NOT reproduce**: spanning tree byte-for-byte unchanged across the step, captured either side as required | tester | acl-named-2026-10-08T1637/T44989/work/run1.log |
+| T44990 | PASS | `copy-to-mirror` proven on **both halves**: 6 frames captured at the ACL-driven destination matching its 6 hits exactly, **and** still forwarded (0% loss). Only the named direction is copied. **First-match termination proven by an order-only pair** — deny *after* the copy-to-mirror is never evaluated and traffic flows; the same deny *before* it blocks the traffic and suppresses mirroring, which rules out "the deny simply does not work". All mirror evidence frame-level with the M1 bounce applied; no status output used as proof | tester | acl-named-2026-10-08T1637/T44990/work/run1.log |
 
 ## Issues
 
@@ -674,6 +678,18 @@ review), NOTED (no decision needed now), CLOSED (decided or answered).
   `u1`, `u4`, `u6`. None was opened. If one fronts a second **x960-56YSQ**, T44992's stack
   clauses could be revisited; that is both a console outside the session list and a topology
   change, so it is the Test Engineer's call, not the tester's.
+- **I-9 (NOTED, 2026-10-09, sentinel) Group 3's four `.cfg` files are ONE shared group-setup
+  snapshot, not per-case captures.** `T44979/`, `T44991/`, `T44989/` and `T44990/`'s `swi_b.cfg`
+  and `swi_c.cfg` are byte-identical and all carry the header `captured 2026-10-09 11:54 NZ ...
+  after setup, before step 1`; all four were committed together in `b51b53c`, before the usage-
+  limit cut. Group 3 shares one setup, so the snapshot does describe the state each case started
+  from, and I verified that: no case ACL, `port1.0.48` and `sa1` in vlan 100, no `interface
+  vlan100` block. Two things it predates, neither of which changes a verdict (the evidence is in
+  the run logs, not the `.cfg`): the `10.38.22.67/27` T44986 added to the DUT mid-case, and the
+  16:35 reload. Flagged because `/create-logs` ships these `.cfg` files beside the logs, so a
+  reader comparing timestamps will see the gap. Closing it would mean re-capturing per case,
+  which the bench no longer holds the setup for.
+
 - **I-8 (NOTED, for group 3) The `access-list hardware <name>` sub-mode actions are unconfirmed.**
   Entering that sub-mode creates the list — a config change the read-only triage correctly
   refused. The numbered forms prove every action the four group-3 cases use. **Confirm the
