@@ -1,0 +1,228 @@
+WORKING LOG -- AWPTCM-T47114, run 1 (bench-runner, RUN mode, queue row 2 "secure", run 4 of the 18:00 plan)
+Started: 2026-10-09 20:06 NZDT (group gate); case steps from 20:13 NZDT
+Group dir: tb470/x230v2-28GS/secure-2026-10-09T0845/47114/
+
+== Session facts (Test Engineer: terrenceb@terrenceb-dl; queue CAMPAIGN-QUEUE-2026-10-09T0845.md)
+Testbox: tb470
+Consoles: u0-u5 (u0 = x230v2-28GS = the DUT; u1 AR4050S, u2/u4/u5 IE520 stack, u3 IE520-sa as partners)
+PDU: 10.36.150.14; outlets u0=1, u1=7, u2=6, u3=8, u4=4, u5=5. Names from tb470.static.
+Constraints: "Triage only for now" lifted for the 18:00 NZDT start; scope "18 + after-hours reloads"; after hours, reloads allowed.
+Console baud: 115200. Sentinel: parent session (/test-mode, shape A).
+Dispatch instructions for this group: protect the x230's boot config (backup default.cfg on flash before the first write,
+restore it byte for byte when secure mode is out, delete the backup); re-apply the running-only VLAN 103/104/105 isolation +
+`lldp run` after any x230 reload (skip what the startup config already carries).
+
+== Case text (Ask-CK ck.db zephyr_cases, read-only)
+Case:          AWPTCM-T47114  (Draft)
+Title:         crypto secure mode: Confirm DUT can boot into secure mode
+Objective:     (empty)
+Precondition:  (empty)
+Step 1 text (verbatim):     (empty)
+Step 1 test data:           (empty)
+Step 1 expected (verbatim): (empty)
+The case has ONE step with empty text/expected. The procedure below is the tester's, built from the title and the AW+
+"crypto secure-mode" command page (x230 section: "Use this command to put the device into Secure Mode. When in Secure
+Mode, the following are disabled: Telnet, SSHv1, SNMPv1/v2, All privilege levels except 1 and 15, Algorithms that are not
+supported under FIPS, including MD5, RSA-1 and DSA, The ability to store passwords in cleartext and to specify an enable
+password."; mode Global Configuration; `show secure-mode` answers "Secure mode is enabled").
+Procedure (pass criteria in brackets):
+  A. precondition: `show secure-mode` [Secure mode is disabled]
+  B. `crypto secure-mode` in config mode [accepted, no `% ` line; any (y/n) answered y]
+  C. `write`, then `reload` [config saved; reboot]
+  D. after boot [the DUT boots to login with no exception; `show secure-mode` = "Secure mode is enabled";
+     `crypto secure-mode` in running-config; `show system` uptime consistent with the reload; boot config unchanged]
+
+== Devices
+DUT swi_f: AT-x230-28GS V2, S/N A10783G262900002, console /dev/u0 (115200), hostname awplus,
+  system MAC 00c2.8f3f.0f5d, software x230v2_28GS-awplus_main-20261008-57.rel (awplus_main-20261008-57),
+  bootloader 6.2.40, boot config flash:/default.cfg. PDU outlet 1.
+Partners: none used by this group (u1-u5 not opened apart from the gate's peek and the probe).
+Links / host NICs used: none (console-only case). Host NIC MACs: not used by this group.
+DUT clock vs box (once per group): x230 `show clock` "Fri, 9 Oct 2026 20:08:02 +0000" at box 20:08:04 NZDT -- the x230 holds
+NZ local wall time labelled UTC (`no clock timezone`), ~2 s behind tb470. DUT log times below are therefore NZDT.
+
+== Pre-run gate (group, 20:06-20:09 NZDT; also in the queue's "Run 4 ... restore recipe" block)
+tools/tb precheck tb470 u0,u1,u2,u3,u4,u5 -> exit 0 CLEAR (no holder, lock, screen/tmux/minicom, python script).
+tools/tb scratch tb470 x230sec-2007 (40 files); tools/tb template tb470: /nfsHome mounted, deployed tb470.setup 1256 B.
+peek (tools/tb peek tb470 x230sec-2007 uN 115200): u0 'awplus#', u1 '4050-5g#', u2/u4/u5 'IE520-stk#', u3 'IE520-sa#'
+  (none in config mode or a root shell).
+Probe before: tools/tb probe tb470 --consoles u0,u1,u2,u3,u4,u5 --no-prompt --pdu 10.36.150.14
+  --outlet u0=1,u1=7,u2=6,u3=8,u4=4,u5=5 --baud 115200  -> exit 0 MATCH, capture 2026-10-09T070729Z.
+Boot configs before: x230 flash:/default.cfg (file exists); AR4050S, stack, IE520-sa flash:/tb470-bench.cfg (file exists).
+No framework script: manual CLI case. Gates 6 (preflight), 8 (server run path) and 10 (defaulting CLI) are N/A; the CLI
+used was checked read-only instead: tools/tb qmark tb470 x230sec-2007 u0 115200 --mode "configure terminal" --
+  "crypto secure-mode" "crypto " "security-password " "security-password minimum-categories" "username ckpw1 privilege 1 password"
+  -> self-test OK; `crypto secure-mode ?` offers `<cr>`; `crypto ?` lists "secure-mode  Enable secure mode";
+  security-password offers forced-change/history/lifetime/min-lifetime-enforce/minimum-categories/minimum-length/
+  reject-expired-pwd/warning; minimum-categories <1-4>; username ... password {0|8|LINE}. (work/qmark-u0.out; u0 transcript
+  ends `end` -> awplus#, `terminal no monitor` -> awplus#, closed 20:09:16.)
+Pre-run capture (tools/tb ckcon tb470 x230sec-2007 u0 115200 --stop-on-error "show secure-mode" "show running-config"
+  "show startup-config" "show boot" "dir flash:/default.cfg*" "show security-password configuration" "show system"
+  "show clock" "show telnet" "show ssh server" "show user" "show exception log" -> exit 0; work/prerun-u0.out):
+20:07:56 >>> show secure-mode
+Secure mode is disabled
+20:08:01 >>> dir flash:/default.cfg*
+643 -rw- Oct 09 2026 18:35:16  flash:/default.cfg
+  (startup-config header: "! Startup-config saved on Thu Oct  8 09:59:19 2026 +0000 by manager via con0 (ttyS0)"; the
+  file's dir date 18:35:16 today is later than that header -- recorded, not investigated; the content is what is preserved)
+20:08:02 >>> show security-password configuration
+Minimum password length ............................   8
+Minimum password character categories to match .....   1
+Number of previously used passwords to restrict.....   1
+Password lifetime ..................................   No Expiry
+20:08:06 >>> show telnet  -> Telnet server : Disabled
+20:08:07 >>> show ssh server -> SSH Server : Disabled; Ciphers chacha20-poly1305@openssh.com, aes128-gcm@openssh.com,
+  aes256-gcm@openssh.com, aes128-ctr, aes192-ctr, aes256-ctr; KEX mlkem768x25519-sha256, sntrup761x25519-sha512, ...,
+  curve25519-sha256, ecdh-sha2-nistp256/384/521; MAC umac-128-etm, hmac-sha2-256/512(-etm); Legacy ssh-rsa : no
+20:08:10 >>> show exception log -> None
+Running-config vs startup-config before the run: running adds (running-only) `lldp run`, `security-password minimum-length 8`,
+`security-password history 1` (both present in every probe capture since 10-08, platform defaults shown), and VLAN 103-105 on
+port1.0.3/1.0.4/1.0.5; startup carries `service password-encryption`, which running does not show.
+
+== Group bench setup (before step A)
+Backup of the startup config on the x230's flash (dispatch instruction):
+tools/tb ckyn tb470 x230sec-2007 u0 115200 "YN?:copy flash:/default.cfg flash:/default.cfg.pre-secure" "dir flash:/default.cfg*"
+  "show file flash:/default.cfg" "show file flash:/default.cfg.pre-secure"  -> exit 0 (work/backup-u0.out)
+20:10:36 >>> copy flash:/default.cfg flash:/default.cfg.pre-secure
+Copying...
+Successful operation
+20:10:37 >>> dir flash:/default.cfg*
+       643 -rw- Oct 09 2026 20:10:35  flash:/default.cfg.pre-secure
+       643 -rw- Oct 09 2026 18:35:16  flash:/default.cfg
+`show file` of both: identical, 53 lines. Contents kept in work/default.cfg.pre-secure.txt (console text; 644 B with the
+trailing newline, flash size 643 B).
+
+== Steps
+Step A (precondition): `show secure-mode`
+Tool: tools/tb ckyn tb470 x230sec-2007 u0 115200 "show secure-mode" "configure terminal" "YN?:crypto secure-mode" "end"
+  -> exit 2 (ckyn stops on any `% ` line; see step B) (work/stepB-u0.out)
+20:11:44 >>> show secure-mode
+Secure mode is disabled
+awplus#
+Step A verdict: PASS (precondition met).
+
+Step B: `crypto secure-mode` in Global Configuration
+20:11:45 >>> configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+awplus(config)#
+20:11:45 >>> crypto secure-mode
+crypto secure-mode
+% Save the config and restart the system for this change to take effect.
+awplus(config)#
+No (y/n) prompt was asked. The `% ` line is an advisory, not a rejection: ckyn stopped on it (exit 2) before its `end`,
+and its cleanup then sent `end` -> awplus# and `terminal no monitor` -> awplus# (u0 transcript, closed 20:11:47).
+Proof the command took (tools/tb ckcon tb470 x230sec-2007 u0 115200 --stop-on-error "show running-config" "show secure-mode"
+"show startup-config" -> exit 0, work/stepB2-u0.out):
+20:12:01 >>> show secure-mode
+Secure mode is enabled
+  (note: `show secure-mode` already reads "enabled" BEFORE the save and restart the advisory asks for -- it reports the
+  configured state, not the running state; recorded for the Test Engineer)
+Running-config diff, pre-run (work/prerun-u0.out) vs after step B (tools/rcdiff.py):
+@@ -25,2 +25,4 @@
+ security-password history 1
++!
++crypto secure-mode
+ !
+Step B verdict: PASS.
+
+Step C: save and restart
+tools/tb ckyn tb470 x230sec-2007 u0 115200 "YN?:write" "dir flash:/default.cfg*" "show startup-config" -> exit 0 (work/stepC-u0.out)
+20:12:15 >>> write
+Building configuration...
+[OK]
+20:12:16 >>> dir flash:/default.cfg*
+      1075 -rw- Oct 09 2026 20:12:13  flash:/default.cfg
+       643 -rw- Oct 09 2026 20:10:35  flash:/default.cfg.pre-secure
+startup-config now: "! Startup-config saved on Fri Oct  9 20:12:13 2026 +0000 by manager via con0 (ttyS0)", carries
+`crypto secure-mode` and, as expected, the running-only isolation (`lldp run`, `vlan 103-105 state enable`, port1.0.3/4/5
+access VLAN 103/104/105). This is the write the backup protects; it is undone in T47115's group restore.
+tools/tb ckreload tb470 x230sec-2007 u0 115200 720 -> exit 0 (work/stepC-reload.out)
+DEVHOST 2026-10-09 20:12:21 NZDT
+20:12:24 >>> reload
+reboot question: 'reboot system? (y/n):' -> y
+20:16:48 login seen after 265 s
+DEVHOST 2026-10-09 20:16:49 NZDT
+  (265 s, against 163-168 s for the five plain reloads in run 1 tonight: the secure-mode boot is ~100 s longer)
+Boot transcript (u0, /tmp/x230sec-2007/console-u0.log), the secure-mode lines verbatim:
+         Starting Secure mode setup...
+         Starting FIPS Provider Install...
+[  OK  ] Finished Secure mode setup.
+[  OK  ] Finished FIPS Provider Install.
+         Starting Secure mode enable...
+Creating secure mode hostkey
+[  OK  ] Finished Secure mode enable.
+Loading configuration file flash:/default.cfg, please wait.
+........................
+done!
+Please verify release with the 'crypto verify' command
+--------------
+W A R N I N G
+--------------
+Access to this system is restricted to authorized users for official
+business purposes only. Disconnect IMMEDIATELY if you are not an
+authorized user. Unauthorized access to this system may make you subject
+to civil and criminal penalties.
+awplus login:
+No error, failure or exception line in the boot transcript.
+Step C verdict: PASS.
+
+Step D: after boot
+tools/tb ckcon tb470 x230sec-2007 u0 115200 --stop-on-error "show secure-mode" "show system" "show clock" "show boot"
+  "show reboot history" "show exception log" "show running-config" "show vlan brief" "show security-password configuration"
+  "show telnet" "show ssh server" "show user" "show log | include -i secure|crypto|FIPS|verify" -> exit 0 (work/stepD-u0.out)
+Login as manager succeeded with no forced password change.
+20:17:20 >>> show secure-mode
+Secure mode is enabled
+20:17:21 >>> show system
+Uptime             : 0 days 00:04:34
+Current boot config: flash:/default.cfg (file exists)
+20:17:22 >>> show clock
+UTC Time:   Fri,  9 Oct 2026 20:17:19 +0000
+20:17:24 >>> show boot
+Default boot config: flash:/default.cfg
+Current boot config: flash:/default.cfg (file exists)
+20:17:25 >>> show reboot history
+2026-10-09 20:12:22 Expected   CLI(user request)
+2026-10-09 18:32:58 Expected   CLI(user request)
+20:17:26 >>> show exception log
+None
+20:17:28 >>> show running-config   (contains `crypto secure-mode`)
+20:17:30 >>> show security-password configuration
+Minimum password length ............................   8
+Minimum password character categories to match .....   1
+  (unchanged by secure mode)
+20:17:31 >>> show telnet
+Telnet server                      : Disabled
+20:17:46 >>> show ssh server  (server still Disabled; the algorithm sets changed to a FIPS set)
+Ciphers                            : aes128-cbc,aes256-cbc,aes128-ctr,
+                                       aes192-ctr,aes256-ctr
+KEX                                : ecdh-sha2-nistp256,ecdh-sha2-nistp384
+MAC                                : hmac-sha2-256
+hostkeys                           : ecdsa-sha2-nistp256,ecdsa-sha2-nistp384
+  (before, step pre-run: chacha20-poly1305, aes-gcm, aes-ctr; KEX mlkem768x25519/sntrup761/curve25519/ecdh-nistp256-521;
+  MAC umac-128-etm, hmac-sha2-256/512(-etm); hostkeys ed25519, ecdsa, rsa-sha2 and their certs)
+20:17:51 >>> show log | include -i secure|crypto|FIPS|verify
+2026 Oct 09 20:16:04 user.notice awplus IMI[683]: crypto secure-mode enabled
+Running-config diff, after step B (work/stepB2-u0.out, before the reload) vs after the boot (work/stepD-u0.out), tools/rcdiff.py:
+  (no output -- identical; `crypto secure-mode`, `lldp run` and VLAN 103/104/105 all came back from the written startup)
+show vlan brief: 103 = port1.0.3(u), 104 = port1.0.4(u), 105 = port1.0.5(u), the rest in VLAN 1.
+Step D verdict: PASS -- the DUT booted into secure mode: "Secure mode is enabled" after the reload, logged
+"crypto secure-mode enabled" at boot, FIPS SSH algorithm set in force, no exception, boot config unchanged.
+
+== Post-reload bench restore (dispatch: re-apply the isolation, skipping what the startup config already carries)
+The written startup carries the VLAN 103/104/105 isolation and `lldp run`, so nothing was re-applied: verified by
+`show vlan brief` above and the empty running-config diff (the pre-reload running-config had both).
+
+== Teardown
+By the group plan, secure mode STAYS IN for T47115 (the next case, run in secure mode); it is taken out, and
+flash:/default.cfg restored from flash:/default.cfg.pre-secure, in T47115's group restore (queue "Run 4" recipe R1-R5).
+Running-config vs this case's pre-run capture: +`crypto secure-mode` only (intended, carried into T47115).
+Boot config: flash:/default.cfg (file exists), unchanged as the pointer; its contents are the written secure-mode config
+until the restore. Console u0 closed at awplus# after `end` and `terminal no monitor` (transcript /tmp/x230sec-2007/console-u0.log,
+closed 20:17:52).
+
+Run label: clean.
+Files saved: 47114/swi_f.cfg (pre-step-A running-config; the case's setup changes no config); work/prerun-u0.out,
+qmark-u0.out, backup-u0.out, default.cfg.pre-secure.txt, stepB-u0.out, stepB2-u0.out, stepC-u0.out, stepC-reload.out, stepD-u0.out.
+
+VERDICT: PASS -- `crypto secure-mode` + write + reload (265 s): the x230 booted into secure mode ("Secure mode is enabled", boot log "crypto secure-mode enabled", FIPS SSH algorithm set), logged in normally, no exception, config and boot config intact
