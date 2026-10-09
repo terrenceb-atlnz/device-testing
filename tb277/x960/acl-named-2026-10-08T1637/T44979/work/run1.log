@@ -1,0 +1,178 @@
+# T44979 (AWP-8646) -- ACL: Named Hardware on port - Proto -- run 1 -- 2026-10-09
+
+## Session facts
+Testbox    tb277 (Test Engineer bidhanc@bidhanc-dl).  Consoles u2=swi_c (DUT), u3=swi_b, u5=swi_a.
+PDU        10.36.230.212 outlet 1 (u2), outlet 7 (u3); 10.36.230.35 outlet 3 (u5).
+Constraints none stated. Power cycles allowed. Sentinel: parent session.
+Group      acl-named-2026-10-08T1637. Shared setup G0-G5 / restore R0-R6 in the queue
+           (1ff191d, R1b added b4f73a3). THIS CASE CARRIES D3 for group 3.
+
+## Devices
+swi_c DUT /dev/u2 115200 AT-x960-56YSQ S/N A2WQS7004, bridge MAC e01a.ead4.72cb,
+          Marvell 98CX8514 Falcon, sin_x96056-20260921-9 (x960-tb277.rel), NETBOOTS,
+          boot config flash:/default.cfg
+swi_b     /dev/u3 9600 AT-x960-28YSQ S/N A10737A261700021, bridge MAC 0000.cd42.3029, STP root
+swi_a     /dev/u5 -- deliberately isolated for this group
+
+## Links and host NICs
+tb eth4 00:0d:b9:55:77:0f ---- swi_c port1.0.48 (VLAN 100)   ACL BINDING POINT (ingress)
+   10.38.22.65/27 = the MATCHING source ; 10.38.22.66/27 = the NON-MATCHING control
+swi_c sa1 = port1.0.2 + port1.0.16 ---- swi_b sa1 (VLAN 100)
+swi_b vlan100 10.38.22.70/27                                 far-side endpoint
+Clocks set to box local time by setup step G0.
+
+## Tools
+cfg.py, ckcon.py, ckyn.py, ckreload.py from tools/. Raw console transcripts for this case are
+preserved in the repo at ../work-box/ (commit dec3d5c) -- console-u2.log covers groups 2 and 3
+including this case, plus console-u2-reload.log for the D3 reload.
+
+## Steps and evidence
+
+### STEP 0 -- D0 baseline, nothing configured
+x960-56YSQ#show access-list
+                                            <-- empty (group 2's lists removed first)
+x960-56YSQ#show platform classifier statistics utilization brief
+  Loop Detection      2
+  ACL                 0
+  Total               2 / 1024 (0.20%)      <-- TCAM baseline
+host# ping .70 from .65 -> 0% loss ; from .66 -> 0% loss
+  PASS. Both sources reach the far side before any ACL exists.
+
+### STEP 1 -- "match an IP protocol number in a NAMED hardware ACL on a port"
+x960-56YSQ(config)#access-list hardware t44979
+x960-56YSQ(config-ip-hw-acl)#deny proto 1 10.38.22.65/32 10.38.22.70/32
+x960-56YSQ(config-if)#interface port1.0.48
+x960-56YSQ(config-if)#access-group t44979
+x960-56YSQ#show access-list
+  Hardware IP access list t44979
+      4 deny icmp 10.38.22.65/32 10.38.22.70/32
+                                            <-- `proto 1` CANONICALISED to `icmp`, same as the
+                                                numbered range (T44987 F2)
+x960-56YSQ#show running-config interface port1.0.48
+   access-group t44979
+host# ping .70 from 10.38.22.65 -> 100% packet loss      DENIED
+host# ping .70 from 10.38.22.66 ->   0% packet loss      PERMITTED
+  => STEP 1 PASS: a named hardware ACL matching an IP protocol number, bound to a port with
+     `access-group`, denies the matching flow and leaves an identical flow from another source
+     untouched.
+
+### STEP 2 -- FINDING: a NAMED list CAN be edited while bound (numbered lists cannot)
+x960-56YSQ(config)#access-list hardware t44979
+  % This access-list is attached to an interface. The modified configuration will be applied
+    to the interface automatically after exiting this configuration mode by entering "exit"
+    or "end" command.
+                                            <-- ADVISORY. The prompt advanced and the edit was
+                                                accepted; tools/cfg.py logged it and continued
+x960-56YSQ(config-ip-hw-acl)#1 permit proto 1 10.38.22.65/32 10.38.22.70/32
+x960-56YSQ#show access-list
+  Hardware IP access list t44979
+      1 permit icmp 10.38.22.65/32 10.38.22.70/32
+      4 deny   icmp 10.38.22.65/32 10.38.22.70/32
+  => STEP 2 PASS: the edit APPLIED to a bound list. This is the direct opposite of the
+     numbered range, where the same attempt returns
+     `% This access-list is currently attached to an interface so cannot be edited.` and the
+     entry is silently not added (T44987 F1). The two messages differ by one word -- "is
+     attached" versus "is currently attached" -- and mean opposite things.
+
+### STEP 3 -- "first match applies"
+With `1 permit` ahead of `4 deny`, both naming the identical flow:
+host# ping .70 from 10.38.22.65 -> 0% packet loss        PERMITTED
+x960-56YSQ(config-ip-hw-acl)#no 1
+host# ping .70 from 10.38.22.65 -> 100% packet loss      DENIED again
+  => STEP 3 PASS: where two entries match the same traffic with opposite actions, the lower
+     sequence number wins; removing it restores the later rule. Evaluation is first-match.
+
+### STEP 4 -- "non-matching traffic passes" -- protocol SELECTIVITY
+x960-56YSQ(config)#access-list hardware t44979b
+x960-56YSQ(config-ip-hw-acl)#deny proto 6 10.38.22.65/32 10.38.22.70/32
+x960-56YSQ#show access-list t44979b
+      4 deny tcp 10.38.22.65/32 10.38.22.70/32    <-- proto 6 canonicalised to `tcp`
+x960-56YSQ(config-if)#interface port1.0.48 ; no access-group t44979 ; access-group t44979b
+host# ping .70 from 10.38.22.65 -> 0% packet loss        ICMP NOT denied
+  => STEP 4 PASS: a rule matching protocol 6 leaves ICMP alone, on the same port, same source
+     and same destination as STEP 1 where protocol 1 denied it. The protocol field genuinely
+     selects. STEP 1 and STEP 4 are each other's controls.
+
+### STEP 5 -- D4, non-IP traffic unaffected
+host# ip neigh flush dev eth4 ; ping .70 from .65 (denied)
+host# ip neigh show dev eth4
+  10.38.22.70 lladdr 00:00:cd:42:30:29 REACHABLE
+  => STEP 5 PASS: ARP re-resolved across the path while ICMP from the same host was denied.
+
+### STEP 6 -- "repeat via service policy" (TRAP 1 observed in full)
+An interface ACL is matched BEFORE any QoS policy on the same port, so the access-group must be
+removed and PROVEN gone first or the QoS path is never exercised and the pass is false.
+  a) with the access-group:        .65 -> 100% packet loss
+  b) x960-56YSQ(config-if)#interface port1.0.48 ; no access-group t44979
+     x960-56YSQ#show running-config interface port1.0.48
+       interface port1.0.48
+                                            <-- NO access-group line
+     .65 -> 0% packet loss                  <-- PROOF the ACL path is dead
+  c) x960-56YSQ(config)#mls qos enable
+       Traffic will stop while configuration is applied. Continue? (y/n): y
+     x960-56YSQ(config)#class-map t44979cm ; match access-group t44979
+     x960-56YSQ(config)#policy-map t44979pm ; class t44979cm
+     x960-56YSQ(config-if)#interface port1.0.48 ; service-policy input t44979pm
+     x960-56YSQ#show running-config interface port1.0.48
+       service-policy input t44979pm        <-- and still no access-group
+     host# ping .70 from 10.38.22.65 -> 100% packet loss     DENIED
+     host# ping .70 from 10.38.22.66 ->   0% packet loss     PERMITTED
+  => STEP 6 PASS: the same named hardware ACL enforces through `service-policy input` as it
+     does through `access-group`, with the access-group proven removed beforehand so the QoS
+     path genuinely carried the result.
+
+### STEP 7 -- D3 persistence across a reload (group 3's representative case)
+Pre-flight: /tftproot/x960-tb277.rel present, 57,496,435 bytes (the DUT netboots).
+x960-56YSQ#show boot  ->  Current boot config: flash:/default.cfg (file exists)
+Config under test: service-policy removed, `access-group t44979` restored.
+host# ping .70 from .65 -> 100% packet loss             (denied before the reload)
+x960-56YSQ#copy running-config startup-config -> Building configuration... [OK]
+x960-56YSQ#reload -> 'reboot system? (y/n):' y ; login seen after 119 s
+AFTER THE RELOAD:
+x960-56YSQ#show access-list
+  Hardware IP access list t44979   4 deny icmp 10.38.22.65/32 10.38.22.70/32   SURVIVED
+  Hardware IP access list t44979b  4 deny tcp  10.38.22.65/32 10.38.22.70/32   SURVIVED
+x960-56YSQ#show running-config interface port1.0.48
+   access-group t44979                                                          SURVIVED
+x960-56YSQ#show static-channel-group
+  Member: port1.0.2, port1.0.16                                                 SURVIVED
+host# ping .70 from 10.38.22.65 -> 100% packet loss     STILL DENIED
+host# ping .70 from 10.38.22.66 ->   0% packet loss     STILL PERMITTED
+  => STEP 7 PASS: the named ACLs, the port binding, the aggregator and the enforcement all
+     survived a save and reload.
+
+### STEP 8 -- D2 removal
+x960-56YSQ(config-if)#interface port1.0.48 ; no access-group t44979
+x960-56YSQ(config)#no access-list hardware t44979
+x960-56YSQ(config)#no access-list hardware t44979b
+x960-56YSQ(config)#no policy-map t44979pm
+x960-56YSQ(config)#no class-map t44979cm
+x960-56YSQ(config)#no mls qos                (NOT `no mls qos enable`, which is rejected)
+x960-56YSQ#show access-list    -> empty
+x960-56YSQ#show class-map      -> empty
+x960-56YSQ#show policy-map     -> empty
+x960-56YSQ#show running-config interface port1.0.48   -> no access-group, no service-policy
+x960-56YSQ#show platform classifier statistics utilization brief
+  Loop Detection      2
+  ACL                 0
+  QoS                 0
+  Total               2 / 1024 (0.20%)      <-- EXACTLY the STEP 0 baseline
+host# ping .70 from 10.38.22.65 -> 0% packet loss       traffic restored
+  => STEP 8 PASS: clean removal, no residue in configuration or in hardware.
+
+## Findings
+F1  A NAMED hardware ACL CAN be edited while bound to an interface: the `% This access-list is
+    attached to an interface...` line is an ADVISORY and the edit applies on `end`. A NUMBERED
+    list in the same situation REFUSES the edit with `% This access-list is currently attached
+    to an interface so cannot be edited.` and silently does not add the entry (T44987 F1).
+    One word apart, opposite behaviours.
+F2  `proto 1` and `proto 6` are stored and displayed as `icmp` and `tcp`. The CLI canonicalises
+    a protocol number to its named form, in the named range as well as the numbered one.
+
+VERDICT: PASS -- a named hardware ACL matching an IP protocol number binds to a port with
+`access-group` and denies exactly the matching flow: protocol 1 denies ICMP while protocol 6
+leaves it alone on the same port and addresses, a non-matching source is unaffected, ARP is
+unaffected, first match wins and removing the winning entry restores the later one, the same
+ACL enforces equally through `service-policy input` with the access-group proven gone first,
+the configuration and its enforcement survive a reload, and removal returns both the
+configuration and the classifier to their exact baseline.
