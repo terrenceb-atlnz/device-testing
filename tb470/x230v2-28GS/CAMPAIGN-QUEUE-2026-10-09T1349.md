@@ -47,8 +47,14 @@ Hand-off case entries:
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
+| T33234 | Port - Auto MDI/MDI-X | port | NOT TESTED | Session constraint: triage only (no run, so no §11 repair loop or review). Triage 13:51 (probe exit 0 MATCH): UNSUPPORTED (platform) expected -- x230v2-28GS has no fixed copper switchport (`show system pluggable` 13:52: 1.0.1/.2/.3/.5 1000BASE-T SFPs, 1.0.4 SX), all 14 TestCases would be pre-marked; also bound to `swi_a` = IE520 stk_a (u2), not the x230 (`swi_f`) | -- | tester |
 
 ## Issues
+
+- NOTIFY AWPTCM-T33234 -- validation (§11 repair loop + review) needs a RUN -- session constraint is TRIAGE ONLY, so nothing was run, repaired or reviewed; triage recorded, case NOT TESTED (sentinel 2026-10-09 ~13:57).
+- NOTIFY AWPTCM-T33234 -- DUT binding: the script binds `swi_a` = IE520 stk_a (u2); the x230 is `swi_f` -- not changed (tb470.static rename + probe + apply, or a Test-Composer pair, is the Test Engineer's, STANDING-ORDERS §4); case BLOCKED.
+- NOTIFY AWPTCM-T33234 -- a fixed copper switchport on the DUT -- none exists on the x230v2-28GS (all front ports are cages); even once bound, expect the framework's 14/14 UNSUPPORTED; no bench change unblocks it.
+- Consoles: all six left logged in at exec (u0 awplus#, u1 4050-5g#, u2/u4/u5 IE520-stk#, u3 IE520-sa#), per the constraint. x230 VLANs 103/104/105 untouched.
 
 ## Triage 2026-10-09T1349
 
