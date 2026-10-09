@@ -1,0 +1,109 @@
+# T44989 (AWP-8654) -- ACL: Named Hardware on port - send-to-cpu IP -- run 1 -- 2026-10-09
+
+## Session facts
+Testbox    tb277 (Test Engineer bidhanc@bidhanc-dl).  Consoles u2=swi_c (DUT), u3=swi_b, u5=swi_a.
+PDU        10.36.230.212 outlet 1 (u2), outlet 7 (u3); 10.36.230.35 outlet 3 (u5).
+Constraints none stated. Power cycles allowed. Sentinel: parent session.
+Group      acl-named-2026-10-08T1637. Shared setup G0-G5 / restore R0-R6 in the queue
+           (1ff191d, R1b added b4f73a3).
+
+## Devices
+swi_c DUT /dev/u2 115200 AT-x960-56YSQ S/N A2WQS7004, bridge MAC e01a.ead4.72cb,
+          Marvell 98CX8514 Falcon, sin_x96056-20260921-9, NETBOOTS
+swi_b     /dev/u3 9600 AT-x960-28YSQ S/N A10737A261700021, bridge MAC 0000.cd42.3029, STP root
+swi_a     /dev/u5 -- deliberately isolated for this group
+
+## Links and host NICs
+tb eth4 00:0d:b9:55:77:0f ---- swi_c port1.0.48 (VLAN 100)   ACL BINDING POINT (ingress)
+   10.38.22.65/27 = the MATCHING source ; 10.38.22.66/27 = the NON-MATCHING control
+swi_c sa1 = port1.0.2 + port1.0.16 ---- swi_b sa1 (VLAN 100)
+swi_b vlan100 10.38.22.70/27                                 far-side endpoint, the
+                                                             "was it forwarded?" check
+
+## Tools
+cfg.py, ckcon.py from tools/. Raw console transcripts in ../work-box/ (commit dec3d5c).
+
+## The CPU-queue counters, and their limit on this bench
+`show platform counter sdma` exposes Marvell SDMA receive-queue counters.
+  rxDmaPcktCnt[0] -- a plain cumulative counter. copy-to-cpu lands here, and it is CLEAN:
+                     it sits at 0 on this bench and moves only when a copy-to-cpu rule matches.
+  rxDmaPcktCnt[6] -- CLEAR-ON-READ, and it carries the background control traffic this bench
+                     generates continuously (RSTP BPDUs, LLDP, and loop-protection detect
+                     frames at one per second on every port). Measured idle rate: 40 counts in
+                     8 s. Ten test packets against that floor is not separable, so queue 6 is
+                     NOT used as evidence in these cases. Recorded so nobody reads its absence
+                     as a negative result.
+
+## Precondition carried from the case
+T44989's own precondition cites **CR30477** for STP interference, and the ACL guide warns that
+send-to-cpu lands traffic on a CPU queue that "could result in EPSR healthcheck messages and
+other control packets being dropped". RSTP is running on all three units, so
+`show spanning-tree brief` is captured before and after every send-to-cpu step.
+`access-list hardware-deny-log` was NOT enabled at any point -- the guide warns that matching
+packets are dropped if it is on while a copy-to-cpu or send-to-cpu ACL exists.
+
+## Steps and evidence
+
+### STEP 0 -- STP baseline before the send-to-cpu rule
+x960-56YSQ#show spanning-tree brief
+  Default: Root Id 8000:0000cd423029
+  Default: Bridge Id 8000:e01aead472cb
+  sa1             8000:0000cd423029    8195       Rootport         Forwarding
+  port1.0.10      8000:e01aead472cb    8392       Designated       Forwarding
+  port1.0.48      8000:e01aead472cb    83b8       Designated       Forwarding
+
+### STEP 1 -- apply send-to-cpu and prove BOTH halves of its definition
+The ACL guide defines send-to-cpu as "to the CPU and NOT forwarded".
+x960-56YSQ(config-if)#interface port1.0.48 ; no access-group t44991
+x960-56YSQ(config)#access-list hardware t44989
+x960-56YSQ(config-ip-hw-acl)#send-to-cpu ip 10.38.22.65/32 10.38.22.70/32
+x960-56YSQ(config-if)#interface port1.0.48 ; access-group t44989
+x960-56YSQ#show access-list t44989
+  Hardware IP access list t44989
+      4 send-to-cpu ip 10.38.22.65/32 10.38.22.70/32
+
+  HALF ONE -- the rule matched:
+x960-56YSQ#show access-list counters t44989
+      Packet Hits: 8                        <-- all 8 test packets matched
+
+  HALF TWO -- NOT forwarded:
+host# ping -c 8 -i 0.3 -I 10.38.22.65 10.38.22.70
+  100% packet loss                          <-- the far side never received them
+host# ping -c 3 -I 10.38.22.66 10.38.22.70
+  0% packet loss                            <-- control: a source no rule matches still passes
+
+x960-56YSQ#show platform counter sdma       (before, then after)
+              0 : sdmaRegs.rxDmaPcktCnt[0]  ->      0 : sdmaRegs.rxDmaPcktCnt[0]
+  CPU queue 0 did NOT move -- send-to-cpu does not use the queue copy-to-cpu uses.
+  => STEP 1 PASS: matching frames were consumed by the switch and never reached the far side,
+     while an identical flow from a non-matching source was unaffected. The rule's own counter
+     proves the frames were matched rather than lost, so "100% packet loss" is the ACL acting,
+     not a broken path.
+
+### STEP 2 -- STP undisturbed: CR30477 did NOT reproduce
+x960-56YSQ#show spanning-tree brief
+  Default: Root Id 8000:0000cd423029        <-- unchanged
+  Default: Bridge Id 8000:e01aead472cb      <-- unchanged
+  sa1             8000:0000cd423029    8195       Rootport         Forwarding
+  port1.0.10      8000:e01aead472cb    8392       Designated       Forwarding
+  port1.0.48      8000:e01aead472cb    83b8       Designated       Forwarding
+  => STEP 2 PASS: root bridge, bridge id, root port and every forwarding port are identical to
+     the STEP 0 baseline across the send-to-cpu step. The STP interference CR30477 describes
+     did not reproduce on this build.
+
+### STEP 3 -- the copy-to-cpu / send-to-cpu contrast
+Run back to back with T44991 on the identical setup, binding point and traffic:
+
+  action        ACL hits   CPU queue 0    forwarded to the far side?
+  copy-to-cpu       8        0 -> 8       YES  (0% packet loss)
+  send-to-cpu       8        0 -> 0       NO   (100% packet loss)
+
+  => STEP 3 PASS: both actions matched the same 8 packets, so the only difference is what the
+     switch did with them -- forwarded as well as copied, versus consumed. That is exactly the
+     documented distinction, and neither result could be produced by the other action.
+
+VERDICT: PASS -- a named hardware ACL with the send-to-cpu action, bound to a port, consumes
+matching frames: its counter records all 8 as matched while the far side receives none (100%
+packet loss), and a non-matching source on the same port is unaffected. CPU receive-queue 0,
+which copy-to-cpu advances, does not move. Spanning tree was byte-for-byte unchanged across
+the step, so the CR30477 interference cited in the case's precondition did not reproduce.
