@@ -180,6 +180,7 @@ Totals now: **18 runnable / 0 blocked by topology / 19 blocked otherwise** (T441
 | T31855 | system MAC | platform | PASS | system MAC = vlan1 MAC = 00c2.8f3f.0f5d, valid unicast; step 3 N/A (no eth0 on x230v2) | platform-2026-10-09T0845/31855/work/run1.log | tester |
 | T31856 | exception log | platform | PASS | show exception log: None | platform-2026-10-09T0845/31856/work/run1.log | tester |
 | T31861 | show system | platform | PASS | show system carries all 15 fields with reasonable values | platform-2026-10-09T0845/31861/work/run1.log | tester |
+| T31858 | setting the clock (survives reload) | platform | PASS | clock set 05:05:52 9 Oct 2026 accepted; after a 163 s reload the DUT read 05:09:01 at box 18:09:02 (within 1 s); clock, VLAN 103-105 isolation and lldp run restored, running-config diff empty | platform-2026-10-09T0845/31858/work/run1.log | tester |
 
 ## Issues
 
