@@ -1,0 +1,203 @@
+WORKING LOG -- AWPTCM-T18571, run 1 (bench-runner, RUN mode, queue row 4 "L2/L3", run 3 of the 18:00 plan)
+Started: 2026-10-09 19:56:28 NZDT
+Group dir: tb470/x230v2-28GS/l2l3-2026-10-09T0845/18571/
+
+== Session facts
+As in 15255/work/run1.log (tb470; consoles u0-u5, u0 = x230v2-28GS DUT; PDU 10.36.150.14, outlets u0=1,u1=7,u2=6,u3=8,
+u4=4,u5=5; after hours; no root changes on tb470; nothing written; baud 115200; sentinel = parent).
+
+== Case text (Ask-CK ck.db zephyr_cases, read-only)
+Case:          AWPTCM-T18571  (Approved)
+Title:         802.1Q Trunk a Dynamic Aggreagator
+Objective:     To confirm that the dynamic aggreagator will work as normally as a trunked port
+Precondition:  change the configuration such that the trunked port
+Step 1 text (verbatim):     The 802.1Q trunked port should work equally as well being a dynamic Aggregator. Multiple source mac addresses should be sent from the Ixia
+Step 1 test data:           (empty)
+Step 1 expected (verbatim): There should be no 4 byte deficit per frame in traffic flow
+
+== Method
+As T18570 (18570/work/run1.log), with an LACP (dynamic) aggregator in place of the static one: x230 port1.0.2 + port1.0.3
+`channel-group 12 mode active` -> po12, an 802.1Q trunk with VLAN 106 tagged (native VLAN 1); the stack's port1.0.2 (out of
+static sa2) + port1.0.17 `channel-group 12 mode active` -> po12, same trunk. eth3 -> x230 port1.0.5 (access 106) -> po12 ->
+stack po12 -> port3.0.13 (access 106) -> eth1. No Ixia: tools/linerate.py with 64 rotating source MACs per sender, line
+rate both ways, maximum standard frames (1518 untagged / 1522 tagged on the trunk) plus 1500-byte frames, every receive
+counter with --rx-len (only frames of exactly the sent length count). Unlearned destination MACs (flood within VLAN 106
+only), TTL 1.
+
+== Devices
+DUT swi_f: x230v2-28GS, as in 15255/work/run1.log (`lacp global-passive-mode enable`, STP disabled).
+Partner stk_a: IE520 stack, master member 3 on u5, LACP system 0x8000 / 0000.cd37.0d6f.
+Links as 18570/work/run1.log (x230 port1.0.2 <-> stack port1.0.2; x230 port1.0.3 <-> stack port1.0.17; x230 port1.0.5 <->
+  eth3; stack port3.0.13 <-> eth1; all 1000 full). Host NICs and clocks: 15255/work/run1.log.
+Gate and probe: group gate in 15255/work/run1.log (probe 2026-10-09T062916Z MATCH). The start state was the restored
+  group baseline (T18570's teardown diffs empty on both units). Links joining the aggregator were shut while reconfigured.
+
+== Tools
+tools/linerate.py (--src-macs, --mac-prefix, --rx-len), tools/ckcon.py (tools/tb ckcon, incl. @poll), tools/rc2cfg.py,
+tools/rcdiff.py.
+
+== Setup
+1) x230 (u0), 19:56:28-19:56:53: tools/tb ckcon tb470 x230l2l3-1928 u0 115200 --stop-on-error ... -> exit 0, no '% ' line.
+   Stdout: work/setup-u0-a.out. Configuration sent, exactly:
+   awplus#configure terminal
+   awplus(config)#vlan database
+   awplus(config-vlan)#vlan 106
+   awplus(config-vlan)#exit
+   awplus(config)#interface port1.0.3
+   awplus(config-if)#shutdown
+   awplus(config-if)#switchport access vlan 1
+   awplus(config-if)#exit
+   awplus(config)#interface port1.0.2-1.0.3
+   awplus(config-if)#channel-group 12 mode active
+   awplus(config-if)#exit
+   awplus(config)#interface po12
+   awplus(config-if)#switchport mode trunk
+   awplus(config-if)#switchport trunk allowed vlan add 106
+   awplus(config-if)#exit
+   awplus(config)#interface port1.0.5
+   awplus(config-if)#switchport access vlan 106
+   awplus(config-if)#end
+   show etherchannel: "LAG Static Count : 0 / LAG Dynamic Count : 1 / Lacp Aggregator: po12"
+   show vlan brief: "106 VLAN0106 STATIC ACTIVE po12(t) port1.0.2(t) port1.0.3(t) port1.0.5(u)"
+2) Stack (u5, master), 19:57:0x-19:57:3x: tools/tb ckcon tb470 x230l2l3-1928 u5 115200 --stop-on-error ... -> exit 0, no
+   '% ' line. Stdout: work/setup-u5.out. Configuration sent, exactly:
+   IE520-stk#configure terminal
+   IE520-stk(config)#vlan database
+   IE520-stk(config-vlan)#vlan 106
+   IE520-stk(config-vlan)#exit
+   IE520-stk(config)#interface port1.0.17
+   IE520-stk(config-if)#shutdown
+   IE520-stk(config-if)#switchport access vlan 1
+   IE520-stk(config-if)#exit
+   IE520-stk(config)#interface port1.0.2
+   IE520-stk(config-if)#no static-channel-group
+   IE520-stk(config-if)#exit
+   IE520-stk(config)#interface port1.0.2,port1.0.17
+   IE520-stk(config-if)#channel-group 12 mode active
+   IE520-stk(config-if)#exit
+   IE520-stk(config)#interface po12
+   IE520-stk(config-if)#switchport mode trunk
+   IE520-stk(config-if)#switchport trunk allowed vlan add 106
+   IE520-stk(config-if)#exit
+   IE520-stk(config)#interface port3.0.13
+   IE520-stk(config-if)#switchport access vlan 106
+   IE520-stk(config-if)#exit
+   IE520-stk(config)#interface port1.0.17
+   IE520-stk(config-if)#no shutdown
+   IE520-stk(config-if)#end
+   show etherchannel: "Lacp Aggregator: po12 / port1.0.2 / port1.0.17"; static sa2 now holds only port1.0.9.
+   show vlan brief: "106 VLAN0106 STATIC ACTIVE po12(t) port1.0.2(t) port1.0.17(t) port3.0.13(u)"
+3) x230 (u0), 19:57:5x-19:58:2x: tools/tb ckcon ... u0 115200 "configure terminal" "interface port1.0.3" "no shutdown"
+   "end" "@poll 40 port1\.0\.3\s+-\s+connected show interface status" "@sleep 5" "show interface status"
+   "show etherchannel detail" "show lacp-counter" "show lldp neighbors" "show running-config"
+   "show interface port1.0.2,port1.0.3,port1.0.5" "show log tail 25" "show clock" -> exit 0, no '% ' line
+   ("@poll MATCHED after 3.2 s"). Stdout: work/setup-u0-b.out.
+   show interface status: port1.0.2 / port1.0.3 "connected trunk a-full a-1000"; port1.0.5 "connected 106";
+     "po12  -  connected  trunk a-full a-1000".
+   show etherchannel detail (x230, verbatim):
+     Aggregator po12 (IfIndex: 4762)
+      Mac address: 00:c2:8f:3f:0f:5d
+      Admin Key: 0012 - Oper Key 0012
+      Receive link count: 2 - Transmit link count: 2
+      Individual: 0 - Ready: 1
+      Partner LAG: 0x8000,00-00-cd-37-0d-6f,0x000c
+       Link: port1.0.2 (IfIndex: 5002 Actor Port: 5002 ) synchronized
+       Link: port1.0.3 (IfIndex: 5003 Actor Port: 5003 ) synchronized
+   show lacp-counter: port1.0.2 LACPDUs sent 14 / recv 8; port1.0.3 sent 6 / recv 5; 0 errors.
+4) Stack capture 19:58:3x (work/setup-u5-b.out): port1.0.2, port1.0.17 "connected trunk a-full a-1000"; port3.0.13
+   "connected 106"; po12 "connected trunk"; "Receive link count: 2 - Transmit link count: 2"; "Partner LAG:
+   0x8000,00-c2-8f-3f-0f-5d,0x000c"; port1.0.2 and port1.0.17 "synchronized".
+Saved: 18571/swi_f.cfg (x230 show running-config 19:58, 79 config lines); 18571/stk_a.cfg (stack master's show
+  running-config 19:58, 207 config lines). Both after setup, before step 1.
+
+== Step 1 -- traffic over the trunked LACP aggregator (19:58:55-20:00:0x)
+x230 per-port counters read before, between and after each run (work/setup-u0-b.out, counters-mid1-u0.out,
+counters-mid2-u0.out, counters-after-u0.out). Verbatim tool output: work/lag-traffic.out.
+Run A: tools/tb sudotool tb470 x230l2l3-1928 linerate --tx eth3 --rx eth1 --dst-mac 02:00:00:00:99:99 --src-macs 64
+  --mac-prefix 02:cc:00:00 --rx-len --ttl 1 --size 1518 --rate top --secs 10
+  19:58:55-19:59:05  tx eth3 -> 02:00:00:00:99:99  1518-byte frames  rate=top  IPv4 10.38.215.65 -> 192.0.2.1 ttl/hlim 1  src MACs 64
+    rx filter: ip and udp src port 5010 and len = 1514
+    sent 812501   tcpreplay 984.1 Mbps (frame bytes)  81250 pps  = 999.7 Mbps on the wire
+    rx eth1     812501  (100.0%)  kernel drops 0
+  x230: port1.0.5 input +812501 (10635160 -> 11447661, dropped 0); port1.0.2 output +406254 (9804609 -> 10210863),
+    port1.0.3 output +406255 (818068 -> 1224323) -> 50/50 split.
+Run B (reverse): tools/tb sudotool ... linerate --tx eth1 --rx eth3 --dst-mac 02:00:00:00:99:98 --src-macs 64
+  --mac-prefix 02:cd:00:00 --rx-len --ttl 1 --size 1518 --rate top --secs 10
+  19:59:17-19:59:28  tx eth1 -> 02:00:00:00:99:98  1518-byte frames  rate=top  IPv4 10.38.215.1 -> 192.0.2.1 ttl/hlim 1  src MACs 64
+    rx filter: ip and udp src port 5010 and len = 1514
+    sent 812501   tcpreplay 983.8 Mbps (frame bytes)  81226 pps  = 999.4 Mbps on the wire
+    rx eth3     812501  (100.0%)  kernel drops 0
+  x230: port1.0.2 input +406253 (411294 -> 817547), port1.0.3 input +406296 (411321 -> 817617), dropped 0;
+    port1.0.5 output +812523.
+Run C: as run A with --size 1500:
+  19:59:40-19:59:50  tx eth3 -> 02:00:00:00:99:99  1500-byte frames  rate=top  IPv4 10.38.215.65 -> 192.0.2.1 ttl/hlim 1  src MACs 64
+    rx filter: ip and udp src port 5010 and len = 1496
+    sent 822501   tcpreplay 984.0 Mbps (frame bytes)  82217 pps  = 999.8 Mbps on the wire
+    rx eth1     822501  (100.0%)  kernel drops 0
+  x230: port1.0.5 input +822501; port1.0.2 output +411252, port1.0.3 output +411251.
+After the runs (work/counters-after-u0.out): po12 "Receive link count: 2 - Transmit link count: 2", both links
+  "synchronized" (LACP held through 30 s of line-rate traffic); x230 log tail: IMISH command echoes only, no error line.
+Result: at line rate, in both directions, every maximum-size frame crossed the trunked LACP aggregator and arrived at
+  exactly its sent length: none lost, none shortened or lengthened by 4 bytes, no drop on any x230 port; the 64 source MACs
+  were spread evenly over both members (50/50 each way). The same figures as the static aggregator in T18570.
+Step 1: PASS.
+
+== Teardown (20:00:3x-20:01:5x), loop-safe order: x230 port1.0.3 shut first, the stack restored, then the x230.
+1) x230: "configure terminal" "interface port1.0.3" "shutdown" "end" -> exit 0 (work/teardown-u0-a.out).
+2) Stack (u5), exactly (exit 0, no '% ' line; work/teardown-u5.out):
+   IE520-stk(config)#interface port1.0.17
+   IE520-stk(config-if)#shutdown
+   IE520-stk(config-if)#exit
+   IE520-stk(config)#interface port1.0.2,port1.0.17
+   IE520-stk(config-if)#no channel-group
+   IE520-stk(config-if)#switchport mode access
+   IE520-stk(config-if)#exit
+   IE520-stk(config)#interface port1.0.17
+   IE520-stk(config-if)#switchport access vlan 103
+   IE520-stk(config-if)#exit
+   IE520-stk(config)#interface port1.0.2
+   IE520-stk(config-if)#switchport access vlan 1
+   IE520-stk(config-if)#static-channel-group 2
+   IE520-stk(config-if)#exit
+   IE520-stk(config)#interface port3.0.13
+   IE520-stk(config-if)#switchport access vlan 1
+   IE520-stk(config-if)#exit
+   IE520-stk(config)#vlan database
+   IE520-stk(config-vlan)#no vlan 106
+   IE520-stk(config-vlan)#exit
+   IE520-stk(config)#interface port1.0.17
+   IE520-stk(config-if)#no shutdown
+   IE520-stk(config-if)#end
+   "LAG Dynamic Count : 0"; 103 = port1.0.17(u), 104 = port1.0.3(u).
+   tools/rcdiff.py 15255/work/prerun-u5-1933.out work/teardown-u5.out -> no output (identical to the pre-run; sa2 =
+   port1.0.2 + port1.0.9 again).
+3) x230, exactly (exit 0, no '% ' line; work/teardown-u0-b.out):
+   awplus(config)#interface port1.0.5
+   awplus(config-if)#switchport access vlan 105
+   awplus(config-if)#exit
+   awplus(config)#interface port1.0.2-1.0.3
+   awplus(config-if)#no channel-group
+   awplus(config-if)#switchport mode access
+   awplus(config-if)#exit
+   awplus(config)#interface port1.0.2
+   awplus(config-if)#switchport access vlan 1
+   awplus(config-if)#exit
+   awplus(config)#interface port1.0.3
+   awplus(config-if)#switchport access vlan 103
+   awplus(config-if)#exit
+   awplus(config)#vlan database
+   awplus(config-vlan)#no vlan 106
+   awplus(config-vlan)#exit
+   awplus(config)#interface port1.0.3
+   awplus(config-if)#no shutdown
+   awplus(config-if)#end
+   "@poll MATCHED after 3.2 s"; "LAG Total Count : 0"; 103 = port1.0.3, 104 = port1.0.4, 105 = port1.0.5.
+   tools/rcdiff.py 15255/work/prerun-u0-1932.out work/teardown-u0-b.out -> no output (identical to the pre-run).
+Consoles u0 and u5 left at exec by ckcon; transcripts /tmp/x230l2l3-1928/console-u0.log, console-u5.log.
+
+== Files saved
+18571/swi_f.cfg, 18571/stk_a.cfg; work/setup-u0-a.out, setup-u5.out, setup-u0-b.out, setup-u5-b.out, lag-traffic.out,
+counters-mid1-u0.out, counters-mid2-u0.out, counters-after-u0.out, teardown-u0-a.out, teardown-u5.out, teardown-u0-b.out.
+
+Run: clean.
+VERDICT: PASS -- 802.1Q trunk (VLAN 106 tagged) as an LACP aggregator x230 po12 (port1.0.2+1.0.3, both synchronized with the stack's po12) carried line-rate 1518-byte frames from 64 source MACs both ways with 0 loss and exact length (812501/812501 each way; 1500-byte 822501/822501), evenly spread over both links; configs restored, diffs empty
