@@ -525,6 +525,19 @@ Policy, then does tagged DHCP, ARP and ping in the voice VLAN.
   - Exit 2 means either an argument error or "no OFFER".
 - **Status:** generalised 2026-10-02, not re-verified on hardware
 
+### `snmpwalk.py`
+Walks an SNMP agent's MIB with SNMPv2c, stdlib only (tb470 has no snmpwalk tool in `tools/` and the wrapper has no free-form
+exec). Every varbind goes to `<outfile>` (`<oid> = <TYPE>: <value>`); stdout gets a summary: varbinds, requests, retries,
+elapsed, first/last OID, the subtrees seen, and why it stopped (`END` = endOfMibView or left `--root`; `NOT-INCREASING`,
+`TIMEOUT`, `ERROR <status>`, `MAX`).
+- **Run:** `snmpwalk.py <agent-ip> <community> <outfile> [--root 1.3.6.1] [--bulk 20] [--getnext] [--timeout 3] [--retries 3] [--max 200000] [--src <local-ip>]`
+  (`tools/tb tool <TB> <scratch> snmpwalk ...`)
+- **Where:** testbox (or anywhere with a route to the agent); **needs:** nothing beyond Python
+- **Imports:** none
+- **Limits:** SNMPv2c only (no v1, no v3); read-only GET-type PDUs; IPv4 transport. Exit 0 only on `END`.
+- **Status:** verified 2026-10-09 on tb470 against the x230v2-28GS (T15255): GETBULK 12448 varbinds in 9.7 s, GETNEXT
+  12469 in 26.6 s, both to endOfMibView
+
 ### `mb.py`
 Modbus/TCP client with a raw-byte trace. It reads holding registers, writes a register, or
 probes. Use it for AW+ SCADA Modbus gateway cases.
