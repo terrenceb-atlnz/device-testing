@@ -60,15 +60,20 @@ away.
        - `testbox`, `consoles`, `pdu` (`{ip, outlets}` or `null` = no PDU) and `constraints`
          are the §1 step 2 answers, written into Session facts word for word. A missing one is a
          §10 notice, never an AskUserQuestion;
+       - **Paths come only from the `*_rel` fields**, resolved against the Test-cases checkout
+         beside this repo: `<repo root>/../Test-cases/<rel>` here, `~/claude/Test-cases/<rel>`
+         on a testbox (NFS home). `cases[].script` is the Ask-CK server host's absolute path:
+         never use it. A `null` `*_rel`, or a file that is missing, empty or unusable → §10
+         notice for that case (for `composer-validate`, the campaign: end);
        - `cases[]`: `key` is the case, and `kind` says how it runs. `kind: script` runs THAT
-         `script` (an absolute, read-only Test-cases path) through the framework with the usual
-         flags (`tools/tb fwprep` + `fw`); never edit it, copy it to change it. `kind: manual`
-         is run by hand as today. Write each case's kind, and a script case's path, into its
+         script (`script_rel`, read-only) through the framework with the usual flags
+         (`tools/tb fwprep` + `fw`); never edit it, copy it to change it. `kind: manual`
+         is run by hand as today. Write each case's kind, and a script case's `script_rel`, into its
          queue row: `--resume` and `/create-logs --auto` read it from there;
        - `kind` at the top: `validation` and `composer` are a normal TRIAGE then RUN of
          `cases[]`. **`composer-validate` is a TRIAGE only, with no cases:** the probe runs with
-         `--template ~/claude/Test-cases/templates/<template>/<template>.setup` (the box's path;
-         missing → §10 notice and end) and the triage report is the result;
+         `--template ~/claude/Test-cases/<template_setup_rel>` (the `.setup` inside a template
+         folder is not always named after it) and the triage report is the result;
        - `options` (email, start_after) are Ask-CK's server's. This session sends no mail.
 2. **Ask the setup questions in ONE AskUserQuestion call**, before touching any box. (A
    `Driver: ask-ck` campaign takes these answers from the hand-off; a missing one goes through
