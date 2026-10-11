@@ -1,0 +1,193 @@
+================================================================================
+TEST T44988 -- ACL: Hardware MAC 4000 range, applied to ports
+================================================================================
+Run:      2026-10-09, box local time (device clocks were set to box local time
+          during setup, so device and host stamps are comparable)
+Bench:    tb277, consoles u2, u3, u5; Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWP-8616, objective "a numbered hardware MAC access-list in the 4000
+          range filters on source and destination MAC address when applied to a
+          port with access-group", 7 steps as run
+Build:    swi_c  sin_x96056-20260921-9 (netboots)
+          swi_b  sin_x96056-20260921-9 (AT-x960-28YSQ, console u3)
+Configs:  swi_c.cfg, swi_b.cfg (running-config after setup; saved to startup: no)
+
+VERDICT: PASS -- numbered hardware MAC ACLs in the 4000 range bind to a port with
+         `access-group` and filter on source and destination MAC, with wildcard mask
+         semantics, the vlan qualifier and copy-to-cpu all proven by measurement.
+      4000-range MAC list accepted .... yes        (stored as "Hardware MAC access list 4000")
+      bound to a port ................. works      (access-group 4000 on port1.0.48)
+      matching src/dst MAC pair ....... denied     (100% packet loss; Packet Hits: 6)
+      mask is a WILDCARD .............. proven     (1 = don't care, from both directions)
+      zero-mask control ............... matches nothing (list 4001: 0 hits, 0% loss)
+      `any` forms ..................... work       (deny any any: 100% loss, 3 hits)
+      vlan qualifier .................. selects    (vlan 100 denies, vlan 1 does not)
+      copy-to-cpu, both halves ........ correct    (CPU queue 0 0->9 = 9 hits, ping 0% loss)
+      syntax of the 4000 range ........ measured   (src/mask dst/mask [vlan|inner-vlan|
+                                                    tunnel-terminated])
+      removal ......................... clean      (each `no access-group` restored traffic)
+CAVEAT:  Everything was measured on a VLAN 100 ACCESS port (port1.0.48), the bench's
+         deterministic path. The case's stored steps illustrate the feature on a TRUNK port
+         carrying VLAN 600; a trunk was not configured, so the `inner-vlan` and
+         `tunnel-terminated` qualifiers seen in the syntax were not exercised, and the vlan
+         qualifier was proven on VLAN 100 rather than VLAN 600. The frames carried IP/ICMP
+         throughout -- a MAC rule was never offered a non-IP ethertype -- and the spoofed
+         source MAC 02:00:00:00:00:99 was synthetic, generated on the host rather than
+         emitted by a real device. Only the ingress direction was measured.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+   tb277 eth4   MAC 00:0d:b9:55:77:0f = 000d.b955.770f
+     real source MAC   : 000d.b955.770f        (ping, 10.38.22.65 -> 10.38.22.70)
+     spoofed source MAC: 02:00:00:00:00:99     (scapy; exists on no device on this bench)
+        |
+        v   Ether(src=<MAC>, dst=0000.cd42.3029)/IP(10.38.22.65 -> 10.38.22.70)/ICMP
+            VLAN 100 -- ingresses the DUT here
+   port1.0.48   <== ACL BINDING POINT: access-group 4000..4007 (an INGRESS filter)
+  +==========================================================+
+  |   swi_c   AT-x960-56YSQ   *** DUT ***   Marvell 98CX8514 |
+  |                                         Falcon           |
+  |   copy-to-cpu rules steer a copy to CPU receive-queue 0  |
+  +==========================================================+
+        |  sa1 = port1.0.2 + port1.0.16
+        v  forwarded on toward the far side (VLAN 100)
+   swi_b sa1
+  +----------------------------------+
+  |  swi_b   AT-x960-28YSQ           |
+  |  vlan100  10.38.22.70/27         |   far side: "was it forwarded, or dropped?"
+  |  MAC 0000.cd42.3029              |   -- also the DESTINATION MAC under test
+  +----------------------------------+
+
+  DUT     : swi_c (AT-x960-56YSQ) console u2 @115200, S/N A2WQS7004,
+            bridge MAC e01a.ead4.72cb, Marvell 98CX8514 Falcon, netboots
+  far side: swi_b (AT-x960-28YSQ) console u3 @9600, S/N A10737A261700021,
+            MAC 0000.cd42.3029 on its vlan100 interface, 10.38.22.70/27
+  link    : swi_c port1.0.48 <-> tb277 eth4 (VLAN 100 access)
+  link    : swi_c sa1 (port1.0.2 + port1.0.16) <-> swi_b sa1 (VLAN 100)
+  host    : tb277 eth4 000d.b955.770f, 10.38.22.65/27 -> swi_c port1.0.48
+  unused  : swi_a (console u5) was deliberately isolated and carried no traffic in this case
+  tools   : ping on tb277; scapy 2.4.4 on tb277 driving a 12-line sender that emits
+            Ether(src=<MAC>, dst=00:00:cd:42:30:29)/IP(src=10.38.22.65, dst=10.38.22.70)/ICMP()
+            on eth4 -- it exists only to VARY THE SOURCE MAC, which a ping cannot do;
+            console driving with tools/ckcon.py, tools/qmark.py and tools/cfg.py on tb277
+
+STEP 0 -- the 4000-range syntax, measured with `?` and no trailing CR       done
+--------------------------------------------------------------------------------
+x960-56YSQ(config)#access-list 4000 deny ?
+  MAC  Source host's MAC address in HHHH.HHHH.HHHH format
+  any  Source any
+x960-56YSQ(config)#access-list 4000 deny 000d.b955.770f ?
+  MASK  Source wildcard MAC address in HHHH.HHHH.HHHH format
+x960-56YSQ(config)#access-list 4000 deny 000d.b955.770f ffff.ffff.ffff ?
+  MAC  Destination host's MAC address in HHHH.HHHH.HHHH format
+  any  Destination any
+x960-56YSQ(config)#access-list 4000 deny <src> <mask> <dst> <mask> ?
+  inner-vlan         inner-vlan
+  tunnel-terminated  tunnel-terminated packets
+  vlan               vlan
+  <cr>
+  Form: access-list <4000-4699> <action> <src MAC|any> [<src MASK>] <dst MAC|any> [<dst MASK>]
+        [vlan <vid>] [inner-vlan <vid>] [tunnel-terminated]
+                                            <-- the parameter set the later steps draw on
+
+STEP 1 -- "a 4000-range MAC list applied to a port denies the matching flow" PASS
+--------------------------------------------------------------------------------
+x960-56YSQ(config)#access-list 4000 deny 000d.b955.770f 0000.0000.0000 0000.cd42.3029 0000.0000.0000
+x960-56YSQ(config)#interface port1.0.48
+x960-56YSQ(config-if)#access-group 4000
+x960-56YSQ#show access-list 4000
+  Hardware MAC access list 4000
+      4 deny 000d.b955.770f 0000.0000.0000 0000.cd42.3029 0000.0000.0000
+host# ping .70 from 10.38.22.65 -> 100% packet loss        DENIED
+x960-56YSQ#show access-list counters 4000
+      Packet Hits: 6                        <-- the rule, not the path, stopped the frames
+  => STEP 1 PASS: a numbered hardware MAC ACL bound to a port denies traffic between the
+     named source and destination MAC addresses, with the hit counter corroborating.
+
+STEP 2 -- the mask is a WILDCARD, proven from BOTH directions              PASS
+--------------------------------------------------------------------------------
+  Method: the mask could be read two ways -- 1 = "must match", or 1 = "don't care". A rule
+  whose named MAC is the traffic's own MAC matches under EITHER reading, so that alone proves
+  nothing. Two independent measurements settle it, and a converse control rules out the
+  trivial explanation that masks are ignored altogether.
+
+  (a) VARY THE TRAFFIC, HOLD THE RULE. Frames sent from the spoofed MAC 02:00:00:00:00:99,
+      which no rule names:
+
+        list  rule                                                        hits    matched?
+        4000  deny 000d.b955.770f 0000.0000.0000 0000.cd42.3029 0000...   0 -> 0  NO
+        4002  deny 000d.b955.770f ffff.ffff.ffff any                      0 -> 5  YES
+
+      4002 matched a source MAC it does not name. Under "1 = must match" that is impossible.
+
+  (b) VARY THE RULE, HOLD THE TRAFFIC. A MAC that exists nowhere on this bench, with an
+      all-ones mask, against the ordinary 6-ping flow:
+x960-56YSQ(config)#access-list 4004 deny 0000.0000.0001 ffff.ffff.ffff any
+host# ping .70 from 10.38.22.65 -> 100% packet loss
+x960-56YSQ#show access-list counters 4004
+      Packet Hits: 9                        <-- matched traffic from 000d.b955.770f while
+                                                naming 0000.0000.0001; under "1 = must match"
+                                                this rule would have matched nothing at all
+
+  And the converse control:
+
+        list  rule                                        hits    result
+        4001  deny 0000.0000.0001 0000.0000.0000 any      0       0% loss -- matched nothing
+
+      A zero mask against an absent MAC correctly matches nothing, so 0 bits ARE significant
+      and the mask is not simply being discarded.
+
+  => STEP 2 PASS: the mask is a WILDCARD -- a 1 bit means "don't care", a 0 bit means "must
+     match". Each of the three readings is one of the others' controls, so the conclusion does
+     not rest on a single rule.
+
+STEP 3 -- the `any` forms                                                  PASS
+--------------------------------------------------------------------------------
+x960-56YSQ(config)#access-list 4003 deny any any
+host# ping .70 from 10.38.22.65 -> 100% packet loss
+x960-56YSQ#show access-list counters 4003
+      Packet Hits: 3
+  => STEP 3 PASS: `deny any any` denies all traffic ingressing the port, with the counter
+     advancing, so the wildcard-any source and destination forms are accepted and effective.
+
+STEP 4 -- the vlan qualifier selects correctly                             PASS
+--------------------------------------------------------------------------------
+  Method: a matching/non-matching pair on rules that are otherwise identical -- same source
+  MAC, same destination MAC, same masks -- so the only variable is the VLAN id.
+
+    list  qualifier   .65 result          expected
+    4006  vlan 100    100% packet loss    DENY -- the test traffic IS in VLAN 100
+    4007  vlan 1        0% packet loss    PASS -- the test traffic is not in VLAN 1
+
+  => STEP 4 PASS: the vlan qualifier narrows a MAC rule to the VLAN it names rather than
+     being ignored. Had it been ignored, 4007 would have denied the traffic as 4006 did.
+
+STEP 5 -- copy-to-cpu on a MAC list, BOTH halves proven                    PASS
+--------------------------------------------------------------------------------
+  Method: copy-to-cpu is defined as "copy to the CPU AND forward". Both halves must be shown;
+  proving only one would not distinguish it from send-to-cpu, which does not forward.
+x960-56YSQ(config)#access-list 4005 copy-to-cpu 000d.b955.770f 0000.0000.0000 0000.cd42.3029 0000.0000.0000
+x960-56YSQ(config)#interface port1.0.48
+x960-56YSQ(config-if)#access-group 4005
+x960-56YSQ#show platform counter sdma        (read before, then after 8 pings)
+              0 : sdmaRegs.rxDmaPcktCnt[0]   ->      9 : sdmaRegs.rxDmaPcktCnt[0]
+host# ping -c 8 .70 from 10.38.22.65 -> 0% packet loss     <-- STILL FORWARDED
+x960-56YSQ#show access-list counters 4005
+      Packet Hits: 9                         <-- equals the CPU queue-0 advance exactly
+  => STEP 5 PASS: CPU receive-queue 0 advanced from 0 to 9, exactly matching the 9 ACL hits,
+     so the frames were genuinely copied to the CPU; and the ping passed with 0% loss, so they
+     were ALSO still forwarded to the far side. That is copy-to-cpu behaving to its
+     definition. (Queue 6's counter was also read; it does not accumulate the same way and is
+     not used as evidence here.)
+
+STEP 6 -- removal                                                          PASS
+--------------------------------------------------------------------------------
+  Every 4000-range list created in this case was unbound after its own measurement.
+x960-56YSQ(config-if)#no access-group <n>
+  => STEP 6 PASS: each `no access-group <n>` was accepted and the following measurement
+     showed the traffic restored, which is also what makes every row above attributable to
+     its own list rather than to a leftover binding.
+================================================================================

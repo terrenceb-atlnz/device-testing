@@ -1,0 +1,181 @@
+================================================================================
+TEST T44986 -- deny/permit statements for standard access list
+================================================================================
+Run:      2026-10-09, box local time
+Bench:    tb277, consoles u2, u3, u5; Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWP-13990, objective "the deny and permit statements of a standard
+          (1-99) access list behave correctly: permit, implicit deny, explicit
+          deny, wildcard mask and first-match-wins", 5 behaviours, 7 steps as run
+Build:    swi_c  sin_x96056-20260921-9 (netboots)
+Configs:  swi_c.cfg, swi_b.cfg (running-config after setup; saved to startup: no).
+          This case used swi_c only; swi_b carried no traffic.
+
+VERDICT: PASS -- all five behaviours of a standard access list are demonstrated on this
+         platform, each paired with its own control on the same two clients.
+      standard list created ........... yes        (Standard IP access list 1, seq 4 permit)
+      binds to an interface ........... NO         (access-group 1 -> % Access-list does not
+                                                    exist; hardware ranges only)
+      binds to the vty lines .......... yes        (vty access-class 1 in running-config)
+      permit .......................... admits     (.65 ACCEPTED, SSH banner returned)
+      implicit deny ................... blocks     (.66 TIMEOUT on that same list)
+      explicit deny + permit any ...... inverse    (.65 TIMEOUT, .66 ACCEPTED)
+      wildcard mask 0.0.0.1 ........... selects    (.65 ACCEPTED inside, .66 TIMEOUT outside)
+      first match wins ................ yes        (permit at seq 4 beats deny at seq 8)
+      removal ......................... clean      (no vty access-class restored both clients)
+CAVEAT:  The case's own expectation that a standard list attaches to an interface does not
+         hold on this platform, so the five behaviours were exercised at the binding point
+         that does exist -- `vty access-class`, against SSH to the DUT's own vty. That is
+         CONTROL-PLANE filtering: this run did NOT establish how a standard list behaves on
+         transit traffic, because the platform offers no way to bind one there. Only two
+         source addresses and only tcp/22 were used; the extended numbered range (1300-1999)
+         that `vty access-class` also accepts was not exercised, and nothing was reloaded, so
+         persistence of these lists across a restart was not measured.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+   tb277 eth4   10.38.22.65/27   and   10.38.22.66/27
+                (the two client addresses the rules discriminate between; the
+                 test client BINDS to one of them before connecting)
+        |
+        v   TCP SYN -> 10.38.22.67:22  (SSH), VLAN 100
+   port1.0.48   (VLAN 100 access)
+  +==========================================================+
+  |   swi_c   AT-x960-56YSQ   *** DUT ***   Marvell 98CX8514 |
+  |                                         Falcon           |
+  |   vlan100  10.38.22.67/27      <- the vty endpoint       |
+  |   line vty 0 7                                           |
+  |     vty access-class 1 | 2 | 3 | 4   <== THE BINDING     |
+  |   SSH listener on tcp/22                                 |
+  +==========================================================+
+        X  no far side: the connection TERMINATES on the DUT's own vty.
+           The result measured is ACCEPTED (SSH banner), TIMEOUT or REFUSED
+           at the client.
+
+  DUT     : swi_c (AT-x960-56YSQ) console u2 @115200, S/N A2WQS7004,
+            Marvell 98CX8514 Falcon, netboots; given 10.38.22.67/27 on vlan100 for this case
+            so the vty lines are reachable
+  link    : swi_c port1.0.48 <-> tb277 eth4 (VLAN 100 access)
+  host    : tb277 eth4, 10.38.22.65/27 and 10.38.22.66/27 -> swi_c port1.0.48
+  unused  : swi_b (console u3) and swi_a (console u5) carried no traffic in this case;
+            swi_a was deliberately isolated
+  tools   : a 14-line python socket client on tb277 that BINDS to a chosen source address
+            before connecting to tcp/22 and reports ACCEPTED (with the SSH banner), TIMEOUT
+            or REFUSED -- binding the source is the whole point, since an ordinary ssh client
+            cannot choose which of the two addresses it comes from; console driving with
+            tools/ckcon.py and tools/cfg.py on tb277
+
+STEP 0 -- baseline: where a standard list binds here, and both clients reach
+          the vty with nothing applied                                     done
+--------------------------------------------------------------------------------
+  A standard (1-99) list CANNOT be bound to an interface on this platform. Measured:
+x960-56YSQ(config)#access-list 1 permit 10.38.22.65 0.0.0.0
+x960-56YSQ(config)#interface port1.0.48
+x960-56YSQ(config-if)#access-group 1
+  % Access-list does not exist
+x960-56YSQ#show access-list 1
+  Standard IP access list 1
+      4 permit 10.38.22.65                  <-- the list plainly DOES exist; `access-group`
+                                                takes only 3000-3699, 4000-4699 or a named
+                                                hardware list, and reports a standard list as
+                                                non-existent rather than as the wrong type
+
+  The Cisco-style line-mode form is not available either:
+x960-56YSQ(config-line)#access-class 1
+                             ^
+  % Invalid input detected at '^' marker.
+
+  The binding point that DOES exist is global, not under `line vty`:
+x960-56YSQ(config)#vty access-class 1
+x960-56YSQ#show running-config | include vty
+  line vty 0 7
+  vty access-class 1                        <-- accepted and present in the running config
+
+  The four lists the behaviours are measured with:
+x960-56YSQ#show access-list 1
+  Standard IP access list 1
+      4 permit 10.38.22.65
+x960-56YSQ#show access-list 2
+  Standard IP access list 2
+      4 deny   10.38.22.65
+      8 permit any
+x960-56YSQ#show access-list 3
+  Standard IP access list 3
+      4 permit 10.38.22.64 0.0.0.1          <-- wildcard: covers .64 and .65 ONLY
+x960-56YSQ#show access-list 4
+  Standard IP access list 4
+      4 permit 10.38.22.65
+      8 deny   10.38.22.65                  <-- same address, opposite actions, permit first
+
+  Baseline with no access-class applied:
+  10.38.22.65    -> ACCEPTED  banner=b'SSH-2.0-OpenSSH_10.5\r\n'
+  10.38.22.66    -> ACCEPTED  banner=b'SSH-2.0-OpenSSH_10.5\r\n'
+                                            <-- both clients reach the vty before any list is
+                                                applied, so a later refusal is attributable to
+                                                the access-class and not to reachability
+
+STEP 1 -- "permit statements work"                                         PASS
+--------------------------------------------------------------------------------
+x960-56YSQ(config)#vty access-class 1        (permit 10.38.22.65)
+  10.38.22.65    -> ACCEPTED  banner=b'SSH-2.0-OpenSSH_10.5\r\n'
+  => STEP 1 PASS: the address the single permit entry names is let through to the vty.
+
+STEP 2 -- "the implicit deny works"                                        PASS
+--------------------------------------------------------------------------------
+  Same list 1 still applied; no entry covers 10.38.22.66.
+  10.38.22.66    -> TIMEOUT (blocked)
+  => STEP 2 PASS: an address no rule covers is blocked, so a standard (software) ACL
+     implicitly DENIES what it does not permit. The pair .65 ACCEPTED / .66 TIMEOUT under one
+     unchanged list is the proof: the only variable is the client address.
+
+STEP 3 -- "deny statements work"                                           PASS
+--------------------------------------------------------------------------------
+x960-56YSQ(config)#vty access-class 2        (deny 10.38.22.65, then permit any)
+  10.38.22.65    -> TIMEOUT (blocked)
+  10.38.22.66    -> ACCEPTED  banner=b'SSH-2.0-OpenSSH_10.5\r\n'
+  => STEP 3 PASS: the explicitly denied address is blocked while the trailing `permit any`
+     admits the other client. This is the exact inverse of STEP 1 / STEP 2 on the same two
+     clients, so each result is the other's control: the outcome follows the rules, not the
+     client.
+
+STEP 4 -- "wildcard masks select the right addresses"                      PASS
+--------------------------------------------------------------------------------
+x960-56YSQ(config)#vty access-class 3        (permit 10.38.22.64 0.0.0.1)
+  The mask 0.0.0.1 leaves only the last bit free, so the entry covers 10.38.22.64 and
+  10.38.22.65 and nothing else.
+  10.38.22.65    -> ACCEPTED  banner=b'SSH-2.0-OpenSSH_10.5\r\n'   (inside the pair)
+  10.38.22.66    -> TIMEOUT (blocked)                              (immediately outside it)
+  => STEP 4 PASS: the wildcard admits an address inside the range it describes and blocks one
+     immediately outside it. A mask that was ignored, or treated as a host match, would not
+     have produced this split.
+
+STEP 5 -- "rules are evaluated top to bottom, first match wins"            PASS
+--------------------------------------------------------------------------------
+x960-56YSQ(config)#vty access-class 4        (permit 10.38.22.65 THEN deny 10.38.22.65)
+  Both entries name the SAME address with opposite actions; only their order distinguishes
+  them, so the result can only be explained by evaluation order.
+  10.38.22.65    -> ACCEPTED  banner=b'SSH-2.0-OpenSSH_10.5\r\n'
+  => STEP 5 PASS: the permit at sequence 4 wins over the deny at sequence 8. Evaluation stops
+     at the first match and does not fall through to the later contradicting entry.
+
+  The five behaviours together:
+
+    step  behaviour            list  .65                  .66                  verdict
+    1     permit               1     ACCEPTED             -                    PASS
+    2     implicit deny        1     -                    TIMEOUT (blocked)    PASS
+    3     deny                 2     TIMEOUT (blocked)    ACCEPTED             PASS
+    4     wildcard mask        3     ACCEPTED             TIMEOUT (blocked)    PASS
+    5     first match wins     4     ACCEPTED             -                    PASS
+
+STEP 6 -- removal                                                          PASS
+--------------------------------------------------------------------------------
+x960-56YSQ(config)#no vty access-class <n>
+  Issued between every measurement above, and each removal was followed by a re-test that
+  showed both clients reaching the vty again -- the STEP 0 state. (Recorded as a result at
+  the time rather than captured per-client, so no client output is quoted for this step.)
+  => STEP 6 PASS: removing the access-class restores both clients, which is what makes each
+     row of the table above attributable to its own list rather than to a leftover binding.
+================================================================================

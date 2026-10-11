@@ -1,0 +1,262 @@
+================================================================================
+TEST T44987 -- ACL: Hardware IP 3000 range, applied to ports
+================================================================================
+Run:      2026-10-09, box local time (device clocks were set to box local time
+          during setup, so device and host stamps are comparable)
+Bench:    tb277, consoles u2, u3, u5; Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWP-8612, objective "a numbered hardware IP access-list in the 3000
+          range is configurable for each of its parameters and takes effect when
+          applied to a port with access-group", 8 steps as run
+Build:    swi_c  sin_x96056-20260921-9 (x960-tb277.rel, netboots; boot config
+                 flash:/default.cfg)
+          swi_b  sin_x96056-20260921-9 (AT-x960-28YSQ, console u3)
+Configs:  swi_c.cfg, swi_b.cfg (running-config after setup; saved to startup: yes,
+          once, for the reload in STEP 7)
+
+VERDICT: PASS -- numbered hardware IP ACLs in the 3000 range bind to a port with
+         `access-group` and filter correctly in all five protocol forms, with the
+         configuration and its enforcement surviving a reload.
+      3000-range list accepted ........ yes        (stored as "Hardware IP access list 3000")
+      bound to a port ................. works      (access-group 3000 in running-config)
+      matching traffic ................ denied     (100% packet loss; Packet Hits: 4 = 4 pings)
+      non-matching source ............. permitted  (0% loss on the identical path)
+      five protocol forms ............. accepted   (icmp, ip, proto, tcp, udp)
+      protocol selectivity ............ correct    (tcp and udp rules leave ICMP alone)
+      permit rules .................... work       (counter +4 for 4 pings, not implicit permit)
+      non-IP (ARP) traffic ............ unaffected (re-resolved while ICMP was denied)
+      several access-groups on a port . accepted   (five lists bound at once)
+      classifier cost ................. 1 per bound rule (2/1024 -> 7/1024 for five)
+      unbound lists ................... cost nothing (six defined, one bound, ACL = 1)
+      editing a bound list ............ refused    (platform constraint, STEP 3)
+      persistence across a reload ..... holds      (definitions, binding and enforcement)
+CAVEAT:  The filtering was measured with ICMP only, ingressing a VLAN 100 access port on a
+         standalone DUT. The tcp and udp forms were therefore proven only negatively -- they
+         correctly did NOT match ICMP; no TCP or UDP flow was offered to them, so their
+         positive match was not demonstrated. Port numbers, TCP flags and the remaining
+         3000-range qualifiers were not exercised, nor was any egress direction: `access-group`
+         is an ingress filter and only the ingress path was measured. The persistence test was
+         a software `reload` after `copy running-config startup-config`, not a power cycle.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+   tb277 eth4   00:0d:b9:55:77:0f
+     10.38.22.65/27  = the MATCHING source
+     10.38.22.66/27  = the NON-MATCHING control source
+        |
+        v   ICMP echo request, VLAN 100 -- ingresses the DUT here
+   port1.0.48   <== ACL BINDING POINT: access-group 3000 / 3001 / 3002 / 3003 /
+                    3004 / 3005 (an INGRESS filter; this is the measured point)
+  +==========================================================+
+  |   swi_c   AT-x960-56YSQ   *** DUT ***   Marvell 98CX8514 |
+  |                                         Falcon           |
+  +==========================================================+
+        |  sa1 = port1.0.2 + port1.0.16
+        v  forwarded on toward the far side (VLAN 100)
+   swi_b sa1
+  +----------------------------------+
+  |  swi_b   AT-x960-28YSQ           |
+  |  vlan100  10.38.22.70/27         |   far side: "was it forwarded, or dropped?"
+  +----------------------------------+
+
+  Why port1.0.48 is the binding point: `access-group` is an INGRESS filter, and host->swi_b
+  traffic ingresses the DUT on port1.0.48, so a rule written src=host dst=swi_b matches
+  directly there.
+
+  DUT     : swi_c (AT-x960-56YSQ) console u2 @115200, S/N A2WQS7004,
+            bridge MAC e01a.ead4.72cb, Marvell 98CX8514 Falcon, netboots
+  far side: swi_b (AT-x960-28YSQ) console u3 @9600, S/N A10737A261700021,
+            bridge MAC 0000.cd42.3029, STP root
+  link    : swi_c port1.0.48 <-> tb277 eth4 (VLAN 100 access)
+  link    : swi_c sa1 (port1.0.2 + port1.0.16) <-> swi_b sa1 (VLAN 100)
+  host    : tb277 eth4 00:0d:b9:55:77:0f, 10.38.22.65/27 and 10.38.22.66/27
+            -> swi_c port1.0.48
+  unused  : swi_a (console u5) was deliberately isolated and carried no traffic in this case
+  tools   : ping and ip(8) on tb277; console driving with tools/ckcon.py, tools/ckyn.py,
+            tools/ckreload.py and tools/cfg.py on tb277
+
+STEP 0 -- baseline (no ACL exists)                                        done
+--------------------------------------------------------------------------------
+x960-56YSQ#show access-list
+x960-56YSQ#show mirror
+x960-56YSQ#show class-map
+x960-56YSQ#show policy-map
+                                            <-- all empty
+x960-56YSQ#show platform classifier statistics utilization brief
+  Loop Detection      2
+  Global ACL          0
+  ACL                 0
+  VACL                0
+  QoS                 0
+  Total               2 / 1024 (0.20%)      <-- TCAM baseline
+host# ping .70 from 10.38.22.65 -> 0% packet loss
+host# ping .70 from 10.38.22.66 -> 0% packet loss
+                                            <-- both sources reach the far side before any
+                                                ACL exists, so a later loss is attributable
+                                                to the ACL and not to the path
+
+STEP 1 -- "a 3000-range list applied to a port denies the matching flow"   PASS
+--------------------------------------------------------------------------------
+x960-56YSQ(config)#access-list 3000 deny icmp 10.38.22.65/32 10.38.22.70/32
+x960-56YSQ(config)#interface port1.0.48
+x960-56YSQ(config-if)#access-group 3000
+x960-56YSQ#show access-list
+  Hardware IP access list 3000
+      4 deny icmp 10.38.22.65/32 10.38.22.70/32
+x960-56YSQ#show running-config interface port1.0.48
+  interface port1.0.48
+   switchport
+   switchport mode access
+   switchport access vlan 100
+   access-group 3000                        <-- the binding is in the running config
+host# ping .70 from 10.38.22.65 -> 100% packet loss      DENIED
+host# ping .70 from 10.38.22.66 ->   0% packet loss      PERMITTED  <-- the control
+x960-56YSQ#show access-list counters
+  Name: 3000
+      Rule: deny icmp 10.38.22.65/32 10.38.22.70/32
+      Packet Hits: 4                        <-- exactly the 4 denied pings
+  => STEP 1 PASS: a numbered hardware IP ACL bound to a port denies the traffic its rule
+     matches and leaves an identical flow from another source untouched, with the hit counter
+     corroborating the packet count. The two sources differ only in address, so the denial
+     follows the rule rather than the path.
+
+STEP 2 -- "non-IP traffic is unaffected"                                  PASS
+--------------------------------------------------------------------------------
+  Method: an IP hardware ACL should filter IP only. ARP is forced to re-resolve across the
+  same path while the ICMP flow from the same host is denied.
+host# ip neigh flush dev eth4 ; ping .70 from 10.38.22.65    (denied)
+host# ip neigh show dev eth4
+  10.38.22.70 lladdr 00:00:cd:42:30:29 REACHABLE   <-- ARP completed through the DUT
+  => STEP 2 PASS: ARP re-resolved across the path while ICMP from the same host was denied,
+     so an IP hardware ACL does not filter non-IP frames.
+
+STEP 3 -- "Configure hardware IP 3000 range ACL for each of the parameters"
+          -- a bound numbered ACL cannot be edited                        done
+--------------------------------------------------------------------------------
+  This platform constraint is not anticipated by the step text, and it shapes how the
+  remaining parameters had to be configured (one list per rule, STEP 4).
+x960-56YSQ(config)#access-list 3000 deny ip 10.38.22.65/32 10.38.22.70/32
+  % This access-list is currently attached to an interface so cannot be edited.
+x960-56YSQ#show access-list
+  Hardware IP access list 3000
+      4 deny icmp 10.38.22.65/32 10.38.22.70/32    <-- unchanged; the entry was NOT added
+  Also measured, the bare list with no action:
+x960-56YSQ(config)#access-list 3000
+  % Incomplete command.
+  => STEP 3 done: a numbered hardware ACL is read-only while an `access-group` binds it. It
+     must be unbound before it can be edited, or a separate list used per rule. The refusal
+     is silent in its effect -- the entry is simply not added -- so `show access-list` has to
+     be re-read to notice.
+
+STEP 4 -- "attach each access-list to different ports" -- all five protocol
+          forms, one list each, and their SELECTIVITY                     PASS
+--------------------------------------------------------------------------------
+x960-56YSQ(config)#interface port1.0.48 ; no access-group 3000
+x960-56YSQ(config)#access-list 3001 deny ip    10.38.22.65/32 10.38.22.70/32
+x960-56YSQ(config)#access-list 3002 deny proto 1 10.38.22.65/32 10.38.22.70/32
+x960-56YSQ(config)#access-list 3003 deny tcp   10.38.22.65/32 10.38.22.70/32
+x960-56YSQ(config)#access-list 3004 deny udp   10.38.22.65/32 10.38.22.70/32
+x960-56YSQ#show access-list
+  Hardware IP access list 3000     4 deny icmp 10.38.22.65/32 10.38.22.70/32
+  Hardware IP access list 3001     4 deny ip   10.38.22.65/32 10.38.22.70/32
+  Hardware IP access list 3002     4 deny icmp 10.38.22.65/32 10.38.22.70/32   <-- see note
+  Hardware IP access list 3003     4 deny tcp  10.38.22.65/32 10.38.22.70/32
+  Hardware IP access list 3004     4 deny udp  10.38.22.65/32 10.38.22.70/32
+
+  NOTE: `deny proto 1` was CANONICALISED to `deny icmp` in list 3002. Protocol 1 is ICMP, so
+  the CLI stores and displays the named form. Worth knowing when diffing a running config
+  against what was typed.
+
+  Each list was then bound to port1.0.48 in turn, with ICMP offered from both sources:
+
+    list  stored rule   .65 (ICMP)          .66 (ICMP)       expected
+    3000  deny icmp     100% packet loss    0% packet loss   DENY  (icmp matches)
+    3001  deny ip       100% packet loss    0% packet loss   DENY  (ip matches all IP)
+    3002  deny icmp     100% packet loss    0% packet loss   DENY  (proto 1 = icmp)
+    3003  deny tcp        0% packet loss    0% packet loss   PASS  (tcp does not match icmp)
+    3004  deny udp        0% packet loss    0% packet loss   PASS  (udp does not match icmp)
+
+  => STEP 4 PASS: all five protocol forms are accepted, bind to a port and behave correctly.
+     The last two rows are the important ones: a TCP rule and a UDP rule both leave ICMP
+     alone, so the protocol field genuinely selects rather than every rule matching
+     everything. The three DENY rows and the two PASS rows are each other's controls, and
+     the .66 column is the per-row control on the same cabling.
+
+STEP 5 -- "permit statements work" -- proven by the counter               PASS
+--------------------------------------------------------------------------------
+  Method: hardware ACLs implicitly PERMIT what no rule denies, so "the traffic passed" is NOT
+  proof that a permit rule worked. The rule's own counter is.
+x960-56YSQ(config)#access-list 3005 permit icmp 10.38.22.65/32 10.38.22.70/32
+x960-56YSQ(config)#interface port1.0.48 ; access-group 3005
+host# ping .70 from 10.38.22.65 -> 0% packet loss
+x960-56YSQ#show access-list counters 3005
+      Rule: permit icmp 10.38.22.65/32 10.38.22.70/32
+      Packet Hits: 3
+host# ping -c 4 .70 from 10.38.22.65
+x960-56YSQ#show access-list counters 3005
+      Packet Hits: 7                        <-- +4 for 4 pings
+  => STEP 5 PASS: the permit rule's counter advances exactly with the traffic offered, so the
+     rule is being matched in hardware and is not merely being shadowed by the implicit
+     permit.
+
+STEP 6 -- classifier consumption against the Falcon budget                PASS
+--------------------------------------------------------------------------------
+  All five deny lists bound to port1.0.48 simultaneously:
+x960-56YSQ#show running-config interface port1.0.48
+  interface port1.0.48
+   access-group 3000
+   access-group 3001
+   access-group 3002
+   access-group 3003
+   access-group 3004                        <-- a port accepts multiple access-groups
+x960-56YSQ#show platform classifier statistics utilization brief
+  Loop Detection      2
+  ACL                 5
+  Total               7 / 1024 (0.68%)      <-- baseline was 2 / 1024
+x960-56YSQ#show platform counter sdma
+              0 : sdmaRegs.rxDmaPcktCnt[0]
+              0 : sdmaRegs.rxDmaByteCnt[0]
+              0 : sdmaRegs.rxDmaPcktCnt[1]  <-- no CPU-bound traffic, as expected: this case
+                                                uses deny and permit only, with no
+                                                copy-to-cpu or send-to-cpu action
+  => STEP 6 PASS: five bound rules consume exactly five ingress classifier entries -- one per
+     rule -- against a pool the DUT reports as 1024, and a single port accepts several
+     `access-group` lines at once.
+
+STEP 7 -- persistence across a save and reload                            PASS
+--------------------------------------------------------------------------------
+x960-56YSQ#show boot
+  Current software   : x960-tb277.rel
+  Current boot config: flash:/default.cfg (file exists)
+  Config under test: all groups removed except `access-group 3000` on port1.0.48.
+host# ping .70 from 10.38.22.65 -> 100% packet loss      (denied before the reload)
+x960-56YSQ#copy running-config startup-config
+  Building configuration... [OK]
+x960-56YSQ#reload
+  reboot system? (y/n): y
+                                            <-- login seen again after 119 s
+
+  AFTER THE RELOAD:
+x960-56YSQ#show access-list
+  all six lists 3000-3005 present, unchanged                  <-- definitions SURVIVED
+x960-56YSQ#show running-config interface port1.0.48
+  interface port1.0.48
+   access-group 3000                                          <-- binding SURVIVED
+x960-56YSQ#show static-channel-group
+  Member: port1.0.2, port1.0.16                               <-- aggregation SURVIVED
+host# ping .70 from 10.38.22.65 -> 100% packet loss           STILL DENIED
+host# ping .70 from 10.38.22.66 ->   0% packet loss           STILL PERMITTED
+x960-56YSQ#show platform classifier statistics utilization brief
+  Loop Detection      2
+  ACL                 1
+  Total               3 / 1024 (0.29%)
+  => STEP 7 PASS: the ACL definitions, the port binding and the enforcement all survived a
+     save and reload, with the non-matching control still passing afterwards.
+     Also proven here: six lists are defined but only ONE is bound, and the classifier reports
+     ACL = 1. An UNBOUND access-list consumes no classifier entry -- the rule budget is spent
+     by BINDINGS, not by definitions, so a configuration can hold far more rules than the
+     1024-entry pool as long as most are unbound.
+================================================================================
