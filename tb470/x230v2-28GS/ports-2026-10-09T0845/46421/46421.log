@@ -1,0 +1,409 @@
+================================================================================
+TEST 46421 -- Link flap
+================================================================================
+Run:      2026-10-09 18:46:27-18:50:26 NZDT (tb470 time; the x230 holds NZ wall time labelled
+          UTC, ~2 s behind tb470, so its log times read as NZDT; the stack clock is true UTC,
+          ~48 s ahead of tb470)
+Bench:    tb470, consoles u0 (x230, DUT), u5 (stack master); Test Engineer terrenceb@terrenceb-dl
+Tester:   bench-runner (by hand: tools/tb ckcon -> tools/ckcon.py with its @poll directive,
+          tools/rcdiff.py, tools/rc2cfg.py; no framework script)
+Graded:   tester
+Case:     AWPTCM-T46421 (Draft), objective empty, precondition "conduct link flap at supported
+          speed and check status", 1 step (step text and expected result empty)
+Build:    swi_f awplus_main-20261008-57 (x230v2_28GS-awplus_main-20261008-57.rel, build
+          10/08/26 00:10:09), bootloader 6.2.40
+          stk_a awplus_main-20261008-57, members 1/3/4
+Configs:  swi_f.cfg, stk_a.cfg (running-config after setup, which was none; saved to startup: no)
+
+VERDICT: PASS -- 21 flaps (12 local on x230 port1.0.2-1.0.5, 9 remote from the stack on the
+         port1.0.2/1.0.3/1.0.4 links) each gave exactly one down + one up event, and every link
+         came back at 1000/full in its own VLAN with its LLDP neighbour
+      local flap, port1.0.5 (copper) ...... PASS  (3 x down/up; back a-full a-1000, VLAN 105)
+      local flap, port1.0.4 (SX) .......... PASS  (3 x down/up; back a-full a-1000, VLAN 104)
+      local flap, port1.0.3 (copper) ...... PASS  (3 x down/up; back a-full a-1000, VLAN 103)
+      local flap, port1.0.2 (copper) ...... PASS  (3 x down/up; back a-full a-1000, VLAN 1)
+      remote flap of port1.0.3 / 1.0.4 / 1.0.2 from the stack ... PASS  (3 x down/up each, seen
+                                            by the x230; links back a-full a-1000)
+      LLDP neighbours on 1.0.2/1.0.3/1.0.4 . PASS  (same three before and after each step)
+CAVEAT:  "supported speed" = 1000 Mb/s full duplex (autonegotiated), the speed every live x230
+         link runs at on this bench; no other speed was flapped. port1.0.5's partner is a host NIC
+         (tb470 eth3), so it was flapped locally only. port1.0.1 had no link (its AR4050S partner
+         port is shut down) and was not flapped.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  DUT     : swi_f (AT-x230-28GS V2, hostname awplus) console u0, S/N A10783G262900002,
+            system MAC 00c2.8f3f.0f5d, boot config flash:/default.cfg
+  partner : stk_a (AT-IE520-28GSX VCStack, hostname IE520-stk), stack MAC 0000.cd37.0d6f,
+            member 1 S/N 264A23061 (u2), member 3 S/N 264A23066 (u5, Active Master, driven),
+            member 4 S/N 264A23052 (u4); boot config flash:/tb470-bench.cfg
+  link    : swi_f port1.0.2 (AT-SPTX A03245R112100715, 1000BASE-T) <-> stk_a port1.0.2
+            (AT-SPTXa A04906R191400056, in sa2), VLAN 1
+  link    : swi_f port1.0.3 (AT-SPTX A03245R084100100, 1000BASE-T) <-> stk_a port1.0.17
+            (AT-SPTXa A04906F202000099), VLAN 103
+  link    : swi_f port1.0.4 (AT-SPSX A03240R151300357, 1000BASE-SX) <-> stk_a port1.0.3
+            (AT-SPSX A03240R192701669), VLAN 104
+  host    : tb470 eth3 00:f0:4d:00:77:18 10.38.215.65/27 -> swi_f port1.0.5 (AT-SPTXc
+            A10217F241400236, 1000BASE-T), VLAN 105
+  idle    : swi_f port1.0.1 (AT-SPTXa A04906R191400072) <-> AR4050S port1.0.2 (shut down), no link
+  bench   : spanning tree disabled on the x230 and the stack; x230 `lldp run`
+  tools   : on tb470: tools/tb ckcon tb470 x230port-1840 <uN> 115200 --stop-on-error <commands>
+            (tools/ckcon.py). Its `@poll <s> <regex> <cmd>` directive re-runs <cmd> until the
+            output matches and prints the time taken (each read is ~1.2 s round trip). In the
+            output below, "HH:MM:SS >>> <cmd>" is the tb470 time the command was sent
+
+STEP 0 -- baseline: the links before any flap                               done
+--------------------------------------------------------------------------------
+awplus# show system pluggable   (18:42:20)
+  System Pluggable Information
+  
+  Port    Vendor           Device           Serial Number    Datecode Type
+  --------------------------------------------------------------------------------
+  1.0.1   ATI              AT-SPTXa         A04906R191400072 19041101 1000BASE-T
+  1.0.2   ATI              AT-SPTX          A03245R112100715 11052401 1000BASE-T
+  1.0.3   ATI              AT-SPTX          A03245R084100100 08100901 1000BASE-T
+  1.0.4   ATI              AT-SPSX          A03240R151300357 15032801 1000BASE-SX
+  1.0.5   ATI              AT-SPTXc         A10217F241400236 240325   1000BASE-T
+awplus# show interface status   (18:46:35; ports 1.0.1-1.0.5 of 28)
+  Port        Name               Status      Vlan      Duplex Speed   Type
+  --------------------------------------------------------------------------------
+  port1.0.1   -                  notconnect          1 auto   auto    1000BASE-T
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+  port1.0.3   -                  connected         103 a-full a-1000  1000BASE-T
+  port1.0.4   -                  connected         104 a-full a-1000  1000BASE-SX
+  port1.0.5   -                  connected         105 a-full a-1000  1000BASE-T
+awplus# show lldp neighbors   (18:42:25)
+  Local    Neighbor        Neighbor        Neighbor                System   MED
+  Port     Chassis ID      Port ID         Sys Name                Cap.     Ty Pwr
+  --------------------------------------------------------------------------------
+  1.0.2    0000.cd37.0d6f  port1.0.2
+  1.0.3    0000.cd37.0d6f  port1.0.17
+  1.0.4    0000.cd37.0d6f  port1.0.3
+  => STEP 0 done: port1.0.2-1.0.5 connected a-full a-1000 in VLANs 1/103/104/105; the stack
+     (chassis 0000.cd37.0d6f) is the LLDP neighbour on 1.0.2, 1.0.3 and 1.0.4.
+
+STEP 1A -- (no step text; precondition "conduct link flap at supported speed and check
+           status") local admin flap on the x230, 3 cycles per port                PASS
+--------------------------------------------------------------------------------
+  Method: on u0, `shutdown`, poll until the port reads "disabled", `no shutdown`, poll until
+  it reads "connected ... a-full a-1000"; 3 cycles on each of port1.0.5, 1.0.4, 1.0.3, 1.0.2.
+  Commands at awplus(config-if)#, with the poll result and the device's last status answer
+  (the two-line status table header after each poll is omitted):
+  18:46:36 >>> configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+  18:46:38 >>> interface port1.0.5
+  18:46:39 >>> shutdown
+  18:46:39 >>> @poll 15 disabled do show interface port1.0.5 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.5 status'
+  port1.0.5   -                  disabled          105 auto   auto    1000BASE-T
+  18:46:41 >>> no shutdown
+  18:46:41 >>> @poll 40 connected\s+\d+\s+a-full\s+a-1000 do show interface port1.0.5 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.5 status'
+  port1.0.5   -                  connected         105 a-full a-1000  1000BASE-T
+  18:46:47 >>> shutdown
+  18:46:47 >>> @poll 15 disabled do show interface port1.0.5 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.5 status'
+  port1.0.5   -                  disabled          105 auto   auto    1000BASE-T
+  18:46:49 >>> no shutdown
+  18:46:49 >>> @poll 40 connected\s+\d+\s+a-full\s+a-1000 do show interface port1.0.5 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.5 status'
+  port1.0.5   -                  connected         105 a-full a-1000  1000BASE-T
+  18:46:55 >>> shutdown
+  18:46:55 >>> @poll 15 disabled do show interface port1.0.5 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.5 status'
+  port1.0.5   -                  disabled          105 auto   auto    1000BASE-T
+  18:46:57 >>> no shutdown
+  18:46:57 >>> @poll 40 connected\s+\d+\s+a-full\s+a-1000 do show interface port1.0.5 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.5 status'
+  port1.0.5   -                  connected         105 a-full a-1000  1000BASE-T
+  18:47:03 >>> interface port1.0.4
+  18:47:04 >>> shutdown
+  18:47:04 >>> @poll 15 disabled do show interface port1.0.4 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.4 status'
+  port1.0.4   -                  disabled          104 auto   auto    1000BASE-SX
+  18:47:06 >>> no shutdown
+  18:47:06 >>> @poll 40 connected\s+\d+\s+a-full\s+a-1000 do show interface port1.0.4 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.4 status'
+  port1.0.4   -                  connected         104 a-full a-1000  1000BASE-SX
+  18:47:08 >>> shutdown
+  18:47:08 >>> @poll 15 disabled do show interface port1.0.4 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.4 status'
+  port1.0.4   -                  disabled          104 auto   auto    1000BASE-SX
+  18:47:11 >>> no shutdown
+  18:47:11 >>> @poll 40 connected\s+\d+\s+a-full\s+a-1000 do show interface port1.0.4 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.4 status'
+  port1.0.4   -                  connected         104 a-full a-1000  1000BASE-SX
+  18:47:13 >>> shutdown
+  18:47:13 >>> @poll 15 disabled do show interface port1.0.4 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.4 status'
+  port1.0.4   -                  disabled          104 auto   auto    1000BASE-SX
+  18:47:15 >>> no shutdown
+  18:47:15 >>> @poll 40 connected\s+\d+\s+a-full\s+a-1000 do show interface port1.0.4 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.4 status'
+  port1.0.4   -                  connected         104 a-full a-1000  1000BASE-SX
+  18:47:18 >>> interface port1.0.3
+  18:47:19 >>> shutdown
+  18:47:19 >>> @poll 15 disabled do show interface port1.0.3 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.3 status'
+  port1.0.3   -                  disabled          103 auto   auto    1000BASE-T
+  18:47:21 >>> no shutdown
+  18:47:21 >>> @poll 40 connected\s+\d+\s+a-full\s+a-1000 do show interface port1.0.3 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.3 status'
+  port1.0.3   -                  connected         103 a-full a-1000  1000BASE-T
+  18:47:27 >>> shutdown
+  18:47:27 >>> @poll 15 disabled do show interface port1.0.3 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.3 status'
+  port1.0.3   -                  disabled          103 auto   auto    1000BASE-T
+  18:47:29 >>> no shutdown
+  18:47:29 >>> @poll 40 connected\s+\d+\s+a-full\s+a-1000 do show interface port1.0.3 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.3 status'
+  port1.0.3   -                  connected         103 a-full a-1000  1000BASE-T
+  18:47:35 >>> shutdown
+  18:47:35 >>> @poll 15 disabled do show interface port1.0.3 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.3 status'
+  port1.0.3   -                  disabled          103 auto   auto    1000BASE-T
+  18:47:37 >>> no shutdown
+  18:47:37 >>> @poll 40 connected\s+\d+\s+a-full\s+a-1000 do show interface port1.0.3 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.3 status'
+  port1.0.3   -                  connected         103 a-full a-1000  1000BASE-T
+  18:47:42 >>> interface port1.0.2
+  18:47:44 >>> shutdown
+  18:47:44 >>> @poll 15 disabled do show interface port1.0.2 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.2 status'
+  port1.0.2   -                  disabled            1 auto   auto    1000BASE-T
+  18:47:46 >>> no shutdown
+  18:47:46 >>> @poll 40 connected\s+\d+\s+a-full\s+a-1000 do show interface port1.0.2 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.2 status'
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+  18:47:52 >>> shutdown
+  18:47:52 >>> @poll 15 disabled do show interface port1.0.2 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.2 status'
+  port1.0.2   -                  disabled            1 auto   auto    1000BASE-T
+  18:47:54 >>> no shutdown
+  18:47:54 >>> @poll 40 connected\s+\d+\s+a-full\s+a-1000 do show interface port1.0.2 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.2 status'
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+  18:47:59 >>> shutdown
+  18:47:59 >>> @poll 15 disabled do show interface port1.0.2 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.2 status'
+  port1.0.2   -                  disabled            1 auto   auto    1000BASE-T
+  18:48:02 >>> no shutdown
+  18:48:02 >>> @poll 40 connected\s+\d+\s+a-full\s+a-1000 do show interface port1.0.2 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.2 status'
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+  18:48:07 >>> end
+awplus# show interface status   (18:48:09; ports 1.0.1-1.0.5 of 28)
+  Port        Name               Status      Vlan      Duplex Speed   Type
+  --------------------------------------------------------------------------------
+  port1.0.1   -                  notconnect          1 auto   auto    1000BASE-T
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+  port1.0.3   -                  connected         103 a-full a-1000  1000BASE-T
+  port1.0.4   -                  connected         104 a-full a-1000  1000BASE-SX
+  port1.0.5   -                  connected         105 a-full a-1000  1000BASE-T
+awplus# show log   (NSM lines naming port1.0.2-1.0.5 in the step's window, verbatim)
+  2026 Oct 09 18:46:36 user.notice awplus NSM[682]: Port down notification received for port1.0.5
+  2026 Oct 09 18:46:36 user.notice awplus NSM[682]: port1.0.5 user shutdown
+  2026 Oct 09 18:46:39 user.notice awplus NSM[682]: port1.0.5 user no shutdown
+  2026 Oct 09 18:46:42 user.notice awplus NSM[682]: Port up notification received for port1.0.5
+  2026 Oct 09 18:46:44 user.notice awplus NSM[682]: Port down notification received for port1.0.5
+  2026 Oct 09 18:46:44 user.notice awplus NSM[682]: port1.0.5 user shutdown
+  2026 Oct 09 18:46:47 user.notice awplus NSM[682]: port1.0.5 user no shutdown
+  2026 Oct 09 18:46:50 user.notice awplus NSM[682]: Port up notification received for port1.0.5
+  2026 Oct 09 18:46:52 user.notice awplus NSM[682]: Port down notification received for port1.0.5
+  2026 Oct 09 18:46:52 user.notice awplus NSM[682]: port1.0.5 user shutdown
+  2026 Oct 09 18:46:54 user.notice awplus NSM[682]: port1.0.5 user no shutdown
+  2026 Oct 09 18:46:58 user.notice awplus NSM[682]: Port up notification received for port1.0.5
+  2026 Oct 09 18:47:01 user.notice awplus NSM[682]: Port down notification received for port1.0.4
+  2026 Oct 09 18:47:01 user.notice awplus NSM[682]: port1.0.4 user shutdown
+  2026 Oct 09 18:47:04 user.notice awplus NSM[682]: port1.0.4 user no shutdown
+  2026 Oct 09 18:47:04 user.notice awplus NSM[682]: Port up notification received for port1.0.4
+  2026 Oct 09 18:47:06 user.notice awplus NSM[682]: Port down notification received for port1.0.4
+  2026 Oct 09 18:47:06 user.notice awplus NSM[682]: port1.0.4 user shutdown
+  2026 Oct 09 18:47:08 user.notice awplus NSM[682]: port1.0.4 user no shutdown
+  2026 Oct 09 18:47:09 user.notice awplus NSM[682]: Port up notification received for port1.0.4
+  2026 Oct 09 18:47:10 user.notice awplus NSM[682]: Port down notification received for port1.0.4
+  2026 Oct 09 18:47:10 user.notice awplus NSM[682]: port1.0.4 user shutdown
+  2026 Oct 09 18:47:13 user.notice awplus NSM[682]: port1.0.4 user no shutdown
+  2026 Oct 09 18:47:13 user.notice awplus NSM[682]: Port up notification received for port1.0.4
+  2026 Oct 09 18:47:16 user.notice awplus NSM[682]: Port down notification received for port1.0.3
+  2026 Oct 09 18:47:16 user.notice awplus NSM[682]: port1.0.3 user shutdown
+  2026 Oct 09 18:47:19 user.notice awplus NSM[682]: port1.0.3 user no shutdown
+  2026 Oct 09 18:47:22 user.notice awplus NSM[682]: Port up notification received for port1.0.3
+  2026 Oct 09 18:47:24 user.notice awplus NSM[682]: Port down notification received for port1.0.3
+  2026 Oct 09 18:47:24 user.notice awplus NSM[682]: port1.0.3 user shutdown
+  2026 Oct 09 18:47:26 user.notice awplus NSM[682]: port1.0.3 user no shutdown
+  2026 Oct 09 18:47:29 user.notice awplus NSM[682]: Port up notification received for port1.0.3
+  2026 Oct 09 18:47:32 user.notice awplus NSM[682]: Port down notification received for port1.0.3
+  2026 Oct 09 18:47:32 user.notice awplus NSM[682]: port1.0.3 user shutdown
+  2026 Oct 09 18:47:34 user.notice awplus NSM[682]: port1.0.3 user no shutdown
+  2026 Oct 09 18:47:38 user.notice awplus NSM[682]: Port up notification received for port1.0.3
+  2026 Oct 09 18:47:41 user.notice awplus NSM[682]: Port down notification received for port1.0.2
+  2026 Oct 09 18:47:41 user.notice awplus NSM[682]: port1.0.2 user shutdown
+  2026 Oct 09 18:47:43 user.notice awplus NSM[682]: port1.0.2 user no shutdown
+  2026 Oct 09 18:47:46 user.notice awplus NSM[682]: Port up notification received for port1.0.2
+  2026 Oct 09 18:47:49 user.notice awplus NSM[682]: Port down notification received for port1.0.2
+  2026 Oct 09 18:47:49 user.notice awplus NSM[682]: port1.0.2 user shutdown
+  2026 Oct 09 18:47:51 user.notice awplus NSM[682]: port1.0.2 user no shutdown
+  2026 Oct 09 18:47:54 user.notice awplus NSM[682]: Port up notification received for port1.0.2
+  2026 Oct 09 18:47:57 user.notice awplus NSM[682]: Port down notification received for port1.0.2
+  2026 Oct 09 18:47:57 user.notice awplus NSM[682]: port1.0.2 user shutdown
+  2026 Oct 09 18:47:59 user.notice awplus NSM[682]: port1.0.2 user no shutdown
+  2026 Oct 09 18:48:02 user.notice awplus NSM[682]: Port up notification received for port1.0.2
+awplus# show lldp neighbors   (18:48:18)
+  Total number of neighbors on these ports .... 3
+  Local    Neighbor        Neighbor        Neighbor                System   MED
+  Port     Chassis ID      Port ID         Sys Name                Cap.     Ty Pwr
+  --------------------------------------------------------------------------------
+  1.0.2    0000.cd37.0d6f  port1.0.2
+  1.0.3    0000.cd37.0d6f  port1.0.17
+  1.0.4    0000.cd37.0d6f  port1.0.3
+
+      port        down events   up events   back at              VLAN   no shutdown -> connected
+      port1.0.5   3             3           connected a-full a-1000   105    4.5 s (3 reads) each
+      port1.0.4   3             3           connected a-full a-1000   104    1.2 s (1 read) each (SX)
+      port1.0.3   3             3           connected a-full a-1000   103    4.5 s (3 reads) each
+      port1.0.2   3             3           connected a-full a-1000   1      4.5 s (3 reads) each
+  => STEP 1A PASS: each of the 12 local flaps logged exactly one "Port down notification" and one
+     "Port up notification" for its port, and each port came back connected at 1000/full
+     (autonegotiated) in its own VLAN; the three LLDP neighbours are the same as before.
+
+STEP 1B -- (no step text; precondition as above) remote flap: the partner port is shut and
+           re-enabled on the stack, 3 cycles per link                               PASS
+--------------------------------------------------------------------------------
+  Method: on u5 (stack master), the same 3-cycle block on stack port1.0.17 (x230 port1.0.3),
+  port1.0.3 (x230 port1.0.4, SX) and port1.0.2 (x230 port1.0.2), so the x230 sees a real loss
+  of link and its recovery. Commands at IE520-stk(config-if)# (status header omitted):
+  18:48:50 >>> configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+  18:48:51 >>> interface port1.0.17
+  18:48:52 >>> shutdown
+  18:48:52 >>> @poll 15 disabled do show interface port1.0.17 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.17 status'
+  port1.0.17  -                  disabled          103 auto   auto    1000BASE-T
+  18:48:55 >>> no shutdown
+  18:48:55 >>> @poll 40 connected\s+\d+\s+a-full\s+a-1000 do show interface port1.0.17 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.17 status'
+  port1.0.17  -                  connected         103 a-full a-1000  1000BASE-T
+  18:49:00 >>> shutdown
+  18:49:00 >>> @poll 15 disabled do show interface port1.0.17 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.17 status'
+  port1.0.17  -                  disabled          103 auto   auto    1000BASE-T
+  18:49:03 >>> no shutdown
+  18:49:03 >>> @poll 40 connected\s+\d+\s+a-full\s+a-1000 do show interface port1.0.17 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.17 status'
+  port1.0.17  -                  connected         103 a-full a-1000  1000BASE-T
+  18:49:08 >>> shutdown
+  18:49:08 >>> @poll 15 disabled do show interface port1.0.17 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.17 status'
+  port1.0.17  -                  disabled          103 auto   auto    1000BASE-T
+  18:49:10 >>> no shutdown
+  18:49:10 >>> @poll 40 connected\s+\d+\s+a-full\s+a-1000 do show interface port1.0.17 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.17 status'
+  port1.0.17  -                  connected         103 a-full a-1000  1000BASE-T
+  18:49:16 >>> interface port1.0.3
+  18:49:17 >>> shutdown
+  18:49:17 >>> @poll 15 disabled do show interface port1.0.3 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.3 status'
+  port1.0.3   -                  disabled          104 auto   auto    1000BASE-SX
+  18:49:20 >>> no shutdown
+  18:49:20 >>> @poll 40 connected\s+\d+\s+a-full\s+a-1000 do show interface port1.0.3 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.3 status'
+  port1.0.3   -                  connected         104 a-full a-1000  1000BASE-SX
+  18:49:22 >>> shutdown
+  18:49:22 >>> @poll 15 disabled do show interface port1.0.3 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.3 status'
+  port1.0.3   -                  disabled          104 auto   auto    1000BASE-SX
+  18:49:24 >>> no shutdown
+  18:49:24 >>> @poll 40 connected\s+\d+\s+a-full\s+a-1000 do show interface port1.0.3 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.3 status'
+  port1.0.3   -                  connected         104 a-full a-1000  1000BASE-SX
+  18:49:27 >>> shutdown
+  18:49:27 >>> @poll 15 disabled do show interface port1.0.3 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.3 status'
+  port1.0.3   -                  disabled          104 auto   auto    1000BASE-SX
+  18:49:29 >>> no shutdown
+  18:49:29 >>> @poll 40 connected\s+\d+\s+a-full\s+a-1000 do show interface port1.0.3 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.3 status'
+  port1.0.3   -                  connected         104 a-full a-1000  1000BASE-SX
+  18:49:31 >>> interface port1.0.2
+  18:49:32 >>> shutdown
+  18:49:32 >>> @poll 15 disabled do show interface port1.0.2 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.2 status'
+  port1.0.2   -                  disabled            1 auto   auto    1000BASE-T
+  18:49:35 >>> no shutdown
+  18:49:35 >>> @poll 40 connected\s+\d+\s+a-full\s+a-1000 do show interface port1.0.2 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.2 status'
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+  18:49:40 >>> shutdown
+  18:49:40 >>> @poll 15 disabled do show interface port1.0.2 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.2 status'
+  port1.0.2   -                  disabled            1 auto   auto    1000BASE-T
+  18:49:43 >>> no shutdown
+  18:49:43 >>> @poll 40 connected\s+\d+\s+a-full\s+a-1000 do show interface port1.0.2 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.2 status'
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+  18:49:48 >>> shutdown
+  18:49:48 >>> @poll 15 disabled do show interface port1.0.2 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.2 status'
+  port1.0.2   -                  disabled            1 auto   auto    1000BASE-T
+  18:49:51 >>> no shutdown
+  18:49:51 >>> @poll 40 connected\s+\d+\s+a-full\s+a-1000 do show interface port1.0.2 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.2 status'
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+  18:49:56 >>> end
+IE520-stk# show interface port1.0.2,port1.0.3,port1.0.17 status   (18:49:57)
+  Port        Name               Status      Vlan      Duplex Speed   Type
+  --------------------------------------------------------------------------------
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+  port1.0.3   -                  connected         104 a-full a-1000  1000BASE-SX
+  port1.0.17  -                  connected         103 a-full a-1000  1000BASE-T
+IE520-stk# show loop-protection   (18:49:59; the three ports of this step)
+    Int           Enabled  Action     Status    Timeout   Remain   Rx port
+    --------------------------------------------------------------------------
+    port1.0.2     No       -          -         -         -        -
+    port1.0.3     Yes      vlan-dis   Normal    7         -        -
+    port1.0.17    Yes      vlan-dis   Normal    7         -        -
+awplus# show log   (18:50:23; NSM lines naming an x230 port in the step's window, verbatim)
+  2026 Oct 09 18:48:51 user.notice awplus NSM[682]: Port down notification received for port1.0.3
+  2026 Oct 09 18:48:55 user.notice awplus NSM[682]: Port up notification received for port1.0.3
+  2026 Oct 09 18:48:58 user.notice awplus NSM[682]: Port down notification received for port1.0.3
+  2026 Oct 09 18:49:03 user.notice awplus NSM[682]: Port up notification received for port1.0.3
+  2026 Oct 09 18:49:06 user.notice awplus NSM[682]: Port down notification received for port1.0.3
+  2026 Oct 09 18:49:11 user.notice awplus NSM[682]: Port up notification received for port1.0.3
+  2026 Oct 09 18:49:15 user.notice awplus NSM[682]: Port down notification received for port1.0.4
+  2026 Oct 09 18:49:19 user.notice awplus NSM[682]: Port up notification received for port1.0.4
+  2026 Oct 09 18:49:19 user.notice awplus NSM[682]: Port down notification received for port1.0.4
+  2026 Oct 09 18:49:23 user.notice awplus NSM[682]: Port up notification received for port1.0.4
+  2026 Oct 09 18:49:24 user.notice awplus NSM[682]: Port down notification received for port1.0.4
+  2026 Oct 09 18:49:28 user.notice awplus NSM[682]: Port up notification received for port1.0.4
+  2026 Oct 09 18:49:30 user.notice awplus NSM[682]: Port down notification received for port1.0.2
+  2026 Oct 09 18:49:35 user.notice awplus NSM[682]: Port up notification received for port1.0.2
+  2026 Oct 09 18:49:38 user.notice awplus NSM[682]: Port down notification received for port1.0.2
+  2026 Oct 09 18:49:43 user.notice awplus NSM[682]: Port up notification received for port1.0.2
+  2026 Oct 09 18:49:46 user.notice awplus NSM[682]: Port down notification received for port1.0.2
+  2026 Oct 09 18:49:51 user.notice awplus NSM[682]: Port up notification received for port1.0.2
+awplus# show interface status   (18:50:15; ports 1.0.1-1.0.5 of 28)
+  Port        Name               Status      Vlan      Duplex Speed   Type
+  --------------------------------------------------------------------------------
+  port1.0.1   -                  notconnect          1 auto   auto    1000BASE-T
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+  port1.0.3   -                  connected         103 a-full a-1000  1000BASE-T
+  port1.0.4   -                  connected         104 a-full a-1000  1000BASE-SX
+  port1.0.5   -                  connected         105 a-full a-1000  1000BASE-T
+awplus# show lldp neighbors   (18:50:25)
+  Local    Neighbor        Neighbor        Neighbor                System   MED
+  Port     Chassis ID      Port ID         Sys Name                Cap.     Ty Pwr
+  --------------------------------------------------------------------------------
+  1.0.2    0000.cd37.0d6f  port1.0.2
+  1.0.3    0000.cd37.0d6f  port1.0.17
+  1.0.4    0000.cd37.0d6f  port1.0.3
+
+      x230 port   stack port         down events   up events   back at
+      port1.0.3   port1.0.17         3             3           connected a-full a-1000 (VLAN 103)
+      port1.0.4   port1.0.3 (SX)     3             3           connected a-full a-1000 (VLAN 104)
+      port1.0.2   port1.0.2 (sa2)    3             3           connected a-full a-1000 (VLAN 1)
+  => STEP 1B PASS: each of the 9 remote flaps reached the x230 as exactly one "Port down
+     notification" and one "Port up notification" on the matching port, the x230 port came back
+     at 1000/full in its VLAN, the stack ports came back too, and the LLDP neighbours returned.
+================================================================================

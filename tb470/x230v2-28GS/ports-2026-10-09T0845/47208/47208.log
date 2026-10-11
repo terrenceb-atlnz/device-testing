@@ -1,0 +1,344 @@
+================================================================================
+TEST 47208 -- Copper pluggable with supported speeds
+================================================================================
+Run:      2026-10-09 18:53:22-19:00:31 NZDT (tb470 time; the x230 holds NZ wall time labelled
+          UTC, ~2 s behind tb470; the AR4050S clock is NZDT; the stack clock is true UTC)
+Bench:    tb470, consoles u0 (x230, DUT), u1 (AR4050S), u5 (stack master); Test Engineer
+          terrenceb@terrenceb-dl
+Tester:   bench-runner (by hand: tools/tb ckcon -> tools/ckcon.py with its @poll / @sleep
+          directives, tools/rcdiff.py, tools/rc2cfg.py; no framework script)
+Graded:   tester
+Case:     AWPTCM-T47208 (Draft), objective and precondition empty, 1 step (step text and
+          expected result empty)
+Build:    swi_f awplus_main-20261008-57 (x230v2_28GS-awplus_main-20261008-57.rel), bootloader 6.2.40
+          swi_e awplus_main-20261008-57 (AR4050S-5G)
+          stk_a awplus_main-20261008-57, members 1/3/4
+Configs:  swi_f.cfg, swi_e.cfg, stk_a.cfg (running-config before each device's first change;
+          saved to startup: no)
+
+VERDICT: PASS -- every copper SFP in the x230 links at full duplex at every speed this bench can
+         drive it at, with no error from the x230
+      AT-SPTXc port1.0.5 vs tb470 eth3 ........ PASS  (auto 100, auto 10, auto 1000, fixed 1000: all
+                                                       connected full)
+      AT-SPTXa port1.0.1 vs AR4050S port1.0.2 .. PASS  (auto 100, auto 10, auto 1000, fixed 1000: all
+                                                       connected full; LLDP sees the AR4050S)
+      AT-SPTX  port1.0.3 vs stack port1.0.17 ... PASS  (auto 100, auto 1000, fixed 1000, and forced
+                                                       100/full on both ends: connected full)
+      AT-SPTX  port1.0.2 vs stack port1.0.2 .... PASS  (auto 100, auto 1000, fixed 1000: connected full)
+      AT-SPTX at 10 Mb/s ...................... NOT MEASURABLE (both SPTX ports face IE520 AT-SPTXa
+                                                       ports, which reject 10 Mb/s)
+CAVEAT:  AT-SPTX at 10 Mb/s was not proven. Both SPTX ports face IE520 AT-SPTXa ports, and the
+         IE520 refuses 10 Mb/s ("% port1.0.17: Unsupported speed/duplex combination port1.0.17"),
+         so `speed auto 10` on the x230 SPTX ports left them notconnect; this run cannot say how
+         an SPTX behaves at 10 Mb/s against a 10-capable partner. A forced (no autoneg) speed was
+         run only at 100/full on port1.0.3; the stack port1.0.2 end is an aggregator member and
+         refused speed changes.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  DUT     : swi_f (AT-x230-28GS V2, hostname awplus) console u0, S/N A10783G262900002,
+            system MAC 00c2.8f3f.0f5d, boot config flash:/default.cfg
+  partner : swi_e (AR4050S-5G, hostname 4050-5g) console u1, S/N A10401G214000005,
+            LLDP chassis 0000.cd40.0394, boot config flash:/tb470-bench.cfg
+  partner : stk_a (AT-IE520-28GSX VCStack, hostname IE520-stk), stack MAC 0000.cd37.0d6f,
+            member 1 S/N 264A23061 (u2), member 3 S/N 264A23066 (u5, Active Master, driven),
+            member 4 S/N 264A23052 (u4); boot config flash:/tb470-bench.cfg
+  link    : swi_f port1.0.1 (AT-SPTXa A04906R191400072) <-> swi_e port1.0.2 (fixed copper),
+            x230 VLAN 101 (this case) / 4050 VLAN 10
+  link    : swi_f port1.0.2 (AT-SPTX A03245R112100715) <-> stk_a port1.0.2 (AT-SPTXa
+            A04906R191400056, member of static aggregator sa2), VLAN 1
+  link    : swi_f port1.0.3 (AT-SPTX A03245R084100100) <-> stk_a port1.0.17 (AT-SPTXa
+            A04906F202000099), VLAN 103
+  host    : tb470 eth3 00:f0:4d:00:77:18 10.38.215.65/27 (10/100/1000 autoneg, left at its
+            default) -> swi_f port1.0.5 (AT-SPTXc A10217F241400236), VLAN 105
+  other   : swi_f port1.0.4 (AT-SPSX) <-> stk_a port1.0.3, VLAN 104 (fibre, not in this case)
+  bench   : spanning tree disabled on the x230, the stack and the AR4050S
+  tools   : on tb470: tools/tb ckcon tb470 x230port-1840 <uN> 115200 [--stop-on-error] <commands>
+            (tools/ckcon.py). `@poll <s> <regex> <cmd>` re-runs <cmd> until the output matches
+            and prints the time taken; `@sleep <s>` waits. "HH:MM:SS >>> <cmd>" below is the
+            tb470 time the command was sent
+
+STEP 0 -- baseline: the copper SFPs and their links                         done
+--------------------------------------------------------------------------------
+awplus# show system pluggable detail   (18:53:31; name, type and serial of each copper port)
+  port1.0.1
+  Device Name:              AT-SPTXa
+  Device Type:              1000BASE-T
+  Serial Number:            A04906R191400072
+  port1.0.2
+  Device Name:              AT-SPTX
+  Device Type:              1000BASE-T
+  Serial Number:            A03245R112100715
+  port1.0.3
+  Device Name:              AT-SPTX
+  Device Type:              1000BASE-T
+  Serial Number:            A03245R084100100
+  port1.0.4
+  Device Name:              AT-SPSX
+  Device Type:              1000BASE-SX
+  Serial Number:            A03240R151300357
+  port1.0.5
+  Device Name:              AT-SPTXc
+  Device Type:              1000BASE-T
+  Serial Number:            A10217F241400236
+awplus# show interface status   (18:53:32; ports 1.0.1-1.0.5 of 28)
+  Port        Name               Status      Vlan      Duplex Speed   Type
+  --------------------------------------------------------------------------------
+  port1.0.1   -                  notconnect          1 auto   auto    1000BASE-T
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+  port1.0.3   -                  connected         103 a-full a-1000  1000BASE-T
+  port1.0.4   -                  connected         104 a-full a-1000  1000BASE-SX
+  port1.0.5   -                  connected         105 a-full a-1000  1000BASE-T
+  => STEP 0 done: four copper SFPs (port1.0.1 AT-SPTXa, port1.0.2/1.0.3 AT-SPTX, port1.0.5
+     AT-SPTXc, all 1000BASE-T); 1.0.2, 1.0.3 and 1.0.5 connected a-full a-1000; port1.0.1 down
+     because its AR4050S partner port is shut down.
+
+STEP 1A -- (no step text) x230 port1.0.5 (SPTXc), port1.0.3 and port1.0.2 (SPTX), partners
+           at auto: each speed the x230 can be set to                               PASS
+--------------------------------------------------------------------------------
+  Method: per port, `speed auto 100`, `speed auto 10`, `speed auto 1000`, fixed `speed 1000`,
+  then `speed auto`, each followed by a poll (25 s) for "connected ... full ... <speed>".
+  Commands at awplus(config-if)# (the two-line status table header after each poll omitted):
+  18:53:33 >>> configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+  18:53:34 >>> interface port1.0.5
+  18:53:35 >>> speed auto 100
+  18:53:35 >>> @poll 25 connected\s+\d+\s+a-full\s+a-100\s do show interface port1.0.5 status
+  @poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.5 status'
+  port1.0.5   -                  connected         105 a-full a-100   1000BASE-T
+  18:53:39 >>> speed auto 10
+  18:53:39 >>> @poll 25 connected\s+\d+\s+a-full\s+a-10\s do show interface port1.0.5 status
+  @poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.5 status'
+  port1.0.5   -                  connected         105 a-full a-10    1000BASE-T
+  18:53:43 >>> speed auto 1000
+  18:53:43 >>> @poll 25 connected\s+\d+\s+a-full\s+a-1000\s do show interface port1.0.5 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.5 status'
+  port1.0.5   -                  connected         105 a-full a-1000  1000BASE-T
+  18:53:49 >>> speed 1000
+  18:53:49 >>> @poll 25 connected\s+\d+\s+\S*full\s+\S*1000\s do show interface port1.0.5 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.5 status'
+  port1.0.5   -                  connected         105 a-full 1000    1000BASE-T
+  18:53:55 >>> speed auto
+  18:53:55 >>> @poll 25 connected\s+\d+\s+a-full\s+a-1000\s do show interface port1.0.5 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.5 status'
+  port1.0.5   -                  connected         105 a-full a-1000  1000BASE-T
+  18:54:00 >>> interface port1.0.3
+  18:54:01 >>> speed auto 100
+  18:54:01 >>> @poll 25 connected\s+\d+\s+a-full\s+a-100\s do show interface port1.0.3 status
+  @poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.3 status'
+  port1.0.3   -                  connected         103 a-full a-100   1000BASE-T
+  18:54:05 >>> speed auto 10
+  18:54:05 >>> @poll 25 connected\s+\d+\s+a-full\s+a-10\s do show interface port1.0.3 status
+  @poll TIMED OUT after 26.5 s (16 reads) of 'do show interface port1.0.3 status'
+  port1.0.3   -                  notconnect        103 auto   auto    1000BASE-T
+  18:54:33 >>> speed auto 1000
+  18:54:33 >>> @poll 25 connected\s+\d+\s+a-full\s+a-1000\s do show interface port1.0.3 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.3 status'
+  port1.0.3   -                  connected         103 a-full a-1000  1000BASE-T
+  18:54:39 >>> speed 1000
+  18:54:39 >>> @poll 25 connected\s+\d+\s+\S*full\s+\S*1000\s do show interface port1.0.3 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.3 status'
+  port1.0.3   -                  connected         103 a-full 1000    1000BASE-T
+  18:54:44 >>> speed auto
+  18:54:44 >>> @poll 25 connected\s+\d+\s+a-full\s+a-1000\s do show interface port1.0.3 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.3 status'
+  port1.0.3   -                  connected         103 a-full a-1000  1000BASE-T
+  18:54:50 >>> interface port1.0.2
+  18:54:51 >>> speed auto 100
+  18:54:51 >>> @poll 25 connected\s+\d+\s+a-full\s+a-100\s do show interface port1.0.2 status
+  @poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.2 status'
+  port1.0.2   -                  connected           1 a-full a-100   1000BASE-T
+  18:54:55 >>> speed auto 10
+  18:54:55 >>> @poll 25 connected\s+\d+\s+a-full\s+a-10\s do show interface port1.0.2 status
+  @poll TIMED OUT after 26.5 s (16 reads) of 'do show interface port1.0.2 status'
+  port1.0.2   -                  notconnect          1 auto   auto    1000BASE-T
+  18:55:22 >>> speed auto 1000
+  18:55:22 >>> @poll 25 connected\s+\d+\s+a-full\s+a-1000\s do show interface port1.0.2 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.2 status'
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+  18:55:28 >>> speed 1000
+  18:55:28 >>> @poll 25 connected\s+\d+\s+\S*full\s+\S*1000\s do show interface port1.0.2 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.2 status'
+  port1.0.2   -                  connected           1 a-full 1000    1000BASE-T
+  18:55:34 >>> speed auto
+  18:55:34 >>> @poll 25 connected\s+\d+\s+a-full\s+a-1000\s do show interface port1.0.2 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.2 status'
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+  18:55:39 >>> end
+awplus# show interface status   (18:55:41; ports 1.0.1-1.0.5 of 28)
+  Port        Name               Status      Vlan      Duplex Speed   Type
+  --------------------------------------------------------------------------------
+  port1.0.1   -                  notconnect          1 auto   auto    1000BASE-T
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+  port1.0.3   -                  connected         103 a-full a-1000  1000BASE-T
+  port1.0.4   -                  connected         104 a-full a-1000  1000BASE-SX
+  port1.0.5   -                  connected         105 a-full a-1000  1000BASE-T
+
+      port (SFP)          speed auto 100  speed auto 10      speed auto 1000  speed 1000   speed auto
+      port1.0.5 (SPTXc)   a-full a-100    a-full a-10        a-full a-1000    a-full 1000  a-full a-1000
+      port1.0.3 (SPTX)    a-full a-100    notconnect (25 s)  a-full a-1000    a-full 1000  a-full a-1000
+      port1.0.2 (SPTX)    a-full a-100    notconnect (25 s)  a-full a-1000    a-full 1000  a-full a-1000
+  => STEP 1A PASS: the SPTXc linked full duplex at 10, 100 and 1000 (autonegotiated) and at a
+     fixed 1000; both SPTX linked full at 100 and 1000 (autonegotiated) and at a fixed 1000. No
+     speed command drew a "% " error. The SPTX at 10 Mb/s did not link against the IE520 partner
+     (why: STEP 1C); every port ended at a-full a-1000.
+
+STEP 1B -- (no step text) x230 port1.0.1 (SPTXa) against the AR4050S port1.0.2       PASS
+--------------------------------------------------------------------------------
+  Setup added for this step (not in the .cfg files): port1.0.1 alone in VLAN 101 on the x230,
+  then the AR4050S port enabled.
+awplus# (u0)
+  18:56:08 >>> configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+  18:56:09 >>> vlan database
+  18:56:11 >>> vlan 101
+  18:56:12 >>> interface port1.0.1
+  18:56:13 >>> switchport access vlan 101
+  18:56:14 >>> end
+  18:56:15 >>> show vlan brief
+  VLAN ID  Name            Type    State   Member ports
+                                           (u)-Untagged, (t)-Tagged
+  ======= ================ ======= ======= ====================================
+  101     VLAN0101         STATIC  ACTIVE  port1.0.1(u)
+4050-5g# (u1)
+  18:56:24 >>> configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+  18:56:26 >>> interface port1.0.2
+  18:56:27 >>> no shutdown
+  18:56:27 >>> @poll 30 connected do show interface port1.0.2 status
+  @poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.2 status'
+  Port        Name               Status      Vlan      Duplex Speed   Type
+  --------------------------------------------------------------------------------
+  port1.0.2   -                  connected          10 a-full a-1000  1000BASE-T
+  18:56:31 >>> end
+  Commands at awplus(config-if)# (u0; status header omitted):
+  18:56:44 >>> show interface port1.0.1 status
+  port1.0.1   -                  connected         101 a-full a-1000  1000BASE-T
+  18:56:45 >>> configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+  18:56:46 >>> interface port1.0.1
+  18:56:48 >>> speed auto 100
+  18:56:48 >>> @poll 25 connected\s+\d+\s+a-full\s+a-100\s do show interface port1.0.1 status
+  @poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.1 status'
+  port1.0.1   -                  connected         101 a-full a-100   1000BASE-T
+  18:56:52 >>> speed auto 10
+  18:56:52 >>> @poll 25 connected\s+\d+\s+a-full\s+a-10\s do show interface port1.0.1 status
+  @poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.1 status'
+  port1.0.1   -                  connected         101 a-full a-10    1000BASE-T
+  18:56:56 >>> speed auto 1000
+  18:56:56 >>> @poll 25 connected\s+\d+\s+a-full\s+a-1000\s do show interface port1.0.1 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.1 status'
+  port1.0.1   -                  connected         101 a-full a-1000  1000BASE-T
+  18:57:01 >>> speed 1000
+  18:57:01 >>> @poll 25 connected\s+\d+\s+\S*full\s+\S*1000\s do show interface port1.0.1 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.1 status'
+  port1.0.1   -                  connected         101 a-full 1000    1000BASE-T
+  18:57:07 >>> speed auto
+  18:57:07 >>> @poll 25 connected\s+\d+\s+a-full\s+a-1000\s do show interface port1.0.1 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.1 status'
+  port1.0.1   -                  connected         101 a-full a-1000  1000BASE-T
+  18:57:12 >>> end
+  18:57:12 >>> @sleep 30
+awplus# show lldp neighbors   (18:57:44)
+  Total number of neighbors on these ports .... 4
+  Local    Neighbor        Neighbor        Neighbor                System   MED
+  Port     Chassis ID      Port ID         Sys Name                Cap.     Ty Pwr
+  --------------------------------------------------------------------------------
+  1.0.1    0000.cd40.0394  port1.0.2
+  1.0.2    0000.cd37.0d6f  port1.0.2
+  1.0.3    0000.cd37.0d6f  port1.0.17
+  1.0.4    0000.cd37.0d6f  port1.0.3
+
+      port (SFP)          speed auto 100  speed auto 10      speed auto 1000  speed 1000   speed auto
+      port1.0.1 (SPTXa)   a-full a-100    a-full a-10        a-full a-1000    a-full 1000  a-full a-1000
+  => STEP 1B PASS: against the AR4050S's fixed copper port the SPTXa linked full duplex at 10,
+     100 and 1000 (autonegotiated) and at a fixed 1000, with no "% " error; LLDP then showed the
+     AR4050S (0000.cd40.0394 port1.0.2) as the neighbour on 1.0.1.
+
+STEP 1C -- (no step text) the SPTX at 10 Mb/s, and a forced 100/full on both ends   PASS
+--------------------------------------------------------------------------------
+  Method: offer 10 Mb/s from the IE520 end of each SPTX link, then force 100/full (no
+  autonegotiation) on stack port1.0.17 and on x230 port1.0.3.
+  Stack commands at IE520-stk(config-if)# (u5; status header omitted):
+  18:58:04 >>> configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+  18:58:06 >>> interface port1.0.17
+  18:58:07 >>> speed auto 10
+  % port1.0.17: Unsupported speed/duplex combination port1.0.17
+  18:58:07 >>> @poll 30 connected\s+\d+\s+a-full\s+a-10\s do show interface port1.0.17 status
+  @poll TIMED OUT after 31.4 s (19 reads) of 'do show interface port1.0.17 status'
+  port1.0.17  -                  connected         103 a-full a-1000  1000BASE-T
+  18:58:39 >>> speed auto 100
+  18:58:39 >>> @poll 25 connected\s+\d+\s+a-full\s+a-100\s do show interface port1.0.17 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.17 status'
+  port1.0.17  -                  connected         103 a-full a-100   1000BASE-T
+  18:58:45 >>> speed auto
+  18:58:45 >>> @poll 25 connected\s+\d+\s+a-full\s+a-1000\s do show interface port1.0.17 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.17 status'
+  port1.0.17  -                  connected         103 a-full a-1000  1000BASE-T
+  18:58:51 >>> interface port1.0.2
+  18:58:52 >>> speed auto 10
+  % port1.0.2: Cannot configure aggregator member.
+  18:58:52 >>> @poll 30 connected\s+\d+\s+a-full\s+a-10\s do show interface port1.0.2 status
+  @poll TIMED OUT after 31.4 s (19 reads) of 'do show interface port1.0.2 status'
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+  18:59:24 >>> speed auto
+  % port1.0.2: Cannot configure aggregator member.
+  18:59:24 >>> @poll 25 connected\s+\d+\s+a-full\s+a-1000\s do show interface port1.0.2 status
+  @poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.2 status'
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+  18:59:27 >>> interface port1.0.17
+  18:59:28 >>> speed 100
+  18:59:29 >>> duplex full
+  18:59:30 >>> end
+awplus# show interface port1.0.3 status   (18:59:52; stack end forced 100/full, x230 still auto)
+  Port        Name               Status      Vlan      Duplex Speed   Type
+  --------------------------------------------------------------------------------
+  port1.0.3   -                  connected         103 a-half a-100   1000BASE-T
+    (a-half: the x230 is still autonegotiating against a partner that no longer does)
+  x230 commands at awplus(config-if)# (u0):
+  18:59:53 >>> configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+  18:59:54 >>> interface port1.0.3
+  18:59:55 >>> speed 100
+  18:59:56 >>> duplex full
+  18:59:56 >>> @poll 30 connected\s+\d+\s+full\s+100\s do show interface port1.0.3 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.3 status'
+  port1.0.3   -                  connected         103 full   100     1000BASE-T
+awplus(config-if)# do show interface port1.0.3   (19:00:02)
+  Interface port1.0.3
+    Scope: both
+    Link is UP, administrative state is UP
+    Thrash-limiting
+      Status Not Detected, Action learn-disable, Timeout 1(s)
+    Hardware is Ethernet, address is 00c2.8f3f.0f5d
+    index 5003 metric 1 mru 1500
+    current duplex full, current speed 100, current polarity auto
+    configured duplex full, configured speed 100, configured polarity auto
+IE520-stk# show interface port1.0.17 status   (19:00:10)
+  Port        Name               Status      Vlan      Duplex Speed   Type
+  --------------------------------------------------------------------------------
+  port1.0.17  -                  connected         103 full   100     1000BASE-T
+  Both ends returned to auto (stack 19:00:12-19:00:15, x230 below; no "% " line):
+  19:00:12 >>> interface port1.0.17
+  19:00:13 >>> speed auto
+  19:00:14 >>> duplex auto
+  19:00:15 >>> end
+  19:00:22 >>> configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+  19:00:23 >>> interface port1.0.3
+  19:00:24 >>> speed auto
+  19:00:25 >>> duplex auto
+  19:00:25 >>> @poll 30 connected\s+\d+\s+a-full\s+a-1000\s do show interface port1.0.3 status
+  @poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.3 status'
+  port1.0.3   -                  connected         103 a-full a-1000  1000BASE-T
+  19:00:31 >>> end
+  => STEP 1C PASS: the IE520 AT-SPTXa refuses 10 Mb/s ("% port1.0.17: Unsupported speed/duplex
+     combination port1.0.17") and stays at a-1000, and the stack's port1.0.2 is an aggregator
+     member that accepts no speed change. So the SPTX's 10 Mb/s result in STEP 1A is the
+     partner's limit, and 10 Mb/s on an SPTX is NOT MEASURABLE on this bench (CAVEAT). With only
+     100 offered from the stack end, the link came up a-full a-100 (stack status); forced 100/full on both ends
+     (no autonegotiation), x230 port1.0.3 reads "current duplex full, current speed 100" and the
+     stack end "full 100": the SPTX links at a forced 100/full. Both ends ended at a-full a-1000.
+================================================================================

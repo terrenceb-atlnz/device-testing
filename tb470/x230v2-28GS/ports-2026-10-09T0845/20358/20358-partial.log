@@ -1,0 +1,188 @@
+================================================================================
+TEST 20358 -- Loopback between two ports on same switch
+================================================================================
+Run:      2026-10-09 19:14:22-19:17:37 NZDT (tb470 time; the x230 holds NZ wall time labelled
+          UTC, ~2 s behind tb470; the stack clock is true UTC)
+Bench:    tb470, consoles u0 (x230, DUT), u5 (stack master); Test Engineer terrenceb@terrenceb-dl
+Tester:   bench-runner (by hand: tools/tb ckcon -> tools/ckcon.py with its @poll / @sleep
+          directives, tools/tb qmark -> tools/qmark.py, tools/rcdiff.py, tools/rc2cfg.py; no
+          framework script)
+Graded:   tester
+Case:     AWPTCM-T20358 (Approved), objective "When a switch port receives its own BPDU from the
+          same edge port, it sets the port to the blocking state. When it no longer receives
+          BPDUs, it sets the port to the forwarding state.", 1 step
+Build:    swi_f awplus_main-20261008-57 (x230v2_28GS-awplus_main-20261008-57.rel), bootloader 6.2.40
+          stk_a awplus_main-20261008-57, members 1/3/4
+Configs:  swi_f.cfg (running-config with the case setup, `spanning-tree rstp enable`), stk_a.cfg
+          (running-config before the stack's one change); saved to startup: no
+
+VERDICT: PARTIAL -- the case could not be run: the bench's only candidate "hub/switch", the
+         IE520 stack with spanning tree disabled, did not return the x230's own BPDUs, so no
+         loop could be closed safely and the Backup/Discarding check was never reached
+      RSTP enabled on the x230 ........................ done  (Spanning Tree Enabled, x230 root)
+      stack bridges the two x230 links (VLAN 103) ..... done  (stack port1.0.3 + port1.0.17)
+      x230 port1.0.4 receives its own BPDU ............ NO    ("Received None", Designated
+                                                               Forwarding for 20 s)
+      loop, broadcast traffic, Backup/Discarding, no TX on the backup port ... NOT RUN
+NOT RUN: STEP 1, bullets 2-5 (create the loop, send broadcast traffic, confirm the port is Backup
+         / Discarding, confirm the backup port does not transmit). With the stack bridging its two
+         x230 links, x230 port1.0.4 received no BPDU in 20 s (10 hello intervals) and stayed
+         Designated Forwarding, so closing the data loop (x230 port1.0.4 into VLAN 103) would have
+         made a loop with no blocking port. The stack offers no setting that passes BPDUs: the
+         only `no spanning-tree rstp enable` option is `bridge-forward`, the interface
+         `spanning-tree` options hold nothing that tunnels BPDUs, and `l2 ?` is "% Unrecognized
+         command".
+UNBLOCK: give the x230 a BPDU-transparent loop between two of its own ports. Move the AT-SPSX
+         from stack port3.0.7 (free) into x230 port1.0.6 and the AT-SPSX from stack port4.0.7
+         (free) into x230 port1.0.7, then patch one multimode LC-LC lead x230 port1.0.6 <->
+         port1.0.7 (or cable two x230 ports into a hub). Then the case runs as: RSTP on the x230,
+         port1.0.6 and 1.0.7 in one VLAN -> port1.0.7 Backup / Discarding; tb470 eth3 (x230
+         port1.0.5, moved into that VLAN) sends the broadcast, and port1.0.7's transmit counter
+         stays flat.
+CAVEAT:  the case's "IXIA" is replaced by a host NIC on this bench; none of the case's expected
+         result ("Backup port should not forward any packet in this state") was measured.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  DUT     : swi_f (AT-x230-28GS V2, hostname awplus) console u0, S/N A10783G262900002,
+            system MAC 00c2.8f3f.0f5d (bridge id 8000:00c28f3f0f5d), boot config flash:/default.cfg
+  hub     : stk_a (AT-IE520-28GSX VCStack, hostname IE520-stk), spanning tree disabled,
+            stack MAC 0000.cd37.0d6f, member 1 S/N 264A23061 (u2), member 3 S/N 264A23066
+            (u5, Active Master, driven), member 4 S/N 264A23052 (u4); loop-protection
+            (vlan-disable, 7 s) on, left on
+  link    : swi_f port1.0.3 (AT-SPTX A03245R084100100, 1000BASE-T) <-> stk_a port1.0.17
+            (AT-SPTXa A04906F202000099), VLAN 103
+  link    : swi_f port1.0.4 (AT-SPSX A03240R151300357, 1000BASE-SX) <-> stk_a port1.0.3
+            (AT-SPSX A03240R192701669), x230 VLAN 104; stack VLAN 104, moved to 103 in STEP 1
+  other   : swi_f port1.0.2 <-> stk_a port1.0.2 (sa2), VLAN 1; swi_f port1.0.5 <-> tb470 eth3,
+            VLAN 105; swi_f port1.0.1 no link
+  tools   : on tb470: tools/tb ckcon tb470 x230port-1840 <uN> 115200 [--stop-on-error] <commands>
+            (tools/ckcon.py; `@poll`, `@sleep` as named in the commands); tools/tb qmark tb470
+            x230port-1840 u5 115200 (tools/qmark.py: sends `<cmd> ?` and erases the line, so
+            nothing executes). "HH:MM:SS >>> <cmd>" below is the tb470 time the command was sent
+
+STEP 0 -- baseline: the stack as the "hub/switch"                           done
+--------------------------------------------------------------------------------
+IE520-stk# show spanning-tree brief   (u5, 19:14:31)
+  Default: Bridge up - Spanning Tree Disabled
+IE520-stk# show interface port1.0.3,port1.0.17 status   (19:14:34)
+  Port        Name               Status      Vlan      Duplex Speed   Type
+  --------------------------------------------------------------------------------
+  port1.0.3   -                  connected         104 a-full a-1000  1000BASE-SX
+  port1.0.17  -                  connected         103 a-full a-1000  1000BASE-T
+  => STEP 0 done: spanning tree is disabled on the stack, and its two x230 links are up in
+     different VLANs (port1.0.3 104, port1.0.17 103), so there is no path between them yet.
+
+SETUP -- RSTP on the x230                                                   done
+--------------------------------------------------------------------------------
+awplus# (u0)
+  19:14:43 >>> configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+  19:14:44 >>> spanning-tree rstp enable
+  19:14:45 >>> end
+  19:14:45 >>> @sleep 35
+  19:15:22 >>> show spanning-tree brief
+  Default: Bridge up - Spanning Tree Enabled
+  Default: Root Path Cost 0 - Root Port 0 -  Bridge Priority 32768
+  Default: Root Id 8000:00c28f3f0f5d
+  Default: Bridge Id 8000:00c28f3f0f5d
+  
+  Port            Designated Bridge    Port Id    Role             State
+  port1.0.1       8000:00c28f3f0f5d    8389       Disabled         Discarding
+  port1.0.2       8000:00c28f3f0f5d    838a       Designated       Forwarding
+  port1.0.3       8000:00c28f3f0f5d    838b       Designated       Forwarding
+  port1.0.4       8000:00c28f3f0f5d    838c       Designated       Forwarding
+  port1.0.5       8000:00c28f3f0f5d    838d       Designated       Forwarding
+  => SETUP done: RSTP enabled; the x230 is root (Root Id = its own Bridge Id) and port1.0.3 and
+     port1.0.4 are Designated Forwarding. Its two stack links are still in different x230 VLANs
+     (103, 104), so no data loop exists.
+
+STEP 1 -- "- Connect the RSTP switch and a hub/switch. - Create a loop network switch.
+          - Send broadcast traffic from IXIA - Confirm Port11 of RSTP switch. RSTP Port
+          Role should be set to BackUp (Loopback Disabled) and State should set to
+          Discarding. - Confirm backup port should not transmit traffic"
+          expected: "Backup port should not forward any packet in this state."   NOT RUN
+--------------------------------------------------------------------------------
+  Method: the stack bridges its two x230 links (stack port1.0.3 into VLAN 103), so a BPDU the
+  x230 sends on port1.0.3 can come back on port1.0.4. Only if port1.0.4 then reads Backup /
+  Discarding is the data loop closed (x230 port1.0.4 into VLAN 103) and broadcast sent.
+IE520-stk# (u5)
+  19:15:40 >>> configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+  19:15:41 >>> interface port1.0.3
+  19:15:42 >>> switchport access vlan 103
+  19:15:43 >>> end
+  19:15:45 >>> show vlan brief
+  VLAN ID  Name            Type    State   Member ports
+                                           (u)-Untagged, (t)-Tagged
+  ======= ================ ======= ======= ====================================
+  103     VLAN0103         STATIC  ACTIVE  port1.0.3(u) port1.0.17(u)
+  104     VLAN0104         STATIC  ACTIVE
+awplus# (u0)
+  19:15:50 >>> @poll 20 port1\.0\.4\s+\S+\s+\S+\s+Backup\s+Discarding show spanning-tree brief
+  @poll TIMED OUT after 20.4 s (11 reads) of 'show spanning-tree brief'
+  Default: Bridge up - Spanning Tree Enabled
+  Default: Root Path Cost 0 - Root Port 0 -  Bridge Priority 32768
+  Default: Root Id 8000:00c28f3f0f5d
+  Default: Bridge Id 8000:00c28f3f0f5d
+  
+  Port            Designated Bridge    Port Id    Role             State
+  port1.0.1       8000:00c28f3f0f5d    8389       Disabled         Discarding
+  port1.0.2       8000:00c28f3f0f5d    838a       Designated       Forwarding
+  port1.0.3       8000:00c28f3f0f5d    838b       Designated       Forwarding
+  port1.0.4       8000:00c28f3f0f5d    838c       Designated       Forwarding
+  port1.0.5       8000:00c28f3f0f5d    838d       Designated       Forwarding
+  19:16:12 >>> show spanning-tree interface port1.0.4
+  %   port1.0.4: Port Number 908 - Ifindex 5004 - Port Id 838c - Role Designated - State Forwarding
+  %   port1.0.4: Designated Bridge 800000c28f3f0f5d
+  %   port1.0.4: Version Rapid Spanning Tree Protocol - Received None - Send RSTP
+  19:16:13 >>> show spanning-tree interface port1.0.3
+  %   port1.0.3: Port Number 907 - Ifindex 5003 - Port Id 838b - Role Designated - State Forwarding
+  %   port1.0.3: Designated Bridge 800000c28f3f0f5d
+  %   port1.0.3: Version Rapid Spanning Tree Protocol - Received None - Send RSTP
+    (`show spanning-tree` prints its lines with a leading "% "; this is its output format)
+  Not closing the loop: the stack's change reverted at once (u5):
+  19:16:29 >>> configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+  19:16:31 >>> interface port1.0.3
+  19:16:32 >>> switchport access vlan 104
+  19:16:33 >>> end
+  19:16:34 >>> show vlan brief
+  103     VLAN0103         STATIC  ACTIVE  port1.0.17(u)
+  104     VLAN0104         STATIC  ACTIVE  port1.0.3(u)
+  Looking for a stack setting that passes BPDUs (u5, `?` help only, nothing executed; lines
+  with terminal redraw codes omitted):
+  19:16:43 >>> configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+  19:16:45 >>> no spanning-tree rstp enable ?
+  no spanning-tree rstp enable ?
+    bridge-forward  put all ports of the bridge into forwarding state (default)
+    <cr>
+  19:17:11 >>> interface port1.0.3
+  19:17:15 >>> spanning-tree ?
+  spanning-tree ?
+    autoedge         autoedge - enable automatic edge detection
+    edgeport         edgeport - enable it as edgeport (same as portfast)
+    force-version    force-version - Version of the protocol
+    guard            guard
+    hello-time       hello-time - hello BDPU interval
+    link-type        link-type - point-to-point or shared
+    mst              Multiple Spanning Tree
+    path-cost        path cost for a port
+    portfast         portfast - enable fast transitions
+    priority         port priority for a bridge
+    restricted-role  restrict the role of the port
+    restricted-tcn   restrict propagation of topology change and received
+                     topology change notifications
+  19:17:31 >>> interface port1.0.3
+  19:17:33 >>> l2 ?
+  l2 ?
+  % Unrecognized command
+  => STEP 1 NOT RUN: for 20 s (10 hello intervals of 2 s) with the stack bridging port1.0.17 and
+     port1.0.3, x230 port1.0.4 stayed Designated Forwarding and reports "Received None", as does
+     port1.0.3: the x230's BPDUs did not come back through the STP-disabled stack. Closing the
+     loop would have made a loop with no blocking port, so the loop, the broadcast and the
+     Backup / Discarding and no-transmit checks were not done, and the stack has no setting to
+     pass BPDUs. See NOT RUN and UNBLOCK.
+================================================================================
