@@ -6,7 +6,9 @@ verified: 2026-10-02
 How to SSH to a lab testbox from your development host, drive a switch's CLI console, and run
 an ATTestSet framework test script on hardware. It is written for any Test Engineer and any
 testbox. Facts measured on one box (tb105, tb470) are labelled as examples. The mechanism is the
-one the PyTest Creator uses (`ask-ck/CK-main/CK_server/pt_exec.py`).
+one device-testing's `bench-runner` uses for Ask-CK's Validation and Test Composer runs. (Until
+2026-10-12 the PyTest Creator's own **6. Run** did the same from the server, in
+`ask-ck/CK-main/CK_server/pt_exec.py`; that path, its testbox profiles and §3a's API are retired.)
 
 > **Provenance markers below:** ✅ = verified on the named box/host on the date given · 📄 = from
 > a prior session's record (`SESSION_STATE.md` 2026-07-28d) · 🔧 = documented from tool code,
@@ -264,10 +266,11 @@ until it was freed.
 
 ## 3. Run an ATTestSet framework test script on a testbox 🔧
 
-This is the mechanism `pt_exec.py` (`_connect` / `RunManager._run`) uses for a PyTest
-Creator hardware run.
+This is the mechanism `bench-runner` uses. It was also `pt_exec.py`'s (`_connect` /
+`RunManager._run`) for the PyTest Creator's 6. Run, until that step was retired on 2026-10-12.
 
-> ✅ **The server-side run path is now VERIFIED end to end (2026-08-03).**
+> **Historical — the server-side run path was removed on 2026-10-12.** What follows recorded its
+> verification. ✅ **The server-side run path is now VERIFIED end to end (2026-08-03).**
 > `POST /api/pytest-create/profiles/tb470/check` returns
 > `{"ok":true,"ssh":true,"framework":true,"sudo":true,"detail":"tb470\nPython 3.13.5"}`.
 > It had never passed before, for a reason that had nothing to do with the lab: **`paramiko`
@@ -276,9 +279,9 @@ Creator hardware run.
 > which reads as a testbox or network fault. See §3a for the two settings it needs.
 
 **Preconditions on the box:** `/home/st-art/framework` present (READ-ONLY — never write under
-it), passwordless `sudo`, `python3`. `check_profile()` probes exactly these.
+it), passwordless `sudo`, `python3` (the retired `check_profile()` probed exactly these).
 
-**Steps (mirroring `RunManager._run`):**
+**Steps:**
 
 ```bash
 sock=/run/user/$(id -u)/keyring/ssh
@@ -287,8 +290,8 @@ WORK=/home/st-art/pytest-create/<CASE_KEY>/<RUN_ID>
 
 SSH_AUTH_SOCK=$sock ssh "$BOX" "mkdir -p $WORK"
 # ck_media.py is REQUIRED beside the script (2026-09-29): every generated script does
-# `import ck_media` (media discovery at init and the per-case media asserts). The server run
-# path ships it from ask-ck/tools/pt_media.py under that name; a by-hand run must too.
+# `import ck_media` (media discovery at init and the per-case media asserts). bench-runner
+# ships it from ask-ck/tools/pt_media.py under that name; a by-hand run must too.
 cp ask-ck/tools/pt_media.py <staging>/ck_media.py
 SSH_AUTH_SOCK=$sock scp <script>.py <lib>.py <staging>/ck_media.py <topology>.setup "$BOX:$WORK/"
 SSH_AUTH_SOCK=$sock ssh "$BOX" "
@@ -299,11 +302,13 @@ SSH_AUTH_SOCK=$sock ssh "$BOX" "
 
 - **`ck_media.py` is not optional either** (found 2026-09-29): both generated scripts on disk import it
   — T33234 inside `_ck_discover()` at init, T33235 in `assert_role_media_now()` — and this recipe
-  used to copy only the script, the library and the `.setup`. `run_script` ships
-  `_media_helper_source()` (`ask-ck/tools/pt_media.py`) as `MEDIA_HELPER_NAME`; by hand, copy it yourself.
+  used to copy only the script, the library and the `.setup`. bench-runner copies
+  `ask-ck/tools/pt_media.py` as `ck_media.py` (the retired server run path did the same); by hand,
+  copy it yourself.
 - **`--noupdate --nodefaultcfg` are not optional** (bench owner, 2026-09-25). §3b says what the
-  framework does to every bound device without them. The server path carries them in
-  `pt_exec.FRAMEWORK_RUN_FLAGS` (Test-cases `57d2021`). On tb470, runs go through this repo's
+  framework does to every bound device without them. The server path carried them in
+  `pt_exec.FRAMEWORK_RUN_FLAGS` (Test-cases `57d2021`) until it was retired on 2026-10-12. Runs go
+  through this repo's
   **`bench-runner`** agent (`.claude/agents/bench-runner.agent.md`), which gates the bench before
   and after.
 - The `-s <…>.setup` argument names the topology file (`SETUP-FILE-REFERENCE.md`); the
@@ -318,7 +323,8 @@ SSH_AUTH_SOCK=$sock ssh "$BOX" "
   partial output — do not discard completed TestCases.
 - **Framework read-only guard:** never redirect/`cp`/`rsync`/interpret into
   `/home/st-art/framework`; copy any file you must edit into the run workdir first
-  (`_assert_write_allowed` / `_assert_command_allowed` enforce this in the tool).
+  (the retired server run path enforced this with `_assert_write_allowed` /
+  `_assert_command_allowed`; bench-runner's rules carry it now).
 - **Running ONE (or a list of) TestCase(s): `--include-test-cases <n> [<n> …]`** (read from the live
   py3 framework on tb470, `ATTestSet.py:1529`, `dest='includeTestCases'`, 2026-09-29; supersedes the
   09-22 "unverified" note). `<n>` is the TestCase number (`TestCase_5` → `5`). Not yet exercised on a
@@ -330,6 +336,11 @@ SSH_AUTH_SOCK=$sock ssh "$BOX" "
   restart") — do not override it; instead stop a run whose failures are systematic. STANDING-ORDERS.md §6.
 
 ### 3a. The two things a server-side run needs that are easy to miss ✅
+
+> ⚠ **Historical (2026-10-12).** Ask-CK's server-side run path and its testbox profiles were
+> retired (Test-cases `ask-ck/plans/PLAN-test-validation.md` V4): `/api/pytest-create/profiles`
+> no longer exists. Point 1 still holds for any by-hand ssh; point 2 no longer applies to the
+> server.
 
 Both verified 2026-08-03 on tb470.
 
