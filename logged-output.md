@@ -150,6 +150,11 @@ It labels the run *clean* or *confounded — because …*, says "skipped" for an
 and ends with a `VERDICT:` line in the §1 vocabulary plus one line of reason. It errs on the
 side of too much.
 
+- **Write it as each leg passes, not at the end of the case.** Twice on tb277 (2026-10-08/09) a
+  tester finished its measurements, handed back before writing `run<N>.log`, and the only record
+  was the box's `/tmp` — which does not survive a reboot. Both times the evidence had to be
+  rescued off the box by hand. A log written incrementally costs nothing if the session is cut;
+  one written at the end costs the whole case.
 - **Commit it per case.** It is the resume point if the session dies.
 - **A re-run starts `run<N+1>.log`.** It does not overwrite the earlier run.
 - **Teardown.** The tester still restores the bench after every case and verifies that by

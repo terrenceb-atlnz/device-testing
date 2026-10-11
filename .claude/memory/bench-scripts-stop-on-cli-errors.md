@@ -29,3 +29,29 @@ NEXT step, which assumed the first one took.
 
 Related: [[awplus-cli-confirmations-need-enter]] (the prompt side of the same "the CLI
 answered, but not how you assumed" problem), [[rejected-tool-calls-keep-running-remotely]].
+
+## 2026-10-09, tb277 — the same failure from the other end: I HID the `% ` line
+
+Twice in one session I ran a config driver as `cfg.py ... >/dev/null 2>&1` inside a loop, to
+keep the output readable. Both times the device refused a command and I never saw it:
+
+- `% This access-list is currently attached to an interface so cannot be edited.` — three ACL
+  entries were silently not added, and the next measurement read the OLD rule and looked like a
+  sensible result.
+- `% Invalid input detected at '^' marker.` on `access-class 1` under `line vty` (AW+ uses the
+  global `vty access-class`) — four test rows in a row showed "no effect", which I nearly wrote
+  up as the feature not working.
+
+The driver was behaving correctly: `cfg.py` DID stop and DID return non-zero. I had thrown the
+evidence away, and in a loop the exit code went to the loop, not to me. **The symptom is always
+the same: a device that silently did not change, and a measurement that therefore measures the
+previous state.**
+
+**How to apply:**
+- **Never redirect a config driver's stdout to /dev/null.** Filter it (`| grep -E '>>>|%'`) if it
+  is noisy, but never discard it. Shows can be quiet; configuration cannot.
+- In a loop, a driver's exit code is NOT seen — check it explicitly or keep the output.
+- When a measurement says "no effect", **re-read the config before believing the feature is
+  broken**. Both times above, one `show` would have shown the change was never applied.
+
+Related: [[never-send-cli-help-through-a-cr-driver]].
