@@ -26,6 +26,7 @@ import collections
 import glob
 import json
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -41,14 +42,20 @@ def load(path):
     return rows
 
 
+def result_re(cid):
+    # a RESULT line anywhere in the message, with or without the T prefix (2026-10-12: run 1 of
+    # the x230 campaign batched eight RESULT lines in one message; runs 2-4 wrote `RESULT T<id>`)
+    return re.compile(r'(?m)^RESULT T?%s ' % re.escape(cid))
+
+
 def find_transcript(base, first_case):
-    needle = '"RESULT %s ' % first_case
+    needle = re.compile(r'(?:"|\\n)RESULT T?%s ' % re.escape(first_case))
     hits = []
     for f in glob.glob(os.path.join(base, '*.jsonl')) + \
             glob.glob(os.path.join(base, '*', 'subagents', '*.jsonl')):
         with open(f) as fh:
             for line in fh:
-                if needle in line and '"tool_use"' in line and 'SendMessage' in line:
+                if needle.search(line) and '"tool_use"' in line and 'SendMessage' in line:
                     hits.append(f)
                     break
     if not hits:
@@ -105,9 +112,10 @@ def segment(evs, cases):
     """Assign each event to a case id or to 'overhead'."""
     bounds = []                                   # index of each case's RESULT tool call
     for cid in cases:
+        rx = result_re(cid)
         idx = next((i for i, (t, k, p) in enumerate(evs)
                     if k == 'tool' and p['name'] == 'SendMessage'
-                    and str(p['input'].get('message', '')).startswith('RESULT %s ' % cid)), None)
+                    and rx.search(str(p['input'].get('message', '')))), None)
         bounds.append(idx)
     label = ['overhead'] * len(evs)
     prev = -1

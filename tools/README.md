@@ -381,7 +381,7 @@ the five largest outputs and the commands repeated verbatim.
 - **Imports:** none
 - **Limits:** needs the `RESULT` SendMessage lines (logged-output.md §2); a case that never
   touched `<id>/` before its RESULT counts from the RESULT call alone
-- **Status:** verified 2026-10-08 on the modbus group (T22650–T22655, one bench-runner transcript)
+- **Status:** verified 2026-10-08 on the modbus group (T22650–T22655, one bench-runner transcript); 2026-10-12 also matches `RESULT T<id>` and RESULT lines batched in one message (x230 campaign, 4 transcripts)
 
 ## Traffic, frames and protocol emulators
 
