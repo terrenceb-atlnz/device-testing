@@ -1,0 +1,299 @@
+================================================================================
+TEST 18571 -- 802.1Q Trunk a Dynamic Aggreagator
+================================================================================
+Run:      2026-10-09 19:56:28-20:01:49 NZDT (x230 clock: NZ local time labelled "UTC", ~3 s
+          behind tb470; stack clock: true UTC, ~48 s ahead of tb470)
+Bench:    tb470, consoles u0 (swi_f) and u5 (stk_a master); Test Engineer terrenceb@terrenceb-dl
+Tester:   bench-runner (by hand: tools/ckcon.py via tools/tb ckcon, tools/linerate.py,
+          tools/rc2cfg.py; no framework script)
+Graded:   tester
+Case:     AWPTCM-T18571 (Approved), objective "To confirm that the dynamic aggreagator will work as
+          normally as a trunked port", precondition "change the configuration such that the
+          trunked port", 1 step
+Build:    swi_f awplus_main-20261008-57 (x230v2_28GS-awplus_main-20261008-57.rel, build date
+          Thu Oct 8 00:10:09 UTC 2026), bootloader 6.2.40
+          stk_a awplus_main-20261008-57 on members 1, 3 and 4
+Configs:  swi_f.cfg, stk_a.cfg (running-config after setup; saved to startup: no)
+
+VERDICT: PASS -- an 802.1Q trunk built as an LACP (dynamic) aggregator carries line-rate traffic from many source MACs with no 4-byte deficit
+      LACP aggregator po12, 2 links ...... synchronized  (x230 and stack, before and after the traffic)
+      1518-byte frames eth3 -> eth1 ....... PASS  (812501 / 812501 at exact length, 999.7 Mbps on the wire)
+      1518-byte frames eth1 -> eth3 ....... PASS  (812501 / 812501 at exact length, 999.4 Mbps on the wire)
+      1500-byte frames eth3 -> eth1 ....... PASS  (822501 / 822501 at exact length, 999.8 Mbps on the wire)
+      64 source MACs over both links ...... 50/50  (x230 per-member counters, each direction)
+      drops on any x230 port .............. 0
+CAVEAT:  No Ixia on tb470: tools/linerate.py (tcpreplay) on tb470's 1G NICs stands in, with 64
+         rotating source MACs per sender. "No 4 byte deficit" is proven end to end: every frame
+         left the far access port at exactly the length sent after crossing the tagged trunk; the
+         tagged frames on the trunk links themselves were not captured. Small frames and VLANs
+         other than 106 were not sent.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  DUT     : swi_f (AT-x230-28GS V2) console u0 (115200), S/N A10783G262900002, MAC 00c2.8f3f.0f5d,
+            hostname awplus, software x230v2_28GS-awplus_main-20261008-57.rel, bootloader 6.2.40,
+            `lacp global-passive-mode enable`, spanning tree (rstp) disabled
+            LACP aggregator po12 = port1.0.2 + port1.0.3 (`channel-group 12 mode active`):
+            `switchport mode trunk`, VLAN 106 tagged (native VLAN 1); port1.0.5 access VLAN 106
+  partner : stk_a (AT-IE520-28GSX VCStack, hostname IE520-stk) console u5 (master);
+            members 1 (u2, Backup Member, 84e3.2787.0ac0), 3 (u5, Active Master, 84e3.2787.0740),
+            4 (u4, Backup Member, 84e3.2787.09c0); S/N 264A23061 264A23066 264A23052 (members
+            1/3/4); stack MAC 0000.cd37.0d6f; LACP system 0x8000 / 0000.cd37.0d6f; software
+            awplus_main-20261008-57; `no lacp global-passive-mode enable`
+            LACP aggregator po12 = port1.0.2 + port1.0.17 (`channel-group 12 mode active`): trunk,
+            VLAN 106 tagged (native VLAN 1); port3.0.13 access VLAN 106 (static sa2 keeps only
+            port1.0.9, not present)
+  link    : swi_f port1.0.2 (AT-SPTX, 1000BASE-T) <-> stk_a port1.0.2 (AT-SPTXa)   po12 member
+  link    : swi_f port1.0.3 (AT-SPTX, 1000BASE-T) <-> stk_a port1.0.17 (AT-SPTXa)  po12 member
+  link    : swi_f port1.0.5 (AT-SPTXc, 1000BASE-T, access 106) <-> tb470 eth3
+  link    : stk_a port3.0.13 (1000BASE-T, access 106) <-> tb470 eth1
+            all links 1000 full
+  host    : tb470 eth3 00:f0:4d:00:77:18 10.38.215.65/27 -> swi_f port1.0.5
+  host    : tb470 eth1 00:f0:4d:00:77:16 10.38.215.1/27 -> stk_a port3.0.13
+  path    : eth3 -> swi_f port1.0.5 (VLAN 106) -> swi_f po12 (802.1Q trunk) -> stk_a po12 ->
+            stk_a port3.0.13 (VLAN 106) -> eth1, and the reverse. Destination MACs
+            02:00:00:00:99:99 / :98 are never learned, so frames flood VLAN 106, which holds only
+            the two access ports and the aggregators; TTL 1.
+  tools   : on tb470: tools/linerate.py (tcpreplay sender + tcpdump counter) run as
+            `tools/tb sudotool tb470 x230l2l3-1928 linerate <args>` (arguments in step 1);
+            --src-macs 64 rotates 64 source MACs, --mac-prefix gives each direction its own,
+            --rx-len counts only frames of exactly the length sent. Consoles: tools/ckcon.py
+            /dev/u0 and /dev/u5 115200 --stop-on-error (via tools/tb ckcon); tools/rc2cfg.py wrote
+            the .cfg files
+
+SETUP 1 -- x230: VLAN 106 and the LACP aggregator as an 802.1Q trunk        done
+--------------------------------------------------------------------------------
+awplus#configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+awplus(config)#vlan database
+awplus(config-vlan)#vlan 106
+awplus(config-vlan)#exit
+awplus(config)#interface port1.0.3
+awplus(config-if)#shutdown                          (kept down while the aggregator is built)
+awplus(config-if)#switchport access vlan 1
+awplus(config-if)#exit
+awplus(config)#interface port1.0.2-1.0.3
+awplus(config-if)#channel-group 12 mode active
+awplus(config-if)#exit
+awplus(config)#interface po12
+awplus(config-if)#switchport mode trunk
+awplus(config-if)#switchport trunk allowed vlan add 106
+awplus(config-if)#exit
+awplus(config)#interface port1.0.5
+awplus(config-if)#switchport access vlan 106
+awplus(config-if)#end
+awplus#show etherchannel
+  LAG Maximum        : 124
+  LAG Static  Count  : 0
+  LAG Dynamic Count  : 1
+  LAG Total   Count  : 1
+
+  Lacp Aggregator: po12
+  Member:
+   port1.0.2
+   port1.0.3
+awplus#show vlan brief
+  106     VLAN0106         STATIC  ACTIVE  po12(t) port1.0.2(t) port1.0.3(t)   <-- VLAN 106 tagged on the aggregator
+                                           port1.0.5(u)                        <-- untagged on the host port
+  => SETUP 1 done.
+
+SETUP 2 -- stack: VLAN 106 and the matching LACP aggregator trunk           done
+--------------------------------------------------------------------------------
+IE520-stk#configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+IE520-stk(config)#vlan database
+IE520-stk(config-vlan)#vlan 106
+IE520-stk(config-vlan)#exit
+IE520-stk(config)#interface port1.0.17
+IE520-stk(config-if)#shutdown
+IE520-stk(config-if)#switchport access vlan 1
+IE520-stk(config-if)#exit
+IE520-stk(config)#interface port1.0.2
+IE520-stk(config-if)#no static-channel-group
+IE520-stk(config-if)#exit
+IE520-stk(config)#interface port1.0.2,port1.0.17
+IE520-stk(config-if)#channel-group 12 mode active
+IE520-stk(config-if)#exit
+IE520-stk(config)#interface po12
+IE520-stk(config-if)#switchport mode trunk
+IE520-stk(config-if)#switchport trunk allowed vlan add 106
+IE520-stk(config-if)#exit
+IE520-stk(config)#interface port3.0.13
+IE520-stk(config-if)#switchport access vlan 106
+IE520-stk(config-if)#exit
+IE520-stk(config)#interface port1.0.17
+IE520-stk(config-if)#no shutdown
+IE520-stk(config-if)#end
+IE520-stk#show etherchannel
+  Lacp Aggregator: po12
+  Member:
+   port1.0.2
+   port1.0.17
+IE520-stk#show static-channel-group
+  Static Aggregator: sa2
+  Member:
+   port1.0.9
+IE520-stk#show vlan brief
+  106     VLAN0106         STATIC  ACTIVE  po12(t) port1.0.2(t) port1.0.17(t)
+                                           port3.0.13(u)
+  => SETUP 2 done.
+
+SETUP 3 -- x230 port1.0.3 up; LACP negotiates both links                   done
+--------------------------------------------------------------------------------
+awplus#configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+awplus(config)#interface port1.0.3
+awplus(config-if)#no shutdown
+awplus(config-if)#end
+awplus#show interface status
+  Port        Name               Status      Vlan      Duplex Speed   Type
+  --------------------------------------------------------------------------------
+  port1.0.2   -                  connected       trunk a-full a-1000  1000BASE-T
+  port1.0.3   -                  connected       trunk a-full a-1000  1000BASE-T
+  port1.0.5   -                  connected         106 a-full a-1000  1000BASE-T
+  po12        -                  connected       trunk a-full a-1000  -       <-- aggregator up as a trunk
+awplus#show etherchannel detail
+  Aggregator po12 (IfIndex: 4762)
+   Mac address: 00:c2:8f:3f:0f:5d
+   Admin Key: 0012 - Oper Key 0012
+   Receive link count: 2 - Transmit link count: 2      <-- both links in the bundle
+   Individual: 0 - Ready: 1
+   Partner LAG: 0x8000,00-00-cd-37-0d-6f,0x000c        <-- partner = the stack's LACP system
+    Link: port1.0.2 (IfIndex: 5002 Actor Port: 5002 ) synchronized
+    Link: port1.0.3 (IfIndex: 5003 Actor Port: 5003 ) synchronized
+awplus#show lacp-counter
+  Traffic statistics
+  Port          LACPDUs         Marker         Pckt err
+             Sent    Recv    Sent    Recv    Sent    Recv
+  Aggregator po12 (IfIndex: 4762)
+  port1.0.2   14      8       0       0       0       0
+  port1.0.3   6       5       0       0       0       0
+awplus#show lldp neighbors
+  Local    Neighbor        Neighbor        Neighbor                System   MED
+  Port     Chassis ID      Port ID         Sys Name                Cap.     Ty Pwr
+  --------------------------------------------------------------------------------
+  1.0.2    0000.cd37.0d6f  port1.0.2
+  1.0.3    0000.cd37.0d6f  port1.0.17
+  1.0.4    0000.cd37.0d6f  port1.0.3
+  x230 log:
+  2026 Oct 09 19:57:18 user.notice awplus NSM[682]: Port up notification received for po12
+  2026 Oct 09 19:57:55 user.notice awplus NSM[682]: Port up notification received for port1.0.3
+IE520-stk#show interface status
+  port1.0.2   -                  connected       trunk a-full a-1000  1000BASE-T
+  port1.0.17  -                  connected       trunk a-full a-1000  1000BASE-T
+  port3.0.13  -                  connected         106 a-full a-1000  1000BASE-T
+  po12        -                  connected       trunk a-full a-1000  -
+IE520-stk#show etherchannel detail
+  Aggregator po12 (IfIndex: 4762)
+   Mac address: 00:00:cd:37:0d:6f
+   Admin Key: 0012 - Oper Key 0012
+   Receive link count: 2 - Transmit link count: 2
+   Individual: 0 - Ready: 1
+   Partner LAG: 0x8000,00-c2-8f-3f-0f-5d,0x000c        <-- partner = the x230
+    Link: port1.0.2 (IfIndex: 5002 Actor Port: 5002 ) synchronized
+    Link: port1.0.17 (IfIndex: 5017 Actor Port: 5017 ) synchronized
+awplus#show running-config
+  -> saved as swi_f.cfg (79 config lines); not written to startup
+IE520-stk#show running-config
+  -> saved as stk_a.cfg (207 config lines); not written to startup
+  => SETUP 3 done: LACP formed po12 between the x230 and the stack with both links synchronized
+     on both ends, each end naming the other as partner, and the aggregator is up as an 802.1Q
+     trunk.
+
+STEP 1 -- "The 802.1Q trunked port should work equally as well being a dynamic
+           Aggregator. Multiple source mac addresses should be sent from the
+           Ixia"                                                            PASS
+--------------------------------------------------------------------------------
+  Expected: "There should be no 4 byte deficit per frame in traffic flow"
+  Method: maximum standard untagged frames (1518 bytes on the wire) cross the tagged trunk and
+  must arrive at the far access port at exactly the length sent; every receive count uses
+  --rx-len. Top rate, 10 s, 64 source MACs per sender, both directions, then 1500-byte frames.
+  The x230's per-member counters, read between the runs, show how the aggregator spreads the
+  source MACs over its two links.
+awplus#show interface port1.0.2,port1.0.3,port1.0.5       (19:58:12, before run A)
+  Interface port1.0.2
+      input packets 411289, bytes 618810454, dropped 0, multicast packets 225
+      output packets 9804609, bytes 7748622494, multicast packets 303, broadcast packets 4
+  Interface port1.0.3
+      input packets 411193, bytes 618802510, dropped 0, multicast packets 169
+      output packets 818068, bytes 1237238197, multicast packets 280, broadcast packets 6
+  Interface port1.0.5
+      input packets 10635160, bytes 8980513926, dropped 0, multicast packets 19
+      output packets 826290, bytes 1234978556, multicast packets 288, broadcast packets 8
+tb470$ tools/tb sudotool tb470 x230l2l3-1928 linerate --tx eth3 --rx eth1 --dst-mac 02:00:00:00:99:99 --src-macs 64 --mac-prefix 02:cc:00:00 --rx-len --ttl 1 --size 1518 --rate top --secs 10
+  19:58:55-19:59:05  tx eth3 -> 02:00:00:00:99:99  1518-byte frames  rate=top  IPv4 10.38.215.65 -> 192.0.2.1 ttl/hlim 1  src MACs 64
+    rx filter: ip and udp src port 5010 and len = 1514
+    sent 812501   tcpreplay 984.1 Mbps (frame bytes)  81250 pps  = 999.7 Mbps on the wire
+    rx eth1     812501  (100.0%)  kernel drops 0                <-- run A: all, exact length
+awplus#show interface port1.0.2,port1.0.3,port1.0.5       (19:59:13, after run A)
+  Interface port1.0.2
+      input packets 411294, bytes 618810972, dropped 0, multicast packets 230
+      output packets 10210863, bytes 8366935384, multicast packets 307, broadcast packets 4
+  Interface port1.0.3
+      input packets 411321, bytes 618815550, dropped 0, multicast packets 173
+      output packets 1224323, bytes 1855552609, multicast packets 284, broadcast packets 6
+  Interface port1.0.5
+      input packets 11447661, bytes 10213890444, dropped 0, multicast packets 19
+      output packets 826354, bytes 1234984890, multicast packets 290, broadcast packets 8
+tb470$ tools/tb sudotool tb470 x230l2l3-1928 linerate --tx eth1 --rx eth3 --dst-mac 02:00:00:00:99:98 --src-macs 64 --mac-prefix 02:cd:00:00 --rx-len --ttl 1 --size 1518 --rate top --secs 10
+  19:59:17-19:59:28  tx eth1 -> 02:00:00:00:99:98  1518-byte frames  rate=top  IPv4 10.38.215.1 -> 192.0.2.1 ttl/hlim 1  src MACs 64
+    rx filter: ip and udp src port 5010 and len = 1514
+    sent 812501   tcpreplay 983.8 Mbps (frame bytes)  81226 pps  = 999.4 Mbps on the wire
+    rx eth3     812501  (100.0%)  kernel drops 0                <-- run B (reverse): all, exact length
+awplus#show interface port1.0.2,port1.0.3,port1.0.5       (19:59:36, after run B)
+  Interface port1.0.2
+      input packets 817547, bytes 1237125189, dropped 0, multicast packets 232
+      output packets 10210865, bytes 8366935579, multicast packets 309, broadcast packets 4
+  Interface port1.0.3
+      input packets 817617, bytes 1237132734, dropped 0, multicast packets 175
+      output packets 1224325, bytes 1855552804, multicast packets 286, broadcast packets 6
+  Interface port1.0.5
+      input packets 11447661, bytes 10213890444, dropped 0, multicast packets 19
+      output packets 1638877, bytes 2468363608, multicast packets 290, broadcast packets 8
+tb470$ tools/tb sudotool tb470 x230l2l3-1928 linerate --tx eth3 --rx eth1 --dst-mac 02:00:00:00:99:99 --src-macs 64 --mac-prefix 02:cc:00:00 --rx-len --ttl 1 --size 1500 --rate top --secs 10
+  19:59:40-19:59:50  tx eth3 -> 02:00:00:00:99:99  1500-byte frames  rate=top  IPv4 10.38.215.65 -> 192.0.2.1 ttl/hlim 1  src MACs 64
+    rx filter: ip and udp src port 5010 and len = 1496
+    sent 822501   tcpreplay 984.0 Mbps (frame bytes)  82217 pps  = 999.8 Mbps on the wire
+    rx eth1     822501  (100.0%)  kernel drops 0                <-- run C: all, exact length
+awplus#show interface port1.0.2,port1.0.3,port1.0.5       (19:59:58, after run C)
+  Interface port1.0.2
+      input packets 817549, bytes 1237125384, dropped 0, multicast packets 234
+      output packets 10622117, bytes 8985455774, multicast packets 311, broadcast packets 4
+  Interface port1.0.3
+      input packets 817661, bytes 1237137222, dropped 0, multicast packets 175
+      output packets 1635576, bytes 2474074308, multicast packets 286, broadcast packets 6
+  Interface port1.0.5
+      input packets 12270162, bytes 11447641944, dropped 0, multicast packets 19
+      output packets 1638900, bytes 2468365875, multicast packets 291, broadcast packets 8
+awplus#show etherchannel detail
+  Aggregator po12 (IfIndex: 4762)
+   Mac address: 00:c2:8f:3f:0f:5d
+   Admin Key: 0012 - Oper Key 0012
+   Receive link count: 2 - Transmit link count: 2      <-- still both links after the traffic
+   Individual: 0 - Ready: 1
+   Partner LAG: 0x8000,00-00-cd-37-0d-6f,0x000c
+    Link: port1.0.2 (IfIndex: 5002 Actor Port: 5002 ) synchronized
+    Link: port1.0.3 (IfIndex: 5003 Actor Port: 5003 ) synchronized
+awplus#show lacp-counter
+  Traffic statistics
+  Port          LACPDUs         Marker         Pckt err
+             Sent    Recv    Sent    Recv    Sent    Recv
+  Aggregator po12 (IfIndex: 4762)
+  port1.0.2   18      12      0       0       0       0     <-- LACPDUs kept flowing, 0 errors
+  port1.0.3   10      9       0       0       0       0
+awplus#show log tail 20
+  (every line is a user.notice IMISH command echo, 19:58:06-20:00:02; no other line)
+
+      run  direction     size   sent     received at   x230 port1.0.5    x230 po12 members
+                                         exact length                    port1.0.2 / port1.0.3
+      A    eth3 -> eth1  1518   812501   812501        in  +812501       out +406254 / +406255
+      B    eth1 -> eth3  1518   812501   812501        out +812523       in  +406253 / +406296
+      C    eth3 -> eth1  1500   822501   822501        in  +822501       out +411252 / +411251
+      (dropped 0 on every x230 port throughout)
+  => STEP 1 PASS: at line rate (999.4-999.8 Mbps on the wire), in both directions, every frame
+     crossed the LACP aggregator's 802.1Q trunk (VLAN 106 tagged) and arrived at the far access
+     port at exactly the length sent: none lost, none shortened or lengthened by 4 bytes, no drop
+     on any x230 port. The 64 source MACs were spread evenly over both members (50/50 each way),
+     and LACP held both links synchronized through the traffic.
+================================================================================

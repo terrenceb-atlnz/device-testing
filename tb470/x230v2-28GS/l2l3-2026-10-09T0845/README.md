@@ -1,0 +1,10 @@
+tb470, DUT x230v2-28GS swi_f on u0 (awplus_main-20261008-57; IE520 stack stk_a as partner), 2026-10-09.
+
+| case | title | log | verdict |
+| --- | --- | --- | --- |
+| T15255 | SNMP Walk | [15255/15255.log](15255/15255.log) | **PASS**. Full SNMPv2c walk of the x230 ran to endOfMibView twice (GETBULK 12448 varbinds in 9.7 s, GETNEXT 12469 in 26.6 s, 0 retries); no reboot, exception log None, no log line during the walks |
+| T38294 | Static Route - Basic IPv4 test - line rate traffic | [38294/38294.log](38294/38294.log) | **PASS**. `ip route 192.0.2.0/24 10.38.215.1` shown in show ip route; line-rate UDP routed eth3 -> x230 -> eth1 with 0 loss at 1500/1518 bytes (999.6-999.8 Mbps on the wire), x230 counters agree |
+| T38295 | Static Route - Basic IPv6 test - line rate traffic | [38295/38295.log](38295/38295.log) | **PASS**. `ipv6 route 2001:db8:ffff::/64 fd32:b1f0:dff8:d701::1` shown in show ipv6 route; line-rate IPv6 UDP routed eth3 -> x230 -> eth1 (822000/822001 at 1500, 813001/813001 at 1518 bytes, 999.2-999.8 Mbps on the wire), x230 counters agree |
+| T18570 | 802.1Q Trunk a Static Aggreator | [18570/18570.log](18570/18570.log) | **PASS**. 802.1Q trunk (VLAN 106 tagged) as static aggregator x230 sa2 <-> stack sa2 carried line-rate 1518-byte frames from 64 source MACs both ways at exact length (no 4-byte deficit), 0 loss, 50/50 over both links |
+| T18571 | 802.1Q Trunk a Dynamic Aggreagator | [18571/18571.log](18571/18571.log) | **PASS**. 802.1Q trunk (VLAN 106 tagged) as LACP aggregator x230 po12 <-> stack po12 (both links synchronized) carried line-rate 1518-byte frames from 64 source MACs both ways at exact length (no 4-byte deficit), 0 loss, 50/50 over both links |
+| T30403 | Check traffic is fowarded with static mroutes (IPv4) | — | **NOT TESTED**. Triaged UNSUPPORTED: the x230v2-28GS has no multicast routing; `ip multicast ?`, `ip mroute ?` and `ipv6 multicast ?` each answer "% Unrecognized command" in config mode (re-checked read-only 19:35); not in the 18:00 scope |
