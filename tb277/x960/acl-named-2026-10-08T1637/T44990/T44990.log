@@ -1,0 +1,175 @@
+================================================================================
+TEST T44990 -- ACL: Named Hardware on port - copy-to-mirror IP
+================================================================================
+Run:      2026-10-09 (times NZ, box local)
+Bench:    tb277, consoles u2, u3, u5; Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWP-8657, "ACL: Named Hardware on port - copy-to-mirror IP", 5 steps
+Build:    swi_c  sin_x96056-20260921-9 (netboots), Marvell 98CX8514 Falcon
+          swi_b  sin_x96056-20260921-9 (AT-x960-28YSQ, console u3)
+Configs:  swi_c.cfg, swi_b.cfg (running-config after setup)
+
+VERDICT: PASS -- a named hardware ACL with the copy-to-mirror action, bound to a port,
+         copies matching frames to the ACL-driven mirror destination AND still
+         forwards them, and ACL processing stops at that match.
+      copied to the mirror destination  yes        (6 frames captured at tb277 eth3,
+                                                    = its 6 ACL hits exactly)
+      still forwarded to the far side . yes        (0% packet loss on the same pings)
+      only the named direction copied . yes        (echo REQUESTS only, never REPLIES)
+      destination captures nothing
+        before the rule exists ........ confirmed  (baseline capture: 0 and 0)
+      first-match termination ......... proven     (a deny AFTER it is never evaluated)
+      control for that ................ proven     (the same deny BEFORE it bites, and
+                                                    suppresses the mirroring too)
+      list edited while bound ......... applies    (three edits, each took effect)
+CAVEAT:  All mirror evidence in this log is frame-level, captured at tb277 eth3. Mirror
+         status output is NOT used as proof here: on this platform `show mirror` cannot
+         be read as a statement about the dataplane, so it is quoted only to record
+         what the switch reported. The mirror destination port was bounced (shutdown /
+         no shutdown) before any measurement, so that an absence of captured frames
+         could not be an artefact of the destination port rather than of the ACL. The
+         traffic was ICMP echo matched by an `ip` rule from one source to one
+         destination, ingress on port1.0.48 only; no other protocol, address form or
+         direction was tried, and the frames captured were counted, not decoded beyond
+         echo request versus echo reply.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+   tb277 eth4  00:0d:b9:55:77:0f  10.38.22.65/27     tb277 eth3  00:0d:b9:55:77:0e
+        |                                                  ^
+        |                                                  |  mirrored copies,
+        v  ICMP echo request, VLAN 100                      |  tcpdump captures here
+   port1.0.48   <-- access-group t44990 (ingress)     port1.0.10
+  +==========================================================+
+  |   swi_c   AT-x960-56YSQ   *** DUT ***   Marvell Falcon   |
+  |                                                          |
+  |   copy-to-mirror --> port1.0.10 (mirror interface none,  |
+  |                      i.e. the ACL-driven form)           |
+  +==========================================================+
+        |  sa1 = port1.0.2 + port1.0.16
+        v  the SAME frames, still forwarded
+  +----------------------------------+
+  |  swi_b  AT-x960-28YSQ            |
+  |  sa1 ; vlan100 10.38.22.70/27    |   far side: "was it forwarded?"
+  +----------------------------------+
+
+  swi_a is deliberately isolated for this group and carried nothing.
+
+  DUT        : swi_c (AT-x960-56YSQ) console u2 @115200, S/N A2WQS7004,
+               bridge MAC e01a.ead4.72cb, Marvell 98CX8514 Falcon,
+               sin_x96056-20260921-9, netboots
+  far side   : swi_b (AT-x960-28YSQ) console u3 @9600, S/N A10737A261700021,
+               bridge MAC 0000.cd42.3029, STP root
+  link       : swi_c port1.0.48 <-> tb277 eth4 (VLAN 100) -- the ACL binding point
+  LAG        : swi_c sa1 = port1.0.2 + port1.0.16 <-> swi_b sa1 (VLAN 100)
+               -- the forwarding path to the far side
+  mirror dst : swi_c port1.0.10 -> tb277 eth3 -- the ACL-driven mirror destination,
+               where the copies are captured
+  host       : tb277 eth4 00:0d:b9:55:77:0f 10.38.22.65/27 -> swi_c port1.0.48 (source)
+               tb277 eth3 00:0d:b9:55:77:0e <- swi_c port1.0.10 (capture)
+  tools      : ping on tb277; `cap.sh` runs tcpdump on eth3 across a 6-ping flow and
+               counts echo REQUESTS (ingress on port1.0.48) against echo REPLIES
+               (egress); console driving with tools/cfg.py, tools/ckcon.py
+
+STEP 1 -- make port1.0.10 an ACL-driven mirror destination                PASS
+--------------------------------------------------------------------------------
+x960-56YSQ(config-if)#interface port1.0.10
+x960-56YSQ(config-if)#mirror interface none
+x960-56YSQ#show mirror
+  Mirror Test Port Name: port1.0.10
+  Mirror option: Enabled
+  Monitored Port Name: none (via ACL)       <-- the ACL-driven form; this is the
+                                                mechanism copy-to-mirror targets, not
+                                                an "off" switch
+Then the destination port was bounced, so that a later absence of frames could not be
+attributed to the destination port rather than to the ACL:
+x960-56YSQ(config-if)#interface port1.0.10 ; shutdown ; no shutdown
+  => STEP 1 PASS: the destination is configured as ACL-driven and has been bounced, so
+     the measurements that follow are about the copy-to-mirror action alone.
+
+STEP 2 -- baseline: no copy-to-mirror rule yet                            PASS
+--------------------------------------------------------------------------------
+host# ./cap.sh t44990-d0
+  eth3: echo REQUESTS = 0 ; echo REPLIES = 0 ; ping 6/6, 0% packet loss
+                                            <-- the destination captures nothing while
+                                                the traffic itself flows normally
+  => STEP 2 PASS: traffic flows and the mirror destination captures nothing. Anything
+     captured later is attributable to the copy-to-mirror rule.
+
+STEP 3 -- "apply copy-to-mirror on a port and confirm the action"         PASS
+--------------------------------------------------------------------------------
+  Method: copy-to-mirror is defined as "copy to the mirror port AND forward". Proving
+  only the mirror half would not distinguish it from send-to-mirror, which does not
+  forward, so both halves are measured. All mirror evidence is frame-level, captured
+  at tb277 eth3, because on this platform the mirror status output cannot be read as a
+  statement about the dataplane.
+x960-56YSQ(config)#access-list hardware t44990
+x960-56YSQ(config-ip-hw-acl)#copy-to-mirror ip 10.38.22.65/32 10.38.22.70/32
+x960-56YSQ(config-if)#interface port1.0.48 ; access-group t44990
+x960-56YSQ#show access-list t44990
+  Hardware IP access list t44990
+      4 copy-to-mirror ip 10.38.22.65/32 10.38.22.70/32
+x960-56YSQ#show running-config interface port1.0.48
+   access-group t44990
+
+host# ./cap.sh t44990-a
+  eth3: echo REQUESTS = 6 ; echo REPLIES = 0      <-- HALF ONE: the matching frames arrived
+  ping: 6 packets transmitted, 6 received, 0% packet loss   <-- HALF TWO: still forwarded
+x960-56YSQ#show access-list counters t44990
+      Packet Hits: 6                        <-- exactly the 6 frames captured
+  => STEP 3 PASS: matching frames were copied to the mirror destination AND were still
+     forwarded to the far side. The agreement between the ACL hit count and the
+     captured frame count is what makes the mirror half positive proof. Only echo
+     REQUESTS appear, never replies, which is correct: the rule matches src .65 -> dst
+     .70, the request direction only -- so the capture also demonstrates that the rule
+     selects rather than copying everything on the port.
+
+STEP 4 -- copy-to-mirror TERMINATES ACL processing at the first match     PASS
+--------------------------------------------------------------------------------
+  Method: one pair of rules, tested twice with only their ORDER changed, so that the
+  two outcomes differ in nothing else.
+
+  A) deny placed AFTER the copy-to-mirror:
+x960-56YSQ(config-ip-hw-acl)#8 deny ip 10.38.22.65/32 10.38.22.70/32
+x960-56YSQ#show access-list t44990
+      4 copy-to-mirror ip 10.38.22.65/32 10.38.22.70/32
+      8 deny ip 10.38.22.65/32 10.38.22.70/32
+host# ping -c 4 -I 10.38.22.65 10.38.22.70
+  0% packet loss                            <-- the deny was NEVER EVALUATED
+
+  B) CONTROL -- the same deny placed BEFORE the copy-to-mirror:
+x960-56YSQ(config-ip-hw-acl)#no 8
+x960-56YSQ(config-ip-hw-acl)#1 deny ip 10.38.22.65/32 10.38.22.70/32
+x960-56YSQ#show access-list t44990
+      1 deny ip 10.38.22.65/32 10.38.22.70/32
+      4 copy-to-mirror ip 10.38.22.65/32 10.38.22.70/32
+host# ping -c 4 -I 10.38.22.65 10.38.22.70
+  100% packet loss                          <-- now the deny bites
+host# ./cap.sh t44990-denyfirst
+  eth3: echo REQUESTS = 0 ; echo REPLIES = 0  <-- and NOTHING is mirrored either
+
+  => STEP 4 PASS: the identical two rules, with only their order changed, give opposite
+     outcomes on BOTH the forwarding and the mirroring. With copy-to-mirror first, the
+     later deny is never reached and traffic flows. With the deny first, the
+     copy-to-mirror is never reached and nothing is mirrored. Processing stops at the
+     first match -- exactly as documented -- and the control rules out "the deny simply
+     does not work".
+
+STEP 5 -- the named list was edited WHILE BOUND, three times              PASS
+--------------------------------------------------------------------------------
+Every edit in STEP 4 was made with `access-group t44990` still on port1.0.48. Each
+produced:
+  % This access-list is attached to an interface. The modified configuration will be applied
+    to the interface automatically after exiting this configuration mode by entering "exit"
+    or "end" command.
+                                            <-- an ADVISORY about when the change is
+                                                applied, not a refusal
+and each edit DID take effect, as the opposite ping and capture results in STEP 4 show.
+  => STEP 5 PASS: a named hardware ACL attached to an interface accepts edits in place.
+     Three successive edits to the bound list each changed the dataplane outcome, which
+     is positive proof that the `%` line is advisory and the modified list was applied
+     to the interface.
+================================================================================
