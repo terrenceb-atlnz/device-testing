@@ -1,0 +1,199 @@
+================================================================================
+TEST 47115 -- crypto secure mode: Set password requirements for users Confirm this applies to all users
+================================================================================
+Run:      2026-10-09 20:18:49-20:21:44 NZDT (device clock: NZ local time labelled UTC,
+          `no clock timezone`, ~2 s behind tb470; DUT times below are therefore NZDT)
+Bench:    tb470, console u0 (DUT only); Test Engineer terrenceb@terrenceb-dl
+Tester:   bench-runner (by hand: tools/tb ckcon, tools/rcdiff.py, tools/rc2cfg.py; no framework
+          script)
+Graded:   tester
+Case:     AWPTCM-T47115 (Draft), objective (empty). The case has 1 step in the test-case
+          database, with empty text and expected result. Steps 1-3 below are the tester's
+          procedure, built from the title and the AW+ x230 security-password command pages: with
+          the DUT in secure mode, set password requirements (`security-password minimum-length`,
+          `security-password minimum-categories`) and confirm every kind of user is held to them,
+          3 steps
+Build:    swi_f awplus_main-20261008-57 (x230v2_28GS-awplus_main-20261008-57.rel, build date
+          Thu Oct 8 00:10:09 UTC 2026), bootloader 6.2.40
+Configs:  swi_f.cfg (running-config after setup, in secure mode; saved to startup: no. The
+          startup config already held `crypto secure-mode`, written by T47114 of this group)
+
+VERDICT: PASS -- in secure mode, minimum-length 12 / minimum-categories 3 held for every user
+      secure mode in ....................... yes   ("Secure mode is enabled"; `crypto secure-mode`)
+      new privilege-1 user ................. PASS  (9 chars and 1-category rejected; 15 chars,
+                                                    4 categories accepted)
+      new privilege-15 user ................ PASS  (9 chars and 1-category rejected; 17 chars,
+                                                    4 categories accepted)
+      existing ckpw1 / ckpw15 / manager .... PASS  (9-char and 1-category new passwords rejected,
+                                                    with and without `privilege`; the three
+                                                    stored $5$ hashes unchanged)
+CAVEAT:  Release verification was not part of the case. The boot into secure mode that this case
+         runs on (20:16, by T47114) logged `user.warning ... Verification of the release file has
+         failed, please verify it.` (STEP 0).
+         The rules were tested on passwords being SET, for new and existing users. The device says
+         each rule "will apply to new passwords only" (SETUP), so a password stored before the rule
+         (manager's) is not re-checked. No login was made as ckpw1 or ckpw15 with the accepted
+         passwords. ckpw15, as an existing user, was tried with a too-short password only (not a
+         1-category one). Only minimum-length and minimum-categories were set; the other
+         security-password rules were not exercised.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  DUT     : swi_f (AT-x230-28GS V2, hostname awplus) console u0 (115200), S/N A10783G262900002,
+            system MAC 00c2.8f3f.0f5d, bootloader 6.2.40,
+            software x230v2_28GS-awplus_main-20261008-57.rel, boot config flash:/default.cfg,
+            PDU 10.36.150.14 outlet 1; in crypto secure mode
+  links   : none used (console-only case). The running-config carries the bench's VLAN 103/104/105
+            isolation on port1.0.3/1.0.4/1.0.5 and `lldp run` (in swi_f.cfg)
+  partners: none
+  tools   : on tb470, through tools/tb: ckcon on console u0 at 115200 (with --stop-on-error for
+            setup and show commands, without it for the password steps, where rejections are
+            expected); tools/rcdiff.py (running-config diff); tools/rc2cfg.py wrote swi_f.cfg
+  test data: made-up passwords; categories counted as upper case, lower case, digit, special
+
+STEP 0 -- precondition: the DUT in secure mode                              done
+--------------------------------------------------------------------------------
+awplus# show secure-mode
+  Secure mode is enabled                     <-- secure mode in (booted at 20:16)
+awplus# show security-password configuration
+  Security Password Configuration
+  Minimum password length ............................   8      <-- defaults before SETUP
+  Minimum password character categories to match .....   1
+  Number of previously used passwords to restrict.....   1
+  Password lifetime ..................................   No Expiry
+    Warning period before password expires ...........   No Warning
+  Reject expired password at login ...................   Disabled
+    Force changing expired password at login .........   Disabled
+awplus# show security-password user
+  User account and password information
+
+  UserName           Privilege  Last-PWD-Change  Remaining-lifetime
+  -----------------------------------------------------------------
+  manager            15            0 day(s) ago  No Expiry          <-- the only user
+  (read at 20:19:43-20:19:49, after SETUP:)
+awplus# show log | include Verification|secure-mode|crypto verify
+  2026 Oct 09 20:16:04 user.notice awplus IMI[683]: crypto secure-mode enabled   <-- the boot
+  2026 Oct 09 20:16:04 user.warning awplus IMI[683]: Verification of the release file has failed, please verify it.
+                                             <-- logged by the same boot; release verification
+                                                 is not part of this case (CAVEAT)
+  2026 Oct 09 20:17:16 user.notice awplus IMISH[2538]: [manager@ttyS0]show secure-mode
+  2026 Oct 09 20:18:45 user.notice awplus IMISH[2538]: [manager@ttyS0]show secure-mode
+  2026 Oct 09 20:19:39 user.notice awplus IMISH[2538]: [manager@ttyS0]show log | include Verification|secure-mode|crypto verify
+awplus# show running-config | include crypto
+  crypto secure-mode
+  => STEP 0 done: the DUT runs in secure mode, with the default password rules (length 8,
+     1 category) and one user, manager.
+
+SETUP -- set the password requirements (in secure mode)                     done
+--------------------------------------------------------------------------------
+awplus# configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+awplus(config)# security-password minimum-length 12
+  The new 'minimum-length' security rule will apply to new passwords only
+awplus(config)# security-password minimum-categories 3
+  The new 'minimum-categories' security rule will apply to new passwords only
+awplus(config)# end
+awplus# show security-password configuration
+  Security Password Configuration
+  Minimum password length ............................   12     <-- set
+  Minimum password character categories to match .....   3      <-- set
+  Number of previously used passwords to restrict.....   1
+  Password lifetime ..................................   No Expiry
+    Warning period before password expires ...........   No Warning
+  Reject expired password at login ...................   Disabled
+    Force changing expired password at login .........   Disabled
+tb470$ rcdiff.py <running-config at STEP 0> <running-config after SETUP>
+  -security-password minimum-length 8
+  +security-password minimum-length 12
+  +security-password minimum-categories 3
+awplus# show running-config
+  -> saved as swi_f.cfg (3 header + 76 config lines, captured 20:19:09); not written to startup
+  => SETUP done: minimum length 12 and minimum 3 character categories are in force, in secure
+     mode.
+
+STEP 1 -- "new privilege-1 user: too short, then long but 1 category [both rejected], then
+compliant [accepted]"                                                       PASS
+--------------------------------------------------------------------------------
+  Method: steps 1 and 2 and the first two lines of step 3 were sent in one config session,
+  20:20:21-20:20:36; the user listings (STEP 2) were read after it, at 20:20:39-20:20:40.
+awplus# configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+awplus(config)# username ckpw1 privilege 1 password Ab1-short          (9 chars, 4 categories)
+  % User password should have length of 12 or more characters.     <-- rejected: length
+awplus(config)# username ckpw1 privilege 1 password abcdefghijklmn     (14 chars, 1 category)
+  % Password does not match at least 3 character categories.       <-- rejected: categories
+awplus(config)# username ckpw1 privilege 1 password Ck-Pw-Test-2026    (15 chars, 4 categories)
+                                             <-- accepted (no output)
+  => STEP 1 PASS: a new privilege-1 user is held to both rules: each violation is refused with
+     its own message naming the rule (12 characters, 3 categories), and a compliant password is
+     taken (ckpw1 is listed in STEP 2).
+
+STEP 2 -- "new privilege-15 user: same three [rejected, rejected, accepted]"  PASS
+--------------------------------------------------------------------------------
+awplus(config)# username ckpw15 privilege 15 password Short-15a        (9 chars)
+  % User password should have length of 12 or more characters.     <-- rejected: length
+awplus(config)# username ckpw15 privilege 15 password ckpwfifteenusr   (14 chars, 1 category)
+  % Password does not match at least 3 character categories.       <-- rejected: categories
+awplus(config)# username ckpw15 privilege 15 password Ck-Pw15-Test-2026 (17 chars, 4 categories)
+                                             <-- accepted (no output)
+awplus(config)# end
+awplus# show running-config | include username
+  username manager privilege 15 password 8 $5$bJoGTc4D$rJWi6S..L0u7FYo4iPIgN0/q2xB77rJgCtgwoZhloyC
+  username ckpw1 privilege 1 password 8 $5$CHUh0MjlptjYWLXb$0vFB9DJhSoLOvfcYSmDuO39BCwA1qS9HPhWo3eu9hLD
+  username ckpw15 privilege 15 password 8 $5$J4Gwu.Tbl42RCktn$tFhIt/oBRHNguvlaRFNIJJjdaTWG8.TGQ122flnyczC
+awplus# show security-password user
+  User account and password information
+
+  UserName           Privilege  Last-PWD-Change  Remaining-lifetime
+  -----------------------------------------------------------------
+  manager            15            0 day(s) ago  No Expiry
+  ckpw1              1             0 day(s) ago  No Expiry          <-- created by STEP 1
+  ckpw15             15            0 day(s) ago  No Expiry          <-- created by STEP 2
+  => STEP 2 PASS: a new privilege-15 user is held to the same two rules as privilege 1. Only the
+     compliant attempts created users: ckpw1 (privilege 1) and ckpw15 (privilege 15) exist, each
+     stored as a $5$ (SHA-256) hash.
+
+STEP 3 -- "existing users (the two just made, and `manager`): too short and 1-category passwords,
+with and without `privilege` [all rejected; stored hashes unchanged]"         PASS
+--------------------------------------------------------------------------------
+  First, in the STEP 1 session (20:20:35-20:20:36), two passwords under 8 characters:
+awplus(config)# username ckpw1 password abc
+  % password too short                       <-- a different message
+awplus(config)# username manager password friend
+  % password too short                       <-- both are under the default 8 characters, so
+                                                 they do not by themselves prove the 12 / 3 rule
+  Then, at 20:21:34-20:21:44, passwords of 9 characters or of 1 category:
+awplus# configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+awplus(config)# username ckpw1 password Ab1-shrt9                  (9 chars, 4 categories)
+  % User password should have length of 12 or more characters.
+awplus(config)# username ckpw1 password abcdefghijklmnop           (16 chars, 1 category)
+  % Password does not match at least 3 character categories.
+awplus(config)# username ckpw1 privilege 1 password Ab1-shrt9
+  % User password should have length of 12 or more characters.
+awplus(config)# username ckpw15 password Ab1-shrt9
+  % User password should have length of 12 or more characters.
+awplus(config)# username manager password Ab1-shrt9
+  % User password should have length of 12 or more characters.
+awplus(config)# username manager password abcdefghijklmnop
+  % Password does not match at least 3 character categories.
+awplus(config)# username manager privilege 15 password Ab1-shrt9
+  % User password should have length of 12 or more characters.
+awplus(config)# end
+awplus# show running-config | include username
+  username manager privilege 15 password 8 $5$bJoGTc4D$rJWi6S..L0u7FYo4iPIgN0/q2xB77rJgCtgwoZhloyC
+  username ckpw1 privilege 1 password 8 $5$CHUh0MjlptjYWLXb$0vFB9DJhSoLOvfcYSmDuO39BCwA1qS9HPhWo3eu9hLD
+  username ckpw15 privilege 15 password 8 $5$J4Gwu.Tbl42RCktn$tFhIt/oBRHNguvlaRFNIJJjdaTWG8.TGQ122flnyczC
+
+      user (privilege)   too short (9)                 1 category (16)       stored hash
+      ckpw1 (1)          rejected, with and without    rejected              = STEP 2
+                         `privilege 1`
+      ckpw15 (15)        rejected                      not tried             = STEP 2
+      manager (15)       rejected, with and without    rejected              = STEP 2 (and
+                         `privilege 15`                                        swi_f.cfg)
+  => STEP 3 PASS: changing an existing user's password is held to the same rules, for both users
+     just created and for the default manager account, with or without `privilege` on the line.
+     Every attempt was refused with the rule's own message, and the three stored hashes are
+     byte for byte those of STEP 2, so no password changed.
+================================================================================
