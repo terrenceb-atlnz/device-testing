@@ -3,6 +3,14 @@
 Session `50f164f5` (VS Code, desktop), the same session as the 2026-10-09 x230 campaign (its handover, with the 10-12
 update, is [SESSION-HANDOVER-2026-10-09.md](SESSION-HANDOVER-2026-10-09.md)). Wrapped ~12:20 NZDT on `/wrap-dt`.
 
+## Update 12:2x (after the wrap)
+- OPEN 2 closed: T47228 FAIL stands (Terrence). OPEN 3 closed: the TPM daemon is how the unit reaches the idevid servers.
+- OPEN 4 done: `no lacp global-passive-mode enable` + `write` on the x230, 12:16 (running = startup).
+- OPEN 1 researched: CLI `polarity` page and the Switching Feature Overview Guide (C613-22037-00 REV E) cover copper ports
+  "on the switch" only, nothing on copper SFPs; `speed` page separates tri-speed vs 1000-only copper SFPs; framework suite
+  5703 (test-5000.1003) tests copper-SFP polarity as platform-dependent. Recommendation given: UNSUPPORTED. Verdict still his.
+- OPEN 5: Terrence to run `apply` (bench-state.md is the full six-unit file).
+
 ## Session facts
 Test Engineer: terrenceb@terrenceb-dl
 Testbox: tb470

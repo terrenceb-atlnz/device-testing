@@ -148,6 +148,13 @@ file: `33234/work/tb470-mdix-u0u1.setup` (swi_a = u0 x230, swi_b = u1 4050, outl
   and u1 (`33234/work/teardown-u*.out`). Post-run probe `2026-10-12T230610Z`: exit 1, identical diff set to the pre-run
   probe. bench-state.md checked out. Consoles at exec. No write, no reload, no PDU cycle.
 
+**Test Engineer's answers after the campaign, 2026-10-13 ~12:2x:**
+- T47228: *"yea that sounds like a fail. good catch."* (FAIL stands).
+- T45543 TPM simulator: *"yes, it tries to talk to the idevid servers"* (expected; not a fault).
+- x230 `lacp global-passive-mode enable`: *"write it"* -> `no lacp global-passive-mode enable` + `write` on u0, 12:16 (tb470-bench.cfg).
+- `bench_probe.py apply`: *"apply"* (the Test Engineer runs it; denied to the session by his settings).
+- T33234 forced polarity: he asked for the CLI library / guides first; findings in the 2026-10-13 handover. Verdict question still open.
+
 ## Results
 
 | case | title | group | verdict | reason | working log | graded |
