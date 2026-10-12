@@ -112,8 +112,10 @@ launched `tools/tb fwprep tb470 33235/run<N> <files>` + `tools/tb fw tb470 33235
 ## Issues
 
 - **I-1 (campaign) office hours, 2026-10-13 06:34.** NOTIFY campaign -- T33235 reloads the stack once (TC33, ~07:40) and may PDU-cycle 0-2 times; office hours start ~08:00 Tue -- Assumed: run 1 starts now (~06:40 launch, ends ~08:00), not reboot-heavy (memory reboot-heavy-runs-after-hours is about repeated cycles). Guard: no repair RE-RUN starts if its reloads/cycles would fall after 08:00; it waits for 18:00 NZDT and the tester notes it.
-- **I-0 (campaign) triage scratch outside the repo, 06:27-06:32.** The tester wrote `/tmp/tri0626-precheck.out` and `~/.probe-tri0626.out` on the dev host (outside the repos/scratchpad) and deleted both at once; nothing left. Recorded for the write-boundary record only.
+- **I-0 (campaign) triage scratch outside the repo, 06:27-06:32.** The tester wrote `/tmp/tri0626-precheck.out` and `~/.probe-tri0626.out` (and, per its final report, `/tmp/x`) on the dev host (outside the repos/scratchpad) and deleted both at once; nothing left. Recorded for the write-boundary record only.
 
+
+- **I-2 (T33235) review, 2026-10-13 07:45.** Validation review written: `port-2026-10-13T0626/33235/review.md`. Framework verdict PASS stands. Key findings (analysis only): TC8 fibre `speed 100` on 1000BASE-SX is a likely false PASS (status-only grading; link passes no frames on this build, T47209); TC20/21 UNSUPPORTED is a script coverage gap (incompatible pair hard-wired 100/10; 1000/100 was available); TC18 accepts any `%` as a "clear error". No repair (copy unedited), so no REPAIRED line.
 
 ## Triage 2026-10-13T0626
 
