@@ -116,6 +116,7 @@ Per case, running-config only (x230 = u0 unless named):
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
+| T30403 | Check traffic is fowarded with static mroutes (IPv4) | cli-2026-10-13T0949 | UNSUPPORTED | x230v2-28GS has no multicast routing: ip mroute / ip multicast-routing / ip pim / show ip mroute absent from the parser (% Invalid input), no PIM licence feature; running-config unchanged | cli-2026-10-13T0949/30403/work/run1.log | tester |
 
 ## Issues
 
