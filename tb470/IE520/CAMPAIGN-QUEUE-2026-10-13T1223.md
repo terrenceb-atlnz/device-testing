@@ -55,7 +55,7 @@ Sentinel's reading of the facts (not a session fact):
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | port (script, validation): T33235 | tb470/IE520/port-2026-10-13T1223/ | TRIAGE (dispatched 12:26) | kind `script`, script_rel `ask-ck/functions/pytest-creator/generated/9001_Port/test-9001.33235.py` (sha1 f04ea359). Expected binding after the recable: cusfp = link M (stack 1.0.6 <-> sa 1.0.14), copper = link C (stack 1.0.10 <-> sa 1.0.2), fibre = stack 4.0.26 <-> sa 1.0.26 |
+| 1 | port (script, validation): T33235 | tb470/IE520/port-2026-10-13T1223/ | RUN (triage 12:27-12:38: N=1, commit 490988e; RUN dispatched 12:40, validation: repair) | kind `script`, script_rel `ask-ck/functions/pytest-creator/generated/9001_Port/test-9001.33235.py` (sha1 f04ea359). Expected binding after the recable: cusfp = link M (stack 1.0.6 <-> sa 1.0.14), copper = link C (stack 1.0.10 <-> sa 1.0.2), fibre = stack 4.0.26 <-> sa 1.0.26 |
 
 ## Setup and restore recipe — group 1
 
@@ -248,3 +248,4 @@ fitted and cabled" precondition is met by the bench). No row added.
 - **K = 0 blocked otherwise.**
 - For the Test Engineer, not blocking: recording links C and M in the deployed `tb470.setup` is `bench_probe.py apply`
   (theirs); the current deployed template lacks them, so a full u0-u5 probe will report them as EXTRA_IN_LIVE until then.
+- **I-3 (T33235) office-hours run, 2026-10-13 12:40.** NOTIFY T33235 -- run timing during office hours (Tue 12:35); triage estimates 1 stack reload and 0-2 four-unit PDU cycles (outlets 4,5,6,8) -- Assumed: run now, not reboot-heavy (memory reboot-heavy-runs-after-hours); repair loop capped at 5 runs.
