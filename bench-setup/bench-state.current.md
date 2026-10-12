@@ -1,6 +1,6 @@
 # tb470 — bench state
 
-> **Generated 2026-10-08T223419Z by `bench_probe.py`** from `captures/2026-10-08T223419Z/` on tb470. Measured state only;
+> **Generated 2026-10-12T204840Z by `bench_probe.py`** from `captures/2026-10-12T204840Z/` on tb470. Measured state only;
 > nothing here is hand-written. Regenerate with `./bench_probe.py run` on tb470. The
 > `setup` fence at the end IS `tb470.setup`; `./bench_probe.py apply` writes it to the box.
 > Names and PDU outlets come from `tb470.static`; platform mechanics live in the orient-dt
@@ -32,6 +32,7 @@
 | swi_b | port1.0.26 | swi_d | port4.0.26 | lldp both ends |
 | swi_c | port3.0.2 | swi_e | port1.0.3 | lldp both ends |
 | swi_d | port4.0.2 | swi_e | port1.0.4 | lldp both ends |
+| swi_e | port1.0.5 | swi_f | port1.0.8 | lldp both ends |
 
 ## Advisories
 
@@ -40,7 +41,7 @@
 ## tb470.setup
 
 ```setup
-### GENERATED 2026-10-08T223419Z by bench_probe.py from a console capture -- DO NOT HAND-EDIT.
+### GENERATED 2026-10-12T204840Z by bench_probe.py from a console capture -- DO NOT HAND-EDIT.
 ### Source: claude/device-testing/bench-setup/bench-state.md (regenerate with
 ### `bench_probe.py run` on tb470; `bench_probe.py apply` writes this file).
 ### Names and PDU outlets come from bench-setup/tb470.static.
@@ -99,6 +100,7 @@ swi_a-swi_f = port1.0.17-port1.0.3, port1.0.2-port1.0.2, port1.0.3-port1.0.4
 swi_b-swi_d = port1.0.26-port4.0.26
 swi_c-swi_e = port3.0.2-port1.0.3
 swi_d-swi_e = port4.0.2-port1.0.4
+swi_e-swi_f = port1.0.5-port1.0.8
 ```
 
 ```nic-state
@@ -109,5 +111,5 @@ eth3 up swi_f:port1.0.5
 ```
 
 ```probe-meta
-capture 2026-10-08T223419Z
+capture 2026-10-12T204840Z
 ```

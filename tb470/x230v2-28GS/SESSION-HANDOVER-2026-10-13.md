@@ -9,7 +9,8 @@ update, is [SESSION-HANDOVER-2026-10-09.md](SESSION-HANDOVER-2026-10-09.md)). Wr
 - OPEN 1 researched: CLI `polarity` page and the Switching Feature Overview Guide (C613-22037-00 REV E) cover copper ports
   "on the switch" only, nothing on copper SFPs; `speed` page separates tri-speed vs 1000-only copper SFPs; framework suite
   5703 (test-5000.1003) tests copper-SFP polarity as platform-dependent. Recommendation given: UNSUPPORTED. Verdict still his.
-- OPEN 5: Terrence to run `apply` (bench-state.md is the full six-unit file).
+- OPEN 5 done: Terrence ran `bench_probe.py apply` ~12:2x (snapshot `backups/2026-10-12T232145Z.*`); the deployed setup now has
+  `swi_e-swi_f = port1.0.5-port1.0.8` and bench-state.md (capture 204840Z) diffs MATCH against it.
 
 ## Session facts
 Test Engineer: terrenceb@terrenceb-dl
