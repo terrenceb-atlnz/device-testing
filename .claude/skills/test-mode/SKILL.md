@@ -230,6 +230,9 @@ Dispatch `bench-runner` in the background with a prompt that carries, in this or
   - `session dir: <TB>/<FAMILY>/`, `stamp: <STAMP>`;
 - the queue file path and the rows to triage (all of them);
 - STANDING-ORDERS §3 as the report shape;
+- **`MANUAL-ONLY.md`** (repo root): a listed case or step is reported as MANUAL-ONLY with its
+  reason and is never scheduled unattended; a new person-needed case or step found at triage is added
+  to it, dated (Terrence, 2026-10-13);
 - "read-only apart from the probe; change no device state; run no case".
 
 The tester re-runs the §3 precheck (time has passed), then runs the probe with those facts:
