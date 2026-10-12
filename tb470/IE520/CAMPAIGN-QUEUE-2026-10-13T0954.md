@@ -61,6 +61,7 @@ Sentinel's reading of the facts (not a session fact):
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
+| T33235 | (3) Port - Fixed port Speed | port-2026-10-13T0954 | NOT TESTED | BLOCKED by topology under the session constraint (no x230/4050): on u2-u5 the stack's only partner link is port4.0.26 <-> IE520-sa port1.0.26, 1000BASE-SX; the script's REQUIRED copper role (after the optional cusfp role takes the first copper link) has no copper link, so init() would abort "no unused copper link". Unblock: recable per `## Triage 2026-10-13T0954` (stack 1.0.10 <-> IE520-sa 1.0.2 + a second copper link on a stack port below 1.0.10, in its own VLAN), or lift the constraint and run after the x230 campaign | (none: not run) | sentinel |
 
 ## Issues
 
@@ -207,3 +208,4 @@ change, not a case step, so no row was added.
     stack port1.0.6 <-> IE520-sa port1.0.14 (both 10GBASE-TM, already fitted), or (b) new 1000BASE-T SFPs in
     port1.0.4 on both.
 - **K = 0 blocked otherwise.**
+- **I-3 (T33235 / campaign) BLOCKED by topology, campaign ended, 2026-10-13 10:12.** NOTIFY campaign -- T33235 needs a copper partner link the stack/IE520-sa (u2-u5) do not have without the x230/4050 (recable, STANDING-ORDERS §4: the Test Engineer's) -- marked BLOCKED / NOT TESTED; it is the only case, so the campaign ends (test-mode §10 step 4). No case run, no device state changed, no reload, no PDU cycle. Draft run setup kept: `port-2026-10-13T0954/tb470-u2u5.setup`. Side finding for Test-cases: `pt_preflight.py` said RUNNABLE (3/3) on the u2-u5 setup because it does not check media.
