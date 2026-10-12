@@ -74,3 +74,4 @@
 - [Grading authority tier list](grading-authority-tier-list.md) — Terrence 2026-10-09: verdicts, highest first: Terrence > validated pytest script > sentinel > sub-agent > other; agents never override a validated script; always critique it
 - [AW+ default.cfg cannot be overwritten](awplus-default-cfg-cannot-be-overwritten.md) — x230v2: copy/delete onto flash:/default.cfg refused, only `write` changes it; FIX 2026-10-12: tb470 x230 boots its own flash:/tb470-bench.cfg
 - [MANUAL-ONLY cases are tracked](manual-only-cases-tracked.md) — person-needed cases/steps (fan, LEDs, GUI, accounts) live in MANUAL-ONLY.md; triage reads it, never schedules them unattended, adds new ones dated
+- [AW+ API = RESTCONF](awplus-restconf-api-reference.md) — "API" in a case means RESTCONF; guide PDF + github.com/alliedtelesis/yang; enable steps; interface `enabled` path; VLAN create path still open (read the unit's yang-library)
