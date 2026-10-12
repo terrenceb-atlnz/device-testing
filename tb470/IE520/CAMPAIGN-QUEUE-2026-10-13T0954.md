@@ -55,7 +55,7 @@ Sentinel's reading of the facts (not a session fact):
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | port (script, validation): T33235 | tb470/IE520/port-2026-10-13T0954/ | TRIAGE | queued 09:54; TRIAGE dispatched 09:56; script `ask-ck/functions/pytest-creator/generated/9001_Port/test-9001.33235.py` |
+| 1 | port (script, validation): T33235 | tb470/IE520/port-2026-10-13T0954/ | BLOCKED (topology) | queued 09:54; TRIAGE dispatched 09:56; script `ask-ck/functions/pytest-creator/generated/9001_Port/test-9001.33235.py`. Triage 09:57-10:08 (probe 205816Z on u2-u5: template minus swi_e/swi_f only, expected; stack and IE520-sa running-config IDENTICAL to 204840Z). **Without u0/u1 the stack has ONE switch-partner link, port4.0.26 <-> IE520-sa port1.0.26, and it is 1000BASE-SX: the REQUIRED copper role finds no link, so init() raises "BENCH PROBLEM ... no unused copper link" and the TestSet aborts before TestCase_1.** Unblock: two twisted-pair links stack <-> IE520-sa (the optional cusfp role takes the first, the copper role needs a second), the second in its own VLAN since STP is off on both; exact change in `## Triage 2026-10-13T0954`. Run .setup drafted: `port-2026-10-13T0954/tb470-u2u5.setup` (re-triage adds the new [portlink]s) |
 
 ## Results
 
@@ -73,3 +73,137 @@ Sentinel's reading of the facts (not a session fact):
   tester (I-0) on u0, outside this session. Assumed: not a holder of any session console; proceed on u2-u5, never touch u0/u1.
 - **I-2 (campaign) sentinel armed 09:55** on this session (Monitor, normal mode, UPDATES → the hand-off's sentinel_updates file;
   cron backstop every 15 min, until 17:30). Sweep scoped to this session's scratchpad only. TRIAGE dispatched 09:56.
+
+## Triage 2026-10-13T0954
+
+Tester: bench-runner, TRIAGE dispatch, 09:57-10:08 NZDT (Tue, office hours). Read-only apart from the probe: one bare-CR
+peek on u2-u5 and the probe's own `show` reads. The probe ran `--read-only` (no `lldp run`, no host-NIC pings), because
+eth2/eth3 face the 4050/x230 that the other campaign is driving. No case run, no configuration sent, no reload, no PDU
+cycle. u0/u1 never opened. **`bench-setup/bench-state.md` NOT touched:** the probe wrote to
+`--out /tmp/tri0954/bench-state.md` on the box, so the full u0-u5 file from 204840Z stands and nothing needed restoring.
+
+### Gate
+
+| gate | result |
+| --- | --- |
+| 1 occupancy | `tools/tb precheck tb470 u2-u5` 09:57:44: **CLEAR** (exit 0, all four free, no FOUND at all this time). `&&`-gated into scratch `tri0954` and template; re-run CLEAR, `&&`-gated into the probe |
+| 2 consoles | peek: u2 `IE520-stk#`, u3 `IE520-sa#`, u4 `IE520-stk#`, u5 `IE520-stk#`. No shell, no config mode. Left at exec (tb470 is the Test Engineer's own box, so no `exit`) |
+| 3 template | `/nfsHome` mounted (nfs4 10.36.250.11:/home); `/home/st-art/st-art/configs/tb470.setup` present (Oct 9 11:34) |
+| 4 probe | `tools/tb probe tb470 --consoles u2-u5 --no-prompt --read-only --baud 115200 --pdu 10.36.150.14 --outlet u2=6 --outlet u3=8 --outlet u4=4 --outlet u5=5 --out /tmp/tri0954/bench-state.md` -> **exit 1 MISMATCH**, capture `bench-setup/captures/2026-10-12T205816Z` (10.0 s). All 13 MISMATCH lines are swi_e/swi_f (switch, baud, boot, power, powerlink, their portlinks): the excluded u0/u1, expected. 3 NEEDS-CHECK `tb-swi_c/e/f` "NIC MAC not learned" come from `--read-only` (no host pings); stack port3.0.13 (eth1) still reads `connected 1000BASE-T`. **No USER-CONFLICT.** Banners u2 `IE520-stk-1`, u3 `IE520-sa`, u4 `IE520-stk-4`, u5 `IE520-stk` agree with tb470.static. Nothing on u2-u5 moved |
+| 5 setup | `bench-setup/tb470.setup.current` = the bench-state fence, except `swi_e-swi_f = port1.0.5-port1.0.8` (4050 <-> x230), which is absent from the deployed file. Outside this session; reported only |
+| 6 preflight | on the u2-u5 run .setup, `pt_preflight.py` says **RUNNABLE (3/3)**. It is media-blind and says so ("whether that link IS copper is read from the DUT at run time"), and the measured media make the case NOT runnable (below). Worth a Test-cases note: when the only link it can offer a role is fibre, preflight still reports RUNNABLE |
+| 7 boot configs | capture 205816Z: stack and IE520-sa `Current boot config: flash:/tb470-bench.cfg (file exists)`; software `awplus_main-20261008-57`. Stack 1 Backup / 3 Active Master / 4 Backup, Normal operation. Uptime: stack 02:30 (the 0626 run's TC33 reload, ~07:28), IE520-sa 17:59. `show running-config`, `show interface status` and `show stack` of u2 (stack) and u3 are IDENTICAL to 204840Z |
+| 8 server path | retired (no `FRAMEWORK_RUN_FLAGS` in `pt_exec.py`); a run launches with `tools/tb fwprep` / `tools/tb fw` |
+| 9 sentinel | `sentinel: parent` |
+| 10 CLI | not reached for this binding (it aborts in init). Same script sha1 b044d695 and same DUT build as the 0626 clean run |
+
+### Why the script cannot bind on u2-u5 as cabled
+
+The script binds three roles from the `.setup`'s [portlink]s and the media the DUT reports (`_ck_discover` l.84,
+`_ck_bind_link` l.155):
+- **cusfp**: optional, taken first;
+- **fibre**: optional;
+- **copper**: REQUIRED. It takes bucket `copper`, then `cusfp`. A TestBox link never counts.
+
+On the IE520 every front port is an SFP cage, so every twisted-pair link lands in `cusfp` (0626 run:
+`cusfp=port1.0.2,port1.0.17,...`). The run .setup without swi_e/swi_f (`port-2026-10-13T0954/tb470-u2u5.setup`) leaves
+the stack two links:
+
+| link | measured media (stack end / IE520-sa end) | role |
+| --- | --- | --- |
+| tb eth1 <-> stack port3.0.13 | 1000BASE-T | `tb` only, never a partner |
+| stack port4.0.26 <-> IE520-sa port1.0.26 (VLAN 4000, lldp both ends) | 1000BASE-SX / 1000BASE-SX | `fibre` |
+
+So the binding goes:
+- cusfp = none (its cases UNSUPPORTED);
+- fibre = port4.0.26;
+- **copper = none, so init() raises `RuntimeError: BENCH PROBLEM, not a product defect: no unused copper link on
+  swi_a` and the TestSet aborts.**
+
+No config change fixes this, because the stack has no twisted-pair link to any unit on u2-u5. Its other copper links
+all go to the x230 (port1.0.2, 1.0.17) or to the 4050 (sa1: port3.0.2, port4.0.2). Loosening the copper role, or
+pointing it at the testbox, would weaken the case (STANDING-ORDERS §3), so neither is offered.
+
+### Exact change that unblocks T33235 without the x230 or the 4050 (the Test Engineer's: a recable)
+
+Fitted modules with no cable (`show interface status` notconnect, capture 205816Z), none of them in a channel-group:
+
+| unit | 1000BASE-T | 10GBASE-TM | 10GBASE-T | empty cage |
+| --- | --- | --- | --- | --- |
+| stack | port1.0.10 | port1.0.6, port1.0.14, port1.0.26, port3.0.10 | port1.0.24 | port1.0.4 |
+| IE520-sa | port1.0.2 | port1.0.14 | none | port1.0.4 |
+
+1. **Link C (the copper test port, required):** a Cat5e/6 cable from **stack member 1 port1.0.10** (1000BASE-T, fitted)
+   to **IE520-sa port1.0.2** (1000BASE-T, fitted). Both are access VLAN 1. The IE520-sa's only other link is in VLAN
+   4000, so this link makes no loop.
+2. **Link M (the cusfp/monitored role):** this second twisted-pair link is needed only so that the cusfp role does not
+   take link C. It goes on a stack port numbered **below** port1.0.10, so the sorted binding gives C the copper role,
+   as in the 0626 run. Either of these:
+   - (a) **stack port1.0.6 (10GBASE-TM, fitted) <-> IE520-sa port1.0.14 (10GBASE-TM, fitted).** Needs no module
+     handling. A 10G module in a 1G cage has not been measured here, so it must read `connected` on both ends, and
+     re-triage must `qmark` `speed` and `duplex` on both ports: configure() and tear_down() send `no speed`,
+     `duplex auto` and `no shutdown` there.
+   - (b) fit a 1000BASE-T copper SFP (AT-SPTX/SPTXa) in **stack port1.0.4** and **IE520-sa port1.0.4** (both empty), and
+     cable them. This copies the 0626 run, where both copper roles were AT-SPTXa-class.
+
+   **Loop hazard:** STP is off on both units (`no spanning-tree rstp enable`), and the stack's VLAN 1 reaches the x230
+   (sa2) and tb eth1. So link M must NOT be in VLAN 1 when it is plugged in:
+   - put its two ports in their own VLAN first: `vlan 105` in `vlan database`, then `switchport access vlan 105` on
+     both ends (as the x230 legs use 103/104);
+   - plug M in only after that.
+
+   This port setup is in-test: the tester can do it, and restores it, once the Test Engineer says the cable is going
+   in. Or the Test Engineer makes it part of the standing config.
+3. **Then re-dispatch TRIAGE.** It will:
+   - run the probe, so LLDP proves C and M;
+   - add `swi_a-swi_b = port1.0.10-port1.0.2, <M stack port>-<M sa port>` to `tb470-u2u5.setup`, from the probe's fence;
+   - preflight the result;
+   - `qmark` the partner-side commands on the IE520-sa ports.
+
+   Recording the new cables in the deployed `tb470.setup` (`bench_probe.py apply`) stays the Test Engineer's call.
+
+**Alternative with no recable:** run when the x230 campaign (0949) is finished, with the 0626 recipe. That uses the
+x230, so it needs the constraint lifted; the Test Engineer decides.
+
+### Expected result once unblocked (estimate, not measured)
+
+- **Binding:**
+  - cusfp/monitored = link M;
+  - fibre = stack port4.0.26 <-> IE520-sa port1.0.26, 1000BASE-SX both ends (the 0626 run's fibre was port1.0.3 <-> x230);
+  - copper = port1.0.10 <-> IE520-sa port1.0.2.
+
+  The partner is now the IE520-sa (same build) instead of the x230. The partner-side commands are ones this DUT already
+  accepted on its own AT-SPTXa and SX ports this morning.
+- **Tally: about 31 PASS / 2 UNSUPPORTED / 0 FAIL, if the IE520-sa behaves as a partner as the x230 did.** The 2
+  UNSUPPORTED are TC20/21 (speed 10 on a copper SFP, pre-marked). This is less certain than 0626: the autoneg and
+  forced-mismatch cases TC25-27 and the fibre TC8 (`speed 100` on SX) now face an IE520 partner, and none of them has
+  been seen on hardware that way.
+- **Reloads: 1:** TC33 reloads the whole stack near the end (~3 min).
+- **PDU cycles: 0 expected, worst plausible 2.** Each cycle hits ONLY outlets 4, 5, 6 and 8 (stack and IE520-sa,
+  ~4-5 min), because the run .setup declares no swi_e/swi_f.
+- **Time: ~85 min:** ~5 min setup (VLAN for M, R1 exception re-read), ~67 min run, ~12 min restore and probe.
+- **Office hours:** 1 reload plus 0-2 four-unit cycles is not reboot-heavy, but it falls inside office hours. The Test
+  Engineer chooses.
+- **Restore outline** (written in full before a RUN):
+  - on the stack and the IE520-sa, `boot config-file flash:/tb470-bench.cfg`;
+  - delete every `*_9001_33235*.cfg` and `TestCase_tear_down.cfg` on the stack master, on both backups' flash, and on
+    the IE520-sa;
+  - put link M's ports back in their pre-run VLAN;
+  - probe u2-u5: MATCH against the run .setup;
+  - running-config IDENTICAL to 205816Z;
+  - `remote-diff all show running-config`.
+
+### MANUAL-ONLY
+
+T33235 is not listed in MANUAL-ONLY.md, and triage found no step in it that needs a person. The recable is a bench
+change, not a case step, so no row was added.
+
+### Count (STANDING-ORDERS §3)
+
+- **N = 0 runnable.**
+- **M = 1 blocked by topology:** T33235. The change has two parts:
+  - cable stack port1.0.10 <-> IE520-sa port1.0.2 (copper);
+  - add a second twisted-pair stack <-> IE520-sa link on a lower-numbered stack port, in its own VLAN: either (a)
+    stack port1.0.6 <-> IE520-sa port1.0.14 (both 10GBASE-TM, already fitted), or (b) new 1000BASE-T SFPs in
+    port1.0.4 on both.
+- **K = 0 blocked otherwise.**
