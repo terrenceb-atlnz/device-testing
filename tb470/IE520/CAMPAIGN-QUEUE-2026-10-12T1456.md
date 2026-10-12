@@ -53,7 +53,34 @@ swi_e 7, swi_f 1. `<FAMILY>` = IE520 because the script binds `swi_a` = 264A2306
 
 ## Setup and restore recipe — group 1
 
-(written by the tester before the group's first case)
+Written by bench-runner (RUN, validation: repair) before the first run, 2026-10-12 ~15:10 NZDT.
+
+**Setup: none by the tester.** No cabling, LAG, VLAN or boot-pointer change; the standing tb470 bench as
+probed (`captures/2026-10-12T015814Z`, MATCH) is the setup. The framework run itself does, on every device the
+`.setup` declares (stk_a = u2/u4/u5, swi_b u3, swi_e u1, swi_f u0):
+- `no shutdown` on each declared port (already up);
+- "Save the current running config as the boot config": `no boot config-file`, `delete force <dev>_9001_33234.cfg`,
+  `copy run <dev>_9001_33234.cfg`, `boot conf <dev>_9001_33234.cfg` on stk_a, swi_b, swi_e, swi_f.
+
+Run: copy in `tb470/IE520/port-2026-10-12T1456/33234/work/` (script, `library_9001.py`, `ck_media.py`), launched
+`tools/tb fwprep tb470 33234/<run> <files>` + `tools/tb fw tb470 33234/<run> test-9001.33234.py
+/home/st-art/st-art/configs/tb470.setup` (`--noupdate --nodefaultcfg`), workdir `/home/st-art/pytest-create/33234/<run>/`.
+
+**Restore (anyone can run it, even if the tester died mid-run):**
+1. `tools/tb ps tb470 'test-9001.33234'` -> nothing running (else wait for `run.exit`; never kill mid power cycle).
+2. `tools/tb precheck tb470 u0-u5` -> CLEAR, then `tools/tb scratch tb470 <scratch>`.
+3. Per device, through `tools/tb ckyn tb470 <scratch> <uN> 115200 ...`:
+   - u5 (stack master; any stack console serves the stack): `show boot`, `configure terminal`,
+     `boot config-file flash:/tb470-bench.cfg`, `end`, `delete force stk_a_9001_33234.cfg`, `show boot`
+   - u3 (swi_b): same with `swi_b_9001_33234.cfg`
+   - u1 (swi_e): same with `swi_e_9001_33234.cfg`
+   - u0 (swi_f): same with `swi_f_9001_33234.cfg`
+   Each final `show boot` must read `Current boot config: flash:/tb470-bench.cfg (file exists)`.
+4. `tools/tb probe tb470 --consoles u0-u5 --no-prompt --pdu 10.36.150.14 --outlet u0=1,u1=7,u2=6,u3=8,u4=4,u5=5
+   --baud 115200` -> exit 0 MATCH.
+5. Running-config diff of the new capture's `u0..u3.show_running-config.txt` against
+   `bench-setup/captures/2026-10-12T015814Z/` (ignoring the timestamp header lines) -> IDENTICAL.
+6. Every console left at exec (`end`, `terminal no monitor`); tb470 is the Test Engineer's own, so no `exit`.
 
 ## Results
 
