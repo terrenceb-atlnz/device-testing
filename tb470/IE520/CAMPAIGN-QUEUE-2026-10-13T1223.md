@@ -129,6 +129,7 @@ Engineer. So, unlike the 0626 recipe, **no port leaves an aggregator and no VLAN
 - **I-2 (T33235) the script changed since the 0626 clean run.** Test-cases ef53cea (11:40 today): 14 grouped
   TestCases instead of 33, step 29 without confCheck. The 0626 PASS (31 PASS / 2 UNSUPPORTED) is not evidence for
   this script; triage reads the new grouping before any run.
+- **I-3 (T33235) office-hours run, 2026-10-13 12:40.** NOTIFY T33235 -- run timing during office hours (Tue 12:35); triage estimates 1 stack reload and 0-2 four-unit PDU cycles (outlets 4,5,6,8) -- Assumed: run now, not reboot-heavy (memory reboot-heavy-runs-after-hours); repair loop capped at 5 runs.
 
 ## Triage 2026-10-13T1223
 
@@ -248,4 +249,3 @@ fitted and cabled" precondition is met by the bench). No row added.
 - **K = 0 blocked otherwise.**
 - For the Test Engineer, not blocking: recording links C and M in the deployed `tb470.setup` is `bench_probe.py apply`
   (theirs); the current deployed template lacks them, so a full u0-u5 probe will report them as EXTRA_IN_LIVE until then.
-- **I-3 (T33235) office-hours run, 2026-10-13 12:40.** NOTIFY T33235 -- run timing during office hours (Tue 12:35); triage estimates 1 stack reload and 0-2 four-unit PDU cycles (outlets 4,5,6,8) -- Assumed: run now, not reboot-heavy (memory reboot-heavy-runs-after-hours); repair loop capped at 5 runs.
