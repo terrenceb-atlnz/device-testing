@@ -54,8 +54,32 @@ Test Engineer's rulings carried into this campaign (2026-10-13):
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | CLI / API cases: T30403, T45543, T20358, T47228 | tb470/x230v2-28GS/cli-2026-10-13T0949/ | QUEUED | manual CLI on u0 (+ u1 if needed); T30403 read-only UNSUPPORTED evidence; T45543 steps 1-2; T20358 RSTP on x230, then `no shutdown` port1.0.7, eth3 broadcast; T47228 RESTCONF from tb470 over eth3 (x230 vlan105 IP) |
-| 2 | MDI/MDI-X framework: T33234 (scripts 5000.0003 straight, 5000.0004 crossover) | tb470/x230v2-28GS/mdix-2026-10-13T0949/ | QUEUED (needs apply) | the scripts' source: ck.db `scripts` table (`test_scripts/5000_mdi_mdix/`); dut = x230, remote = 4050; u0/u1-only setup; check defaulting commands (polarity) on both units before launch (STANDING-ORDERS §6) |
+| 1 | CLI / API cases: T30403, T45543, T20358, T47228 | tb470/x230v2-28GS/cli-2026-10-13T0949/ | RUNNABLE (triage 10:01); RUN dispatched | manual CLI on u0 (+ u1 if needed); T30403 read-only UNSUPPORTED evidence; T45543 steps 1-2; T20358 RSTP on x230, then `no shutdown` port1.0.7, eth3 broadcast; T47228 RESTCONF from tb470 over eth3 (x230 vlan105 IP) |
+| 2 | MDI/MDI-X framework: T33234 (scripts 5000.0003 straight, 5000.0004 crossover) | tb470/x230v2-28GS/mdix-2026-10-13T0949/ | RUNNABLE (triage 10:01; own u0/u1 setup, no apply needed) | the scripts' source: ck.db `scripts` table (`test_scripts/5000_mdi_mdix/`); dut = x230, remote = 4050; u0/u1-only setup; check defaulting commands (polarity) on both units before launch (STANDING-ORDERS §6) |
+
+## Triage 2026-10-13 09:50-10:01 (bench-runner, TRIAGE)
+
+**5 runnable / 0 blocked by topology / 0 blocked otherwise**; T45543 step 3 MANUAL-ONLY (already listed). Probe
+`2026-10-12T205148Z` (u0,u1 only): exit 1, the only real diff the expected EXTRA `swi_e-swi_f port1.0.5-port1.0.8`
+(the partial read also shows an artefact `tb-swi_f eth1-port1.0.2` and MISSING lines for the unread IE520s). The partial
+bench-state.md it wrote was replaced by the sentinel from the full capture `2026-10-12T204840Z` (commit 36e1557).
+- Clocks: x230 reads NZDT wall time labelled UTC (no timezone); 4050 correct. Host NICs: eth1 00:f0:4d:00:77:16 .1/27,
+  eth2 00:f0:4d:00:77:17 .33/27, eth3 00:f0:4d:00:77:18 .65/27.
+- Concurrent: Ask-CK IE520 validation `tb470/IE520/CAMPAIGN-QUEUE-2026-10-13T0954.md` (T33235, u2-u5, outlets 4/5/6/8 only,
+  excludes u0/u1). Its power cycles can flap x230 port1.0.2-1.0.4 and 4050 sa1 (port1.0.3/1.0.4): theirs, not DUT faults.
+- T47228: `service restconf` is "% Unrecognized command" on this build (guide: not required after 5.5.4-1); `service http`
+  already on; vlan105 needs the in-test IP 10.38.215.90/27; client = new `tools/restconf.py` run on tb470; toggle port1.0.8.
+- T33234: scripts 5000.0003/0004 + library_5000.py extracted read-only from ck.db `scripts` (sha1 match); case setup
+  `tb470-mdix-u0u1.setup` (swi_a = u0 x230, swi_b = u1 4050; [misc] dutSFPCopper/linkpSFPCopper = port1.0.1/port1.0.2,
+  dutSFPCopperX/linkpSFPCopperX = port1.0.8/port1.0.5). Defaulting is `speed/duplex/polarity auto` (no `no polarity`).
+  Before launch: prove forced polarity takes the crossover link down; capture TC6/TC8 refusal text. Bench setup once:
+  4050 port1.0.2 -> VLAN 22, x230 port1.0.1 -> an unused VID; restore once after (incl. `boot config-file
+  flash:/tb470-bench.cfg` on both, delete the framework's .cfg files).
+
+**Test Engineer's answers, 2026-10-13 ~10:2x:**
+- "Proceed with all 5" (option text: "Group 1 (T30403, T45543, T20358, T47228), then group 2 (T33234: 0004 then 0003), with the pre-launch checks above.")
+- TC9/TC10: "Exclude, grade UNSUPPORTED" (option text: "Run 0003 with --include-test-cases 1 2 3 4 5 6 7 8 11; TC9/TC10 recorded UNSUPPORTED under your ruling. Avoids ~2 power cycles.")
+- TC6 refusal text: "Exclude TC6, note why" (option text: "Run without TC6 and record the library defect plus the captured CLI refusal as the evidence; no script change.")
 
 ## Results
 
