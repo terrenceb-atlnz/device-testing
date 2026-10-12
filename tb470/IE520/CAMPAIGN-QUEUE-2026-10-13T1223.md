@@ -64,3 +64,11 @@ Sentinel's reading of the facts (not a session fact):
 
 ## Issues
 
+- **I-0 (campaign) precheck CLEAR, 2026-10-13 12:24.** `tools/tb precheck tb470 u2-u5`: u2-u5 free, no holder, lock
+  file, screen/tmux/minicom-type session or python script anywhere on the box (the x230 campaign 0949 is DONE).
+- **I-1 (campaign) sentinel armed 12:25** on this session (Monitor, normal mode, UPDATES → the hand-off's
+  sentinel_updates file; cron backstop every 15 min). Assumed: stand-down `2026-10-13 20:00` rather than the 17:30
+  end of day, because a §11 repair loop of up to 5 runs may outlast 17:30; the campaign ends sooner on `ASKCK-DONE`.
+- **I-2 (T33235) the script changed since the 0626 clean run.** Test-cases ef53cea (11:40 today): 14 grouped
+  TestCases instead of 33, step 29 without confCheck. The 0626 PASS (31 PASS / 2 UNSUPPORTED) is not evidence for
+  this script; triage reads the new grouping before any run.
