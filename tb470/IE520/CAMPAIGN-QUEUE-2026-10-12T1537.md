@@ -51,7 +51,7 @@ as in today's 14:56 campaign: u0 swi_f 1, u1 swi_e 7, u2 swi_a 6, u3 swi_b 8, u4
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | port (script, validation): T33235 | tb470/IE520/port-2026-10-12T1537/ | TRIAGE | |
+| 1 | port (script, validation): T33235 | tb470/IE520/port-2026-10-12T1537/ | RUNNING | Triage 15:39-15:48 (probe 023956Z MATCH, c1ae32b): 1 runnable / 0 topology / 0 otherwise, after the tester's one-leg isolation (stack port1.0.2 out of sa2; restored after). Expected 31 PASS / 2 UNSUPPORTED (TC20/21 pre-marked) / 0 FAIL, 0 PDU cycles, 1 whole-stack reload (TC33), ~80 min incl. setup/restore. RUN dispatched ~15:52 with validation: repair (§11); office-hours guard in Issues I-1 |
 
 ## Results
 
@@ -59,6 +59,8 @@ as in today's 14:56 campaign: u0 swi_f 1, u1 swi_e 7, u2 swi_a 6, u3 swi_b 8, u4
 | --- | --- | --- | --- | --- | --- | --- |
 
 ## Issues
+
+- **I-1 (campaign) office hours, 2026-10-12 15:52.** NOTIFY campaign -- T33235 reboots during office hours (Mon ~15:52 start): triage expects 0 PDU cycles and 1 whole-stack reload (TC33, ~17:10) in an ~80 min run -- Assumed: not reboot-heavy (memory reboot-heavy-runs-after-hours is about repeated cycles); run started now. Guard: if run 1 shows the pre-marking does not take (a framework PDU cycle after a skipped-by-design case) or a repair re-run is needed, the tester stops after that run and no further run starts before 18:00 NZDT.
 
 
 ## Triage 2026-10-12T1537
