@@ -54,7 +54,7 @@ as in the 2026-10-12 campaigns: u0 swi_f 1, u1 swi_e 7, u2 swi_a 6, u3 swi_b 8, 
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | port (script, validation): T33235 | tb470/IE520/port-2026-10-13T0626/ | RUN | queued 06:26. Triage 06:27-06:32 (beddca0): probe 172836Z MATCH, 1 runnable / 0 topology / 0 otherwise; nothing changed since 2026-10-12 16:06 restore; all exception logs None. Setup/restore = 2026-10-12T1537 group-1 recipe (one-leg isolation + R1 re-read). Expected 31 PASS / 2 UNSUPPORTED / 0 FAIL, 0 PDU cycles (worst 2), 1 stack reload (TC33), ~80 min. RUN (validation: repair) dispatched ~06:34 (I-1) |
+| 1 | port (script, validation): T33235 | tb470/IE520/port-2026-10-13T0626/ | RUN | queued 06:26. Triage 06:27-06:32 (beddca0): probe 172836Z MATCH, 1 runnable / 0 topology / 0 otherwise; nothing changed since 2026-10-12 16:06 restore; all exception logs None. Setup/restore = 2026-10-12T1537 group-1 recipe (one-leg isolation + R1 re-read). Expected 31 PASS / 2 UNSUPPORTED / 0 FAIL, 0 PDU cycles (worst 2), 1 stack reload (TC33), ~80 min. RUN (validation: repair) dispatched ~06:34 (I-1). Tester: setup 06:33:42-06:34:06 (port1.0.2 out of sa2, verified; R1 exception logs all None, nothing cleared); run 1 launched 06:35:03 (/home/st-art/pytest-create/33235/run1/), fresh unedited copy in port-2026-10-13T0626/33235/work/ |
 
 ## Setup and restore recipe — group 1
 
