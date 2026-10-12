@@ -6,6 +6,23 @@ x230 campaign: triage, the scheduled 18:00 run, and the Ask-CK support work done
 `test-cases-2b` in the afternoon. Wrapped at ~20:40 NZDT on the Test Engineer's instruction:
 *"/wrap-dt after everything is done between sessions"*.
 
+## Update 2026-10-12 (same session): final logs created; x230 boots its own config
+
+- **Final logs created** for all 23 cases (`/create-logs`, commits `148d7a4` secure, `948349d` platform,
+  `c7fed2d` l2l3, `a6fcbf5` ports); no `work/` left. `tools/case_tokens.py` fix `c83a7d1`.
+- **Decisions 1 and 2 below are resolved** (Terrence: *"make a new .cfg and set it up how you want, write it to
+  memory, and then set the default boot config to that new config"*), 14:09-14:18 NZDT on u0 only:
+  - `copy running-config flash:/tb470-bench.cfg` (967 B: the isolation VLAN 103/104/105 on port1.0.3/1.0.4/1.0.5 +
+    `lldp run`, otherwise the original default.cfg content) and `boot config-file flash:/tb470-bench.cfg`.
+  - `show boot`: `Current boot config: flash:/tb470-bench.cfg (file exists)`; `Default boot config:
+    flash:/default.cfg` (untouched, the fallback).
+  - `service password-encryption` is obsolete on this build ("Password encryption is already always enabled"), so
+    default.cfg's missing line was never a difference.
+  - **Verified by one reload** (Terrence: *"verification reload now, once"*): CLI `reload` 14:14:19, login after 166 s,
+    VLAN 103/104/105 present with no re-apply, running-config = the file, exception log None. Probe
+    `2026-10-12T011811Z` (u0-u5, precheck CLEAR) **MATCH**.
+  - **The "re-apply the isolation after every x230 reload" recipe below is no longer needed.**
+
 ## Session facts
 Test Engineer: terrenceb@terrenceb-dl
 Testbox: tb470

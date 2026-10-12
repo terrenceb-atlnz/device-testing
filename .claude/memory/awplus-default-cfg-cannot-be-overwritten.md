@@ -1,6 +1,6 @@
 ---
 name: awplus-default-cfg-cannot-be-overwritten
-description: AW+ (x230v2, 2026-10-09) refuses every copy/delete onto flash:/default.cfg; only `write` changes it — so backup+copy-back cannot undo a test's startup change
+description: AW+ (x230v2, 2026-10-09) refuses every copy/delete onto flash:/default.cfg; only `write` changes it. FIX 2026-10-12: tb470's x230 now boots its own flash:/tb470-bench.cfg
 metadata:
   type: project
 ---
@@ -14,6 +14,16 @@ attempt to put a backup back over `flash:/default.cfg`: `copy` (as the boot conf
 That plan failed at the last step, the boot pointer ended up moved to a temp file, and the startup
 config could only be rebuilt by `write` (not byte-identical: `service password-encryption` dropped,
 two default `security-password` lines added). The difference is now a Test Engineer decision.
+
+**Fix, 2026-10-12 (Terrence: "make a new .cfg … set the default boot config to that new config"):**
+the x230 (tb470 u0) now boots **`flash:/tb470-bench.cfg`**, the same name the other tb470 units boot
+(`copy running-config flash:/tb470-bench.cfg` + `boot config-file flash:/tb470-bench.cfg`; 967 B). It holds
+the VLAN 103/104/105 isolation and `lldp run`, so they survive a reload (verified: one reload 14:14,
+login 166 s, running-config = the file, probe 2026-10-12T011811Z MATCH). `default.cfg` is untouched and
+stays the fallback. `service password-encryption` is obsolete on this build ("Password encryption is
+already always enabled"), so its absence from the rewritten default.cfg is no difference at all.
+A case that changes startup config now backs up and copies back `tb470-bench.cfg`, which CAN be
+overwritten (it is not the default file) — re-verify that the first time it is relied on.
 
 **How to apply:** before any case that must `write` on an AW+ DUT whose boot config is
 `default.cfg`, plan the restore as "running-config = original, then `write`", and say up front it
