@@ -153,7 +153,9 @@ file: `33234/work/tb470-mdix-u0u1.setup` (swi_a = u0 x230, swi_b = u1 4050, outl
 - T45543 TPM simulator: *"yes, it tries to talk to the idevid servers"* (expected; not a fault).
 - x230 `lacp global-passive-mode enable`: *"write it"* -> `no lacp global-passive-mode enable` + `write` on u0, 12:16 (tb470-bench.cfg).
 - `bench_probe.py apply`: *"apply"* (the Test Engineer runs it; denied to the session by his settings).
-- T33234 forced polarity: he asked for the CLI library / guides first; findings in the 2026-10-13 handover. Verdict question still open.
+- T33234: *"what does 'SFP' stand for"* / *"thats right. So, by definition, thats *no* a fixed copper port, right"* -> re-graded
+  UNSUPPORTED (his 2026-09-29 ruling, queue I-5 of tb470/IE520 port-2026-09-29: an SFP cage is not a fixed copper port for MDI/MDI-X).
+  The sentinel's 10-13 re-triage that called T33234 runnable via the copper-SFP scripts 5000.0003/0004 contradicted that ruling.
 
 ## Results
 
@@ -163,7 +165,7 @@ file: `33234/work/tb470-mdix-u0u1.setup` (swi_a = u0 x230, swi_b = u1 4050, outl
 | T45543 | TPM Support | cli-2026-10-13T0949 | PARTIAL | steps 1-2 PASS ("show platform full-debug \| grep tpm" lists tpm2-abrmd + tpm_server; "TPM is instantiated" = OK per ruling), step 3 idevid NOT RUN (MANUAL-ONLY); note: tpm2-abrmd uses --tcti=mssim to /usr/bin/tpm_server on localhost:2321 (a software TPM simulator), recorded ungraded | cli-2026-10-13T0949/45543/work/run1.log | tester |
 | T20358 | STP loop between x230 ports | cli-2026-10-13T0949 | PASS | RSTP on, port1.0.6<->1.0.7 lead closed in VLAN 105: port1.0.7 Backup/Discarding in 5 s (Received RSTP from own bridge); 8356 broadcast frames from eth3 flooded by port1.0.6, 0 broadcast TX on port1.0.7, none back to eth3; port1.0.7 shut first in teardown, rcdiff empty (first closure aborted by ckcon --stop-on-error on "% " lines, re-closed and measured) | cli-2026-10-13T0949/20358/work/run1.log | tester |
 | T47228 | API-enable/disable interface, add/delete vlans | cli-2026-10-13T0949 | FAIL | RESTCONF on the x230v2 cannot add/delete VLANs (no VLAN-database model; PUT ietf-interfaces vlan3999 answers 204 but creates nothing, DELETE of a real VLAN is 403 access-denied) and PATCH of the enabled leaf answers 204 but changes nothing; interface disable/enable works by PUT {"enabled":false\|true} on the leaf, proven at both link ends; host-meta 404 | cli-2026-10-13T0949/47228/work/run1.log | tester |
-| T33234 | Port - Auto MDI/MDI-X | mdix-2026-10-13T0949 | PASS | auto MDI/MDI-X links come up on both the crossover (x230 port1.0.8-4050 port1.0.5) and straight (port1.0.1-port1.0.2) copper-SFP leads; 7/7 launched TCs PASS (0004 TC1,6; 0003 TC1,6,7,8,11), 0 power cycles; forced-polarity TCs (0004/0003 TC2-5) UNSUPPORTED (x230 copper SFPs refuse polarity mdi/mdix: "% Polarity set failed"; tester's grading, pending the Test Engineer); TC9-10 UNSUPPORTED by the Test Engineer's 10 Mb/s ruling | mdix-2026-10-13T0949/33234/work/run1.log | tester |
+| T33234 | Port - Auto MDI/MDI-X | mdix-2026-10-13T0949 | UNSUPPORTED | no fixed copper switchport on the x230v2-28GS (all 28 ports are SFP cages); an SFP is a pluggable transceiver, not a fixed copper port, so MDI/MDI-X does not apply (Test Engineer's ruling 2026-09-29 queue I-5, reaffirmed 2026-10-13). Supporting evidence from this run: copper SFPs refuse forced polarity ("% Polarity set failed", "Polarity mode not supported on this interface"); auto MDI-X through the module links on straight and crossover leads (7 launched TCs PASS, 0 power cycles) | mdix-2026-10-13T0949/33234/work/run1.log | Test Engineer, re-graded from PASS on 2026-10-13 |
 
 ## Issues
 

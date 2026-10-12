@@ -8,7 +8,8 @@ update, is [SESSION-HANDOVER-2026-10-09.md](SESSION-HANDOVER-2026-10-09.md)). Wr
 - OPEN 4 done: `no lacp global-passive-mode enable` + `write` on the x230, 12:16 (running = startup).
 - OPEN 1 researched: CLI `polarity` page and the Switching Feature Overview Guide (C613-22037-00 REV E) cover copper ports
   "on the switch" only, nothing on copper SFPs; `speed` page separates tri-speed vs 1000-only copper SFPs; framework suite
-  5703 (test-5000.1003) tests copper-SFP polarity as platform-dependent. Recommendation given: UNSUPPORTED. Verdict still his.
+  5703 (test-5000.1003) tests copper-SFP polarity as platform-dependent. Then Terrence: an SFP is not a fixed copper port, by definition -> **T33234 re-graded UNSUPPORTED** (his 2026-09-29
+  ruling, which the sentinel's re-triage had missed). Now: 1 PASS, 1 FAIL, 1 PARTIAL, 2 UNSUPPORTED.
 - OPEN 5 done: Terrence ran `bench_probe.py apply` ~12:2x (snapshot `backups/2026-10-12T232145Z.*`); the deployed setup now has
   `swi_e-swi_f = port1.0.5-port1.0.8` and bench-state.md (capture 204840Z) diffs MATCH against it.
 
