@@ -1,0 +1,179 @@
+WORKING LOG -- AWPTCM-T20358 run 1 (bench-runner, group cli-2026-10-13T0949)
+Run: CLEAN (one tool stop on the first loop closure, explained under STEP 1; the measurement is from the second
+     closure, gated the same way)
+
+SESSION FACTS: as 30403/work/run1.log (tb470; u0 x230 DUT swi_f, u1 4050 swi_e (not used here); PDU 10.36.150.14
+  u0=1 u1=7; "Office hours, no reloads; T33234 too"; Test Engineer terrenceb@terrenceb-dl; sentinel = parent).
+GROUP FACTS (devices, serials, builds, MACs, host NICs, clocks, gate, probe): 30403/work/run1.log.
+  x230 log clock ~9 s behind tb470 here as well (device log `no shutdown` 11:26:42 vs ckcon header 11:26:51).
+
+CASE
+  AWPTCM-T20358 "Loopback between two ports on same switch", folder /xSTP/RSTP
+  Objective: "When a switch port receives its own BPDU from the same edge port, it sets the port to the blocking
+    state.
+    When it no longer receives BPDUs, it sets the port to the forwarding state."
+  Precondition: (empty)
+  STEP 1 text:
+    "- Connect the RSTP switch and a hub/switch.
+     - Create a loop network switch.
+     - Send broadcast traffic from IXIA
+     - Confirm Port11 of RSTP switch. RSTP Port Role should be set to BackUp (Loopback Disabled) and State should
+       set to Discarding.
+     - Confirm backup port should not transmit traffic"
+  STEP 1 expected: "Backup port should not forward any packet in this state."
+
+BENCH MAPPING (dispatch ruling, queue row 1): the "loop" is the direct copper lead x230 port1.0.6 <-> port1.0.7
+  (both AT-SPTX); "Port11" = x230 port1.0.7 (the higher port ID, 838f, so the one that becomes Backup); "IXIA" =
+  tb470 eth3 (00:f0:4d:00:77:18, 10.38.215.65/27) <-> x230 port1.0.5. Everything in VLAN 105 (the isolation VLAN
+  port1.0.5 already uses), so the loop and the broadcast stay in their own VLAN. Previous attempt 2026-10-09 was
+  PARTIAL (no BPDU-transparent loop: the IE520 stack did not return BPDUs); the recable to the direct lead is what
+  makes this run possible.
+
+DEVICES: swi_f only (DUT, u0, AT-x230-28GS V2 S/N A10783G262900002, awplus_main-20261008-57, bridge ID
+  8000:00c28f3f0f5d). No partner switch.
+Configs saved: 20358/swi_f.cfg -- running-config at 11:25:36 after setup, before the loop was closed (so
+  port1.0.7 still `shutdown` there; its `no shutdown` is quoted in STEP 1).
+
+TOOLS
+  tools/tb ckcon tb470 x230cli-0949 u0 115200 [--stop-on-error] ... (commands below; stdouts in work/)
+    setup.out, loop.out, emergency-shut.out, loop2.out, before-traffic.out, after-traffic.out, teardown.out
+  tools/tb sudotool tb470 x230cli-0949 linerate --tx eth3 --dst-mac ff:ff:ff:ff:ff:ff --rx eth3 --rate 10
+    --secs 10 --size 1500 --src-ip 10.38.215.65 --dst-ip 10.38.215.95 -> work/traffic.out
+  python3 tools/rc2cfg.py work/setup.out 20358/swi_f.cfg <3 header lines>
+  python3 tools/rcdiff.py 30403/work/prerun-u0.out 20358/work/teardown.out -> no output
+
+SETUP (awplus(config)#, 11:25:19-11:25:24; ckcon --stop-on-error, rc 0, no % line)
+    configure terminal
+    no lacp global-passive-mode enable      (safety: memory lacp-passive-hides-links-from-stp -- a passively
+                                             enrolled port would run STP on a down aggregator; restored after)
+    spanning-tree rstp enable               (spanning-tree mode was already rstp in the baseline)
+    interface port1.0.6-1.0.7
+    switchport access vlan 105
+    end
+  Proof before closing the loop (11:25:31-11:25:34):
+    show running-config interface port1.0.5-1.0.7:
+      interface port1.0.5-1.0.6 / switchport / switchport mode access / switchport access vlan 105
+      interface port1.0.7 / switchport / switchport mode access / switchport access vlan 105 / shutdown
+      (no channel-group on either port)
+    show etherchannel: "LAG Static  Count  : 0" / "LAG Dynamic Count  : 0" / "LAG Total   Count  : 0"
+    show spanning-tree brief:
+      Default: Bridge up - Spanning Tree Enabled
+      Default: Root Path Cost 0 - Root Port 0 -  Bridge Priority 32768
+      Default: Root Id 8000:00c28f3f0f5d
+      Default: Bridge Id 8000:00c28f3f0f5d
+      port1.0.5       8000:00c28f3f0f5d    838d       Designated       Discarding
+      port1.0.6       8000:00c28f3f0f5d    838e       Disabled         Discarding
+      port1.0.7       8000:00c28f3f0f5d    838f       Disabled         Discarding
+      (both loop ports listed as STP ports with a real state)
+    show interface brief: port1.0.6 admin up / down; port1.0.7 admin down / down
+
+STEP 1 -- bullets 1-2: create the loop (x230 port1.0.6 <-> port1.0.7, same VLAN)
+  First closure, 11:25:55-11:25:58 (header clock): `interface port1.0.7` / `no shutdown` / `end`, then the gate
+    `@poll 20 port1\.0\.7\s+\S+\s+\S+\s+Backup\s+Discarding show spanning-tree brief`
+    -> "@poll MATCHED after 5.1 s (3 reads) of 'show spanning-tree brief'"
+       port1.0.6       8000:00c28f3f0f5d    838e       Designated       Forwarding
+       port1.0.7       8000:00c28f3f0f5d    838f       Backup           Discarding
+    The next command, `show spanning-tree interface port1.0.7`, prints every line prefixed `% ` on this build
+    (e.g. "%   port1.0.7: Port Number 911 - Ifindex 5007 - Port Id 838f - Role Backup - State Discarding"), so
+    ckcon --stop-on-error read it as a CLI error and stopped (rc 2). The safety branch then shut port1.0.7
+    (emergency-shut.out, 11:26:12-11:26:16; device log 11:26:06 "port1.0.7 user shutdown"). That stop was the
+    tool's reading of the `% ` prefix, not a device fault; the loop was already held by port1.0.7
+    Backup/Discarding. Tool lesson: do not put `show spanning-tree interface` under --stop-on-error.
+  Second closure (the measured one), 11:26:49-11:26:52 (header), device log:
+    2026 Oct 13 11:26:42 ... NSM[656]: port1.0.7 user no shutdown
+    2026 Oct 13 11:26:45 ... NSM[656]: Port up notification received for port1.0.6
+    2026 Oct 13 11:26:45 ... NSM[656]: Port up notification received for port1.0.7
+    2026 Oct 13 11:26:47 ... MSTP[865]: CIST port1.0.6 now forwarding, propagating TC to other ports
+    (no "port1.0.7 now forwarding" line at any time)
+  Gate: "@poll MATCHED after 5.1 s (3 reads) of 'show spanning-tree brief'"
+       port1.0.5       8000:00c28f3f0f5d    838d       Designated       Forwarding
+       port1.0.6       8000:00c28f3f0f5d    838e       Designated       Forwarding
+       port1.0.7       8000:00c28f3f0f5d    838f       Backup           Discarding
+  Bullet verdict: done (loop closed, held).
+
+STEP 1 -- bullet 4: confirm Port11 (port1.0.7) Role Backup, State Discarding  (awplus#, 11:27:14-11:27:16)
+  show spanning-tree interface port1.0.7 (verbatim, the relevant lines; full output in loop.out/before-traffic.out):
+    %   port1.0.7: Port Number 911 - Ifindex 5007 - Port Id 838f - Role Backup - State Discarding
+    %   port1.0.7: Designated Port Id 838e - Priority 128  -
+    %   port1.0.7: Root 800000c28f3f0f5d
+    %   port1.0.7: Designated Bridge 800000c28f3f0f5d
+    %   port1.0.7: forward-transitions 1
+    %   port1.0.7: Version Rapid Spanning Tree Protocol - Received RSTP - Send RSTP
+    %   port1.0.7: No portfast configured - Current  portfast off
+    %   port1.0.7: Configured Link Type point-to-point - Current point-to-point
+    %   port1.0.7: No auto-edge configured - Current port Auto Edge off
+  show spanning-tree interface port1.0.6:
+    %   port1.0.6: Port Number 910 - Ifindex 5006 - Port Id 838e - Role Designated - State Forwarding
+    %   port1.0.6: forward-transitions 3
+    %   port1.0.6: Version Rapid Spanning Tree Protocol - Received None - Send RSTP
+  port1.0.7 receives its own bridge's BPDU (Designated Bridge = its own Bridge ID, Designated Port Id 838e =
+  port1.0.6) -> Role Backup, State Discarding. The AW+ wording is "Backup"; the case's "(Loopback Disabled)" is
+  not printed by this build. forward-transitions on port1.0.7 read 1 before and after the traffic (unchanged
+  through the test; the earlier count predates this run, while the port ran with STP disabled).
+  Bullet verdict: PASS.
+
+STEP 1 -- bullet 3: send broadcast traffic from "IXIA" (tb470 eth3), 11:27:21-11:27:31
+  traffic.out, verbatim:
+    11:27:21-11:27:31  tx eth3 -> ff:ff:ff:ff:ff:ff  1500-byte frames  rate=10  IPv4 10.38.215.65 -> 10.38.215.95 ttl/hlim 2  src MACs 1
+      rx filter: ether src 00:f0:4d:00:77:18 and ip and udp src port 5010
+      sent 8356   tcpreplay 10.0 Mbps (frame bytes)  836 pps  = 10.2 Mbps on the wire
+      rx eth3       8356  (100.0%)  kernel drops 0
+  (the eth3 count is tcpdump seeing its own 8356 outgoing frames; no extra copies came back, which a loop would
+  have produced in large numbers)
+
+STEP 1 -- bullet 5 / expected: the backup port does not transmit traffic
+  show interface port1.0.5-1.0.7, before (11:27:17) and after (11:27:40) the burst, verbatim counter lines:
+    BEFORE
+    Interface port1.0.5
+        input packets 29, bytes 2076, dropped 0, multicast packets 2
+        output packets 2374, bytes 158866, multicast packets 2374, broadcast packets 0
+    Interface port1.0.6
+        input packets 137615311, bytes 13761530227, dropped 0, multicast packets 26
+        output packets 136629680, bytes 13662966407, multicast packets 46, broadcast packets 0
+    Interface port1.0.7
+        input packets 136629679, bytes 13662966307, dropped 0, multicast packets 46
+        output packets 137615311, bytes 13761530227, multicast packets 26, broadcast packets 0
+    AFTER
+    Interface port1.0.5
+        input packets 8385, bytes 12536076, dropped 0, multicast packets 2
+        output packets 2387, bytes 159701, multicast packets 2387, broadcast packets 0
+    Interface port1.0.6
+        input packets 137615312, bytes 13761530294, dropped 0, multicast packets 27
+        output packets 136638049, bytes 13675501242, multicast packets 59, broadcast packets 8356
+    Interface port1.0.7
+        input packets 136638048, bytes 13675501142, dropped 0, multicast packets 59
+        output packets 137615312, bytes 13761530294, multicast packets 27, broadcast packets 0
+  (the large absolute counts are from the 09:19 loop found before this campaign, queue Issues; deltas matter)
+  Deltas:
+    port1.0.5 input +8356 (the burst arrives from eth3); output +13, all multicast (BPDU/LLDP), broadcast 0
+      -> nothing of the burst came back to eth3.
+    port1.0.6 output +8369 of which broadcast +8356 (the designated port floods the burst onto the lead)
+    port1.0.7 input +8369 (it receives the burst and the BPDUs from port1.0.6)
+    port1.0.7 output +1 packet, multicast +1 (26 -> 27; port1.0.6 input multicast 26 -> 27 matches it),
+      broadcast 0. One multicast frame in 23 s is consistent with LLDP (`lldp run` is on, 30 s interval, and LLDP
+      is sent on discarding ports); none of the 8356 broadcast frames left port1.0.7.
+  After the burst, show spanning-tree brief still: port1.0.6 Designated Forwarding, port1.0.7 Backup Discarding;
+    show spanning-tree interface port1.0.7: "Role Backup - State Discarding", "forward-transitions 1".
+  Bullet verdict: PASS -- the backup port forwarded no packet of the broadcast stream.
+
+OBJECTIVE, second sentence ("When it no longer receives BPDUs, it sets the port to the forwarding state."):
+  not a step of the case, and NOT exercised: on a direct lead, stopping port1.0.6's BPDUs means either taking the
+  link down (port1.0.7 goes down with it) or filtering BPDUs on port1.0.6, which would open a real loop. Recorded as
+  not measured, not graded.
+
+TEARDOWN (awplus(config)#, 11:28:11-11:28:21; ckcon --stop-on-error rc 0, no % line), port1.0.7 FIRST:
+    configure terminal
+    interface port1.0.7
+    shutdown
+    exit
+    interface port1.0.6-1.0.7
+    no switchport access vlan
+    exit
+    no spanning-tree rstp enable
+    lacp global-passive-mode enable
+    end
+  show interface brief: port1.0.6 admin up / down; port1.0.7 admin down / down. show etherchannel: 0 static, 0
+  dynamic. rcdiff of running-config vs the group baseline (30403/work/prerun-u0.out): EMPTY.
+  No write, no reload. Console left at exec.
+
+VERDICT: PASS -- with RSTP on and the port1.0.6<->1.0.7 lead closed in VLAN 105, port1.0.7 went Backup/Discarding in 5 s (Received RSTP from its own bridge), and under 8356 broadcast frames from eth3 it transmitted 0 broadcast packets while port1.0.6 flooded all 8356
