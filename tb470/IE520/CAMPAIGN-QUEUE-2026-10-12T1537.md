@@ -99,6 +99,7 @@ Run: copy in `tb470/IE520/port-2026-10-12T1537/33235/work/` (script, `library_90
 ## Issues
 
 - **I-1 (campaign) office hours, 2026-10-12 15:52.** NOTIFY campaign -- T33235 reboots during office hours (Mon ~15:52 start): triage expects 0 PDU cycles and 1 whole-stack reload (TC33, ~17:10) in an ~80 min run -- Assumed: not reboot-heavy (memory reboot-heavy-runs-after-hours is about repeated cycles); run started now. Guard: if run 1 shows the pre-marking does not take (a framework PDU cycle after a skipped-by-design case) or a repair re-run is needed, the tester stops after that run and no further run starts before 18:00 NZDT.
+- **I-2 (T33235) run 1 systematic exception-log FAIL, 2026-10-12 15:58.** NOTIFY T33235 -- the framework's post-case exception-log check failed TestCase 1 (`!!FAIL: stk_a (member-3) contains 5 exceptions`; the case's own checks all PASS), so a six-unit PDU cycle followed at 15:58:14. Member 3 already logged entries on 2026-10-04 and 2026-10-07, before the run -- what it did instead: run 1 is stopped after the cycle (STANDING-ORDERS §6, I-1); the tester saves the log and checks whether any entry is new; if all predate the run, clearing the history is a bench-state repair; a new entry is a DUT finding; run 2 waits for 18:00.
 
 
 ## Triage 2026-10-12T1537
