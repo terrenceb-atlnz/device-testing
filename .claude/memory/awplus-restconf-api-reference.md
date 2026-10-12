@@ -1,6 +1,6 @@
 ---
 name: awplus-restconf-api-reference
-description: "The AW+ API" = RESTCONF (Terrence 2026-10-13). Enable: service http (+ service restconf before 5.5.4-1), HTTPS 443, a priv-15 user. Models: github.com/alliedtelesis/yang; guide PDF URL inside. Interface enable = openconfig-interfaces config/enabled
+description: "The AW+ API" = RESTCONF (Terrence 2026-10-13). Enable: service http (+ service restconf before 5.5.4-1), HTTPS 443, a priv-15 user. Guide + YANG repo LOCATIONS inside (revised periodically: fetch current). Interface enable = openconfig-interfaces config/enabled
 metadata:
   type: reference
 ---
@@ -8,15 +8,20 @@ metadata:
 **When a case says "API"** (T47228, "API-enable/disable interface, add/delete vlans"), it means
 **RESTCONF** (RFC 8040), as Terrence confirmed on 2026-10-13. NETCONF is the SSH sibling, on port 830 with `service netconf`.
 
-**Sources (fetched 2026-10-13; neither the wiki nor ck.db holds the request paths):**
-- **Guide:** "NETCONF and RESTCONF Feature Overview and Configuration Guide", C613-22141-00 REV B, for AW+
-  5.5.3-2.1 or later.
-  - PDF: https://www.alliedtelesis.com/wp-content/uploads/2026/05/NETCONF_and_RESTCONF_Feature_Overview_Guide.pdf
-  - The `/documents/…` landing page returns an empty 202 (a bot challenge), so WebFetch gets nothing; download the PDF with curl.
-- **YANG models:** https://github.com/alliedtelesis/yang, in `models/<name>@<revision>.yang`. Use raw.githubusercontent for files
-  and the GitHub contents API for the list.
+**Sources: track the LOCATION, not a copy.** Allied Telesis revises the guide periodically (Terrence,
+2026-10-13), so always fetch the current one from where it lives and note the revision you read:
+- **Guide, landing page (the location of record):**
+  https://www.alliedtelesis.com/us/en/documents/netconf-and-restconf-feature-overview-and-configuration-guide
+  ("NETCONF and RESTCONF Feature Overview and Configuration Guide"). It answers WebFetch and plain
+  curl with an empty 202 (a bot challenge).
+- **Stable download link that always serves the current PDF:**
+  `curl -sL https://www.alliedtelesis.com/sites/default/files/documents/feature-guides/netconf_and_restconf_feature_overview_guide.pdf -o guide.pdf`
+  then `pdftotext -layout`. It redirects to a dated upload (2026-10-13: `wp-content/uploads/2026/05/…`,
+  C613-22141-00 REV B, "AW+ 5.5.3-2.1 or later"). Never cite the dated upload as the source.
+- **YANG models:** https://github.com/alliedtelesis/yang (`models/<name>@<revision>.yang`, new revisions
+  added over time; raw.githubusercontent for files, the GitHub contents API for the list).
 - The lab wiki has only the enabling commands: `awplus_cli_wiki/commands/service-restconf.md`
-  (platforms AR4050, x230, x908Gen2, x930, x950) and `families/netconf-commands.md`.
+  (AR4050, x230, x908Gen2, x930, x950) and `families/netconf-commands.md`.
 
 **Enable it.** The guide's own example:
 - `user rest priv 15 password …`
