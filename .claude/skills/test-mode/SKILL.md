@@ -320,6 +320,11 @@ unacknowledged NEEDS YOU on the table.
      Batch the lines when several arrive together. This is the running results list they
      review; nothing more is written for them until `/create-logs` (except a campaign whose
      queue says `Driver: ask-ck`: its results go to Ask-CK's results table, §8).
+     - **In a `Driver: ask-ck` campaign, also print the tester's `RESULT` line verbatim, on a
+       line of its own.** Ask-CK's seat agent reads markers only from YOUR output, never from
+       the tester's message to you; without this line Ask-CK's results table reads NOT TESTED
+       (all three Ask-CK Validation runs of 2026-10-12/13 did). A mismatch from step 2 still
+       goes in the Results row, not in this line.
   4. No reply to the tester is needed.
 - **The Test Engineer re-grades a case** ("12589 is a PASS") → change that Results row to the
   new verdict with graded-by `Test Engineer, re-graded from <old> on <date>`, commit, and confirm
