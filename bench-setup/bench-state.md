@@ -100,4 +100,16 @@ swi_a-swi_f = port1.0.17-port1.0.3, port1.0.2-port1.0.2, port1.0.3-port1.0.4
 swi_b-swi_d = port1.0.26-port4.0.26
 swi_c-swi_e = port3.0.2-port1.0.3
 swi_d-swi_e = port4.0.2-port1.0.4
-swi_e
+swi_e-swi_f = port1.0.5-port1.0.8
+```
+
+```nic-state
+# NIC  carrier  learned_on
+eth1 up swi_c:port3.0.13
+eth2 up swi_f:port1.0.8
+eth3 up swi_f:port1.0.5
+```
+
+```probe-meta
+capture 2026-10-12T202925Z
+```
