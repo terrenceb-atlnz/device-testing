@@ -49,7 +49,7 @@ swi_e 7, swi_f 1. `<FAMILY>` = IE520 because the script binds `swi_a` = 264A2306
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | port (script, validation): T33234 | tb470/IE520/port-2026-10-12T1456/ | RUN | Triage 15:02 (probe 015814Z MATCH): 1 runnable / 0 topology / 0 otherwise; expected 14/14 UNSUPPORTED (platform: no fixed copper switchport), 0 power cycles, ~2 min + restore. RUN dispatched with validation: repair (§11) |
+| 1 | port (script, validation): T33234 | tb470/IE520/port-2026-10-12T1456/ | DONE | Run 1 15:04-15:07 clean, UNSUPPORTED 14/14 (3ab6fc4); restored 15:10. Triage 15:02 (probe 015814Z MATCH): 1 runnable / 0 topology / 0 otherwise; expected 14/14 UNSUPPORTED (platform: no fixed copper switchport), 0 power cycles, ~2 min + restore. RUN dispatched with validation: repair (§11) |
 
 ## Setup and restore recipe — group 1
 
@@ -86,6 +86,7 @@ Run: copy in `tb470/IE520/port-2026-10-12T1456/33234/work/` (script, `library_90
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
+| T33234 | Port - Auto MDI/MDI-X | port-2026-10-12T1456 | UNSUPPORTED | IE520-28GSX has no fixed copper switchport (every stack twisted-pair link is a copper SFP, ruling I-5): framework marked 14/14 TestCases unsupported on swi_a, none ran, rc 0; validation run clean, no repairs, 0 power cycles; bench restored (probe 020945Z MATCH) | 33234/work/run1.log | tester |
 
 ## Issues
 
