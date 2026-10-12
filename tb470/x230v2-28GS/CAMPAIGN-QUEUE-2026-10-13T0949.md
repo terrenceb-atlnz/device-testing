@@ -55,7 +55,7 @@ Test Engineer's rulings carried into this campaign (2026-10-13):
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
 | 1 | CLI / API cases: T30403, T45543, T20358, T47228 | tb470/x230v2-28GS/cli-2026-10-13T0949/ | DONE 11:43 (T30403 UNSUPPORTED, T45543 PARTIAL, T20358 PASS, T47228 FAIL; bench restored) | manual CLI on u0 (+ u1 if needed); T30403 read-only UNSUPPORTED evidence; T45543 steps 1-2; T20358 RSTP on x230, then `no shutdown` port1.0.7, eth3 broadcast; T47228 RESTCONF from tb470 over eth3 (x230 vlan105 IP) |
-| 2 | MDI/MDI-X framework: T33234 (scripts 5000.0003 straight, 5000.0004 crossover) | tb470/x230v2-28GS/mdix-2026-10-13T0949/ | RUNNING 11:5x (bench setup applied; polarity TCs not launched: x230 copper SFPs refuse forced polarity, NEEDS TEST ENGINEER sent) | the scripts' source: ck.db `scripts` table (`test_scripts/5000_mdi_mdix/`); dut = x230, remote = 4050; u0/u1-only setup; check defaulting commands (polarity) on both units before launch (STANDING-ORDERS §6) |
+| 2 | MDI/MDI-X framework: T33234 (scripts 5000.0003 straight, 5000.0004 crossover) | tb470/x230v2-28GS/mdix-2026-10-13T0949/ | DONE 12:06 (T33234 PASS: 7/7 launched TCs PASS, 0 power cycles; forced-polarity TCs 0004/0003 TC2-5 UNSUPPORTED pending the Test Engineer, TC9-10 UNSUPPORTED by ruling; bench restored) | the scripts' source: ck.db `scripts` table (`test_scripts/5000_mdi_mdix/`); dut = x230, remote = 4050; u0/u1-only setup; check defaulting commands (polarity) on both units before launch (STANDING-ORDERS §6) |
 
 ## Triage 2026-10-13 09:50-10:01 (bench-runner, TRIAGE)
 
@@ -142,6 +142,11 @@ file: `33234/work/tb470-mdix-u0u1.setup` (swi_a = u0 x230, swi_b = u1 4050, outl
   the framework's `<hostname>.cfg` (x230 `flash:/awplus.cfg`, 4050 `flash:/4050-5g.cfg`, or whatever name the run log
   shows) only if it was not there before (baseline `dir` checked first).
 - Prove it: rcdiff of `show running-config` against `prerun-u0.out` / `prerun-u1.out` empty.
+
+- **After the group (12:04-12:06):** restored as above; both boot pointers back to `flash:/tb470-bench.cfg` (the
+  framework had moved them to `swi_a/b_5000_0003.cfg`); 10 framework `.cfg` files deleted on each unit; rcdiff empty u0
+  and u1 (`33234/work/teardown-u*.out`). Post-run probe `2026-10-12T230610Z`: exit 1, identical diff set to the pre-run
+  probe. bench-state.md checked out. Consoles at exec. No write, no reload, no PDU cycle.
 
 ## Results
 
