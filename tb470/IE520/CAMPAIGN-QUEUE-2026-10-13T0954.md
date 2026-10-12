@@ -55,7 +55,7 @@ Sentinel's reading of the facts (not a session fact):
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | port (script, validation): T33235 | tb470/IE520/port-2026-10-13T0954/ | QUEUED | queued 09:54; script `ask-ck/functions/pytest-creator/generated/9001_Port/test-9001.33235.py` |
+| 1 | port (script, validation): T33235 | tb470/IE520/port-2026-10-13T0954/ | TRIAGE | queued 09:54; TRIAGE dispatched 09:56; script `ask-ck/functions/pytest-creator/generated/9001_Port/test-9001.33235.py` |
 
 ## Results
 
@@ -68,3 +68,8 @@ Sentinel's reading of the facts (not a session fact):
   campaign (`tb470/x230v2-28GS/CAMPAIGN-QUEUE-2026-10-13T0949.md`) on u0/u1 at the same time, with its own sentinel.sh.
   This session's sentinel sweep is scoped to its own scratchpad so it never kills that watch; this run never touches
   u0/u1 or outlets 1/7.
+- **I-1 (campaign) precheck FOUND outside the session's consoles, 2026-10-13 09:55.** `tools/tb precheck tb470 u2-u5`: u2-u5 all
+  free; FOUND 1 = process 787356 (terrenceb, up 00:07) `qmark.py /dev/u0 … /tmp/x230tri-1013/console-u0.log` — the x230 campaign's
+  tester (I-0) on u0, outside this session. Assumed: not a holder of any session console; proceed on u2-u5, never touch u0/u1.
+- **I-2 (campaign) sentinel armed 09:55** on this session (Monitor, normal mode, UPDATES → the hand-off's sentinel_updates file;
+  cron backstop every 15 min, until 17:30). Sweep scoped to this session's scratchpad only. TRIAGE dispatched 09:56.
