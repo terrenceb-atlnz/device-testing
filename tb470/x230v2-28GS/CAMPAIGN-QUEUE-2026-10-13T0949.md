@@ -55,7 +55,7 @@ Test Engineer's rulings carried into this campaign (2026-10-13):
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
 | 1 | CLI / API cases: T30403, T45543, T20358, T47228 | tb470/x230v2-28GS/cli-2026-10-13T0949/ | DONE 11:43 (T30403 UNSUPPORTED, T45543 PARTIAL, T20358 PASS, T47228 FAIL; bench restored) | manual CLI on u0 (+ u1 if needed); T30403 read-only UNSUPPORTED evidence; T45543 steps 1-2; T20358 RSTP on x230, then `no shutdown` port1.0.7, eth3 broadcast; T47228 RESTCONF from tb470 over eth3 (x230 vlan105 IP) |
-| 2 | MDI/MDI-X framework: T33234 (scripts 5000.0003 straight, 5000.0004 crossover) | tb470/x230v2-28GS/mdix-2026-10-13T0949/ | RUNNABLE (triage 10:01; own u0/u1 setup, no apply needed) | the scripts' source: ck.db `scripts` table (`test_scripts/5000_mdi_mdix/`); dut = x230, remote = 4050; u0/u1-only setup; check defaulting commands (polarity) on both units before launch (STANDING-ORDERS §6) |
+| 2 | MDI/MDI-X framework: T33234 (scripts 5000.0003 straight, 5000.0004 crossover) | tb470/x230v2-28GS/mdix-2026-10-13T0949/ | RUNNING 11:5x (bench setup applied; polarity TCs not launched: x230 copper SFPs refuse forced polarity, NEEDS TEST ENGINEER sent) | the scripts' source: ck.db `scripts` table (`test_scripts/5000_mdi_mdix/`); dut = x230, remote = 4050; u0/u1-only setup; check defaulting commands (polarity) on both units before launch (STANDING-ORDERS §6) |
 
 ## Triage 2026-10-13 09:50-10:01 (bench-runner, TRIAGE)
 
@@ -118,6 +118,30 @@ Per case, running-config only (x230 = u0 unless named):
   `2026-10-12T224215Z` (u0,u1, same facts): exit 1 with the identical diff set as the pre-run probe (only the known
   EXTRA crossover + eth1 artefact). bench-state.md checked out again (the u0/u1 probes rewrite it partially). Nothing
   left running on tb470; consoles at exec. No write, no reload, no PDU cycle.
+
+## Run, group 2 (mdix-2026-10-13T0949) -- bench setup and restore recipe (bench-runner, written 11:5x before the first TestSet)
+
+Gate 11:44-11:47: precheck u0,u1 CLEAR; peek u0 `awplus#`, u1 `4050-5g#`; `/nfsHome` mounted; probe
+`2026-10-12T224457Z` (u0,u1, same facts, `--baud 115200`) exit 1, the same known diff set as group 1 (bench-state.md
+checked out again). Both units `Current boot config: flash:/tb470-bench.cfg (file exists)`. Group baseline:
+`mdix-2026-10-13T0949/33234/work/prerun-u0.out`, `prerun-u1.out`. Scratch on tb470: `/tmp/mdix-0949/`. Case setup
+file: `33234/work/tb470-mdix-u0u1.setup` (swi_a = u0 x230, swi_b = u1 4050, outlets 1/7 only). Framework workdirs
+`/home/st-art/pytest-create/33234/0004-run1/` and `.../0003-run1/`. **No `write`, no reload.**
+
+**Bench setup (applied 11:48, once for both TestSets):**
+- u1 (4050): `interface port1.0.2` / `switchport access vlan 22` (the existing empty `flap-deadend` VLAN) / `no shutdown`.
+- u0 (x230): `vlan database` / `vlan 101 name mdix-tmp`; `interface port1.0.1` / `switchport access vlan 101`.
+- Straight link x230 port1.0.1 <-> 4050 port1.0.2 up at 1000/full; crossover port1.0.8 <-> port1.0.5 unchanged (VLAN 108).
+
+**Restore (once, after both TestSets, or by a fresh tester if this one dies):**
+- u0: `interface port1.0.1` / `no switchport access vlan` (back to VLAN 1); `interface port1.0.1` and
+  `port1.0.8`: `speed auto`, `duplex auto`, `polarity auto`; `vlan database` / `no vlan 101`.
+- u1: `interface port1.0.2` / `switchport access vlan 10` / `shutdown`; `interface port1.0.2` and `port1.0.5`:
+  `speed auto`, `duplex auto`, `polarity auto`.
+- Both: if `show boot` no longer reads `flash:/tb470-bench.cfg`, `boot config-file flash:/tb470-bench.cfg`; delete
+  the framework's `<hostname>.cfg` (x230 `flash:/awplus.cfg`, 4050 `flash:/4050-5g.cfg`, or whatever name the run log
+  shows) only if it was not there before (baseline `dir` checked first).
+- Prove it: rcdiff of `show running-config` against `prerun-u0.out` / `prerun-u1.out` empty.
 
 ## Results
 
