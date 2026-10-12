@@ -117,6 +117,7 @@ Per case, running-config only (x230 = u0 unless named):
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
 | T30403 | Check traffic is fowarded with static mroutes (IPv4) | cli-2026-10-13T0949 | UNSUPPORTED | x230v2-28GS has no multicast routing: ip mroute / ip multicast-routing / ip pim / show ip mroute absent from the parser (% Invalid input), no PIM licence feature; running-config unchanged | cli-2026-10-13T0949/30403/work/run1.log | tester |
+| T45543 | TPM Support | cli-2026-10-13T0949 | PARTIAL | steps 1-2 PASS ("show platform full-debug \| grep tpm" lists tpm2-abrmd + tpm_server; "TPM is instantiated" = OK per ruling), step 3 idevid NOT RUN (MANUAL-ONLY); note: tpm2-abrmd uses --tcti=mssim to /usr/bin/tpm_server on localhost:2321 (a software TPM simulator), recorded ungraded | cli-2026-10-13T0949/45543/work/run1.log | tester |
 
 ## Issues
 
