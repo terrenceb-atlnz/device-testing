@@ -1,0 +1,167 @@
+WORKING LOG -- AWPTCM-T47228 run 1 (bench-runner, group cli-2026-10-13T0949)
+Run: CLEAN (exploratory by necessity: the case has no step text, so the method below is the tester's, per the
+     Test Engineer's ruling; every request and its device-side proof is recorded)
+
+SESSION FACTS: as 30403/work/run1.log (tb470; u0 x230 DUT swi_f, u1 4050 swi_e (observed read-only); PDU
+  10.36.150.14 u0=1 u1=7; "Office hours, no reloads; T33234 too"; Test Engineer terrenceb@terrenceb-dl; sentinel =
+  parent session).
+GROUP FACTS (devices, serials, builds, MACs, host NICs, clocks, gate, probe): 30403/work/run1.log.
+  x230 device-log clock ~9 s behind tb470 (as measured in 30403's and 20358's logs), so device-log times
+  below read ~9 s earlier than the tb470 request times.
+
+CASE
+  AWPTCM-T47228 "API-enable/disable  interafce, add/delete vlans", folder /5.5.5-2/Tomahawk/AT-x230v2
+  Objective: (empty)   Precondition: (empty)   1 step, with NO description and NO expected result (ck.db).
+RULING (Test Engineer, 2026-10-13, queue Session facts): "use the API commands to enable/disable interfaces, and
+  also add/delete VLANs"; the API is RESTCONF (memory awplus-restconf-api-reference); settle the VLAN create/delete
+  path from the x230's own ietf-yang-library and update that memory.
+METHOD (the tester's, since the step is empty):
+  A. reach RESTCONF and read the unit's yang-library;
+  B. disable then enable a live port through the API, proving each change on the CLI of the DUT and of the link
+     partner;
+  C. add a VLAN, then delete a VLAN, through the API, proving each on the CLI.
+  Expected (tester's): each API write that answers 2xx changes the device as asked, visible in `show interface
+  brief` / `show vlan brief` / running-config; a write the device cannot do is refused with an error.
+
+DEVICES
+  swi_f (DUT) AT-x230-28GS V2, S/N A10783G262900002, u0, awplus_main-20261008-57, RESTCONF server at
+    https://10.38.215.90:443 (nginx), user manager (privilege 15, from the bench config).
+  swi_e (partner, read-only) AR4050S-5G, S/N A10401G214000005, u1; its port1.0.5 is the far end of x230 port1.0.8
+    (crossover, VLAN 108 both ends).
+LINKS: tb470 eth3 (00:f0:4d:00:77:18, 10.38.215.65/27) <-> x230 port1.0.5 (VLAN 105) = the API client path;
+  x230 port1.0.8 <-> 4050 port1.0.5 = the port toggled.
+CONFIGS SAVED: 47228/swi_f.cfg (11:30:14, after setup: `interface vlan105` / `ip address 10.38.215.90/27`),
+  47228/swi_e.cfg (group baseline 11:21:10; no setup on the 4050).
+
+TOOLS
+  tools/restconf.py -- NEW in this case (generic RESTCONF client, stdlib; README entry in tools/README.md).
+    Run on tb470 as: tools/tb tool tb470 x230cli-0949 restconf 10.38.215.90 <METHOD> <path> [--root /restconf]
+    [--data JSON] [--grep REGEX] [--max-bytes N] [--out FILE]; credentials default manager/friend (never sent
+    down a console). Exact calls per request below; raw outputs in work/rc-NN-*.out.
+  tools/tb ckcon tb470 x230cli-0949 u0|u1 115200 ... (CLI proof; work/cli-NN-*.out, setup.out, teardown-u*.out)
+  tools/tb qmark tb470 x230cli-0949 u0 115200 --mode "configure terminal" -- "service " "http " "restconf "
+    "netconf " (work/qmark-service.out); ... -- "http webapi " "http check-api-content-type-header "
+    (work/qmark-webapi.out)
+  tools/tb ping tb470 eth3 10.38.215.90 3
+  python3 tools/rcdiff.py 30403/work/prerun-u0.out 47228/work/teardown-u0.out (and -u1) -> no output
+
+SETUP (awplus(config)#, 11:30:06-11:30:09, ckcon --stop-on-error rc 0):
+    configure terminal / interface vlan105 / ip address 10.38.215.90/27 / end
+  show ip interface brief: "vlan105               10.38.215.90/27    admin up        running"
+  show running-config | include http|restconf|netconf: "service http" (already in the bench config)
+  qmark: `service ?` offers http, netconf (no restconf); `restconf ?` at config -> "% Unrecognized command"
+    (so no `service restconf` exists on this build; the guide says it is not required after 5.5.4-1).
+  tools/tb ping tb470 eth3 10.38.215.90 3: "3 packets transmitted, 3 received, 0% packet loss"
+
+A. RESTCONF REACHED, MODELS READ (11:30:22-11:30:58)
+  GET /.well-known/host-meta -> "HTTP 404 Not Found" (text/html, nginx 404 page)   [rc-01-hostmeta.out]
+    The guide (C613-22141-00 REV B, p.4) says the client finds the RESTCONF API "by getting the URI
+    "/.well-known/host-meta""; this unit does not serve it.
+  GET /restconf -> 200 "ietf-restconf:restconf"; GET /restconf/data -> 200 (ietf-yang-library);
+    GET /restconf/yang-library-version -> 200 "2019-01-04"; GET /api -> 200 "ietf-restconf:api"   [rc-03-roots.out]
+  GET /restconf/data/ietf-yang-library:yang-library -> 200, 10977 bytes [rc-04-yanglib.out, yanglib.json]:
+    module-set "common", datastore ietf-datastores:running. Relevant modules: ietf-interfaces 2026-08-12
+    (dev at-ietf-interfaces-deviation), openconfig-interfaces 2022-10-25 (dev at-openconfig-interfaces-deviation),
+    openconfig-if-ethernet 2023-03-10, openconfig-vlan 2023-02-07 (dev at-openconfig-vlan-deviation),
+    at-interface 2025-05-15, at-l2-topology 2023-02-09 (feature VLAN), ietf-l2-topology. NOT present:
+    openconfig-network-instance, at-bridges, any module with a VLAN-database container.
+
+B. INTERFACE DISABLE / ENABLE THROUGH THE API (x230 port1.0.8)
+  Before: GET .../openconfig-interfaces:interfaces/interface=port1.0.8/state -> "enabled": true,
+    "admin-status": "UP", "oper-status": "UP"; .../config -> {"type": "iana-if-type:ethernetCsmacd"} only.
+  Attempts that did not work (rc-06, rc-07, rc-08, rc-09):
+    PATCH .../interface=port1.0.8/config  {"openconfig-interfaces:config":{"enabled":false}}
+      -> HTTP 404 Not Found "uri path not found"
+    OPTIONS .../config and .../interface=port1.0.8 -> 200, "Allow: GET,HEAD,OPTIONS,POST,PUT,PATCH,DELETE"
+    PATCH .../interface=port1.0.8  {"openconfig-interfaces:interface":[{"name":"port1.0.8","config":{"enabled":false}}]}
+      -> 404 "uri path not found"
+    PATCH .../ietf-interfaces:interfaces/interface=port1.0.8  {"ietf-interfaces:interface":[{"name":"port1.0.8","enabled":false}]}
+      -> 404 "uri path not found"
+    PATCH .../openconfig-system:system/config {"openconfig-system:config":{"hostname":"awplus"}} (same value)
+      -> 404 "uri path not found" (GET of it -> 200 "hostname": "awplus")
+    PUT .../interface=port1.0.8/config/enabled  {"openconfig-interfaces:enabled":false}
+      -> HTTP 400 Bad Request "Invalid input parameter"
+    GET /restconf/ds/ietf-datastores:running/... -> 404 (no NMDA datastore resource)
+  Leaf writes, first pass (11:33:22-11:34:39, rc-10, rc-11, rc-12):
+    PUT  leaf {"enabled":false} -> 204; PUT leaf {"openconfig-interfaces:enabled":"false"} -> 400;
+    PATCH leaf {"openconfig-interfaces:enabled":false} -> 204; state then "enabled": false, "admin-status": "DOWN".
+    CLI (u0, 11:33:45): "port1.0.8             admin down      down"; running-config "interface port1.0.8 /
+      shutdown"; device log "2026 Oct 13 11:33:15 ... NSM[656]: port1.0.8 user shutdown" (+ "Port down
+      notification received for port1.0.8", "... for vlan108"). 4050 (u1, 11:33:58): "port1.0.5 admin up down".
+    PATCH leaf {"openconfig-interfaces:enabled":true} (11:33:59) -> 204, but 5 s later state still
+      "enabled": false / "admin-status": "DOWN" and the CLI still "admin down" with `shutdown` (11:34:12);
+      4050 port1.0.5 still down (11:34:22).
+    PUT leaf {"enabled":true} (11:34:33) -> 204; state "enabled": true, "UP"/"UP"; config now shows
+      "enabled": true; CLI "port1.0.8 admin up running".
+  Controlled matrix, one request at a time, state read 4 s after each (11:35:00-11:35:42, rc-13-matrix.out):
+    H1 PATCH oc leaf {"openconfig-interfaces:enabled":false} -> 204   state enabled true,  UP/UP    NO EFFECT
+    H2 PATCH oc leaf {"openconfig-interfaces:enabled":true}  -> 204   state enabled true,  UP/UP
+    H3 PUT   oc leaf {"enabled":false}                       -> 204   state enabled false, DOWN/DOWN  WORKS
+    H4 PUT   oc leaf {"enabled":true}                        -> 204   state enabled true,  UP/UP      WORKS
+    H5 PATCH oc leaf {"enabled":false}                       -> 204   state enabled true,  UP/UP    NO EFFECT
+    H6 PATCH oc leaf {"enabled":true}                        -> 204   state enabled true,  UP/UP
+    H7 PUT   ietf leaf .../ietf-interfaces:interfaces/interface=port1.0.8/enabled {"enabled":false}
+                                                             -> 204   state enabled false, DOWN/DOWN  WORKS
+    H8 PUT   ietf leaf {"enabled":true}                      -> 204   state enabled true,  UP/UP      WORKS
+    (oc leaf = /restconf/data/openconfig-interfaces:interfaces/interface=port1.0.8/config/enabled)
+    Device log (u0, cli-15-u0.out tail): "11:35:24 ... port1.0.8 user shutdown", "11:35:29 ... port1.0.8 user no
+    shutdown", "11:35:32 ... Port up notification received for port1.0.8" (the H7/H8 pair; H3/H4 lines earlier).
+  B result: enable/disable through the API WORKS with PUT on the `enabled` leaf (openconfig or ietf path), proven
+    on the CLI and at the link partner. DEFECTS seen:
+    (1) PATCH on the leaf answers 204 No Content and changes nothing (H1, H5; and the 11:33:59 enable) -- a false
+        success;
+    (2) PATCH on any container answers 404 "uri path not found" although OPTIONS allows PATCH;
+    (3) a module-qualified leaf body on PUT is refused 400 (RFC 7951 member names are module-qualified at the top
+        of a body);
+    (4) /.well-known/host-meta is 404, contrary to the guide.
+
+C. VLAN ADD / DELETE THROUGH THE API
+  Survey (11:36:00, rc-14): GET .../ietf-interfaces:interfaces lists eth0, lo, port1.0.1-1.0.28, vlan1, vlan103,
+    vlan104, vlan105, vlan108 (and kernel interfaces ip_vti0, remoteCpuPort, sit0, switch, tunl0,
+    xfrmi-test-4925); GET data/openconfig-vlan:vlans and .../vlans/vlan=105 -> 404 "uri path not found";
+    GET data/at-l2-topology:vlans -> 404. Per-port .../openconfig-if-ethernet:ethernet/openconfig-vlan:switched-vlan
+    reads {"interface-mode": "ACCESS", "access-vlan": 108} on port1.0.8.
+  ADD (11:36:14-11:36:19, rc-15):
+    W1 PUT .../ietf-interfaces:interfaces/interface=vlan3999 {"interface":[{"name":"vlan3999"}]} -> 204;
+       GET then returns {"name": "vlan3999"}.
+    W2 same with {"ietf-interfaces:interface":[...]} -> 400 "Invalid input parameter"
+    W3 POST .../ietf-interfaces:interfaces {"interface":[{"name":"vlan3999"}]} -> 409 "object already exists"
+    W4 POST with the qualified body -> 404 "uri path not found"
+    W5 PUT .../interface=vlan3999/enabled {"enabled":true} -> 204
+    CLI (u0, 11:36:27): show vlan brief lists only 1, 103, 104, 105, 108 -- NO VLAN 3999; show interface brief has
+       no vlan3999; no NSM VLAN log line. => the API reported the VLAN interface created; the device has nothing.
+    Cleanup X1 (11:36:46): DELETE .../interface=vlan3999 -> 204; GET -> 200 with an empty body ("{}").
+    X3 PUT .../interface=port1.0.20/.../switched-vlan/config/access-vlan {"access-vlan":3999} (unused, unlinked
+       port; a VLAN that does not exist) -> 204; GET: config "access-vlan": 3999, state "access-vlan": 1;
+       CLI (11:36:57): no VLAN 3999, `interface port1.0.20` unchanged (switchport / switchport mode access).
+       Undone Y1 (11:37:23): PUT {"access-vlan":1} -> 204; config and state both 1.
+  DELETE (11:37:24-11:38:19, cli-18, rc-18, rc-19, rc-20):
+    VLAN 3999 created by CLI on u0 (awplus(config)#vlan database / vlan 3999): "3999    VLAN3999         STATIC
+      ACTIVE"; log "NSM[656]: VLAN: added VID 3999". The API then shows it: GET .../ietf-interfaces:interfaces/
+      interface=vlan3999 -> {"name": "vlan3999", "type": "iana-if-type:l3ipvlan"}; openconfig state
+      admin-status DOWN / oper-status DOWN.
+    Z2 DELETE .../ietf-interfaces:interfaces/interface=vlan3999 -> HTTP 403 Forbidden
+       {"ietf-restconf:errors": {"error": [{"error-type": "protocol", "error-tag": "access-denied"}]}}
+    Z3 DELETE .../openconfig-interfaces:interfaces/interface=vlan3999 -> 403 Forbidden (same)
+    Z5 DELETE .../interface=vlan3999/enabled (leaf) -> 204, nothing visible changed.
+    CLI (11:38:01): VLAN 3999 still "STATIC ACTIVE"; vlan3999 "admin up down".
+  C result: VLANs CANNOT be added or deleted through RESTCONF on this build. No exposed model holds the VLAN
+    database; creation requests are answered 204 but create nothing on the device (a phantom object held by the
+    RESTCONF server only); deletion of a real VLAN is refused 403 access-denied (user manager, privilege 15).
+
+TEARDOWN (u0 awplus(config)#, 11:38:51-11:38:56, ckcon --stop-on-error rc 0):
+    configure terminal / vlan database / no vlan 3999 / exit / interface vlan105 / no ip address / end
+  show vlan brief: 1, 103, 104, 105, 108 only; show ip interface brief: "vlan105 unassigned admin up running";
+  "port1.0.8 admin up running"; u1 "port1.0.5 admin up running".
+  show boot (both): "Current boot config: flash:/tb470-bench.cfg (file exists)".
+  rcdiff running-config vs the group baseline: u0 EMPTY, u1 EMPTY.
+  RESTCONF-only residue (not in running-config): the server's config tree now holds "enabled": true for
+    port1.0.8 (matches the device). The phantom vlan3999 was DELETEd (X1); the CLI VLAN 3999 is gone.
+  No write, no reload. Consoles left at exec.
+
+NOTES
+  - The guide page "Limitations" says of RESTCONF: "There are no known limitations to the RESTCONF
+    implementation." The findings above contradict it on this build.
+  - `show log tail 6` is refused ("% Invalid input detected") where `show log tail 8/10/12` work; not graded.
+
+VERDICT: FAIL -- RESTCONF on the x230v2 cannot add or delete VLANs (no VLAN-database model; a create is answered 204 but nothing is created on the device, a delete of a real VLAN is 403 access-denied), and PATCH of an interface's `enabled` leaf answers 204 but changes nothing; interface disable/enable does work by PUT on the `enabled` leaf (proven on both link ends)

@@ -545,6 +545,25 @@ elapsed, first/last OID, the subtrees seen, and why it stopped (`END` = endOfMib
 - **Status:** verified 2026-10-09 on tb470 against the x230v2-28GS (T15255): GETBULK 12448 varbinds in 9.7 s, GETNEXT
   12469 in 26.6 s, both to endOfMibView
 
+### `restconf.py`
+Minimal RESTCONF (RFC 8040) client: one request per call, HTTPS with the certificate not
+verified (bench units are self-signed), HTTP Basic auth, JSON bodies as
+`application/yang-data+json`. Prints a status line (`HTTP <code> <reason>  <METHOD> <url>`), the
+Content-Type / Location / Allow headers, and the body (pretty JSON).
+- **Run:** `restconf.py <host> <METHOD> <path> [--data JSON|@file] [--user U] [--password P] [--port N] [--http] [--root R] [--out FILE] [--max-bytes N] [--grep REGEX] [--timeout S]`
+  - `<path>` starting with `/` is sent as given; otherwise it is relative to the RESTCONF root, taken from
+    `--root` or discovered from `/.well-known/host-meta`.
+  - Credentials: `--user/--password`, else `CK_USER`/`CK_PASSWORD`, else `manager`/`friend`.
+  - Through the wrapper: `tools/tb tool <TB> <scratch> restconf <host> GET data/... --root /restconf`.
+- **Where:** anywhere that reaches the device (on tb470, the box itself over a host NIC); **needs:** Python 3.7+ stdlib only
+- **Imports:** none
+- **Exit codes:** 0 a 2xx answer; 1 any other HTTP status; 2 usage (including `--data` that is not JSON); 3 connection error.
+- **AW+ facts it met (x230v2-28GS, awplus_main-20261008-57, 2026-10-13, T47228):** `/.well-known/host-meta` answers
+  404, so pass `--root /restconf`; writes work only as **PUT on a leaf with an unqualified body**
+  (`{"enabled":false}`), a module-qualified leaf body gets 400, PATCH on a container gets 404, and PATCH on a leaf
+  answers 204 without changing anything. Details: memory `awplus-restconf-api-reference`.
+- **Status:** verified 2026-10-13 on tb470 against the x230v2-28GS (u0) over eth3 (GET, PUT, PATCH, POST, DELETE, OPTIONS)
+
 ### `mb.py`
 Modbus/TCP client with a raw-byte trace. It reads holding registers, writes a register, or
 probes. Use it for AW+ SCADA Modbus gateway cases.
