@@ -11,9 +11,23 @@
 # `tail -f`. All state lives in $SCRATCH, never in the repo.
 #
 # MODES -- switch live, no re-arm:  echo verbose > $SCRATCH/sentinel.mode   (or normal)
-#   normal   console CLI transcripts as they happen + the rescue alarms
-#   verbose  + the tester's narration, commands and their output, bench-runner subagent
-#            transcripts, the tester's background-task output, framework run logs
+#   normal   one UPDATE line per active tick, written by Haiku (narrate.sh) from everything new
+#            that tick, + ATTENTION lines + the rescue alarms. NARRATE=0: the console CLI
+#            transcripts themselves, as before 2026-10-13.
+#   verbose  + the raw lines: console CLI, the tester's narration, commands and their output,
+#            bench-runner subagent transcripts, its background-task output, framework run logs
+#
+# UPDATES (2026-10-13, Ask-CK run val-fbe9: $35 for one script, nearly all of it the Opus session
+# re-reading its growing conversation each time a raw console batch woke it). Each active tick,
+# narrate.sh turns the tick's new lines into one sentence. Every update goes to
+# $SCRATCH/sentinel.updates (JSON lines; `tail -f` it). Then:
+#   UPDATES set (Ask-CK: the seat agent sets CK_SENTINEL_UPDATES and relays the file to the page)
+#            -> the update goes ONLY to that file; stdout carries ATTENTION and alarms, so the
+#               session wakes only when it has something to do.
+#   unset    (a Test Engineer's own /test-mode) -> `UPDATE <sentence>` on stdout: the session
+#            still wakes per tick, but on one line instead of up to CAP lines per source.
+# ATTENTION comes from Haiku's judgement or, without it, from a fixed pattern in the framework
+# and console logs (ATTN_RE) -- !!FAIL, ERROR, a traceback, a power cycle.
 #
 #   PEER_LOG  the tester's transcript .jsonl            (§10 setup step 2 says how to find it)
 #   PEER_PID  pid of the tester's claude process        (same; OPTIONAL -- empty = no pid check)
@@ -35,6 +49,8 @@
 #   TICK      seconds between polls                     (default 30)
 #   IDLE_ALARM seconds of no activity before an IDLE report   (default 300)
 #   CAP       max stdout lines per source per tick      (default 40; the feed is never capped)
+#   NARRATE   1 (default) = updates as above; 0 = the pre-2026-10-13 raw stdout
+#   UPDATES   file the updates go to instead of stdout  (default $CK_SENTINEL_UPDATES; none = stdout)
 set -u
 : "${PEER_LOG:?}" "${SCRATCH:?}" "${UNTIL:?}"
 SELF=${SELF:-0}; PEER_PID=${PEER_PID:-}
@@ -51,6 +67,11 @@ CLI_GLOB=${CLI_GLOB:-/tmp/*/console-*.log $RUNS/swi_*.log $RUNS/stk_*.log}
 FW_GLOB=${FW_GLOB:-/home/st-art/pytest-create/*/*/*.log}
 JOBS=${JOBS:-python3|tcpdump}
 TICK=${TICK:-30}; IDLE_ALARM=${IDLE_ALARM:-300}; CAP=${CAP:-40}
+NARRATE=${NARRATE:-1}; UPDATES=${UPDATES:-${CK_SENTINEL_UPDATES:-}}
+NARRATOR="$(dirname "$0")/narrate.sh"
+# Lines that wake the session whatever Haiku says. Matched only in framework and console logs
+# (never the tester's own transcript: its grep commands carry these very words).
+ATTN_RE='!!FAIL|!! ?ERROR|Traceback \(most recent|outlets have been successfully turned off'
 export SSH_AUTH_SOCK=${SSH_AUTH_SOCK_TB:-/run/user/$(id -u)/keyring/ssh}   # TESTBOX-ACCESS.md §0
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=10 "$BOX")
 
@@ -60,6 +81,7 @@ TASKS=${TASKS_DIR:-/tmp/claude-$(id -u)/$SLUG/$SID/tasks} # tester's background-
 MODEFILE="$SCRATCH/sentinel.mode"; FEED="$SCRATCH/sentinel.feed"
 LIFE="$SCRATCH/sentinel.life"; BEAT="$SCRATCH/sentinel.heartbeat"
 LOFFS="$SCRATCH/sentinel.local-offsets"; ROFFS="$SCRATCH/sentinel.remote-offsets"
+TICKF="$SCRATCH/sentinel.tick"; UPD="$SCRATCH/sentinel.updates"; UPDTXT="$SCRATCH/sentinel.updates-text"
 DEADLINE=$(date -d "$UNTIL" +%s) || { echo "bad UNTIL: $UNTIL"; exit 2; }
 # Assembled at runtime so neither this script nor a grep for it can match itself -- the
 # self-match is the bug this kit exists to catch (memory ssh-pgrep-watchers-self-match).
@@ -83,9 +105,18 @@ save_offsets() {
   { for k in "${!ROFF[@]}"; do printf '%s\t%s\n' "$k" "${ROFF[$k]}"; done; } > "$ROFFS.tmp" && mv "$ROFFS.tmp" "$ROFFS"
 }
 
-# emit <show 0|1> <label> <line>: always to the feed; to stdout only if shown, capped per label.
+# emit <show 0|1> <label> <line>: always to the feed (and the narrator's tick file); to stdout
+# only if shown, capped per label.
+declare -A ATTN_SEEN; ATTN=()
 emit() {
   printf '%s [%s] %s\n' "$T" "$2" "$3" >> "$FEED"
+  if [ "$NARRATE" = 1 ]; then
+    printf '%s [%s] %s\n' "$T" "$2" "$3" >> "$TICKF"
+    if [[ $2 != agent:* && $2 != task:* && $2 != tester ]] && [[ $3 =~ $ATTN_RE ]]; then
+      local k="${3:0:160}"
+      [ -z "${ATTN_SEEN[$k]+x}" ] && [ "${#ATTN[@]}" -lt 5 ] && { ATTN_SEEN[$k]=1; ATTN+=("[$2] ${3:0:240}"); }
+    fi
+  fi
   [ "$1" = 1 ] || return 0
   CNT[$2]=$(( ${CNT[$2]:-0} + 1 ))
   [ "${CNT[$2]}" -le "$CAP" ] && printf '%s [%s] %s\n' "$T" "$2" "$3"
@@ -155,11 +186,39 @@ EOF
   while IFS= read -r line; do
     if [[ $line == ::F::$'\t'* ]]; then
       IFS=$'\t' read -r _ f s <<< "$line"; ROFF[$f]=$s
-      if is_cli "$f"; then label=$(basename "$f" .log); show=1; else label="fw:$(basename "$f")"; show=$V; fi
+      if is_cli "$f"; then label=$(basename "$f" .log); show=$SHOWCLI; else label="fw:$(basename "$f")"; show=$V; fi
     elif [[ $line =~ [^[:space:]] ]]; then
       ACTIVE=1; emit "$show" "$label" "$line"
     fi
   done < "$out"
+}
+
+# One update per active tick (see UPDATES above). A narrator failure falls back to a plain
+# count, says so once on stdout, and never stops the watch.
+NARR_DOWN=0
+narrate_tick() {
+  local out text attn cost rec
+  if [ ! -s "$TICKF" ]; then ATTN=(); ATTN_SEEN=(); return 0; fi
+  if out=$(bash "$NARRATOR" "$TICKF" "$UPDTXT" 2>/dev/null) && [ -n "$out" ]; then
+    text=$(jq -r '.text // ""' <<< "$out"); attn=$(jq -r '.attention // ""' <<< "$out"); cost=$(jq -r '.cost_usd // 0' <<< "$out")
+    [ "$NARR_DOWN" = 1 ] && { echo "$T NARRATOR BACK"; NARR_DOWN=0; }
+  else
+    text="$(wc -l < "$TICKF") new log lines ($(awk '{print $2}' "$TICKF" | sort -u | head -6 | tr '\n' ' ')); last: $(tail -1 "$TICKF" | cut -c1-160)"
+    attn=""; cost=0
+    [ "$NARR_DOWN" = 0 ] && { echo "$T NARRATOR DOWN -- plain summaries until it recovers (bash $NARRATOR <tick file> to see why)"; NARR_DOWN=1; }
+  fi
+  if [ "${#ATTN[@]}" -gt 0 ]; then
+    attn="${attn:+$attn; }$(printf '%s; ' "${ATTN[@]}")"; attn=${attn%; }
+  fi
+  [ -n "$text" ] && echo "$text" >> "$UPDTXT"
+  rec=$(jq -nc --arg t "$T" --arg text "$text" --arg a "$attn" --argjson c "${cost:-0}" \
+        '{t: $t, text: $text, attention: (if $a == "" then null else $a end), cost_usd: $c}')
+  echo "$rec" >> "$UPD"
+  [ -n "$UPDATES" ] && echo "$rec" >> "$UPDATES"
+  [ -z "$UPDATES" ] && [ -n "$text" ] && echo "$T UPDATE $text"
+  [ -n "$attn" ] && echo "$T ATTENTION $attn"
+  : > "$TICKF"; ATTN=(); ATTN_SEEN=()
+  return 0
 }
 
 MODE_NOW=""; last_act=$(date +%s); next_alarm=$(( last_act + IDLE_ALARM ))
@@ -175,6 +234,7 @@ while true; do
     echo "$T MODE $m  (switch: echo verbose|normal > $MODEFILE; full feed: tail -f $FEED)"; MODE_NOW=$m
   fi
   V=0; [ "$m" = verbose ] && V=1
+  SHOWCLI=1; [ "$NARRATE" = 1 ] && [ "$V" = 0 ] && SHOWCLI=0   # the narrator speaks for them
 
   if [ "$(date +%s)" -ge "$DEADLINE" ]; then echo "$T SENTINEL STAND-DOWN -- $UNTIL reached"; exit 0; fi
   if [ -n "$PEER_PID" ] && ! kill -0 "$PEER_PID" 2>/dev/null; then echo "$T PEER SESSION EXITED (pid $PEER_PID gone)"; exit 0; fi
@@ -191,6 +251,7 @@ while true; do
     poll_bytes "$f" "task:$(basename "$f" .output)"
   done
   flush_caps; save_offsets; FIRST=0
+  [ "$NARRATE" = 1 ] && narrate_tick
 
   now=$(date +%s)
   [ "$ACTIVE" = 1 ] && { last_act=$now; next_alarm=$(( now + IDLE_ALARM )); }

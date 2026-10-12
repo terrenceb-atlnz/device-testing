@@ -211,6 +211,9 @@ The kit is `/orient-dt` §0 "sentinel kit"; the procedure is §10 with `SELF=1`.
    BOX=<TB> PEER_LOG=<own transcript> SCRATCH=<scratchpad> UNTIL='<until>' bash
    <repo>/.claude/skills/orient-dt/sentinel/sentinel.sh", timeout_ms: 1800000)`. Re-arm on
    every expiry; the expiry notification is itself a wake-up, so use it.
+   - **An Ask-CK campaign adds `UPDATES=<the hand-off's sentinel_updates>`** to that command (the
+     seat agent also sets `CK_SENTINEL_UPDATES` to the same path). The running updates then go
+     to Ask-CK's page through the agent and never wake you (§7).
 4. `CronCreate` the backstop from `cron-trigger.template.md`, one-session wording, every 15 min.
 5. Tell the Test Engineer in one line: it is armed, which mode, where the full feed is
    (`<scratchpad>/sentinel.feed` for their own `tail -f`), and how to switch modes.
@@ -343,8 +346,17 @@ unacknowledged NEEDS YOU on the table.
   stall, so add "no reply needed" where none is.
 - **A new session fact mid-campaign** (another console, a corrected outlet) → write it into the
   queue file's Session facts with the time, relay it, and have the next probe carry it.
-- **Monitor events**: CLI transcripts in normal mode, the tester's narration in verbose. Healthy
-  ticks are silent; do not narrate them.
+- **Monitor events** (normal mode, since 2026-10-13): the kit's Haiku narrator turns each active
+  tick into one sentence, so you are no longer fed raw console batches (orient-dt §10, "Updates").
+  - **`UPDATE <sentence>`** (a Test Engineer's own campaign): relay it as one short line, adding
+    only what you know that it cannot (the queue, the tester's messages). The Test Engineer
+    reads these as the run's commentary.
+  - In an Ask-CK campaign there are no `UPDATE` lines: they go to the page without you.
+  - **`ATTENTION <reason>`**: look. It is Haiku's judgement or a fixed pattern (`!!FAIL`,
+    `ERROR`, a traceback, a power cycle). Act per STANDING-ORDERS (a systematic failure stops
+    the run, §6) or say in one line why it needs nothing.
+  - `NARRATOR DOWN`: updates fall back to plain line counts; carry on, and say so once.
+  - Verbose mode adds the raw lines as before.
   - An **IDLE** alarm with nothing running and rows left is §6 step 3.
   - An IDLE alarm while a case is mid-run and the box shows a live job is not.
 - **Cron ticks** classify per the template: healthy → silent; NEEDS YOU → surface; idle with

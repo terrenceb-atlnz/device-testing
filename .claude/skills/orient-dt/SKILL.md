@@ -50,7 +50,7 @@ refers to these by NAME**; when something moves, fix this table and nothing else
 | **bench_probe.py** (THE bench-state tool, consolidated 2026-09-25) | `bench-setup/bench_probe.py` | see the **bench_probe.py** paragraph below the table |
 | **fw_async_test.py / fw_async_chatter.py** | `claude/Test-cases/ask-ck/functions/test-composer/` ¹ | the §3 chatter regression |
 | **working style** | `claude/Test-cases/CLAUDE.md` §"How we work" ¹ | |
-| **sentinel kit** (added 2026-09-28) | `.claude/skills/orient-dt/sentinel/` | `sentinel.sh` (the Monitor watcher; `BOX=<TB>`), `SENTINEL-BRIEF.template.md`, `cron-trigger.template.md`; how to use them is §10 |
+| **sentinel kit** (added 2026-09-28) | `.claude/skills/orient-dt/sentinel/` | `sentinel.sh` (the Monitor watcher; `BOX=<TB>`), `narrate.sh` (its Haiku narrator, 2026-10-13), `SENTINEL-BRIEF.template.md`, `cron-trigger.template.md`; how to use them is §10 |
 | **STANDING-ORDERS.md** (added 2026-09-28) | `STANDING-ORDERS.md` (repo root) | the standing answers for campaigns: device-state authority, the triage report shape, what stays the Test Engineer's (logging rules moved to logged-output.md, 2026-10-02). Read at every orient and before every run |
 | **test-mode skill** (added 2026-09-28) | `.claude/skills/test-mode/SKILL.md` | `/test-mode <cases>` / `--resume`: the ONE-SESSION campaign bundle. It asks for the box and its facts, and §10 shape A applies |
 
@@ -769,10 +769,27 @@ device-testing agent that does both parts equally"*):
 
      | mode | what the sentinel is shown |
      | --- | --- |
-     | **normal** (default) | the CLI transcripts as they happen, plus the rescue alarms. That is every console byte sent and received, from `console.py` transcripts (the box's `/tmp/*/console-*.log`) and the framework's per-device console logs in bench-runner's run dirs (`/home/st-art/pytest-create/*/*/{swi,stk}_*.log`) |
+     | **normal** (default) | one `UPDATE` sentence per active tick, written by the Haiku narrator from everything new that tick, plus `ATTENTION` lines and the rescue alarms (below, "Updates"). With `NARRATE=0`: the CLI transcripts themselves, as before 2026-10-13 — every console byte from `console.py` transcripts (the box's `/tmp/*/console-*.log`) and the framework's per-device console logs in bench-runner's run dirs (`/home/st-art/pytest-create/*/*/{swi,stk}_*.log`) |
      | **verbose** | normal, plus the tester's narration, every command it ran and its output (`run:`/`out:` from its transcript), bench-runner subagent transcripts (`<session>/subagents/`), its background-task output (`/tmp/claude-<uid>/<slug>/<session>/tasks/*.output`), and the framework's other logs (TestSet etc.) |
    - **Every printed line wakes the sentinel and costs tokens**, so output is capped at `CAP`
-     (40) lines per source per tick. The **full verbose feed is always written to
+     (40) lines per source per tick.
+   - **Updates (2026-10-13).** Each wake makes the sentinel re-read its whole conversation, and
+     raw console batches made that conversation grow all run: Ask-CK run
+     `2026-10-13T0626-val-fbe9` (one automated script) woke it 331 times, each re-read grew from
+     125k to 553k tokens, and it cost $35.11, nearly all of it re-reading. So `narrate.sh` (Haiku,
+     no tools, a fixed-size input: its last 6 updates plus the tick's new lines, deduplicated
+     and trimmed to 150 lines) writes one sentence per active tick, at about $0.001 each.
+     - Every update goes to `$SCRATCH/sentinel.updates` (JSON lines).
+     - `UPDATES=<file>` (or `CK_SENTINEL_UPDATES`, which Ask-CK's seat agent sets): updates go only
+       there, and the agent relays them to Ask-CK's page; stdout carries `ATTENTION` and the
+       alarms, so the sentinel wakes only when it has something to do.
+     - Without it (a Test Engineer's own `/test-mode`): `UPDATE <sentence>` on stdout. The
+       sentinel still wakes per tick, but on one line, so its conversation grows slowly.
+     - `ATTENTION <reason>` is Haiku's judgement, or a fixed pattern seen in the framework or
+       console logs (`!!FAIL`, `ERROR`, a traceback, a power cycle; never the tester's own
+       transcript, whose greps carry those words).
+     - A narrator failure prints `NARRATOR DOWN` once and falls back to plain line counts; the
+       watch carries on. `NARRATE=0` restores the raw stdout. The **full verbose feed is always written to
      `$SCRATCH/sentinel.feed`**, whatever the mode. For a free human live view, open a terminal
      and `tail -f` that file. Prefer that to running the Monitor in verbose for hours.
    - Each tick (`TICK`, 30 s) runs ONE ssh to the box and reads only the new bytes. Nothing opens

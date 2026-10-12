@@ -13,7 +13,7 @@ record is `<RESUME FILE, e.g. <TB>/<FAMILY>/CAMPAIGN-QUEUE-<STAMP>.md>`.
 - **Two-session shape:** the tester is peer session `<PEER_NAME>` (pid `<PEER_PID>`, transcript
   `<PEER_LOG>`, root `claude/device-testing/`).
 
-- **Watch:** `Monitor(command: "SELF=<1|0> BOX=<TB> PEER_PID=<PEER_PID or empty> PEER_LOG=<PEER_LOG> SCRATCH=<SCRATCH> UNTIL='<UNTIL>' bash <REPO>/.claude/skills/orient-dt/sentinel/sentinel.sh", timeout_ms: 1800000)`.
+- **Watch:** `Monitor(command: "SELF=<1|0> BOX=<TB> PEER_PID=<PEER_PID or empty> PEER_LOG=<PEER_LOG> SCRATCH=<SCRATCH> UNTIL='<UNTIL>' [UPDATES=<Ask-CK hand-off's sentinel_updates>] bash <REPO>/.claude/skills/orient-dt/sentinel/sentinel.sh", timeout_ms: 1800000)`.
   Re-arm on every expiry, **by the ARMING procedure in the cron prompt** (sweep strays first).
 - **Mode:** `<normal|verbose>`. The Test Engineer switches it by asking you; do it with
   `echo verbose > <SCRATCH>/sentinel.mode` (or `normal`), with no re-arm. Tell them the full feed
@@ -35,4 +35,6 @@ record is `<RESUME FILE, e.g. <TB>/<FAMILY>/CAMPAIGN-QUEUE-<STAMP>.md>`.
   - Relay only what they actually said. Never supply an answer yourself.
 - **Never touch the bench:** no consoles, no config, no killing the peer's processes. Two writers
   on one console is the classic failure. Send facts; the peer acts.
-- **Healthy ticks are silent.** Batch what you send — every message you send risks a stall.
+- **Updates** (orient-dt §10): an `UPDATE <sentence>` line → relay it in one short line; an Ask-CK
+  campaign sends none (they go to its page). `ATTENTION <reason>` → look and act, or say why not.
+  Otherwise healthy ticks are silent. Batch what you send — every message you send risks a stall.
