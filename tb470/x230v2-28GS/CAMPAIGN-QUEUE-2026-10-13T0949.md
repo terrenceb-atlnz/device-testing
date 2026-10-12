@@ -118,6 +118,7 @@ Per case, running-config only (x230 = u0 unless named):
 | --- | --- | --- | --- | --- | --- | --- |
 | T30403 | Check traffic is fowarded with static mroutes (IPv4) | cli-2026-10-13T0949 | UNSUPPORTED | x230v2-28GS has no multicast routing: ip mroute / ip multicast-routing / ip pim / show ip mroute absent from the parser (% Invalid input), no PIM licence feature; running-config unchanged | cli-2026-10-13T0949/30403/work/run1.log | tester |
 | T45543 | TPM Support | cli-2026-10-13T0949 | PARTIAL | steps 1-2 PASS ("show platform full-debug \| grep tpm" lists tpm2-abrmd + tpm_server; "TPM is instantiated" = OK per ruling), step 3 idevid NOT RUN (MANUAL-ONLY); note: tpm2-abrmd uses --tcti=mssim to /usr/bin/tpm_server on localhost:2321 (a software TPM simulator), recorded ungraded | cli-2026-10-13T0949/45543/work/run1.log | tester |
+| T20358 | STP loop between x230 ports | cli-2026-10-13T0949 | PASS | RSTP on, port1.0.6<->1.0.7 lead closed in VLAN 105: port1.0.7 Backup/Discarding in 5 s (Received RSTP from own bridge); 8356 broadcast frames from eth3 flooded by port1.0.6, 0 broadcast TX on port1.0.7, none back to eth3; port1.0.7 shut first in teardown, rcdiff empty (first closure aborted by ckcon --stop-on-error on "% " lines, re-closed and measured) | cli-2026-10-13T0949/20358/work/run1.log | tester |
 
 ## Issues
 
