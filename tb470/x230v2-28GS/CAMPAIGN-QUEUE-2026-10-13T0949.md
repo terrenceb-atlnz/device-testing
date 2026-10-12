@@ -54,7 +54,7 @@ Test Engineer's rulings carried into this campaign (2026-10-13):
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | CLI / API cases: T30403, T45543, T20358, T47228 | tb470/x230v2-28GS/cli-2026-10-13T0949/ | RUNNING (11:19, bench-runner; T30403 UNSUPPORTED; T45543 PARTIAL; T20358 PASS; T47228 FAIL; group done, after-run checks next) | manual CLI on u0 (+ u1 if needed); T30403 read-only UNSUPPORTED evidence; T45543 steps 1-2; T20358 RSTP on x230, then `no shutdown` port1.0.7, eth3 broadcast; T47228 RESTCONF from tb470 over eth3 (x230 vlan105 IP) |
+| 1 | CLI / API cases: T30403, T45543, T20358, T47228 | tb470/x230v2-28GS/cli-2026-10-13T0949/ | DONE 11:43 (T30403 UNSUPPORTED, T45543 PARTIAL, T20358 PASS, T47228 FAIL; bench restored) | manual CLI on u0 (+ u1 if needed); T30403 read-only UNSUPPORTED evidence; T45543 steps 1-2; T20358 RSTP on x230, then `no shutdown` port1.0.7, eth3 broadcast; T47228 RESTCONF from tb470 over eth3 (x230 vlan105 IP) |
 | 2 | MDI/MDI-X framework: T33234 (scripts 5000.0003 straight, 5000.0004 crossover) | tb470/x230v2-28GS/mdix-2026-10-13T0949/ | RUNNABLE (triage 10:01; own u0/u1 setup, no apply needed) | the scripts' source: ck.db `scripts` table (`test_scripts/5000_mdi_mdix/`); dut = x230, remote = 4050; u0/u1-only setup; check defaulting commands (polarity) on both units before launch (STANDING-ORDERS §6) |
 
 ## Triage 2026-10-13 09:50-10:01 (bench-runner, TRIAGE)
@@ -111,6 +111,13 @@ Per case, running-config only (x230 = u0 unless named):
   changed is reverted by running-config diff against `prerun-u0.out` (and u1's against `prerun-u1.out`).
 - **If the tester dies mid-group:** on u0 apply the T20358 restore (port1.0.7 `shutdown` first), then the T47228
   restore, then diff against `prerun-u0.out`; `show boot` must still read `flash:/tb470-bench.cfg`.
+
+- **After the group (11:38-11:43):** both units restored by running-config diff against `prerun-u0/u1.out` (rcdiff
+  empty, u0 and u1, `47228/work/teardown-u*.out`); `show boot` on both `Current boot config: flash:/tb470-bench.cfg
+  (file exists)`; x230 port1.0.7 `shutdown`, STP off, `lacp global-passive-mode enable` as baseline. Post-run probe
+  `2026-10-12T224215Z` (u0,u1, same facts): exit 1 with the identical diff set as the pre-run probe (only the known
+  EXTRA crossover + eth1 artefact). bench-state.md checked out again (the u0/u1 probes rewrite it partially). Nothing
+  left running on tb470; consoles at exec. No write, no reload, no PDU cycle.
 
 ## Results
 
