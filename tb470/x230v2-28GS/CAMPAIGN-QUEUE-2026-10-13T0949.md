@@ -54,7 +54,7 @@ Test Engineer's rulings carried into this campaign (2026-10-13):
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | CLI / API cases: T30403, T45543, T20358, T47228 | tb470/x230v2-28GS/cli-2026-10-13T0949/ | RUNNABLE (triage 10:01); RUN dispatched | manual CLI on u0 (+ u1 if needed); T30403 read-only UNSUPPORTED evidence; T45543 steps 1-2; T20358 RSTP on x230, then `no shutdown` port1.0.7, eth3 broadcast; T47228 RESTCONF from tb470 over eth3 (x230 vlan105 IP) |
+| 1 | CLI / API cases: T30403, T45543, T20358, T47228 | tb470/x230v2-28GS/cli-2026-10-13T0949/ | RUNNING (11:19, bench-runner; T30403 next) | manual CLI on u0 (+ u1 if needed); T30403 read-only UNSUPPORTED evidence; T45543 steps 1-2; T20358 RSTP on x230, then `no shutdown` port1.0.7, eth3 broadcast; T47228 RESTCONF from tb470 over eth3 (x230 vlan105 IP) |
 | 2 | MDI/MDI-X framework: T33234 (scripts 5000.0003 straight, 5000.0004 crossover) | tb470/x230v2-28GS/mdix-2026-10-13T0949/ | RUNNABLE (triage 10:01; own u0/u1 setup, no apply needed) | the scripts' source: ck.db `scripts` table (`test_scripts/5000_mdi_mdix/`); dut = x230, remote = 4050; u0/u1-only setup; check defaulting commands (polarity) on both units before launch (STANDING-ORDERS §6) |
 
 ## Triage 2026-10-13 09:50-10:01 (bench-runner, TRIAGE)
@@ -80,6 +80,37 @@ bench-state.md it wrote was replaced by the sentinel from the full capture `2026
 - "Proceed with all 5" (option text: "Group 1 (T30403, T45543, T20358, T47228), then group 2 (T33234: 0004 then 0003), with the pre-launch checks above.")
 - TC9/TC10: "Exclude, grade UNSUPPORTED" (option text: "Run 0003 with --include-test-cases 1 2 3 4 5 6 7 8 11; TC9/TC10 recorded UNSUPPORTED under your ruling. Avoids ~2 power cycles.")
 - TC6 refusal text: "Exclude TC6, note why" (option text: "Run without TC6 and record the library defect plus the captured CLI refusal as the evidence; no script change.")
+
+## Run, group 1 (cli-2026-10-13T0949) -- bench setup and restore recipe (bench-runner, written 11:2x before the first case)
+
+Gate 11:19-11:21: precheck u0,u1 CLEAR; peek u0 `awplus login:`, u1 `4050-5g#` (left logged in by the triage);
+`/nfsHome` mounted; probe `2026-10-12T221943Z` (u0,u1, `--baud 115200`) exit 1 with only the known diffs (EXTRA
+`swi_e-swi_f port1.0.5-port1.0.8`, artefact `tb-swi_f eth1-port1.0.2`, MISSING for unread IE520s). Both units:
+`Current boot config: flash:/tb470-bench.cfg (file exists)`. Group baseline (running-config, show boot, show system) of
+u0 and u1: `cli-2026-10-13T0949/30403/work/prerun-u0.out`, `prerun-u1.out`; every case's teardown diffs against it.
+Scratch on tb470: `/tmp/x230cli-0949/` (transcripts `console-u0.log`, `console-u1.log`). **No `write` on either unit,
+no reload.**
+
+Per case, running-config only (x230 = u0 unless named):
+- **T30403** read-only plus refused config commands (`ip multicast-routing`, `ip mroute ...`); nothing to restore
+  beyond proving the running-config unchanged.
+- **T45543** read-only (`show platform full-debug | grep tpm`, `show system tpm`). Step 3 NOT RUN (MANUAL-ONLY).
+- **T20358** setup: `no lacp global-passive-mode enable`; `spanning-tree rstp enable` (mode is already rstp);
+  port1.0.6 and port1.0.7 `switchport access vlan 105` (port1.0.5 = tb470 eth3 is already VLAN 105); prove no
+  `channel-group` on 1.0.6/1.0.7 and both listed in `show spanning-tree brief`; only then port1.0.7 `no shutdown`;
+  gate: port1.0.7 Backup/Discarding within 20 s, else `shutdown` port1.0.7 at once. Broadcast from eth3
+  (`tools/linerate.py`, 10 Mb/s).
+  **Restore, in this order:** `interface port1.0.7` / `shutdown` (FIRST: the lead is a loop with STP off);
+  `interface port1.0.6-1.0.7` / `no switchport access vlan` (back to VLAN 1); `no spanning-tree rstp enable`;
+  `lacp global-passive-mode enable`; then diff running-config against `prerun-u0.out`.
+- **T47228** setup: `interface vlan105` / `ip address 10.38.215.90/27` (tb470 eth3 = .65/27); RESTCONF over HTTPS
+  from tb470 with `tools/restconf.py` (manager, priv 15); toggle x230 port1.0.8 (4050 port1.0.5 side observed
+  read-only on u1); create/delete a test VLAN (VID 3999, not otherwise used on the bench).
+  **Restore:** port1.0.8 `no shutdown` (enabled), VLAN 3999 absent (`no vlan 3999` under `vlan database` if left),
+  `interface vlan105` / `no ip address`, `no interface vlan105` if the case created it; anything else the API
+  changed is reverted by running-config diff against `prerun-u0.out` (and u1's against `prerun-u1.out`).
+- **If the tester dies mid-group:** on u0 apply the T20358 restore (port1.0.7 `shutdown` first), then the T47228
+  restore, then diff against `prerun-u0.out`; `show boot` must still read `flash:/tb470-bench.cfg`.
 
 ## Results
 
