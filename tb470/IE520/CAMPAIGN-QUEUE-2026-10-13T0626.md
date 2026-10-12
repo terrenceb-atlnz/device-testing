@@ -54,7 +54,7 @@ as in the 2026-10-12 campaigns: u0 swi_f 1, u1 swi_e 7, u2 swi_a 6, u3 swi_b 8, 
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | port (script, validation): T33235 | tb470/IE520/port-2026-10-13T0626/ | RUN | queued 06:26. Triage 06:27-06:32 (beddca0): probe 172836Z MATCH, 1 runnable / 0 topology / 0 otherwise; nothing changed since 2026-10-12 16:06 restore; all exception logs None. Setup/restore = 2026-10-12T1537 group-1 recipe (one-leg isolation + R1 re-read). Expected 31 PASS / 2 UNSUPPORTED / 0 FAIL, 0 PDU cycles (worst 2), 1 stack reload (TC33), ~80 min. RUN (validation: repair) dispatched ~06:34 (I-1). Tester: setup 06:33:42-06:34:06 (port1.0.2 out of sa2, verified; R1 exception logs all None, nothing cleared); run 1 launched 06:35:03 (/home/st-art/pytest-create/33235/run1/), fresh unedited copy in port-2026-10-13T0626/33235/work/ |
+| 1 | port (script, validation): T33235 | tb470/IE520/port-2026-10-13T0626/ | RUN | queued 06:26. Triage 06:27-06:32 (beddca0): probe 172836Z MATCH, 1 runnable / 0 topology / 0 otherwise; nothing changed since 2026-10-12 16:06 restore; all exception logs None. Setup/restore = 2026-10-12T1537 group-1 recipe (one-leg isolation + R1 re-read). Expected 31 PASS / 2 UNSUPPORTED / 0 FAIL, 0 PDU cycles (worst 2), 1 stack reload (TC33), ~80 min. RUN (validation: repair) dispatched ~06:34 (I-1). Tester: setup 06:33:42-06:34:06 (port1.0.2 out of sa2, verified; R1 exception logs all None, nothing cleared); run 1 launched 06:35:03 (/home/st-art/pytest-create/33235/run1/), fresh unedited copy in port-2026-10-13T0626/33235/work/. Run 1 ended 07:31:15 rc 0: CLEAN, 31 PASS / 2 UNSUPPORTED (TC20/21 pre-marked) / 0 FAIL, 0 PDU cycles, 1 stack reload (TC33 07:26:56-07:30:00); tester verdict PASS (33235/work/run1.log). Restored 07:33-07:37: probe MATCH 183707Z, running-config IDENTICAL vs 172836Z, boot tb470-bench.cfg on all four, remote-diff identical, all run cfgs deleted incl. backup members' copies. No repair needed; no re-run |
 
 ## Setup and restore recipe — group 1
 
@@ -89,6 +89,10 @@ launched `tools/tb fwprep tb470 33235/run<N> <files>` + `tools/tb fw tb470 33235
    `shutdown`, `static-channel-group 2`, `no shutdown`, `exit`, `boot config-file flash:/tb470-bench.cfg`, `end`,
    `delete force stk_a_9001_33235.cfg`, `delete force TestCase_tear_down.cfg` (only if `dir` lists it), `show boot`,
    `show static-channel-group`.
+   **Added 2026-10-13 after run 1:** delete EVERY file `dir` lists: the base file, the per-TestCase saves
+   `<dev>_9001_33235_<N>.cfg` and `TestCase_tear_down.cfg` (33 per device in run 1). The stack backup members keep their own copies,
+   which a delete on the master does not remove: `dir IE520-stk-1/flash:/` and `dir IE520-stk-4/flash:/`, then
+   `delete force IE520-stk-<1|4>/flash:/<file>` for each `stk_a_9001_33235*.cfg` listed.
 4. u3 (swi_b), u1 (swi_e), u0 (swi_f), each: `show boot`, `configure terminal`, `boot config-file flash:/tb470-bench.cfg`,
    `end`, `delete force <swi_b|swi_e|swi_f>_9001_33235.cfg`, `delete force TestCase_tear_down.cfg` (only if listed), `show boot`.
 5. Every `show boot` -> `Current boot config: flash:/tb470-bench.cfg (file exists)`; stack sa2 = {port1.0.2, port1.0.9}.
