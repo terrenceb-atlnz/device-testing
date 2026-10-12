@@ -51,7 +51,7 @@ as in today's 14:56 campaign: u0 swi_f 1, u1 swi_e 7, u2 swi_a 6, u3 swi_b 8, u4
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | port (script, validation): T33235 | tb470/IE520/port-2026-10-12T1537/ | RUNNING | Triage 15:39-15:48 (probe 023956Z MATCH, c1ae32b): 1 runnable / 0 topology / 0 otherwise, after the tester's one-leg isolation (stack port1.0.2 out of sa2; restored after). Expected 31 PASS / 2 UNSUPPORTED (TC20/21 pre-marked) / 0 FAIL, 0 PDU cycles, 1 whole-stack reload (TC33), ~80 min incl. setup/restore. RUN dispatched ~15:52 with validation: repair (§11); office-hours guard in Issues I-1 |
+| 1 | port (script, validation): T33235 | tb470/IE520/port-2026-10-12T1537/ | RUNNING | Triage 15:39-15:48 (probe 023956Z MATCH, c1ae32b): 1 runnable / 0 topology / 0 otherwise, after the tester's one-leg isolation (stack port1.0.2 out of sa2; restored after). Expected 31 PASS / 2 UNSUPPORTED (TC20/21 pre-marked) / 0 FAIL, 0 PDU cycles, 1 whole-stack reload (TC33), ~80 min incl. setup/restore. RUN dispatched ~15:52 with validation: repair (§11); office-hours guard in Issues I-1. **Run 1** 15:53-15:59 (eb1395e, d99f092): TestCase_1's checks PASS, but the framework FAILed it on stale exception-log entries on stk_a m3 (Oct 04/07) -> 1 PDU cycle; stopped by sentinel order after TC1, run1.log PARTIAL (confounded); bench RESTORED 16:06 (probe 030621Z MATCH, configs IDENTICAL). Script copy unchanged; repairs.md R1 = clear stale exception history in setup. **Next: run 2 at 18:00 NZDT** (I-1), setup ~17:55 |
 
 ## Setup and restore recipe — group 1
 
@@ -62,7 +62,11 @@ Setup ONCE before the TestSet, restore ONCE after it (STANDING-ORDERS §6); noth
 `configure terminal` / `interface port1.0.2` / `shutdown` / `no static-channel-group` / `no shutdown` / `end`.
 Verify: `show running-config interface port1.0.2` has no `static-channel-group` line; `show interface port1.0.2 status`
 reads `connected 1 a-full a-1000 1000BASE-T` (allow ~30 s, `@poll`); `show static-channel-group` sa2 = {port1.0.9} only.
-Nothing on the x230 (u0), the IE520-sa (u3) or the 4050 (u1). Not written to flash by the tester. The framework then,
+Nothing on the x230 (u0), the IE520-sa (u3) or the 4050 (u1). Not written to flash by the tester.
+**Added after run 1 (repairs.md R1, bench state; sentinel 16:00):** on u5, u0, u1, u3 `show exception log`, saved to
+`work/pre-run<N>-<uN>-exc.out`. If any device holds entries and every one predates the run, `clear exception log` there and re-read
+(`None` on every stack member). An entry from during the run is a DUT finding: report it, do not clear it. (`--nodefaultcfg` skips the framework's
+own TestSet-start clear; its post-case check fails a TestCase on any entry. In run 1 the Oct 04/07 entries on member 3 cost a PDU cycle.) The framework then,
 on every device the `.setup` declares (stk_a, swi_b, swi_e, swi_f): `no shutdown` on each declared port, and
 `no boot config-file` / `copy run <dev>_9001_33235.cfg` / `boot config-file <dev>_9001_33235.cfg` (the isolated
 port1.0.2 is therefore in `stk_a_9001_33235.cfg`; TestCase_32/33 `copy running-config startup-config` write that file again,
