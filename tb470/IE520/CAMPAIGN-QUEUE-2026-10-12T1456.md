@@ -49,7 +49,7 @@ swi_e 7, swi_f 1. `<FAMILY>` = IE520 because the script binds `swi_a` = 264A2306
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | port (script, validation): T33234 | tb470/IE520/port-2026-10-12T1456/ | TRIAGE | |
+| 1 | port (script, validation): T33234 | tb470/IE520/port-2026-10-12T1456/ | RUN | Triage 15:02 (probe 015814Z MATCH): 1 runnable / 0 topology / 0 otherwise; expected 14/14 UNSUPPORTED (platform: no fixed copper switchport), 0 power cycles, ~2 min + restore. RUN dispatched with validation: repair (§11) |
 
 ## Setup and restore recipe — group 1
 
