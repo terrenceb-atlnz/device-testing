@@ -87,3 +87,552 @@ R1 (work/repairs.md): `show exception log` -> Stack member 1 None / member 3 Non
 ## Per-device .cfg (after setup, before step 1)
 - `33235/stk_a.cfg`: master (u5) `show running-config` 12:39, `python3 tools/rc2cfg.py work/pre-run1-u5.out stk_a.cfg <3 headers>` (3 + 201 lines).
 - `33235/swi_b.cfg`: IE520-sa (u3) `show running-config` 12:39, rc2cfg (3 + 115 lines; carries `vlan 106 name link-m`).
+
+## Framework run 1
+
+Commands (repo root, dev host):
+```
+tools/tb fwprep tb470 33235/run1223-1 <abs>/port-2026-10-13T1223/33235/work/test-9001.33235.py <abs>/.../work/library_9001.py <abs>/.../work/ck_media.py
+tools/tb precheck tb470 u2-u5 && tools/tb fw tb470 33235/run1223-1 test-9001.33235.py /home/terrenceb/claude/device-testing/tb470/IE520/port-2026-10-13T1223/tb470-u2u5.setup
+tools/tb waitfor tb470 /home/st-art/pytest-create/33235/run1223-1/run.exit 6600
+```
+-> on tb470 (python pid 875305, started 12:40:54): `sudo -n PYTHONPATH=/home/st-art python3 /home/st-art/pytest-create/33235/run1223-1/test-9001.33235.py
+-s /home/terrenceb/claude/device-testing/tb470/IE520/port-2026-10-13T1223/tb470-u2u5.setup -v --noupdate --nodefaultcfg`.
+No `--include-test-cases`; powerCycleOnFail untouched; no timeout raised. (The local `tools/tb fw` ssh did not return after
+starting the detached run; it was cut by `timeout 60` locally, rc 143; the run itself was detached by setsid/nohup and ran on.)
+Framework workdir on tb470: /home/st-art/pytest-create/33235/run1223-1/ (per-device logs swi_a/swi_b/swi_c/swi_d/stk_a_33235.log,
+power-sock-10.36.150.14-{4,5,6,8}_33235.log, setup_33235.log stay there).
+Copied here: work/framework-run1/test-9001.33235.log (2610 lines), run.log (stdout), run.exit (0).
+
+Framework log, verbatim (key lines):
+    2026-10-13 12:41:01: topology discovered on swi_a: tb=port3.0.13<->tb.eth1; cusfp=port1.0.6<->swi_b.port1.0.14,port1.0.10<->swi_b.port1.0.2; fibre=port4.0.26<->swi_b.port1.0.26
+    2026-10-13 12:41:03: Skipping default.cfg configuration and reboot
+    2026-10-13 12:42:00: INFO: copper test port port1.0.10 on swi_a <-> partner port port1.0.2 on swi_b
+    2026-10-13 12:42:00: INFO: monitored copper-SFP port port1.0.6 on swi_a <-> port port1.0.14 on swi_b
+    2026-10-13 12:42:00: INFO: fibre test port port4.0.26 on swi_a <-> partner port port1.0.26 on swi_b
+    2026-10-13 12:46:32: INFO: TestCase_20 marked unsupported before it runs: the sweep recorded speed 10=False, speed 100=True on port1.0.10; step 21 needs the DUT to accept both
+    2026-10-13 12:46:32: INFO: TestCase_21 marked unsupported before it runs: the sweep recorded speed 10=False, speed 100=True on port1.0.10; step 21 needs the DUT to accept both
+    2026-10-13 13:19:45: ================ TESTSET FINISHED (rc = 0) ================
+Binding = triage's prediction exactly (copper = link C port1.0.10<->sa port1.0.2; cusfp/monitored = link M port1.0.6<->sa
+port1.0.14; fibre = SX port4.0.26<->sa port1.0.26). Partner for every role: the IE520-sa.
+No "Power cycle" line anywhere; power-sock logs for outlets 4/5/6/8 hold no off/cycle action: **0 PDU cycles.** 1 planned
+whole-stack reload (TestCase_31_to_33, STEP 34, 13:15:31-13:18:34). No Traceback, no "exception in", no FAIL line.
+
+## Result per TestCase (framework `<< test-9001.33235.N` lines)
+
+| framework TestCase | steps (script STEP = TestCase N+1) | result |
+| --- | --- | --- |
+| TestCase_1_to_7 | STEP 2-8 copper baseline + copper sweep | PASS (numPassed 47, numFailed 0) |
+| TestCase_8_to_12 | STEP 9-13 fibre sweep | PASS (36 / 0) |
+| TestCase_13 | STEP 14 working fixed speed S | PASS (14 / 0) |
+| TestCase_14_to_18 | STEP 15-19 speed S read back, invalid values | PASS (35 / 0) |
+| TestCase_19 | STEP 20 | PASS (13 / 0) |
+| TestCase_20 | STEP 21 incompatible speeds | UNSUPPORTED, pre-marked at 12:46:32 (DUT AT-SPTXc refused `speed 10`), skipped, no result line, no PDU cycle |
+| TestCase_21 | STEP 22 | UNSUPPORTED, pre-marked at 12:46:32 (same reason), skipped, no PDU cycle |
+| TestCase_22_to_24 | STEP 23-25 speed S, shutdown, no shutdown | PASS (22 / 0) |
+| TestCase_25 | STEP 26 | PASS (12 / 0) |
+| TestCase_26_to_27 | STEP 27-28 re-force S, back to auto | PASS (16 / 0) |
+| TestCase_28 (confCheck=False) | STEP 29 read-only monitored baseline | PASS (11 / 0) |
+| TestCase_29 | STEP 30 | PASS (16 / 0) |
+| TestCase_30 | STEP 31 S2 = 100 | PASS (14 / 0) |
+| TestCase_31_to_33 | STEP 32-34 speed S, save, reload | PASS (20 / 0) |
+
+Tally: **12 PASS / 2 UNSUPPORTED / 0 FAIL** of 14 TestCases, 256 checks passed, 0 failed (= triage's estimate).
+
+CLI error lines in the per-device logs (swi_a/swi_b/swi_c/swi_d_33235.log on tb470), each mapped to the command before it:
+- `% Invalid input detected` x1 on each of swi_a, swi_b, swi_c, swi_d: `show wireless apteryx info` (framework probe at
+  "Mark unsupported test cases", 12:44, not the script; seen in 0626 too) + x1 swi_a `speed fast` (STEP 19, deliberate).
+- `% portX: Unsupported speed/duplex combination` / `Speed or duplex must be auto`: swi_a after `speed 10`, `2500`, `5000`,
+  `10000`, `100` (SX), `10000` (SX), `40000`, `100000`, `5`, `200000`, `10000`; swi_b after `speed 10`, `2500`, `5000`,
+  `10000`, `100` (SX), `10000`, `40000`, `100000`. All sweep / negative-step commands whose refusal the script records.
+- No `no speed`, `duplex auto`, `polarity auto`, `no shutdown`, `copy running-config startup-config` or `boot` command was refused;
+  no `Command [...] failed`. `remote-diff` inside the framework: 22 x "% Results are identical".
+- `% Already logged onto stack member 3` x1 on swi_a (framework login, information only).
+Observations worth carrying (not script defects): the SX fibre port refused `speed 100` on BOTH ends this run (DUT port4.0.26 and
+IE520-sa port1.0.26), so STEP 9 recorded a rejection and passed (in 0626, stack port1.0.3 vs the x230 accepted `speed 100` and
+read connected -- review A1). STEP 31 listed S2 candidates ['100', '10'] although the sweep recorded 10 as rejected; it used 100
+and linked, so no effect on this run.
+
+## Steps (the script's own STEP / PASS / FAIL / INFO / OBSERVED lines, verbatim from work/framework-run1/test-9001.33235.log,
+## date stripped, cut at 400 chars; whole lines in the framework log)
+12:42:00: INFO: copper test port port1.0.10 on swi_a <-> partner port port1.0.2 on swi_b
+12:42:00: INFO: monitored copper-SFP port port1.0.6 on swi_a <-> port port1.0.14 on swi_b
+12:42:00: INFO: fibre test port port4.0.26 on swi_a <-> partner port port1.0.26 on swi_b
+>> test-9001.33235.1
+12:44:33: PASS: stk_a is in good state
+12:44:50: ==== TestCase_1 (in TestCase_1_to_7) ====
+12:45:01: STEP 2: On the copper test link: Poll `show interface <test port> status` for up to 30 s, then read `show interface <test port>` and `show interface <partner port> status` on the partner.
+12:45:03: OBSERVED: show interface port1.0.10 status
+12:45:03: PASS: port1.0.10 status row reads connected within 30 s: port1.0.10  -                  connected           1 a-full a-1000  1000BASE-T
+12:45:03: PASS: port1.0.10 duplex column is auto-negotiated: a-full
+12:45:03: PASS: port1.0.10 speed column is auto-negotiated: a-1000
+12:45:03: PASS: show interface port1.0.10 reports concrete current duplex full, current speed 1000
+12:45:03: PASS: partner port1.0.2 row is connected with a-full a-1000
+12:45:03: INFO: copper baseline recorded: {'test_port': 'port1.0.10', 'partner_port': 'port1.0.2', 'current_duplex': 'full', 'current_speed': '1000', 'status_duplex': 'a-full', 'status_speed': 'a-1000', 'partner_duplex': 'a-full', 'partner_speed': 'a-1000'}
+12:45:14: ==== TestCase_2 (in TestCase_1_to_7) ====
+12:45:24: STEP 3: On the copper test link, attempt `10` whatever the port type. On the partner port apply `speed 10` and `duplex full`, then on the DUT copper test port apply `speed 10` and `duplex full`. Poll `show interface <copper test port> status` for up to 30 s, then read `show interface <copper test port>` and `show running-config interface <copper test port>`.
+12:45:26: INFO: baseline port1.0.10 row: port1.0.10  -                  connected           1 a-full a-1000  1000BASE-T  ; configured speed auto; current speed 1000
+12:45:30: INFO: partner swi_b rejected speed 10/duplex full on port1.0.2: speed 10
+12:45:34: INFO: DUT port1.0.10 rejected speed 10 (recorded in speedMap)
+12:45:39: INFO: show interface brief link status running: True
+12:45:39: OBSERVED: speed 10 -> [speed 10
+12:45:39: PASS: DUT rejected speed 10 on port1.0.10 with an error indication (the DUT decides): [speed 10
+12:45:39: PASS: running-config for port1.0.10 gained no speed 10 line
+12:45:45: INFO: after partner restore port1.0.10 row: port1.0.10  -                  connected           1 full   a-1000  1000BASE-T  
+12:45:45: PASS: port1.0.10 speed and link state unchanged: configured speed auto, current speed 1000, up True
+12:45:45: PASS: DUT console stayed at the prompt with no boot output
+12:45:56: ==== TestCase_3 (in TestCase_1_to_7) ====
+12:46:07: STEP 4: On the copper test link, attempt `100` whatever the port type. On the partner port apply `speed 100` and `duplex full`, then on the DUT copper test port apply `speed 100` and `duplex full`. Poll `show interface <copper test port> status` for up to 30 s, then read `show interface <copper test port>` and `show running-config interface <copper test port>`.
+12:46:08: INFO: baseline port1.0.10 row: port1.0.10  -                  connected           1 a-full a-1000  1000BASE-T   ; configured speed: auto
+12:46:32: OBSERVED: show interface port1.0.10 status
+12:46:32: INFO: TestCase_20 marked unsupported before it runs: the sweep recorded speed 10=False, speed 100=True on port1.0.10; step 21 needs the DUT to accept both
+12:46:32: INFO: TestCase_21 marked unsupported before it runs: the sweep recorded speed 10=False, speed 100=True on port1.0.10; step 21 needs the DUT to accept both
+12:46:32: PASS: DUT port1.0.10 accepted speed 100 with no error indication (recorded in speedMap)
+12:46:32: PASS: running-config for port1.0.10 contains speed 100
+12:46:32: PASS: DUT port1.0.10 accepted duplex full and running-config contains duplex full
+12:46:32: PASS: port1.0.10 status row reads connected: port1.0.10  -                  connected           1 full   100     1000BASE-T
+12:46:32: PASS: port1.0.10 status row shows bare full and bare 100 (no a- prefix)
+12:46:32: PASS: port1.0.10 show interface reads current duplex full, current speed 100
+12:46:32: PASS: DUT console stayed at the prompt with no boot output
+12:46:44: ==== TestCase_4 (in TestCase_1_to_7) ====
+12:46:55: STEP 5: On the copper test link, attempt `1000` whatever the port type. On the partner port apply `speed 1000` and `duplex full`, then on the DUT copper test port apply `speed 1000` and `duplex full`. Poll `show interface <copper test port> status` for up to 30 s, then read `show interface <copper test port>` and `show running-config interface <copper test port>`.
+12:46:57: INFO: baseline port1.0.10 status row: 'port1.0.10  -                  connected           1 a-full a-1000  1000BASE-T  ', configured speed auto
+12:47:20: INFO: show interface port1.0.10 brief reports running: True
+12:47:21: OBSERVED: show interface port1.0.10 status
+12:47:21: PASS: console stayed at the prompt: show interface and running-config for port1.0.10 returned with no boot output
+12:47:21: PASS: DUT port1.0.10 accepted speed 1000 and duplex full (recorded in speedMap)
+12:47:21: PASS: running-config for port1.0.10 contains speed 1000
+12:47:21: PASS: port1.0.10 status row reads connected: port1.0.10  -                  connected           1 full   1000    1000BASE-T
+12:47:21: PASS: port1.0.10 status row shows bare 1000 and full (no a- prefix): port1.0.10  -                  connected           1 full   1000    1000BASE-T
+12:47:21: PASS: port1.0.10 show interface reads current duplex full, current speed 1000
+12:47:32: ==== TestCase_5 (in TestCase_1_to_7) ====
+12:47:48: STEP 6: On the copper test link, attempt `2500` whatever the port type. On the partner port apply `speed 2500` and `duplex full`, then on the DUT copper test port apply `speed 2500` and `duplex full`. Poll `show interface <copper test port> status` for up to 30 s, then read `show interface <copper test port>` and `show running-config interface <copper test port>`.
+12:48:00: INFO: partner swi_b rejected speed 2500 on port1.0.2; link-up is not asserted
+12:48:16: OBSERVED: show interface port1.0.10 status
+12:48:16: PASS: DUT console stayed at the prompt, no boot output seen
+12:48:16: PASS: DUT rejected speed 2500 on port1.0.10 with an error indication (the DUT decides; recorded in speedMap)
+12:48:16: PASS: running-config for port1.0.10 gained no speed 2500 line
+12:48:16: PASS: port1.0.10 configured speed unchanged at auto
+12:48:16: INFO: restoring partner swi_b port port1.0.2 to auto before judging the DUT link state
+12:48:23: PASS: port1.0.10 link state unchanged after rejected speed 2500 (running=True)
+12:48:40: ==== TestCase_6 (in TestCase_1_to_7) ====
+12:48:48: STEP 7: On the copper test link, attempt `5000` whatever the port type. On the partner port apply `speed 5000` and `duplex full`, then on the DUT copper test port apply `speed 5000` and `duplex full`. Poll `show interface <copper test port> status` for up to 30 s, then read `show interface <copper test port>` and `show running-config interface <copper test port>`.
+12:48:50: INFO: baseline port1.0.10 status row: port1.0.10  -                  connected           1 a-full a-1000  1000BASE-T  ; connected=True; configured speed auto; current speed 1000
+12:48:56: INFO: partner swi_b rejected speed 5000 on port1.0.2; link-up will not be asserted
+12:49:01: INFO: DUT rejected speed 5000 on port1.0.10; duplex full not applied
+12:49:01: INFO: DUT port1.0.10 rejected speed 5000 (recorded in speedMap)
+12:49:09: OBSERVED: status row: port1.0.10  -                  connected           1 a-full a-1000  1000BASE-T  
+12:49:09: PASS: DUT port1.0.10 rejected speed 5000 with an error indication (the DUT decides)
+12:49:09: PASS: running-config interface port1.0.10 has no speed 5000 line
+12:49:09: PASS: port1.0.10 configured speed unchanged at auto
+12:49:09: PASS: port1.0.10 link state unchanged (connected=True): port1.0.10  -                  connected           1 a-full a-1000  1000BASE-T  
+12:49:09: PASS: DUT console stayed at the prompt with no boot output
+12:49:17: ==== TestCase_7 (in TestCase_1_to_7) ====
+12:49:28: STEP 8: On the copper test link, attempt `10000` whatever the port type. On the partner port apply `speed 10000` and `duplex full`, then on the DUT copper test port apply `speed 10000` and `duplex full`. Poll `show interface <copper test port> status` for up to 30 s, then read `show interface <copper test port>` and `show running-config interface <copper test port>`.
+12:49:30: INFO: baseline port1.0.10 row "port1.0.10  -                  connected           1 a-full a-1000  1000BASE-T", configured speed auto, current speed 1000
+12:49:35: INFO: partner port1.0.2 rejected speed 10000; duplex full not forced there, link-up not asserted
+12:49:40: INFO: DUT port1.0.10 reported an error for speed 10000; duplex full not forced
+12:49:44: INFO: show interface brief link check (informational): True
+12:49:44: OBSERVED: show interface port1.0.10 status
+12:49:44: PASS: DUT port1.0.10 rejected with an error indication speed 10000 (the DUT decides; recorded in speedMap)
+12:49:44: PASS: running-config of port1.0.10 gained no speed 10000 line after the rejection
+12:49:44: PASS: port1.0.10 configured speed unchanged at auto
+12:49:44: PASS: port1.0.10 link state unchanged (connected=True): "port1.0.10  -                  connected           1 a-full a-1000  1000BASE-T"
+12:49:44: PASS: port1.0.10 current speed unchanged at 1000
+12:49:44: PASS: DUT console stayed at the prompt with no boot output
+12:49:56: PASS: stk_a is in a good state after test case main method
+12:50:08: PASS: Configuration on swi_b after TestCase tear_down() is the same as the initial TestSet Configuration
+12:50:10: PASS: Configuration on stk_a after TestCase tear_down() is the same as the initial TestSet Configuration
+12:50:12: PASS: Expected 3 members and exception log contains 3 members
+12:50:12: PASS: stk_a (member-1) contains no exceptions
+12:50:12: PASS: stk_a (member-3) contains no exceptions
+12:50:12: PASS: stk_a (member-4) contains no exceptions
+12:50:12: PASS: swi_b contains no exceptions
+<< test-9001.33235.1: PASS (numPassed: 47 numFailed: 0)
+>> test-9001.33235.8
+12:50:16: PASS: stk_a is in good state
+12:50:33: ==== TestCase_8 (in TestCase_8_to_12) ====
+12:50:42: STEP 9: Before this step, set the copper test link back to `no speed` and `duplex auto` on both ends. On the fibre test link, attempt `100` whatever the port type. Apply `speed 100` and `duplex full` on the partner port, then on the DUT fibre test port. Poll `show interface <fibre test port> status` for up to 30 s, then read `show interface <fibre test port>` and `show running-config int
+12:50:45: INFO: baseline port4.0.26 configured speed auto, current speed 1000, link UP; pluggable row "4.0.26  ATI              AT-SPSX          A03240R192702000 19070301 1000BASE-SX"
+12:50:50: INFO: partner swi_b rejected speed 100 on port1.0.26; judging only the DUT, link-up not asserted
+12:51:08: INFO: brief link status shows running: True
+12:51:08: OBSERVED: DUT accepted speed 100: False | status row: port4.0.26  -                  connected        4000 full   a-1000  1000BASE-SX  | show interface: show interface port4.0.26
+12:51:08: PASS: console responsive at prompt: show interface returned Interface port4.0.26 with no boot/login output
+12:51:08: PASS: DUT rejected speed 100 with an error indication on fibre port port4.0.26 (the DUT decides; pluggable "4.0.26  ATI              AT-SPSX          A03240R192702000 19070301 1000BASE-SX")
+12:51:08: PASS: running-config for port4.0.26 has no new speed 100 line
+12:51:08: PASS: port4.0.26 configured speed unchanged at auto
+12:51:08: PASS: port4.0.26 link state unchanged (UP)
+12:51:25: ==== TestCase_9 (in TestCase_8_to_12) ====
+12:51:36: STEP 10: On the fibre test link, attempt `1000` whatever the port type. Apply `speed 1000` and `duplex full` on the partner port, then on the DUT fibre test port. Poll `show interface <fibre test port> status` for up to 30 s, then read `show interface <fibre test port>` and `show running-config interface <fibre test port>`.
+12:51:38: INFO: port4.0.26 baseline current speed 1000, link up True
+12:51:48: INFO: show interface port4.0.26 brief reports running: True
+12:51:48: OBSERVED: speed 1000 -> 'speed 1000\r\r\nIE520-stk(config-if)#'; duplex full -> 'duplex full\r\r\nIE520-stk(config-if)#'; status row: 'port4.0.26  -                  connected        4000 full   1000    1000BASE-SX '; current speed 1000; Link is UP True; running-config speed 1000 line: True
+12:51:48: PASS: DUT accepted speed 1000 on port4.0.26 with no error indication (recorded in speedMap)
+12:51:48: PASS: running-config for port4.0.26 shows speed 1000
+12:51:48: PASS: port4.0.26 status row reads connected with bare 1000: port4.0.26  -                  connected        4000 full   1000    1000BASE-SX
+12:51:48: PASS: port4.0.26 show interface reads current speed 1000
+12:51:48: PASS: DUT console stayed at the prompt with no boot output
+12:52:00: ==== TestCase_10 (in TestCase_8_to_12) ====
+12:52:08: STEP 11: On the fibre test link, attempt `10000` whatever the port type. Apply `speed 10000` and `duplex full` on the partner port, then on the DUT fibre test port. Poll `show interface <fibre test port> status` for up to 30 s, then read `show interface <fibre test port>` and `show running-config interface <fibre test port>`.
+12:52:09: INFO: baseline port4.0.26 row "port4.0.26  -                  connected        4000 a-full a-1000  1000BASE-SX ", current speed 1000, configured speed auto
+12:52:13: INFO: partner port1.0.26 rejected speed 10000: % port1.0.26: Unsupported speed/duplex combination port1.0.26
+12:52:17: INFO: DUT speed 10000 response: "speed 10000
+12:52:20: OBSERVED: status row: port4.0.26  -                  connected        4000 full   a-1000  1000BASE-SX 
+12:52:20: PASS: DUT rejected speed 10000 on fibre port port4.0.26 with an error indication (the DUT decides; recorded in speedMap): % port4.0.26: Unsupported speed/duplex combination port4.0.26
+12:52:20: PASS: show running-config interface port4.0.26 gained no "speed 10000" line
+12:52:20: PASS: port4.0.26 configured speed unchanged at auto
+12:52:20: PASS: port4.0.26 link state unchanged (connected): "port4.0.26  -                  connected        4000 full   a-1000  1000BASE-SX "
+12:52:20: PASS: port4.0.26 current speed unchanged at 1000
+12:52:20: PASS: DUT console stayed at the prompt with no boot output during the speed change
+12:52:28: ==== TestCase_11 (in TestCase_8_to_12) ====
+12:52:41: STEP 12: On the fibre test link, attempt `40000` whatever the port type. Apply `speed 40000` and `duplex full` on the partner port, then on the DUT fibre test port. Poll `show interface <fibre test port> status` for up to 30 s, then read `show interface <fibre test port>` and `show running-config interface <fibre test port>`.
+12:52:44: INFO: port4.0.26 baseline connected=True configured speed auto current speed 1000; module row "4.0.26  ATI              AT-SPSX          A03240R192702000 19070301 1000BASE-SX"
+12:52:49: INFO: partner swi_b port1.0.26 rejected speed 40000
+12:53:07: OBSERVED: show interface port4.0.26 status
+12:53:07: PASS: DUT console stayed at the prompt with no boot output
+12:53:07: PASS: DUT rejected speed 40000 on port4.0.26 with an error indication (the DUT decides; recorded in speedMap)
+12:53:07: PASS: running-config for port4.0.26 has no speed 40000 line
+12:53:07: PASS: port4.0.26 configured speed unchanged at auto
+12:53:07: PASS: port4.0.26 link state unchanged (connected=True): port4.0.26  -                  connected        4000 full   a-1000  1000BASE-SX
+12:53:07: PASS: port4.0.26 current speed unchanged at 1000
+12:53:18: ==== TestCase_12 (in TestCase_8_to_12) ====
+12:53:25: STEP 13: On the fibre test link, attempt `100000` whatever the port type. Apply `speed 100000` and `duplex full` on the partner port, then on the DUT fibre test port. Poll `show interface <fibre test port> status` for up to 30 s, then read `show interface <fibre test port>` and `show running-config interface <fibre test port>`.
+12:53:28: INFO: baseline port4.0.26 row: port4.0.26  -                  connected        4000 a-full a-1000  1000BASE-SX ; link up: True; configured speed auto; current speed 1000
+12:53:29: INFO: port4.0.26 pluggable row: 4.0.26  ATI              AT-SPSX          A03240R192702000 19070301 1000BASE-SX 
+12:53:39: INFO: partner swi_b port1.0.26 rejected speed 100000 (logged, not judged)
+12:53:49: INFO: DUT port4.0.26 speed 100000 accepted: False; duplex full accepted: True
+12:53:52: OBSERVED: status row: port4.0.26  -                  connected        4000 full   a-1000  1000BASE-SX  | show interface: show interface port4.0.26
+12:53:52: PASS: DUT console stayed at the prompt, no boot output in show interface / running-config reads
+12:53:52: PASS: DUT port4.0.26 rejected speed 100000 with an error indication (the DUT decides; recorded in speedMap)
+12:53:52: PASS: running-config for port4.0.26 gained no speed 100000 line
+12:53:52: PASS: port4.0.26 configured speed unchanged: auto
+12:53:52: PASS: port4.0.26 link state unchanged (Link is UP: True)
+12:54:01: PASS: stk_a is in a good state after test case main method
+12:54:11: PASS: Configuration on swi_b after TestCase tear_down() is the same as the initial TestSet Configuration
+12:54:15: PASS: Configuration on stk_a after TestCase tear_down() is the same as the initial TestSet Configuration
+12:54:17: PASS: Expected 3 members and exception log contains 3 members
+12:54:17: PASS: stk_a (member-1) contains no exceptions
+12:54:17: PASS: stk_a (member-3) contains no exceptions
+12:54:17: PASS: stk_a (member-4) contains no exceptions
+12:54:17: PASS: swi_b contains no exceptions
+<< test-9001.33235.8: PASS (numPassed: 36 numFailed: 0)
+>> test-9001.33235.13
+12:54:22: PASS: stk_a is in good state
+12:54:50: STEP 14: From here on, the test port is the copper test port. Choose the working fixed speed S: the highest speed that linked in steps 3–8 on the copper test link. Apply `speed S` and `duplex full` on the partner port, then on the DUT test port. Poll status for up to 30 s.
+12:54:51: INFO: copper test link port1.0.10 auto-negotiates current speed 1000
+12:55:13: PASS: working fixed speed S = 1000: speed 1000 and duplex full applied on partner port1.0.2 then DUT port1.0.10, link running within 30 s
+12:55:14: OBSERVED: show interface port1.0.10 status
+12:55:14: PASS: port1.0.10 status row reads connected: port1.0.10  -                  connected           1 full   1000    1000BASE-T
+12:55:14: PASS: port1.0.10 status row duplex is bare full
+12:55:14: PASS: port1.0.10 status row speed is bare 1000
+12:55:14: PASS: show interface port1.0.10 reads current duplex full, current speed 1000
+12:55:15: PASS: stk_a is in a good state after test case main method
+12:55:36: PASS: Configuration on swi_b after TestCase tear_down() is the same as the initial TestSet Configuration
+12:55:40: PASS: Configuration on stk_a after TestCase tear_down() is the same as the initial TestSet Configuration
+12:55:42: PASS: Expected 3 members and exception log contains 3 members
+12:55:42: PASS: stk_a (member-1) contains no exceptions
+12:55:42: PASS: stk_a (member-3) contains no exceptions
+12:55:42: PASS: stk_a (member-4) contains no exceptions
+12:55:42: PASS: swi_b contains no exceptions
+<< test-9001.33235.13: PASS (numPassed: 14 numFailed: 0)
+>> test-9001.33235.14
+12:55:46: PASS: stk_a is in good state
+12:56:02: ==== TestCase_14 (in TestCase_14_to_18) ====
+12:56:25: STEP 15: Read `show interface <test port> status` and `show interface <test port>` with fixed speed S in effect.
+12:56:26: OBSERVED: step 2 copperBaseline status tokens: duplex a-full speed a-1000
+12:56:27: OBSERVED: show interface port1.0.10 status
+12:56:27: PASS: port1.0.10 status row reads connected with fixed speed 1000: port1.0.10  -                  connected           1 full   1000    1000BASE-T
+12:56:27: PASS: port1.0.10 status row shows bare speed 1000 and duplex full with no a- prefix (auto-negotiation disabled): port1.0.10  -                  connected           1 full   1000    1000BASE-T
+12:56:27: PASS: port1.0.10 step 2 copperBaseline shows a- prefixed duplex a-full and speed a-1000
+12:56:27: PASS: port1.0.10 duplex/speed columns changed from a-full / a-1000 (auto) to bare full / 1000 (fixed): port1.0.10  -                  connected           1 full   1000    1000BASE-T
+12:56:27: PASS: port1.0.10 show interface reports configured speed 1000
+12:56:27: PASS: port1.0.10 show interface reports current speed 1000
+12:56:37: ==== TestCase_15 (in TestCase_14_to_18) ====
+12:56:59: STEP 16: Read `show interface <test port>` and `show interface <test port> status` with fixed speed S in effect.
+12:57:00: OBSERVED: show interface port1.0.10
+12:57:00: OBSERVED: show interface port1.0.10 status
+12:57:00: PASS: port1.0.10 show interface reports configured speed 1000
+12:57:00: PASS: port1.0.10 show interface reads current speed 1000
+12:57:00: PASS: port1.0.10 status row speed column reads bare 1000: port1.0.10  -                  connected           1 full   1000    1000BASE-T
+12:57:00: PASS: port1.0.10 configured speed 1000, current speed 1000 and status speed 1000 all agree with applied speed 1000
+12:57:09: ==== TestCase_16 (in TestCase_14_to_18) ====
+12:57:31: STEP 17: Read `show running-config interface <test port>`.
+12:57:32: OBSERVED: show running-config interface port1.0.10
+12:57:32: PASS: interface port1.0.10 block present in running-config
+12:57:32: PASS: running-config for port1.0.10 contains "speed 1000"
+12:57:32: PASS: running-config for port1.0.10 contains "duplex full"
+12:57:32: PASS: port1.0.10 configured speed 1000 agrees with running-config "speed 1000"
+12:57:32: PASS: port1.0.10 current speed 1000 agrees with running-config "speed 1000"
+12:57:43: ==== TestCase_17 (in TestCase_14_to_18) ====
+12:58:07: STEP 18: On the DUT test port in Interface Configuration, enter an invalid non-numeric speed argument: `speed fast`.
+12:58:11: OBSERVED: speed fast
+12:58:11: PASS: DUT rejected `speed fast` on port1.0.10: error indication ['%', 'Invalid'] returned
+12:58:12: OBSERVED running-config: show running-config interface port1.0.10
+12:58:12: PASS: show running-config interface port1.0.10 still contains `speed 1000`
+12:58:12: PASS: show interface port1.0.10 still reports configured speed 1000
+12:58:13: OBSERVED status row: port1.0.10  -                  connected           1 full   1000    1000BASE-T  
+12:58:13: PASS: port1.0.10 status row reads connected: port1.0.10  -                  connected           1 full   1000    1000BASE-T
+12:58:13: PASS: port1.0.10 status row shows bare speed 1000 (no a- prefix): port1.0.10  -                  connected           1 full   1000    1000BASE-T
+12:58:24: ==== TestCase_18 (in TestCase_14_to_18) ====
+12:58:45: STEP 19: On the DUT test port, enter two numeric speeds that are outside the documented set: `speed 5`, then `speed 200000`.
+12:58:46: INFO: baseline status row: port1.0.10  -                  connected           1 full   1000    1000BASE-T
+12:58:54: OBSERVED: speed 5 -> speed 5
+12:58:54: PASS: speed 5 rejected on port1.0.10 with error indication: speed 5
+12:58:54: PASS: speed 200000 rejected on port1.0.10 with error indication: speed 200000
+12:58:54: PASS: running-config for port1.0.10 still contains speed 1000
+12:58:55: PASS: show interface port1.0.10 still reports configured duplex full, configured speed 1000
+12:58:55: PASS: status row for port1.0.10 still reads connected: port1.0.10  -                  connected           1 full   1000    1000BASE-T
+12:58:55: PASS: status row for port1.0.10 shows bare 1000 and bare full: port1.0.10  -                  connected           1 full   1000    1000BASE-T
+12:59:07: PASS: stk_a is in a good state after test case main method
+12:59:17: PASS: Configuration on swi_b after TestCase tear_down() is the same as the initial TestSet Configuration
+12:59:21: PASS: Configuration on stk_a after TestCase tear_down() is the same as the initial TestSet Configuration
+12:59:22: PASS: Expected 3 members and exception log contains 3 members
+12:59:22: PASS: stk_a (member-1) contains no exceptions
+12:59:22: PASS: stk_a (member-3) contains no exceptions
+12:59:22: PASS: stk_a (member-4) contains no exceptions
+12:59:22: PASS: swi_b contains no exceptions
+<< test-9001.33235.14: PASS (numPassed: 35 numFailed: 0)
+>> test-9001.33235.19
+12:59:27: PASS: stk_a is in good state
+13:00:06: STEP 20: Pick a documented speed value the sweep (steps 3-8) recorded as rejected by the DUT on the test port; the DUT's own answers, not a port-type table, say which values are illegal here. If the sweep recorded no rejected value, log the step as not applicable. Enter it on the DUT test port.
+13:00:06: INFO: sweep record for port1.0.10: {'10': False, '100': True, '1000': True, '2500': False, '5000': False, '10000': False}; rejected values: ['10', '2500', '5000', '10000']
+13:00:12: OBSERVED: speed 10000
+13:00:12: PASS: speed 10000 on port1.0.10 rejected with error indication ['%']: 'speed 10000\r\r\n% port1.0.10: Unsupported speed/duplex combination port1.0.10\r\nIE520-stk(config-if)#'
+13:00:16: OBSERVED running-config: show running-config interface port1.0.10
+13:00:16: PASS: running-config of port1.0.10 still contains only speed 1000 after the rejected speed 10000
+13:00:16: OBSERVED status: show interface port1.0.10 status
+13:00:16: PASS: port1.0.10 status row still reads connected at bare 1000: 'port1.0.10  -                  connected           1 full   1000    1000BASE-T'
+13:00:17: OBSERVED show interface: show interface port1.0.10
+13:00:17: PASS: port1.0.10 still reports current speed 1000: ['current duplex full, current speed 1000, current polarity auto']
+13:00:18: PASS: stk_a is in a good state after test case main method
+13:00:37: PASS: Configuration on swi_b after TestCase tear_down() is the same as the initial TestSet Configuration
+13:00:41: PASS: Configuration on stk_a after TestCase tear_down() is the same as the initial TestSet Configuration
+13:00:43: PASS: Expected 3 members and exception log contains 3 members
+13:00:43: PASS: stk_a (member-1) contains no exceptions
+13:00:43: PASS: stk_a (member-3) contains no exceptions
+13:00:43: PASS: stk_a (member-4) contains no exceptions
+13:00:43: PASS: swi_b contains no exceptions
+<< test-9001.33235.19: PASS (numPassed: 13 numFailed: 0)
+>> test-9001.33235.22
+13:00:48: PASS: stk_a is in good state
+13:01:05: ==== TestCase_22 (in TestCase_22_to_24) ====
+13:01:05: STEP 23: Apply `speed S` and `duplex full` on the partner port, then on the DUT test port. Poll status for up to 30 s.
+13:01:26: PASS: speed 1000 and duplex full were accepted on port1.0.10 and port1.0.2
+13:01:28: PASS: port1.0.10 and port1.0.2 both reported running within the 30 s poll
+13:01:28: OBSERVED: show interface port1.0.10 status
+13:01:28: PASS: port1.0.10 row reads connected with bare speed 1000 and bare duplex full
+13:01:29: PASS: port1.0.10 current line reports "current speed 1000,"
+13:01:37: ==== TestCase_23 (in TestCase_22_to_24) ====
+13:02:07: STEP 24: On the DUT test port in Interface Configuration, apply `shutdown`. Read `show interface <test port> status`, `show interface <test port>` and `show running-config interface <test port>`.
+13:02:12: OBSERVED: status:
+13:02:12: PASS: port port1.0.10 status row no longer shows connected after shutdown: port1.0.10  -                  disabled            1 full   1000    1000BASE-T  
+13:02:12: PASS: show interface port1.0.10 reports no current speed value while shut down
+13:02:12: PASS: running-config interface port1.0.10 still contains speed 1000, duplex full and shutdown
+13:02:12: PASS: show interface port1.0.10 configured speed is still 1000
+13:02:21: ==== TestCase_24 (in TestCase_22_to_24) ====
+13:02:46: STEP 25: On the DUT test port apply `no shutdown`. Poll status for up to 30 s, then read `show interface <test port>` and `show running-config interface <test port>`.
+13:02:54: OBSERVED: link connected within 30 s: True; status row: port1.0.10  -                  connected           1 full   1000    1000BASE-T  ; show interface: show interface port1.0.10
+13:02:54: PASS: port1.0.10 status row reads connected within 30 s of `no shutdown`: port1.0.10  -                  connected           1 full   1000    1000BASE-T  
+13:02:54: PASS: port1.0.10 status row shows bare 1000 and bare full with no a- prefix, so auto-negotiation is still disabled: port1.0.10  -                  connected           1 full   1000    1000BASE-T  
+13:02:55: PASS: port1.0.10 show interface reports configured duplex full and configured speed 1000
+13:02:55: PASS: show interface port1.0.10 reports current duplex full, current speed 1000
+13:02:55: PASS: show running-config interface port1.0.10 still contains speed 1000 and no longer contains shutdown
+13:03:04: PASS: stk_a is in a good state after test case main method
+13:04:14: PASS: Configuration on swi_b after TestCase tear_down() is the same as the initial TestSet Configuration
+13:04:17: PASS: Configuration on stk_a after TestCase tear_down() is the same as the initial TestSet Configuration
+13:04:19: PASS: Expected 3 members and exception log contains 3 members
+13:04:19: PASS: stk_a (member-1) contains no exceptions
+13:04:19: PASS: stk_a (member-3) contains no exceptions
+13:04:19: PASS: stk_a (member-4) contains no exceptions
+13:04:19: PASS: swi_b contains no exceptions
+<< test-9001.33235.22: PASS (numPassed: 22 numFailed: 0)
+>> test-9001.33235.25
+13:04:24: PASS: stk_a is in good state
+13:04:24: INFO: step-2 baseline recorded by TestCase_1: speed 1000, duplex full
+13:04:24: INFO: forcing port1.0.10 and partner port1.0.2 to speed 1000 duplex full as the step precondition
+13:04:52: STEP 26: On the partner port apply `no speed` and `duplex auto` so it auto-negotiates. On the DUT test port apply `no speed` and `duplex auto`. Poll status for up to 30 s, then read `show interface <test port>` and `show running-config interface <test port>`.
+13:05:14: OBSERVED: show interface port1.0.10 status
+13:05:14: PASS: port1.0.10 status row reads connected with a- prefixed fields: port1.0.10  -                  connected           1 a-full a-1000  1000BASE-T  
+13:05:14: PASS: port1.0.10 current duplex/speed full/1000 matches step-2 baseline full/1000
+13:05:14: PASS: port1.0.10 running-config has no numeric speed line
+13:05:15: PASS: stk_a is in a good state after test case main method
+13:06:33: PASS: Configuration on swi_b after TestCase tear_down() is the same as the initial TestSet Configuration
+13:06:37: PASS: Configuration on stk_a after TestCase tear_down() is the same as the initial TestSet Configuration
+13:06:39: PASS: Expected 3 members and exception log contains 3 members
+13:06:39: PASS: stk_a (member-1) contains no exceptions
+13:06:39: PASS: stk_a (member-3) contains no exceptions
+13:06:39: PASS: stk_a (member-4) contains no exceptions
+13:06:39: PASS: swi_b contains no exceptions
+<< test-9001.33235.25: PASS (numPassed: 12 numFailed: 0)
+>> test-9001.33235.26
+13:06:43: PASS: stk_a is in good state
+13:08:00: ==== TestCase_26 (in TestCase_26_to_27) ====
+13:08:10: STEP 27: Re-force BOTH ends: apply `speed S` and `duplex full` on the partner port, then on the DUT test port. Poll status for up to 30 s.
+13:08:21: OBSERVED: show interface port1.0.10 status
+13:08:21: PASS: port1.0.10 row reads "port1.0.10  -                  connected           1 full   1000    1000BASE-T": connected with bare speed 1000 and bare duplex full, so the forced speed S is in effect before the auto form is tested
+13:08:30: ==== TestCase_27 (in TestCase_26_to_27) ====
+13:08:30: INFO: step-2 baseline for port1.0.10: speed 1000 duplex full (testSet.baselineSpeed)
+13:08:43: STEP 28: On the partner port apply `no speed` and `duplex auto`. On the DUT test port apply `speed auto` and `duplex auto`. Poll status for up to 30 s, then read `show interface <test port>` and `show running-config interface <test port>`.
+13:09:04: OBSERVED: status:
+13:09:04: PASS: port port1.0.10 status row reads connected: port1.0.10  -                  connected           1 a-full a-1000  1000BASE-T  
+13:09:04: PASS: port port1.0.10 status row shows a- prefixed speed a-1000 and duplex a-full
+13:09:04: PASS: port port1.0.10 current line reports a concrete negotiated speed 1000, not the literal auto
+13:09:04: PASS: port port1.0.10 negotiated speed 1000 matches the step-2 baseline 1000 (testSet.baselineSpeed)
+13:09:04: PASS: port port1.0.10 negotiated duplex full matches the step-2 baseline full
+13:09:04: PASS: running-config for port port1.0.10 contains no forced numeric speed value
+13:09:13: PASS: stk_a is in a good state after test case main method
+13:09:24: PASS: Configuration on swi_b after TestCase tear_down() is the same as the initial TestSet Configuration
+13:09:27: PASS: Configuration on stk_a after TestCase tear_down() is the same as the initial TestSet Configuration
+13:09:29: PASS: Expected 3 members and exception log contains 3 members
+13:09:29: PASS: stk_a (member-1) contains no exceptions
+13:09:29: PASS: stk_a (member-3) contains no exceptions
+13:09:29: PASS: stk_a (member-4) contains no exceptions
+13:09:29: PASS: swi_b contains no exceptions
+<< test-9001.33235.26: PASS (numPassed: 16 numFailed: 0)
+>> test-9001.33235.28
+13:09:33: PASS: stk_a is in good state
+13:09:38: STEP 29: With the test port on auto, read `show interface <monitored port> status` and `show interface <monitored port>` for every other linked DUT port from the frame's discovered links.
+13:09:38: INFO: copper test port port1.0.10; monitored ports port1.0.6, port4.0.26
+13:09:40: OBSERVED: --- port1.0.6 status ---
+13:09:40: PASS: port1.0.6 status row reads connected
+13:09:40: PASS: port1.0.6 baseline recorded: status duplex/speed a-full/a-1000, current duplex/speed full/1000
+13:09:40: PASS: port4.0.26 status row reads connected
+13:09:40: PASS: port4.0.26 baseline recorded: status duplex/speed a-full/a-1000, current duplex/speed full/1000
+13:09:41: PASS: stk_a is in a good state after test case main method
+13:09:47: PASS: Expected 3 members and exception log contains 3 members
+13:09:47: PASS: stk_a (member-1) contains no exceptions
+13:09:47: PASS: stk_a (member-3) contains no exceptions
+13:09:47: PASS: stk_a (member-4) contains no exceptions
+13:09:47: PASS: swi_b contains no exceptions
+<< test-9001.33235.28: PASS (numPassed: 11 numFailed: 0)
+>> test-9001.33235.29
+13:09:51: PASS: stk_a is in good state
+13:10:08: STEP 30: Apply `speed S` and `duplex full` on the partner port, then on the DUT test port only. Poll status for up to 30 s. Read the status rows and `show interface` for the test port and every monitored port, then read `show log`.
+13:11:07: OBSERVED: copper test port port1.0.10 row: port1.0.10  -                  connected           1 full   1000    1000BASE-T  
+13:11:07: PASS: copper test port port1.0.10 row reads connected with bare speed 1000: port1.0.10  -                  connected           1 full   1000    1000BASE-T  
+13:11:07: PASS: monitored port port1.0.6 row connected with duplex/speed ('a-full', 'a-1000') identical to step 29: port1.0.6   -                  connected         106 a-full a-1000  10GBASE-TM  
+13:11:07: PASS: monitored port port1.0.6 current duplex/speed ('full', '1000') unchanged from step 29: current duplex full, current speed 1000, current polarity auto
+13:11:07: PASS: monitored port port4.0.26 row connected with duplex/speed ('a-full', 'a-1000') identical to step 29: port4.0.26  -                  connected        4000 a-full a-1000  1000BASE-SX 
+13:11:07: PASS: monitored port port4.0.26 current duplex/speed ('full', '1000') unchanged from step 29: current duplex full, current speed 1000, current polarity auto
+13:11:07: PASS: show log has no new link-down/link-up event for monitored port port1.0.6 during the change
+13:11:07: PASS: show log has no new link-down/link-up event for monitored port port4.0.26 during the change
+13:11:08: PASS: stk_a is in a good state after test case main method
+13:11:27: PASS: Configuration on swi_b after TestCase tear_down() is the same as the initial TestSet Configuration
+13:11:30: PASS: Configuration on stk_a after TestCase tear_down() is the same as the initial TestSet Configuration
+13:11:32: PASS: Expected 3 members and exception log contains 3 members
+13:11:32: PASS: stk_a (member-1) contains no exceptions
+13:11:32: PASS: stk_a (member-3) contains no exceptions
+13:11:32: PASS: stk_a (member-4) contains no exceptions
+13:11:32: PASS: swi_b contains no exceptions
+<< test-9001.33235.29: PASS (numPassed: 16 numFailed: 0)
+>> test-9001.33235.30
+13:11:36: PASS: stk_a is in good state
+13:11:53: STEP 31: Run this only where the test port supports a second fixed speed S2 that linked in steps 3–8; otherwise skip and log it as not applicable. Apply `speed S2` and `duplex full` on the partner port, then on the DUT test port. Poll status for up to 30 s. Read the status rows and `show interface` for the test port and every monitored port, then read `show log`.
+13:11:53: INFO: using the step 29 monitoredBaseline as the reference for DUT monitored ports ['port1.0.6', 'port4.0.26']
+13:12:15: INFO: test port port1.0.10 negotiated S1 = 1000 at speed auto
+13:12:15: INFO: S2 candidates for port1.0.10 (excluding S = 1000): ['100', '10']
+13:12:38: PASS: test port port1.0.10 relinked with fixed speed S2 100 duplex full within 30 s
+13:12:40: OBSERVED: show interface status
+13:12:40: PASS: test port port1.0.10 status row reads connected with bare speed 100
+13:12:40: PASS: test port port1.0.10 show interface reports current speed 100
+13:12:46: PASS: monitored ports port1.0.6, port4.0.26 remain connected with status duplex/speed and current values identical to step 29
+13:13:07: PASS: show log has no new link up/down event referencing monitored ports ('port1.0.6', 'port4.0.26')
+13:13:08: PASS: stk_a is in a good state after test case main method
+13:13:28: PASS: Configuration on swi_b after TestCase tear_down() is the same as the initial TestSet Configuration
+13:13:32: PASS: Configuration on stk_a after TestCase tear_down() is the same as the initial TestSet Configuration
+13:13:34: PASS: Expected 3 members and exception log contains 3 members
+13:13:34: PASS: stk_a (member-1) contains no exceptions
+13:13:34: PASS: stk_a (member-3) contains no exceptions
+13:13:34: PASS: stk_a (member-4) contains no exceptions
+13:13:34: PASS: swi_b contains no exceptions
+<< test-9001.33235.30: PASS (numPassed: 14 numFailed: 0)
+>> test-9001.33235.31
+13:13:39: PASS: stk_a is in good state
+13:13:57: ==== TestCase_31 (in TestCase_31_to_33) ====
+13:13:57: STEP 32: Apply `speed S` and `duplex full` on the partner port, then on the DUT test port. Poll status for up to 30 s.
+13:14:11: OBSERVED: show interface port1.0.10 status after up to 30s poll: show interface port1.0.10 status
+13:14:11: PASS: port port1.0.10 reached connected state: port1.0.10  -                  connected           1 full   1000    1000BASE-T  
+13:14:11: PASS: port port1.0.10 status row reports bare speed 1000 and bare duplex full: port1.0.10  -                  connected           1 full   1000    1000BASE-T  
+13:14:12: OBSERVED: show running-config interface port1.0.10: show running-config interface port1.0.10
+13:14:12: PASS: running-config for port1.0.10 contains speed 1000
+13:14:21: ==== TestCase_32 (in TestCase_31_to_33) ====
+13:14:54: STEP 33: Save the running configuration to the startup configuration (`copy running-config startup-config`), then read the startup configuration.
+13:14:59: OBSERVED: copy running-config startup-config output: copy running-config startup-config
+13:14:59: PASS: copy running-config startup-config completed without error
+13:15:03: OBSERVED: startup-config: show startup-config
+13:15:03: PASS: startup-config interface block for port1.0.10 contains 'speed 1000' and 'duplex full'
+13:15:18: ==== TestCase_33 (in TestCase_31_to_33) ====
+13:15:31: INFO: saved running-config to startup-config ahead of reload: copy running-config startup-config
+13:15:31: STEP 34: Restart the DUT (`reload`, confirming the prompt). Wait for the console login prompt, log in, and issue no configuration commands. Poll `show interface <test port> status` for up to 120 s, then read `show interface <test port>` and `show running-config interface <test port>`.
+13:18:34: OBSERVED: DUT reload output: reboot
+13:18:45: OBSERVED: show interface port1.0.10 status: show interface port1.0.10 status
+13:18:45: PASS: port port1.0.10 reports connected in show interface status after reload
+13:18:45: PASS: port port1.0.10 status row reads connected: port1.0.10  -                  connected           1 full   1000    1000BASE-T  
+13:18:45: PASS: port port1.0.10 status row shows bare speed 1000 and bare duplex full: port1.0.10  -                  connected           1 full   1000    1000BASE-T  
+13:18:46: PASS: port port1.0.10 configured duplex full and configured speed 1000 persisted after reload
+13:18:46: OBSERVED: show interface port1.0.10: show interface port1.0.10
+13:18:46: PASS: current duplex full, current speed 1000 shown with no operator action taken after boot
+13:18:47: OBSERVED: show running-config interface port1.0.10: show running-config interface port1.0.10
+13:18:47: PASS: running-config for port1.0.10 retains speed 1000 and duplex full across reload
+13:19:02: PASS: stk_a is in a good state after test case main method
+13:19:12: PASS: Configuration on swi_b after TestCase tear_down() is the same as the initial TestSet Configuration
+13:19:16: PASS: Configuration on stk_a after TestCase tear_down() is the same as the initial TestSet Configuration
+13:19:18: PASS: Expected 3 members and exception log contains 3 members
+13:19:18: PASS: stk_a (member-1) contains no exceptions
+13:19:18: PASS: stk_a (member-3) contains no exceptions
+13:19:18: PASS: stk_a (member-4) contains no exceptions
+13:19:18: PASS: swi_b contains no exceptions
+<< test-9001.33235.31: PASS (numPassed: 20 numFailed: 0)
+
+## After the run -- exception logs, then restore (recipe in the queue file, group 1)
+- Framework's own end-of-TestCase checks (13:19:18): stk_a members 1/3/4 and swi_b contain no exceptions.
+- 13:20 `tools/tb ps tb470 'test-9001.33235'` -> nothing running. `tools/tb precheck tb470 u2-u5` CLEAR (work/precheck-post-run1.out)
+  `&&` scratch `rst1223`. peek: u2 `IE520-stk#`, u3 `IE520-sa#`, u4 `IE520-stk-4 login:`, u5 `IE520-stk login:` (the TC33 reload).
+- 13:21 `tools/tb ckcon tb470 rst1223 u5 115200 "terminal length 0" "show boot" "show exception log" "show stack" "dir"
+  "dir IE520-stk-1/flash:/" "dir IE520-stk-4/flash:/"` (work/post-run1-u5.out) and u3 `show boot`/`show exception log`/`dir`
+  (work/post-run1-u3.out): `Current boot config: flash:/stk_a_9001_33235.cfg` / `flash:/swi_b_9001_33235.cfg` (the framework's);
+  exception log None on members 1/3/4 and on the IE520-sa; stack 1 Backup / 3 Active Master / 4 Backup, all Ready.
+  Framework files: master 12 x stk_a_9001_33235[_1,_8,_13,_14,_19,_22,_25,_26,_29,_30,_31].cfg + TestCase_tear_down.cfg; members
+  1 and 4 the same 12 stk_a_9001_33235* (no TestCase_tear_down.cfg); IE520-sa 12 x swi_b_9001_33235* + TestCase_tear_down.cfg.
+  Left alone (not this case's): stk_a_9001_33234.cfg, stk_a_9001_33234_1/_2.cfg on the stack (2026-09-28 / 10-12).
+- 13:22 stack: `tools/tb ckyn tb470 rst1223 u5 115200 "terminal length 0" "configure terminal" "boot config-file flash:/tb470-bench.cfg"
+  "end" "show boot" <deletes> ...` (work/restore-run1-u5-ckyn.out): `boot config-file` printed "File synchronization with stack
+  member 1 / 4 successfully completed" but the prompt came after ckyn's 60 s limit -> rc 5, the driver's cleanup left u5 at
+  `IE520-stk#` (transcript /tmp/rst1223/console-u5.log: `terminal no monitor` -> `IE520-stk#`, closed). Re-run 13:23 without the
+  boot line (work/restore-run1-u5-ckyn-2.out, rc 0): `show boot` -> `Current boot config: flash:/tb470-bench.cfg (file exists)`; then
+  `delete force` of the 13 master files and of `IE520-stk-1/flash:/...` and `IE520-stk-4/flash:/...` (12 each); no `% ` line;
+  `dir` x3 list no stk_a_9001_33235* or TestCase_tear_down.cfg; final `show boot` tb470-bench.cfg.
+- 13:24 IE520-sa: `tools/tb ckyn tb470 rst1223 u3 115200 ... "boot config-file flash:/tb470-bench.cfg" "end" "show boot"
+  delete force x13 "dir" "show boot"` (work/restore-run1-u3-ckyn.out, rc 0): `Current boot config: flash:/tb470-bench.cfg (file exists)`,
+  no `% ` line, no swi_b_9001_33235* left.
+- 13:24 ports (work/postrestore-run1-u5.out, -u3.out): `show running-config interface` stack port1.0.10 / port1.0.6 / port4.0.26 and
+  IE520-sa port1.0.2 / port1.0.14 / port1.0.26: `switchport` / `switchport mode access` (+ `switchport access vlan 106|4000`), no
+  speed/duplex/polarity/shutdown line, as in the reference capture. Status: all six `connected a-full a-1000` (1000BASE-T /
+  10GBASE-TM / 1000BASE-SX). `show startup-config | include speed|duplex|polarity` -> nothing on either unit (tb470-bench.cfg never
+  written by the run; STEP 33's `copy running-config startup-config` went to the framework's boot file, since deleted).
+  `remote-diff all show running-config` -> node 3 vs 1 and node 3 vs 4 "Results are identical".
+- 13:25 post-run probe, same flags as pre-run, `--out /tmp/rst1223/bench-state-post.md` (work/probe-post-run1.out) -> exit 2, ONE
+  NEEDS-CHECK `[portlink] tb-swi_c eth1` (the --read-only artefact), no MISMATCH, no USER-CONFLICT; capture
+  `bench-setup/captures/2026-10-13T002503Z`. `Current boot config: flash:/tb470-bench.cfg (file exists)` on u2 and u3.
+  Teardown diff: u2 and u3 `show running-config` vs the reference `2026-10-12T232732Z` (CR stripped, `!` lines ignored): IDENTICAL.
+- Consoles at the end (peek 13:26): u2 `IE520-stk#`, u3 `IE520-sa#`, u4 `IE520-stk#`, u5 `IE520-stk#` (exec; tb470 is the Test
+  Engineer's own box, so no `exit`). No process of this run left on tb470 (`tools/tb ps` for test-9001/tcpdump/bench_probe: none).
+  `bench-setup/bench-state.md` NOT touched.
+
+## Files saved
+- 33235/stk_a.cfg, 33235/swi_b.cfg (after setup, before step 1)
+- work/test-9001.33235.py, library_9001.py, ck_media.py (the copy run; unedited), work/case-text.txt, work/repairs.md
+- work/precheck-run1.out, probe-pre-run1.out, pre-run1-u5.out, pre-run1-u3.out
+- work/framework-run1/ (test-9001.33235.log, run.log, run.exit)
+- work/precheck-post-run1.out, post-run1-u5.out, post-run1-u3.out, restore-run1-u5-ckyn.out, restore-run1-u5-ckyn-2.out,
+  restore-run1-u3-ckyn.out, postrestore-run1-u5.out, postrestore-run1-u3.out, probe-post-run1.out
+
+## Repairs
+None to the script copy (work/repairs.md: R1 is a bench-state check, a no-op this run). Final copy == Test-cases f04ea359.
+
+## Run label
+**clean** (by the §11 definition): no exception, no Python error, every setup/defaulting/tear-down CLI command accepted, no missed
+config step; every `% ` line answers a deliberate sweep/negative step or the framework's own `show wireless apteryx info` probe;
+the 2 UNSUPPORTED are the legitimate pre-marked TC20/TC21 (speed 10 refused by the AT-SPTXc). 0 PDU cycles, 1 planned stack reload.
+
+VERDICT: PASS -- clean run 1: 12 PASS / 2 UNSUPPORTED (TestCase_20/21, speed 10 not supported on the AT-SPTXc copper SFP, pre-marked and skipped) / 0 FAIL of 14 TestCases, framework rc 0, 0 PDU cycles, 1 stack reload (TC31_to_33); script copy unedited
