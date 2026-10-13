@@ -55,7 +55,7 @@ Sentinel's reading of the facts (not a session fact):
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | port (script, validation): T33235 | tb470/IE520/port-2026-10-13T1223/ | DONE 13:40 (PASS, clean run 1, 0 repairs; bench restored, commits fb13073 f2ee7a5; review pending) | kind `script`, script_rel `ask-ck/functions/pytest-creator/generated/9001_Port/test-9001.33235.py` (sha1 f04ea359). Expected binding after the recable: cusfp = link M (stack 1.0.6 <-> sa 1.0.14), copper = link C (stack 1.0.10 <-> sa 1.0.2), fibre = stack 4.0.26 <-> sa 1.0.26 |
+| 1 | port (script, validation): T33235 | tb470/IE520/port-2026-10-13T1223/ | DONE 13:40 (PASS, clean run 1, 0 repairs; bench restored, commits fb13073 f2ee7a5; review 7013f79; campaign ended 13:55) | kind `script`, script_rel `ask-ck/functions/pytest-creator/generated/9001_Port/test-9001.33235.py` (sha1 f04ea359). Expected binding after the recable: cusfp = link M (stack 1.0.6 <-> sa 1.0.14), copper = link C (stack 1.0.10 <-> sa 1.0.2), fibre = stack 4.0.26 <-> sa 1.0.26 |
 
 ## Setup and restore recipe — group 1
 
@@ -131,6 +131,12 @@ Engineer. So, unlike the 0626 recipe, **no port leaves an aggregator and no VLAN
   TestCases instead of 33, step 29 without confCheck. The 0626 PASS (31 PASS / 2 UNSUPPORTED) is not evidence for
   this script; triage reads the new grouping before any run.
 - **I-3 (T33235) office-hours run, 2026-10-13 12:40.** NOTIFY T33235 -- run timing during office hours (Tue 12:35); triage estimates 1 stack reload and 0-2 four-unit PDU cycles (outlets 4,5,6,8) -- Assumed: run now, not reboot-heavy (memory reboot-heavy-runs-after-hours); repair loop capped at 5 runs.
+- **I-4 (T33235) validation review written, 2026-10-13 ~13:50.** `port-2026-10-13T1223/33235/review.md` (commit 7013f79):
+  run clean, PASS stands, no repair (no `REPAIRED` line). Open for Test-cases: A2 step 7 unmeasured (incompatible pair hard-wired
+  100/10 although 1000/100 was available), A1 link-up still status-only, A5 S2 candidates ignore speedMap; DUT observation: AT-SPSX
+  `speed 100` accepted on stack port1.0.3 (0626) but refused on port4.0.26 today, same build.
+- **I-5 (campaign) `/create-logs --auto`, 2026-10-13 ~13:55.** T33235 is `kind: script`: skipped, its framework log is final.
+  No manual cases, so no final log, README or token review; `work/` kept (create-logs §0). Sentinel stood down; campaign ended.
 
 ## Triage 2026-10-13T1223
 
