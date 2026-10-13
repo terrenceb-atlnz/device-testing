@@ -55,7 +55,7 @@ Sentinel's reading of the facts (not a session fact):
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | port (script, validation): T33235 | tb470/IE520/port-2026-10-13T1223/ | DONE 13:27 (triage 12:27-12:38: N=1, commit 490988e; RUN 12:37-13:27, validation: repair): run 1 clean, PASS 12/2U/0F, 0 PDU cycles, 1 stack reload; script copy unedited; restored, post-probe exit 2 (tb-swi_c eth1 read-only only) | kind `script`, script_rel `ask-ck/functions/pytest-creator/generated/9001_Port/test-9001.33235.py` (sha1 f04ea359). Expected binding after the recable: cusfp = link M (stack 1.0.6 <-> sa 1.0.14), copper = link C (stack 1.0.10 <-> sa 1.0.2), fibre = stack 4.0.26 <-> sa 1.0.26 |
+| 1 | port (script, validation): T33235 | tb470/IE520/port-2026-10-13T1223/ | DONE 13:40 (PASS, clean run 1, 0 repairs; bench restored, commits fb13073 f2ee7a5; review pending) | kind `script`, script_rel `ask-ck/functions/pytest-creator/generated/9001_Port/test-9001.33235.py` (sha1 f04ea359). Expected binding after the recable: cusfp = link M (stack 1.0.6 <-> sa 1.0.14), copper = link C (stack 1.0.10 <-> sa 1.0.2), fibre = stack 4.0.26 <-> sa 1.0.26 |
 
 ## Setup and restore recipe — group 1
 
@@ -118,6 +118,7 @@ Engineer. So, unlike the 0626 recipe, **no port leaves an aggregator and no VLAN
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
+| T33235 | (3) Port - Fixed port Speed | port-2026-10-13T1223 | PASS | clean run 1: 12 PASS / 2 UNSUPPORTED (TC20/21, AT-SPTXc refuses speed 10, pre-marked and skipped) / 0 FAIL of 14 TestCases, rc 0, 0 PDU cycles, 1 stack reload; script copy identical to Test-cases (sha1 f04ea359, no repairs); framework log `33235/work/framework-run1/test-9001.33235.log` | port-2026-10-13T1223/33235/work/run1.log | tester |
 
 ## Issues
 
