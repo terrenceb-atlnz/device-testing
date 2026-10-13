@@ -62,7 +62,58 @@ Sentinel's reading of the facts (not a session fact):
 
 ## Setup and restore recipe — group 1
 
-(Written by bench-runner at TRIAGE, before the first run.)
+Written by bench-runner at TRIAGE, 2026-10-13 ~15:00 NZDT, so the RUN tester (or anyone after it dies) starts from it; the
+RUN tester re-reads it and commits any correction before the case. Setup ONCE before the TestSet, restore ONCE after it
+(STANDING-ORDERS §6). Scratch on tb470: `/tmp/<run scratch>/` (triage used `tri1455`). **Consoles u2-u5 only; u0 (x230)
+and u1 (AR4050S) are never opened; outlets 1 and 7 are never cycled.** Pre-run reference capture:
+`bench-setup/captures/2026-10-13T015738Z/` (u2 = stack, u3 = IE520-sa; gitignored, on the NFS share). Its u2/u3
+running-configs are IDENTICAL to the 1223 campaign's pre-run reference `2026-10-12T232732Z` (header lines ignored), so the
+1223 restore left the bench exactly at baseline.
+
+**Run .setup:** `tb470/IE520/port-2026-10-13T1455/tb470-u2u5.setup` (on the box:
+`/home/terrenceb/claude/device-testing/tb470/IE520/port-2026-10-13T1455/tb470-u2u5.setup`): a copy of the 1223 run .setup,
+body unchanged, a 4-line header added. Declares stk_a (swi_a u2, swi_c u5, swi_d u4) and swi_b (u3, IE520-sa), outlets
+6/8/5/4, links tb-swi_c eth1-port3.0.13, swi_a-swi_b port1.0.10-port1.0.2 (C) + port1.0.6-port1.0.14 (M), swi_b-swi_d
+port1.0.26-port4.0.26 (SX). The deployed `/home/st-art/st-art/configs/tb470.setup` is NOT used and NOT edited.
+
+**Setup (nothing to configure):** T33234's `init()` reads `has_fixed_copper_port` from discovery; the IE520 has no fixed
+RJ45 port, so with this .setup discovery gives `tb=port3.0.13; cusfp=port1.0.6,port1.0.10; fibre=port4.0.26; copper=[]`
+(exactly what the 1223 T33235 run printed on the same .setup at 12:41:01), nothing is bound, `configure()`/`tear_down()`
+return at once, and the framework marks all 14 TestCases UNSUPPORTED. Before launch only:
+1. `tools/tb precheck tb470 u2-u5` CLEAR `&&` `tools/tb scratch tb470 <run>`; `peek` u2-u5 at 115200 -> `IE520-stk#` x3,
+   `IE520-sa#` (triage 14:57: exactly that).
+2. Save `33234/stk_a.cfg` (u5 `show running-config`) and `33234/swi_b.cfg` (u3) with the three `!` header lines, and
+   `show boot` on u5/u3 (baseline `flash:/tb470-bench.cfg`).
+3. Launch from a COPY in `port-2026-10-13T1455/33234/work/` (script 66c23163 byte copy, `library_9001.py`, `ck_media.py` =
+   Test-cases `ask-ck/tools/pt_media.py`): `tools/tb fwprep tb470 33234/run<N> <files>` then
+   `tools/tb fw tb470 33234/run<N> test-9001.33234.py <run .setup above>` (`--noupdate --nodefaultcfg` by the wrapper;
+   no `--include-test-cases`). The framework then, on stk_a and swi_b only: `no shutdown` on each declared port (all are
+   already up), `no boot config-file`, `delete force` / `copy run <dev>_9001_33234.cfg`, `boot config-file
+   <dev>_9001_33234.cfg`, then the marking pass. No reload, no PDU cycle expected (10-12: 0).
+
+**Restore (anyone can run it, even if the tester died mid-run):**
+1. `tools/tb ps tb470 'test-9001.33234'` -> nothing running (else `tools/tb waitfor tb470 <workdir>/run.exit <s>`; never
+   kill mid PDU cycle).
+2. `tools/tb precheck tb470 u2-u5` CLEAR `&&` `tools/tb scratch tb470 <run>`; `peek` u5 and u3 -> `IE520-stk#` / `IE520-sa#`
+   (a PDU cycle may leave `login:`; ckcon/ckyn log in).
+3. Stack, `tools/tb ckyn tb470 <run> u5 115200 ...`: `show boot`, `configure terminal`, `boot config-file
+   flash:/tb470-bench.cfg`, `end`, `dir`; `delete force <f>` for EVERY `stk_a_9001_33234*.cfg` and `TestCase_tear_down.cfg`
+   that `dir` lists; then `dir IE520-stk-1/flash:/` and `dir IE520-stk-4/flash:/` and `delete force
+   IE520-stk-<1|4>/flash:/<f>` for each such file there (a delete on the master, currently member 3, does not remove the
+   backups' copies); `show boot`.
+4. IE520-sa, `tools/tb ckyn tb470 <run> u3 115200 ...`: `show boot`, `configure terminal`, `boot config-file
+   flash:/tb470-bench.cfg`, `end`, `dir`, `delete force` every `swi_b_9001_33234*.cfg` and `TestCase_tear_down.cfg`
+   listed, `show boot`.
+5. Every `show boot` -> `Current boot config: flash:/tb470-bench.cfg (file exists)`.
+6. `tools/tb probe tb470 --consoles u2-u5 --no-prompt --read-only --baud 115200 --pdu 10.36.150.14 --outlet u2=6
+   --outlet u3=8 --outlet u4=4 --outlet u5=5 --out /tmp/<run>/bench-state.md --template
+   /home/terrenceb/claude/device-testing/tb470/IE520/port-2026-10-13T1455/tb470-u2u5.setup` -> exit 2 with exactly ONE
+   NEEDS-CHECK (`tb-swi_c eth1`, a `--read-only` artefact) and no MISMATCH, as at triage 14:57. **Never write
+   `bench-setup/bench-state.md` from a u2-u5 probe** (it would drop u0/u1): always `--out /tmp/...`.
+7. Running-config diff of the new capture's `u2.show_running-config.txt` / `u3.show_running-config.txt` against
+   `bench-setup/captures/2026-10-13T015738Z/` (CR stripped, `!`/header lines ignored) -> IDENTICAL; on u5
+   `remote-diff all show running-config` -> no member differs (memory `stack-refused-command-lands-on-backups`).
+8. Every console left at exec (`end`, `terminal no monitor`); tb470 is the Test Engineer's own box, so no `exit`.
 
 ## Results
 
@@ -76,3 +127,49 @@ Sentinel's reading of the facts (not a session fact):
 - **I-1 (campaign) sentinel armed 14:58** on this session (Monitor, normal mode, UPDATES → the hand-off's
   sentinel_updates file; cron backstop every 15 min). Assumed: stand-down `2026-10-13 18:00` (a short case, expected
   ~45 min; the campaign ends sooner on `ASKCK-DONE`).
+
+## Triage 2026-10-13T1455
+
+Tester: bench-runner, TRIAGE dispatch, ~14:56-15:00 NZDT (Tue, office hours). Read-only apart from the probe: bare-CR
+peeks and the probe's own `show` reads. No case run, no configuration sent, no reload, no PDU cycle, no qmark. u0/u1 never
+opened. `bench-setup/bench-state.md` NOT touched (probe wrote `--out /tmp/tri1455/...`).
+
+| gate | result |
+| --- | --- |
+| 1 occupancy | `tools/tb precheck tb470 u2-u5` -> **CLEAR** (exit 0; u2-u5 free; only the Test Engineer's own ssh logins), `&&` into scratch `tri1455`; CLEAR again `&&`-gated before the probe |
+| 2 consoles | peek: u2 `IE520-stk#`, u3 `IE520-sa#`, u4 `IE520-stk#`, u5 `IE520-stk#`. No shell, no config mode |
+| 3 template | `/nfsHome` mounted (nfs4 10.36.250.11:/home); `/home/st-art/st-art/configs/tb470.setup` present (Oct 13 12:21), not used by this run |
+| 4 probe | `tools/tb probe tb470 --consoles u2-u5 --no-prompt --read-only --baud 115200 --pdu 10.36.150.14 --outlet u2=6 --outlet u3=8 --outlet u4=4 --outlet u5=5 --out /tmp/tri1455/bench-state-vs-run.md --template .../port-2026-10-13T1455/tb470-u2u5.setup` -> **exit 2**, capture `bench-setup/captures/2026-10-13T015738Z` (10.4 s): **no MISMATCH, no USER-CONFLICT**; ONE NEEDS-CHECK `tb-swi_c eth1` (NIC MAC not learned = `--read-only`, as at 1223; stack port3.0.13 reads `connected 1 a-full a-1000 1000BASE-T`). Banners u2 `IE520-stk-1`, u3 `IE520-sa`, u4 `IE520-stk-4`, u5 `IE520-stk` |
+| 5 setup | run .setup = byte copy of the 1223 run .setup (body), `tb470/IE520/port-2026-10-13T1455/tb470-u2u5.setup` |
+| 6 preflight | `pt_preflight.py --setup <run .setup> --script test-9001.33234.py` -> **RUNNABLE (2/2)**: swi_a OK (member of stk_a), tb OK; role `copper` "can take" port1.0.10-port1.0.2 per the file, but preflight is media-blind: at run time the DUT reports that port as a cage (AT-SPTXc), so copper stays empty and the UNSUPPORTED gate fires |
+| 7 boot configs | stack and IE520-sa `Current boot config: flash:/tb470-bench.cfg (file exists)`; software `IE520-awplus_main-20261008-57.rel`, bootloader 9.2.0. Stack 1 Backup / 3 Active Master / 4 Backup, Normal operation; uptime stack 01:41 (the 1223 run's TC31-33 reload), IE520-sa 22:58. Running-configs IDENTICAL to the 1223 pre-run reference `2026-10-12T232732Z` |
+| 8 server path | retired; launch with `tools/tb fwprep` / `tools/tb fw` |
+| 9 sentinel | `sentinel: parent` |
+| 10 CLI | with no fixed copper port the script's `configure()`/`tear_down()` return before any command (l.387, l.414) and no TestCase body runs, so the script sends nothing to the DUT. The framework's own bring-up/save commands (`no shutdown` on declared ports, `no boot config-file`, `copy run`, `boot config-file`) ran clean on these same ports and devices in the 1223 run. No refused command possible at STEP 1 |
+
+Links on the capture: stack port1.0.6 `connected 106 10GBASE-TM`, port1.0.10 `connected 1 1000BASE-T`, port4.0.26 `connected
+4000 1000BASE-SX`, port3.0.13 `connected 1 1000BASE-T`; IE520-sa port1.0.2 `connected 1 1000BASE-T`, port1.0.14 `connected
+106 10GBASE-TM`, port1.0.26 `connected 4000 1000BASE-SX`.
+
+**Predicted binding (66c23163, 14 TestCases):** discovery `tb=port3.0.13<->tb.eth1; cusfp=port1.0.6<->swi_b.port1.0.14,
+port1.0.10<->swi_b.port1.0.2; fibre=port4.0.26<->swi_b.port1.0.26` (same .setup, same discovery frame as the 1223 run,
+which printed exactly this); `copper=[]` -> `has_fixed_copper_port=False` -> "UNSUPPORTED: no copper switchport on DUT"
+-> only the optional `tb` role binds (port3.0.13 <-> eth1).
+
+**Expected result (estimate, not measured):**
+- **Tally: 0 PASS / 14 UNSUPPORTED / 0 FAIL of 14 TestCases**, rc 0: the framework's marking pass, "marked as unsupported
+  ... without property has_fixed_copper_port, for device swi_a", as on 10-12. Case verdict UNSUPPORTED (ruling: memory
+  `sfp-is-not-a-fixed-copper-port`, platforms/IE520.md). Links C and M are copper SFPs and do not change it.
+- **Reloads: 0. PDU cycles: 0** (10-12: 0; skipIfExcl marks before the body runs, so no post-failure cycle). Worst
+  plausible: an ERROR in init/discovery would cost one cycle of outlets 6, 5, 4, 8 only (~4-5 min); nothing else is declared.
+- **Time: ~15-20 min**: ~5 min pre-run (peek, .cfg saves), ~2-3 min framework (10-12: 2 min 50 s with four devices'
+  SPIFlash config saves; two devices here), ~8-10 min restore + probe + drift diff. Office hours: no reboot, no cycle, so
+  not reboot-heavy (memory `reboot-heavy-runs-after-hours`).
+
+**MANUAL-ONLY:** T33234 was not listed. The script asks an operator to swap the straight-through cable for a crossover
+and back (`yesNo` at l.753/788 TestCase_3, l.1228/1267 TestCase_7, l.1340 TestCase_8; 10-12 review (a)). On a
+fixed-copper DUT that step needs a person, so a row was added to MANUAL-ONLY.md, dated. On this IE520 bench nothing
+manual arises: every TestCase is UNSUPPORTED before any prompt.
+
+**Count (STANDING-ORDERS §3):** N = 1 runnable (T33234, expected UNSUPPORTED 14/14) / M = 0 blocked by topology (no
+cabling change can help: the IE520-28GSX has no fixed RJ45 switchport) / K = 0 blocked otherwise.
