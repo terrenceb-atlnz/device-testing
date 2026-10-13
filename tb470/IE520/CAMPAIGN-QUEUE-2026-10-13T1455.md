@@ -73,3 +73,6 @@ Sentinel's reading of the facts (not a session fact):
 
 - **I-0 (campaign) precheck CLEAR, 2026-10-13 14:55.** `tools/tb precheck tb470 u2-u5`: u2-u5 free, no holder, lock
   file, screen/tmux/minicom-type session or python script on the box; only the Test Engineer's own ssh logins.
+- **I-1 (campaign) sentinel armed 14:58** on this session (Monitor, normal mode, UPDATES → the hand-off's
+  sentinel_updates file; cron backstop every 15 min). Assumed: stand-down `2026-10-13 18:00` (a short case, expected
+  ~45 min; the campaign ends sooner on `ASKCK-DONE`).
