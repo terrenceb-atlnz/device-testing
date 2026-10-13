@@ -128,3 +128,102 @@ Pre-run captures (show-only): `tools/tb ckcon tb470 run1455 u5 115200 "show cloc
 `show stack` -> work/pre-run1-u3-ckcon.out. No `% ` line in either. Saved after setup (no setup needed), before step 1:
 33234/stk_a.cfg (u5 master `show running-config`, covers all members) and 33234/swi_b.cfg (u3).
 
+## Framework run 1
+
+Commands (repo root, dev host):
+```
+tools/tb fwprep tb470 33234/run1-20261013T1505 tb470/IE520/port-2026-10-13T1455/33234/work/test-9001.33234.py \
+     tb470/IE520/port-2026-10-13T1455/33234/work/library_9001.py tb470/IE520/port-2026-10-13T1455/33234/work/ck_media.py
+tools/tb fw tb470 33234/run1-20261013T1505 test-9001.33234.py \
+     /home/terrenceb/claude/device-testing/tb470/IE520/port-2026-10-13T1455/tb470-u2u5.setup
+tools/tb waitfor tb470 /home/st-art/pytest-create/33234/run1-20261013T1505/run.exit 900
+```
+-> on tb470: `sudo -n PYTHONPATH=/home/st-art python3 /home/st-art/pytest-create/33234/run1-20261013T1505/test-9001.33234.py
+-s <run .setup above> -v --noupdate --nodefaultcfg`. No `--include-test-cases`; powerCycleOnFail untouched; no timeout raised.
+- Workdir `/home/st-art/pytest-create/33234/run1-20261013T1505/`; `Loading setup file` 15:02:19, `TESTSET FINISHED (rc = 0)`
+  15:03:57 (1 min 38 s); **run.exit = 0**. Logs copied verbatim (NULs stripped by `tools/tb tail`) into `work/framework-run1/`:
+  run.log, run.exit, test-9001.33234.log, setup_33234.log, stk_a/swi_a/swi_b/swi_c/swi_d_33234.log, testbox_33234.log,
+  power-sock-10.36.150.14-{4,5,6,8}_33234.log. No power-sock-1 or -7 log exists in the workdir (outlets 1 and 7 never touched).
+
+Framework log, verbatim (`grep -a` of work/framework-run1/run.log):
+```
+2026-10-13 15:02:24: topology discovered on swi_a: tb=port3.0.13<->tb.eth1; cusfp=port1.0.6<->swi_b.port1.0.14,port1.0.10<->swi_b.port1.0.2; fibre=port4.0.26<->swi_b.port1.0.26
+2026-10-13 15:02:24: UNSUPPORTED: no copper switchport on DUT; polarity does not apply to pluggable/fibre ports - every test case will be marked unsupported (data links discovered: 1 tb, 2 cusfp, 1 fibre)
+2026-10-13 15:02:24: topology: role 'tb' -> swi_a port3.0.13 <-> tb eth1 (tb)
+2026-10-13 15:03:22: Executing TestSet configure...
+2026-10-13 15:03:22: UNSUPPORTED: no fixed copper switchport on the DUT - suite setup skipped
+2026-10-13 15:03:24: Bringing up swi_b ports: port1.0.2,port1.0.14,port1.0.26
+2026-10-13 15:03:24: Bringing up stk_a ports: port4.0.26,port3.0.13,port1.0.10,port1.0.6
+2026-10-13 15:03:31: Generating running config and saving to stk_a_9001_33234.cfg
+2026-10-13 15:03:31: Generating running config and saving to swi_b_9001_33234.cfg
+2026-10-13 15:03:57: ======== Mark unsupported test cases
+2026-10-13 15:03:57: Test case 1 has been marked as unsupported on .* platform without property has_fixed_copper_port, for device swi_a
+   ... (the same line for Test case 2 .. 13) ...
+2026-10-13 15:03:57: Test case 14 has been marked as unsupported on .* platform without property has_fixed_copper_port, for device swi_a
+2026-10-13 15:03:57: ======== TestSet preparation is now complete. Execute each TestCase one by one
+2026-10-13 15:03:57: ======== TestCase execution is now complete
+2026-10-13 15:03:57: ================ TESTSET FINISHED (rc = 0) ================
+```
+
+**Per-TestCase: TestCase_1 .. TestCase_14 all UNSUPPORTED** (marked before any body ran; skipIfExcl on
+`has_fixed_copper_port`). 0 PASS / 14 UNSUPPORTED / 0 FAIL. Every case step 1-12 is therefore skipped: the DUT has no
+fixed copper switchport, and MDI/MDI-X is ruled fixed-copper-only (memory `sfp-is-not-a-fixed-copper-port`,
+platforms/IE520.md row "MDI/MDI-X polarity is UNSUPPORTED on this platform"). Links C (AT-SPTXc) and M (AT-SP10TM) are
+copper SFPs in cages and were discovered as `cusfp`, as predicted at triage.
+
+Commands the framework sent (device logs): on stk_a (to swi_a's handle) and swi_b, `no shutdown` on each declared port,
+`no boot config-file`, `delete force <dev>_9001_33234.cfg`, `copy run <dev>_9001_33234.cfg`, `boot config-file` to it.
+The script itself sent nothing (configure()/tear_down() returned at `peer is None`).
+
+**Power cycles: 0. Reloads: 0.** Each power-sock log (outlets 4, 5, 6, 8) holds only the init-time status read at 15:02:19
+(`status is ON`); no off/on.
+
+Clean check: no Traceback, Exception or error in any framework log. The only `% ` lines answer the framework's own
+commands, the same noise as on 10-12: `show wireless apteryx info` -> `% Invalid input detected at '^' marker.` (capability
+probe; swi_a 15:03:44, swi_c 15:03:50, swi_d, swi_b 15:03:56) and `remote-login 3` -> `% Already logged onto stack member 3`
+(swi_a 15:02:56). **Run 1 is CLEAN. No repair needed** (work/repairs.md: none; the copy is byte-identical to Test-cases, cmp).
+
+## After the run -- restore (recipe in the queue file, group 1)
+
+1. `tools/tb ps tb470 'test-9001|tcpdump|bench_probe|ckcon|ckyn'` -> nothing running (15:04, and again 15:06 at the end).
+2. `tools/tb precheck tb470 u2-u5` CLEAR `&&` scratch `run1455`. Post-run read, `tools/tb ckcon tb470 run1455 u5 115200
+   "show boot" "dir" "dir IE520-stk-1/flash:/" "dir IE520-stk-4/flash:/"` (work/post-run1-u5-ckcon.out) and u3 `"show boot"
+   "dir"` (work/post-run1-u3-ckcon.out), 15:04:44-15:04:56:
+   `Current boot config: flash:/stk_a_9001_33234.cfg (file exists)` (stack), `flash:/swi_b_9001_33234.cfg (file exists)`
+   (IE520-sa); `stk_a_9001_33234.cfg` (3164 B, 02:05:07 UTC) on the master AND on members 1 and 4; `swi_b_9001_33234.cfg`
+   (1690 B) on the IE520-sa; no `TestCase_tear_down.cfg` anywhere.
+   **Pre-existing, not this run's:** members 1 and 4 (not the master) also hold `stk_a_9001_33234_1.cfg` and
+   `stk_a_9001_33234_2.cfg` (2741 B, Sep 28 2026 19:51/19:57), residue of a 2026-09-28 run. Left in place and reported
+   to the sentinel (restore covers what this run changed).
+3. `tools/tb ckyn tb470 run1455 u5 115200 "show boot" "configure terminal" "boot config-file flash:/tb470-bench.cfg" "end"
+   "delete force stk_a_9001_33234.cfg" "delete force IE520-stk-1/flash:/stk_a_9001_33234.cfg" "delete force
+   IE520-stk-4/flash:/stk_a_9001_33234.cfg" "show boot" "dir" "dir IE520-stk-1/flash:/" "dir IE520-stk-4/flash:/"`
+   15:05:14-15:05:23 (work/restore-u5-ckyn.out): `[DONE]` on `boot config-file`, `Successful operation` on each of the
+   three deletes, then `Current boot config: flash:/tb470-bench.cfg (file exists)`; no `stk_a_9001_33234.cfg` left on
+   any member.
+4. `tools/tb ckyn tb470 run1455 u3 115200 "show boot" "configure terminal" "boot config-file flash:/tb470-bench.cfg" "end"
+   "delete force swi_b_9001_33234.cfg" "show boot" "dir"` 15:05:29-15:05:32 (work/restore-u3-ckyn.out): `Successful
+   operation`, `Current boot config: flash:/tb470-bench.cfg (file exists)`.
+5. Both `show boot` -> `flash:/tb470-bench.cfg (file exists)` (also in the post-run probe capture's u2/u3 show_boot).
+6. `tools/tb probe tb470 --consoles u2-u5 --no-prompt --read-only --baud 115200 --pdu 10.36.150.14 --outlet u2=6
+   --outlet u3=8 --outlet u4=4 --outlet u5=5 --out /tmp/run1455/bench-state.md --template
+   /home/terrenceb/claude/device-testing/tb470/IE520/port-2026-10-13T1455/tb470-u2u5.setup` 15:05:41 -> **exit 2**, capture
+   `bench-setup/captures/2026-10-13T020541Z` (work/post-run1-probe.out): no MISMATCH, no USER-CONFLICT, exactly ONE
+   NEEDS-CHECK `tb-swi_c eth1` (read-only artefact), identical to triage. Banners u2 `IE520-stk-1`, u3 `IE520-sa`, u4
+   `IE520-stk-4`, u5 `IE520-stk`. `bench-setup/bench-state.md` not touched.
+7. Running-config diff, u2 (stack) and u3 (IE520-sa), capture 020541Z vs the pre-run 015738Z (CR stripped, `!`/header
+   lines ignored): **IDENTICAL** (0 lines each).
+8. `tools/tb ckcon tb470 run1455 u5 115200 "remote-diff all show running-config"` 15:06:05 (work/post-run1-u5-remotediff.out):
+   `% Comparing "show running-config" on node 3 and node 1` / `% Results are identical`; node 3 vs node 4 `% Results are
+   identical` (the `% ` lines are the command's own report, not errors).
+9. Consoles: transcripts `/tmp/run1455/console-u5.log` and `console-u3.log` end `terminal no monitor` -> `IE520-stk#` /
+   `IE520-sa#`, `closed ... at 15:06:06` / `15:05:33`. u2/u4 were opened only by peek and the probe (exec). tb470 is the
+   Test Engineer's own box, so no `exit`. Nothing left running.
+
+Run label: **clean**. Bench restored and verified (boot tb470-bench.cfg on both, probe as at triage, configs IDENTICAL,
+stack members identical).
+
+Files: 33234/stk_a.cfg, 33234/swi_b.cfg; work/run1.log, work/repairs.md, work/framework-run1/, work/pre-run1-*.out,
+work/post-run1-*.out, work/restore-u{5,3}-ckyn.out, work/test-9001.33234.py, work/library_9001.py, work/ck_media.py.
+
+VERDICT: UNSUPPORTED -- IE520-28GSX has no fixed copper switchport (every front port is an SFP cage; MDI/MDI-X ruled fixed-copper-only): framework marked 14/14 TestCases unsupported on swi_a (has_fixed_copper_port gate), none ran, rc 0, 0 power cycles, clean run 1, no repairs

@@ -58,7 +58,7 @@ Sentinel's reading of the facts (not a session fact):
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | port (script, validation): T33234 | tb470/IE520/port-2026-10-13T1455/ | RUN (dispatched 15:05) | Triage 15:00 (f29260f): 1 runnable / 0 topology / 0 otherwise; probe 015738Z vs run .setup exit 2 (1 read-only NEEDS-CHECK); expected 14/14 UNSUPPORTED, 0 reloads, 0 PDU cycles, ~15-20 min. kind `script`, script_rel `ask-ck/functions/pytest-creator/generated/9001_Port/test-9001.33234.py` (sha1 66c23163) |
+| 1 | port (script, validation): T33234 | tb470/IE520/port-2026-10-13T1455/ | DONE 15:06 (UNSUPPORTED, clean run 1, 0 repairs; bench restored and verified) | Triage 15:00 (f29260f): 1 runnable / 0 topology / 0 otherwise; probe 015738Z vs run .setup exit 2 (1 read-only NEEDS-CHECK); expected 14/14 UNSUPPORTED, 0 reloads, 0 PDU cycles, ~15-20 min. kind `script`, script_rel `ask-ck/functions/pytest-creator/generated/9001_Port/test-9001.33234.py` (sha1 66c23163) |
 
 ## Setup and restore recipe — group 1
 
@@ -119,6 +119,7 @@ return at once, and the framework marks all 14 TestCases UNSUPPORTED. Before lau
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
+| T33234 | Port - Auto MDI/MDI-X | port-2026-10-13T1455 | UNSUPPORTED | clean run 1: 14/14 TestCases marked unsupported (has_fixed_copper_port gate: IE520-28GSX has no fixed RJ45 switchport; links C/M discovered as cusfp), rc 0, 0 PDU cycles, 0 reloads; script copy identical to Test-cases (no repairs) | port-2026-10-13T1455/33234/work/run1.log | tester (framework verdict) |
 
 ## Issues
 
@@ -173,3 +174,7 @@ manual arises: every TestCase is UNSUPPORTED before any prompt.
 
 **Count (STANDING-ORDERS §3):** N = 1 runnable (T33234, expected UNSUPPORTED 14/14) / M = 0 blocked by topology (no
 cabling change can help: the IE520-28GSX has no fixed RJ45 switchport) / K = 0 blocked otherwise.
+- **I-2 (T33234, info) Sep-28 residue on stack backups.** Members 1 and 4 (not the master) hold
+  `stk_a_9001_33234_1.cfg` and `stk_a_9001_33234_2.cfg` (2741 B, 2026-09-28 19:51/19:57), left by a 09-28 run; seen in
+  run 1's post-run `dir`, present before this campaign. Not deleted (outside what this run changed); sent to the
+  sentinel as NEEDS TEST ENGINEER. Deleting them: on u5 `delete force IE520-stk-<1|4>/flash:/stk_a_9001_33234_<1|2>.cfg`.
