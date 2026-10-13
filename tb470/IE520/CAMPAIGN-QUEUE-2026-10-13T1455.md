@@ -58,7 +58,7 @@ Sentinel's reading of the facts (not a session fact):
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | port (script, validation): T33234 | tb470/IE520/port-2026-10-13T1455/ | TRIAGE | kind `script`, script_rel `ask-ck/functions/pytest-creator/generated/9001_Port/test-9001.33234.py` (sha1 66c23163) |
+| 1 | port (script, validation): T33234 | tb470/IE520/port-2026-10-13T1455/ | RUN (dispatched 15:05) | Triage 15:00 (f29260f): 1 runnable / 0 topology / 0 otherwise; probe 015738Z vs run .setup exit 2 (1 read-only NEEDS-CHECK); expected 14/14 UNSUPPORTED, 0 reloads, 0 PDU cycles, ~15-20 min. kind `script`, script_rel `ask-ck/functions/pytest-creator/generated/9001_Port/test-9001.33234.py` (sha1 66c23163) |
 
 ## Setup and restore recipe — group 1
 
