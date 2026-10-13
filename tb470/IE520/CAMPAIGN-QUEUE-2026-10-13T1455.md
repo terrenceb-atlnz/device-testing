@@ -136,6 +136,13 @@ return at once, and the framework marks all 14 TestCases UNSUPPORTED. Before lau
   NOTIFY T33234 -- delete Sep-28 residue stk_a_9001_33234_1/_2.cfg on stack members 1 and 4? -- Assumed: left in place
   (predates this campaign, not this run's change; deleting is the Test Engineer's call; no effect on the verdict).
 
+- **I-3 (T33234) validation review written, 2026-10-13 ~15:20.** `port-2026-10-13T1455/33234/review.md` (commit 590ad89):
+  run clean, UNSUPPORTED stands, no repair (no `REPAIRED` line). 10-12 review items still open (unattended cable swaps,
+  TestCase_11 "port reset", dead code, outdated case text); new: pt_preflight is media-blind (RUNNABLE on an all-SFP DUT),
+  and an all-UNSUPPORTED run still rewrites boot configs, so the restore stays mandatory.
+- **I-4 (campaign) `/create-logs --auto`, 2026-10-13 ~15:21.** T33234 is `kind: script`: skipped, its framework log is final.
+  No manual cases, so no final log, README or token review; `work/` kept (create-logs §0). Sentinel stood down; campaign ended.
+
 ## Triage 2026-10-13T1455
 
 Tester: bench-runner, TRIAGE dispatch, ~14:56-15:00 NZDT (Tue, office hours). Read-only apart from the probe: bare-CR
