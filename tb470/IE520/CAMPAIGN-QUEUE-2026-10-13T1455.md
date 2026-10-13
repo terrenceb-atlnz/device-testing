@@ -129,6 +129,13 @@ return at once, and the framework marks all 14 TestCases UNSUPPORTED. Before lau
   sentinel_updates file; cron backstop every 15 min). Assumed: stand-down `2026-10-13 18:00` (a short case, expected
   ~45 min; the campaign ends sooner on `ASKCK-DONE`).
 
+- **I-2 (T33234, info) Sep-28 residue on stack backups.** Members 1 and 4 (not the master) hold
+  `stk_a_9001_33234_1.cfg` and `stk_a_9001_33234_2.cfg` (2741 B, 2026-09-28 19:51/19:57), left by a 09-28 run; seen in
+  run 1's post-run `dir`, present before this campaign. Not deleted (outside what this run changed); sent to the
+  sentinel as NEEDS TEST ENGINEER. Deleting them: on u5 `delete force IE520-stk-<1|4>/flash:/stk_a_9001_33234_<1|2>.cfg`.
+  NOTIFY T33234 -- delete Sep-28 residue stk_a_9001_33234_1/_2.cfg on stack members 1 and 4? -- Assumed: left in place
+  (predates this campaign, not this run's change; deleting is the Test Engineer's call; no effect on the verdict).
+
 ## Triage 2026-10-13T1455
 
 Tester: bench-runner, TRIAGE dispatch, ~14:56-15:00 NZDT (Tue, office hours). Read-only apart from the probe: bare-CR
@@ -174,7 +181,3 @@ manual arises: every TestCase is UNSUPPORTED before any prompt.
 
 **Count (STANDING-ORDERS §3):** N = 1 runnable (T33234, expected UNSUPPORTED 14/14) / M = 0 blocked by topology (no
 cabling change can help: the IE520-28GSX has no fixed RJ45 switchport) / K = 0 blocked otherwise.
-- **I-2 (T33234, info) Sep-28 residue on stack backups.** Members 1 and 4 (not the master) hold
-  `stk_a_9001_33234_1.cfg` and `stk_a_9001_33234_2.cfg` (2741 B, 2026-09-28 19:51/19:57), left by a 09-28 run; seen in
-  run 1's post-run `dir`, present before this campaign. Not deleted (outside what this run changed); sent to the
-  sentinel as NEEDS TEST ENGINEER. Deleting them: on u5 `delete force IE520-stk-<1|4>/flash:/stk_a_9001_33234_<1|2>.cfg`.
