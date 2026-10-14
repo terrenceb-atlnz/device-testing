@@ -70,7 +70,7 @@ Topology: "Adapted load" of the reporter's config; "I'll recable now": tb470 eth
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | coro-dlf (corosync flow-control repro) | tb470/IE520/corosync-dlf-2026-10-15T0755/ | DONE 08:36 -- PASS (not reproduced); cleanup closed 09:13: u5 witness stopped 09:11:04, u5 terminal no monitor at exec, after-run read-only probe = same expected MISMATCH set, no USER-CONFLICT (eth1 FDB entry aged out -> NEEDS-CHECK). Still open, a tools defect: `tb killmine` refuses tb-launched console tools | runs: A = eth1 only (member 1 ingress); B = eth1 + eth3 at once (the report's method). Each: line rate, several minutes, terminal monitor on u5 and u4, sdma CPU counters before/after |
+| 1 | coro-dlf (corosync flow-control repro) | tb470/IE520/corosync-dlf-2026-10-15T0755/ | DONE 08:36 -- PASS (not reproduced); cleanup closed 09:13: u5 witness stopped 09:11:04, u5 terminal no monitor at exec, after-run read-only probe = same expected MISMATCH set, no USER-CONFLICT (eth1 FDB entry aged out -> NEEDS-CHECK). Tools defect I-1 closed by d425f0b (killmine stopped row 2's witness 09:54:29) | runs: A = eth1 only (member 1 ingress); B = eth1 + eth3 at once (the report's method). Each: line rate, several minutes, terminal monitor on u5 and u4, sdma CPU counters before/after |
 
 ## Row 2 — coro-cpu: the CPU-bound variant (Test Engineer, 2026-10-15 09:2x: "run a version that reaches the CPU")
 
@@ -123,13 +123,14 @@ proof the CPU was loaded. Restore, then the read-only after-run probe to /tmp/co
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 2 | coro-cpu (corosync flow-control repro, CPU-bound traffic) | tb470/IE520/corosync-dlf-2026-10-15T0755/ (case folder `coro-cpu/`) | RUNNING 09:22 -- gates clean (precheck CLEAR, both consoles at exec, read-only probe = expected MISMATCH set, no USER-CONFLICT), pre-run capture saved | plan in "Row 2" above; same consoles, same facts; the only config change is running-only (VLAN 1000 on the injection ports) and is restored |
+| 2 | coro-cpu (corosync flow-control repro, CPU-bound traffic) | tb470/IE520/corosync-dlf-2026-10-15T0755/ (case folder `coro-cpu/`) | DONE 09:56 -- PASS (not reproduced); P1/P2/P3 all punt to the MASTER CPU (q1 / q2), R1-R4 clean under 5.1-5.7 M punts per 5-min run (~17-19 kpps, master CPU 31-39 %, exfx ~50 %); restored: running-config identical, boot unchanged, stack Normal, no reboot, witness stopped (killmine works), both consoles at exec monitor off, after-run probe = same expected set | plan in "Row 2" above; same consoles, same facts; the only config change is running-only (VLAN 1000 on the injection ports) and is restored |
 
 ## Results
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
 | coro-dlf | corosync coroipcs "flow control" log lines under DLF across the stack link (defect repro) | corosync-dlf-2026-10-15T0755 | PASS (not reproduced) | No corosync/coroipcs flow-control line on terminal monitor (u4+u5, debugging) or buffered/permanent log through baseline, run A (eth1 DLF into member 1, 24.67M frames, 100% across the stack) and run B (eth1+eth3 into both members at once, 5 min, 100% / 99.99998% on the far NICs); CPU sdma unchanged (~24 pps/member): the flood never reached either CPU | corosync-dlf-2026-10-15T0755/coro-dlf/work/run1.log | tester |
+| coro-cpu | corosync coroipcs "flow control" log lines under CPU-bound traffic across the stack (defect repro, CPU-bound variant) | corosync-dlf-2026-10-15T0755 | PASS (not reproduced) | No corosync/coroipcs flow-control line on terminal monitor (u4+u5, debugging) or in the buffered/permanent log through four 5-min runs of CPU-bound traffic (to-me unicast into the backup / the master / both, subnet broadcast into both) that loaded the master CPU: 5.1-5.7 M frames punted per run (~17-19 kpps sustained, master CPU 31-39 %, exfx ~50 %, interrupts ~30 %), backup CPU untouched; every punted frame crossed the stack link in R1/R3/R4; config restored and identical | corosync-dlf-2026-10-15T0755/coro-cpu/work/run1.log | tester |
 
 ## Issues
 

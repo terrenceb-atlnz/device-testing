@@ -255,3 +255,101 @@ RUN R3 -- P1 to-me at line rate from eth1 AND eth3 at once (both members' ingres
   Non-IMISH monitor lines (u5 witness): 09:39:54/55 logconf + syslog-ng reload (monitor on); 09:41:12 systemd Mail
     queue flush x3; 09:45:49/50 logconf + syslog-ng reload (monitor off). Nothing else.
   -> NO corosync / coroipcs / flow-control line on either console; show log grep at 09:45:45 clean; stack Normal.
+
+RUN R4 -- P2 subnet broadcast (ff:ff:ff:ff:ff:ff / 10.38.29.31) at line rate from eth1 AND eth3 at once, 5 min. Clean, no corosync line.
+  window 09:46:03-09:52:03 NZDT (work/window-R4.txt); traffic (runboth.sh), both started 09:46:23:
+    `tools/tb sudotool tb470 coro1015 linerate --tx eth1 --rx eth3 --dst-mac ff:ff:ff:ff:ff:ff --dst-ip 10.38.29.31 --dport 9002 --rate top --secs 300`
+    `tools/tb sudotool tb470 coro1015 linerate --tx eth3 --rx eth1 --dst-mac ff:ff:ff:ff:ff:ff --dst-ip 10.38.29.31 --dport 9002 --rate top --secs 300`
+    09:46:26-09:51:26  eth1 sent 24569501 (81897 pps, 995.9 Mbps on the wire), rx eth3 24569501 (100 %);
+                       eth3 sent 24601001 (82002 pps, 997.1 Mbps), rx eth1 24600998 (100 %)  (work/linerate-R4-eth1/-eth3.txt)
+    -> each broadcast flood was BOTH punted (below) and flooded across the stack link to the other member's port, at line rate.
+  MAC table 09:46:11: 1000 port1.0.13 00f0.4d00.7716; 1000 port2.0.13 00f0.4d00.7718.
+  Interface counters 09:52:02: port1.0.13 input 98673519 -> 123243020 (+24569501 = all of eth1's), output 24069007 ->
+    48670005 (+24600998 = eth3's flood out of member 1, broadcast packets 24601009); port2.0.13 input 73392012 ->
+    97993013 (+24601001 = all of eth3's), output 49288349 -> 73857850 (+24569501 = eth1's flood out of member 2).
+  sdma per ~56 s interval:
+    09:46:15 (pre)  m1 [0,0,0,3,0,0,0,921]    m2 [0,0,0,0,0,0,3,888]
+    09:47:12        m1 [0,0,0,6,0,0,0,1354]   m2 [0,0,828093,0,0,0,6,1345]
+    09:48:08        m1 [0,0,0,5,0,0,0,1357]   m2 [0,0,1074784,0,0,0,5,1330]
+    09:49:04        m1 [0,0,0,6,0,0,0,1354]   m2 [0,0,1067485,0,0,0,6,1336]
+    09:50:00        m1 [0,0,0,6,0,0,0,1352]   m2 [0,0,1069475,0,0,0,6,1337]
+    09:50:57        m1 [0,0,0,5,0,0,0,1365]   m2 [0,0,1081376,0,0,0,5,1344]
+    09:51:53        m1 [0,0,0,5,0,0,0,1306]   m2 [0,0,602479,0,0,0,5,1296]
+    total R4: 5,723,692 broadcast copies to the master's CPU (queue 2), ~19 kpps; ~49.2 M frames offered;
+    member 1's CPU background only (~24 pps).
+  show cpu (member 2): 09:47:14 34/34/27 %, user 21 kernel 12 irq 29, exfx 53.7 %; 09:48:10 36/36/33 %, exfx 54.4 %,
+    corosync 0.9 %; 09:49:07 33/36/33 %, exfx 49.0 %; 09:50:03 32/36/34 %, user 16 kernel 13 irq 30, exfx 49.2 %,
+    corosync 0.5 %; 09:50:59 31/35/33 %, exfx 50.2 %; 09:51:55 (post) 6/8/20 %, exfx 2.1 %. Member 1: 3-7 %, exfx <= 7 %.
+  Non-IMISH monitor lines (u5 witness): 09:46:07/09 logconf + syslog-ng reload (monitor on); 09:46:17 and 09:51:22
+    systemd Mail queue flush x3 each; 09:52:03/04 logconf + syslog-ng reload (monitor off). Nothing else.
+  -> NO corosync / coroipcs / flow-control line on either console; show log grep at 09:51:59 clean; stack Normal.
+
+CPU-LOAD SUMMARY (the proof the traffic reached and loaded the CPU, all four runs) -> work/sdma-summary.txt
+  Punted to the MASTER's CPU (member 2), rxDmaPcktCnt: R1 5,365,381 (q1) / R2 5,143,013 (q1) / R3 5,217,781 (q1) /
+  R4 5,723,692 (q2) frames in 5 min each, i.e. ~17-19 kpps sustained, against ~24.6 M (R1, R2) or ~49.2 M (R3, R4)
+  offered: the CPU rate limiter caps the punt and the rest is dropped (to-me) or hardware-flooded (broadcast).
+  Master CPU 31-39 % (1 s / 20 s / 60 s averages all ~33-36 %), 27-36 % of it in interrupts, exfx 49-56 %,
+  load average up to 3.66; corosync 0.4-0.9 %. The BACKUP's CPU (member 1, the R1 ingress) never saw the
+  traffic: its queues stayed at background (~24 pps) in every interval, and its CPU at 2-7 %.
+  The reporter's condition "DLF across the stack link" is also still covered: in R1/R3/R4 the frames entered
+  member 1 and were handled (punted) or flooded on member 2, so every punted frame crossed the stack link.
+
+AFTER THE RUNS -- restore and checks
+  09:52:37-09:54:28 NZDT, u4: `CKTO=240 tools/tb cfg tb470 coro1015 u4 115200 "configure terminal" "interface
+    port1.0.13,port2.0.13" "switchport access vlan 100" "end" "show clock | include UTC Time" "show interface
+    port1.0.13,port2.0.13 status" "show interface vlan1000 | include Link" "show running-config" "show boot" "show stack"
+    "show exception log" "show reboot history" "show log | include coroipcs|corosync|flow control" "show log permanent |
+    include coroipcs|corosync|flow control" "show platform counter sdma"` -> work/post-run.txt. No `% ` line.
+    IE520(config-if)#switchport access vlan 100 ; IE520#
+    show interface port1.0.13,port2.0.13 status: both connected, VLAN 100, a-full a-1000 (restored)
+    show interface vlan1000 | include Link: Link is DOWN, administrative state is UP (as before the run)
+    show running-config -> work/running-config-post.txt; `diff work/running-config-pre.txt work/running-config-post.txt`
+      -> IDENTICAL (156 lines each; port1.0.13/port2.0.13 back on `switchport access vlan 100`).
+    show boot: Current boot config: flash:/coro-repro.cfg (file exists) -- unchanged; no `write` was done.
+    show stack: 1 Ready Backup Member; 2 Ready Active Master; Normal operation.
+    show exception log: member 1 None; member 2 None.
+    show reboot history: identical to the pre-run list (diff empty) -> no new reboot on either member.
+    show log | include coroipcs|corosync|flow control (20:54:10 UTC): 14 lines, ALL of them IMISH echoes of that grep
+      command (19:07:00 .. 20:54:10). No corosync/coroipcs/flow-control line in the buffered log since boot.
+      (The buffered-log read took ~90 s this time.)
+    show log permanent | include coroipcs|corosync|flow control: no line (empty, prompt returned).
+    cfg exited rc 5 ("no prompt within 90 s") AFTER that command: the prompt came back wrapped in the terminal's
+      cursor-position query escape (`\e7\e[r\e[999;999H\e[6nIE520#`), which cfg's prompt match did not take; the
+      final sdma read was therefore skipped (not needed). The cfg exit path still ran: the u4 transcript ends
+      ">>> terminal no monitor / IE520# / ===== closed /dev/u4 at 2026-10-15 09:54:28 =====" -> u4 at exec, monitor off.
+      (The dispatch's note: the tools' exit path logs `Command [end] failed` on the DUT when `end` is sent at exec --
+      cosmetic, not counted.)
+  09:54:29 u5 witness stopped: `tools/tb killmine tb470 1063292` -> "1063292 stopped" (rc 0; the d425f0b fix works
+    for tb-launched console tools). /tmp/coro1015/console-u5.log ends "2026-10-15 09:54:29 ===== witness detached =====".
+    `tools/tb ps tb470 'witness_log|linerate|tcpreplay|tcpdump'` -> nothing of ours left running.
+  09:54:3x u5: `tools/tb ckcon tb470 coro1015 u5 115200 "show clock | include UTC Time"` rc 0; transcript ends
+    ">>> terminal no monitor / IE520# / ===== closed /dev/u5 at 2026-10-15 09:54:42 =====" -> u5 at exec, monitor off.
+  After-run probe: `tools/tb probe tb470 --consoles 4,5 --no-prompt --read-only --pdu 10.36.150.14 --outlet u4=4,u5=5
+    --baud 115200 --out /tmp/coro1015/bench-state-after2.md` -> exit 1 MISMATCH (26) + NEEDS-CHECK (3), no
+    USER-CONFLICT; the item set is IDENTICAL to the pre-run probe's (diff of the item lines empty). u4 = swi_d
+    264A23052 member 2 Active Master, u5 = swi_c 264A23066 member 1 Backup Member, both tomahawk_ie520-20260825-42,
+    bootloader 9.2.0, flash:/IE520-tb470.rel; stk_a Normal operation. Committed bench-state.md not touched.
+  `tools/tb peek` after the probe: /dev/u4 'IE520#', /dev/u5 'IE520#' -- both at exec, logged in (as found).
+  Nothing left on the box from this run except files under /tmp/coro1015/ (transcripts, probe outputs).
+
+FILES SAVED
+  coro-cpu/stk_a.cfg (after setup, before the first probe burst)
+  work/run1.log (this); work/pre-run.txt, work/post-run.txt (u4 captures); work/running-config-pre.txt / -post.txt;
+  work/setup.txt, work/setup-check.txt, work/rc-setup.txt, work/running-config-setup-raw.txt; work/cpu-filter-test.txt;
+  work/sdma-P1..P3-pre/-post.txt, work/linerate-P1..P3.txt; work/window-R1..R4.txt (u4 monitor windows with every
+  sdma and show cpu read); work/linerate-R1.txt, -R2.txt, -R3-eth1/-eth3.txt, -R4-eth1/-eth3.txt;
+  work/console-u5-witness.txt (the u5 stamped monitor log 09:26:25-09:54:29: 183 lines = 132 IMISH echoes +
+  51 other lines, 0 corosync); work/sdma-summary.txt. Raw transcripts stay on the box: /tmp/coro1015/console-u4.log,
+  console-u5.log, witness-raw-u5.log; scratch probes /tmp/coro1015/bench-state-pre2.md, bench-state-after2.md.
+  Helper scripts used (session scratchpad, not committed): variant.sh, window.sh, runboth.sh, winsum.py -- thin
+  wrappers around `tools/tb ckcon|sudotool`; every command they sent is quoted above.
+
+Run label: clean (four 5-min runs, each with terminal monitor proven live on u4 and u5 by the IMISH echoes and
+  logconf/syslog-ng lines, line-rate traffic counted on the ingress ports, and the punt to the master's CPU measured
+  per interval; config restored and diffed identical; no reload, no write, no PDU).
+Scope note: 1G line rate per NIC, 1500-byte UDP frames from the tb470 host NICs (not Ixia), to-me unicast and
+  subnet broadcast on the reporter's vlan1000, 5 min per run on the reporter's (adapted) config, build
+  tomahawk_ie520-20260825-42. The punt rate was capped by the device at ~17-19 kpps; a smaller-frame flood would
+  not raise it (the cap is per packet). Not tried: other punt reasons (ARP storms, TTL-expiry, management
+  protocols), a longer soak, or the exact reporter build.
+VERDICT: PASS -- not reproduced: no corosync/coroipcs "flow control" line on either console's terminal monitor (filter = debugging) or in the buffered/permanent log through four 5-min runs of CPU-bound traffic (to-me unicast into the backup, into the master, into both; subnet broadcast into both) that measurably loaded the master's CPU (5.1-5.7 M frames punted per run, ~17-19 kpps sustained, master CPU 31-39 %, exfx ~50 %, interrupts ~30 %), every punted frame crossing the stack link in R1/R3/R4; config restored and identical.
