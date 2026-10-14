@@ -109,3 +109,100 @@ PRE-RUN CAPTURE (08:05:37-08:06:01 NZDT, u4 = master console)
     Permanent log level warnings; MONITOR LOG level DEBUGGING (program/facility/msg any) -- so every
     severity reaches a `terminal monitor` session; External log disabled.
 
+CONSOLE CAPTURE METHOD (all runs)
+  u5 (member 1, backup console relayed to the master CLI): `tools/tb witness_log tb470 coro1015 u5
+     /tmp/coro1015/console-u5.log 115200` -- logs in once, `terminal monitor` ON, then strictly
+     read-only; every line stamped with the box's NZDT clock. Attached 08:08:52 -> 08:08:56
+     "terminal monitor enabled; going READ-ONLY", and kept attached through baseline, run A and run B.
+  u4 (member 2, Active Master): one `tools/tb ckcon tb470 coro1015 u4 115200 ...` call per window:
+     "terminal monitor" first (device: "% Warning: Console logging enabled"), then the reads, with
+     "@sleep 30" + "show clock" pairs to keep the session reading through the window; ckcon's exit
+     path sends `terminal no monitor` from exec (console.py monitor_off()). Transcript /tmp/coro1015/console-u4.log.
+  Positive control that terminal monitor really mirrored the log (no port shut/no-shut used): every
+     command typed on u4 produces an `IMISH[6066]: [manager@ttyS0]<cmd>` user.notice line, which
+     appears on u5's monitor (stamped) and on u4's own monitor; plus syslog-ng reload lines and the
+     systemd "Mail queue flush" lines. Monitor filter = debugging, so any corosync line at any
+     severity would be shown.
+
+BASELINE -- terminal monitor on, NO traffic, 08:09:15-08:12:44 NZDT (DUT 19:10:31-19:13:58 UTC), ~3.5 min
+  tool: `tools/tb ckcon tb470 coro1015 u4 115200 "terminal monitor" "show clock" "show mac address-table |
+        include 9999" "show platform counter sdma" ("@sleep 30" "show clock") x6 "show platform counter sdma"
+        "show log | include coroipcs|corosync|flow control"`
+  u4: IE520#terminal monitor -> % Warning: Console logging enabled
+  `show mac address-table | include 9999` -> nothing (DLF MAC absent)
+  Every log line seen in the window (u5 witness, NZDT stamp + DUT UTC stamp), verbatim:
+    2026-10-15 08:08:58 19:10:12 IE520 syslog-ng[292]: Configuration reload request received, reloading configuration;
+    2026-10-15 08:08:58 19:10:12 IE520 syslog-ng[292]: Configuration reload finished;
+    2026-10-15 08:09:17 19:10:31 IE520 IMISH[6066]: [manager@ttyS0]terminal length 0
+    2026-10-15 08:09:18 19:10:33 IE520 IMISH[6066]: [manager@ttyS0]terminal no monitor
+    2026-10-15 08:09:19 19:10:34 IE520 IMISH[6066]: [manager@ttyS0]terminal monitor
+    2026-10-15 08:09:19 19:10:34 IE520 logconf: Update log configuration
+    2026-10-15 08:09:21 19:10:34 IE520 syslog-ng[292]: Configuration reload request received, reloading configuration;
+    2026-10-15 08:09:21 19:10:34 IE520 syslog-ng[292]: Configuration reload finished;
+    2026-10-15 08:09:22 19:10:36 IE520 IMISH[6066]: [manager@ttyS0]show mac address-table | include 9999
+    2026-10-15 08:09:23 19:10:37 IE520 IMISH[6066]: [manager@ttyS0]show platform counter sdma
+    2026-10-15 08:09:52 19:11:07 IE520 systemd[1]: Starting Mail queue flush service...
+    2026-10-15 08:09:52 19:11:07 IE520 systemd[1]: nbqueue-flush.service: Deactivated successfully.
+    2026-10-15 08:09:52 19:11:07 IE520 systemd[1]: Finished Mail queue flush service.
+    (IMISH "show clock" lines every ~31 s, alternating with syslog-ng's suppression line:)
+    2026-10-15 08:10:59 19:12:14 IE520 IMISH[292]: Last message '[manager@ttyS0]show ' repeated 1 times, suppressed by syslog-ng on IE520
+    2026-10-15 08:12:34 19:13:48 IE520 IMISH[6066]: [manager@ttyS0]show platform counter sdma
+    2026-10-15 08:12:41 19:13:56 IE520 IMISH[6066]: [manager@ttyS0]show log | include coroipcs|corosync|flow control
+    2026-10-15 08:12:43 19:13:58 IE520 IMISH[6066]: [manager@ttyS0]terminal no monitor
+    2026-10-15 08:12:43 19:13:58 IE520 logconf: Update log configuration
+  u4's own monitor showed the same lines (e.g. "IE520#19:10:35 IE520 IMISH[6066]: [manager@ttyS0]show clock",
+    "19:11:07 IE520 systemd[1]: Starting Mail queue flush service...").
+  -> NO corosync / coroipcs / flow-control line in the baseline. Monitor proven live on both consoles.
+  IE520#show log | include coroipcs|corosync|flow control (19:13:56 UTC):
+    2026 Oct 14 19:07:00 user.notice IE520 IMISH[6066]: [manager@ttyS0]show log | include orosync|otem|CMSG|IPC|flow control
+    2026 Oct 14 19:13:56 user.notice IE520 IMISH[6066]: [manager@ttyS0]show log | include coroipcs|corosync|flow control
+  sdma (`show platform counter sdma`; rxDmaPcktCnt is clear-on-read, "RX/TX packet counter" cumulative):
+    08:09:27 member 1 rxDmaPcktCnt[0..7]=[0,0,0,21,0,0,0,5153]  RX pkt 16505  TX pkt 15840 (accumulation since 08:06:01)
+    08:09:27 member 2 rxDmaPcktCnt[0..7]=[0,0,6,0,0,0,21,5074]  RX pkt 15899  TX pkt 16507
+    08:12:38 member 1 rxDmaPcktCnt[0..7]=[0,0,0,19,0,0,0,4521]  sum 4540 in 191 s (~24 pps)  RX pkt 21045  TX pkt 20320
+    08:12:38 member 2 rxDmaPcktCnt[0..7]=[0,0,0,0,0,0,19,4479]  sum 4498 in 191 s (~24 pps)  RX pkt 20396  TX pkt 21045
+  Baseline: clean.
+
+RUN A -- line-rate DLF from eth1 only (member 1 ingress, port1.0.13), 5 min. Clean.
+  u4 window 08:13:45-08:19:55 NZDT: `tools/tb ckcon tb470 coro1015 u4 115200 "terminal monitor" "show clock"
+     "show mac address-table | include 9999" "show interface port1.0.13,port2.0.13,port1.0.2,port2.0.2 |
+     include ^Interface|input packets|output packets" "show platform counter sdma" ("@sleep 30" "show clock") x11
+     "show platform counter sdma" "show interface ... (same)" "show mac address-table | include 9999"
+     "show log | include coroipcs|corosync|flow control" "show stack"`
+  u5 witness: attached throughout (monitor ON).
+  Gate 6: 19:15:06 UTC `show mac address-table | include 9999` -> no entry (DLF MAC not learned) before traffic.
+  Traffic: `tools/tb sudotool tb470 coro1015 linerate --tx eth1 --dst-mac 02:00:00:00:99:99 --rate top --rx eth3 --secs 300`
+    08:14:16-08:19:16  tx eth1 -> 02:00:00:00:99:99  1500-byte frames  rate=top  IPv4 10.38.215.1 -> 192.0.2.1 ttl/hlim 2  src MACs 1
+      rx filter: ether src 00:f0:4d:00:77:16 and ip and udp src port 5010
+      sent 24667001   tcpreplay 984.0 Mbps (frame bytes)  82223 pps  = 999.8 Mbps on the wire
+      rx eth3   24667001  (100.0%)  kernel drops 0
+    -> every DLF frame entering member 1 was flooded ACROSS THE STACK LINK and out of member 2's port2.0.13
+       to eth3, at 1G line rate, for 300 s.
+  Interface counters (u4, before 19:15:07 UTC / after 19:21:00 UTC):
+    port1.0.13 input  packets 5 -> 24667006   (the DLF ingress, member 1)
+    port2.0.13 output packets 5 -> 24667006   (flood out of member 2 to eth3)
+    port2.0.2  output packets 6 -> 24667007   (flood out of sa2's member-2 leg to the AR4050S)
+    port1.0.2  output packets 0 -> 0           (sa2's member-1 leg carried none of it)
+  sdma CPU counters (rxDmaPcktCnt clear-on-read):
+    08:13:59 member 1 [0,0,0,8,0,0,0,1880]  member 2 [0,0,0,0,0,0,8,1861]  (accumulation since 08:12:38)
+    08:19:46 member 1 [0,0,0,34,0,0,0,8158] sum 8192 in 347 s (~23.6 pps)  RX pkt 31126  TX pkt 30255
+    08:19:46 member 2 [0,0,0,0,0,0,34,8074] sum 8108 in 347 s (~23.4 pps)  RX pkt 30374  TX pkt 31127
+    -> same rate as the no-traffic baseline (~24 pps): the 24.7 M-frame flood stayed in hardware; no CPU load from it.
+  Every non-IMISH monitor line in the window (u5 witness, NZDT + DUT UTC; u4's monitor showed the same):
+    2026-10-15 08:13:49 19:15:04 IE520 logconf: Update log configuration
+    2026-10-15 08:13:50 19:15:04 IE520 syslog-ng[292]: Configuration reload request received, reloading configuration;
+    2026-10-15 08:13:50 19:15:04 IE520 syslog-ng[292]: Configuration reload finished;
+    2026-10-15 08:14:55 19:16:09 IE520 systemd[1]: Starting Mail queue flush service...
+    2026-10-15 08:14:55 19:16:09 IE520 systemd[1]: nbqueue-flush.service: Deactivated successfully.
+    2026-10-15 08:14:55 19:16:09 IE520 systemd[1]: Finished Mail queue flush service.
+    2026-10-15 08:19:55 19:21:09 IE520 logconf: Update log configuration      (after u4's terminal no monitor)
+    2026-10-15 08:19:58 19:21:11 IE520 systemd[1]: Starting Mail queue flush service... (+ Deactivated/Finished)
+    2026-10-15 08:19:58 19:21:11 IE520 syslog-ng[292]: Configuration reload request received / finished
+  IMISH positive-control lines on u5 during the traffic: 19:15:06-19:15:08 (pre reads), "show clock" every ~31 s
+    (shown alternately as the line and syslog-ng's "Last message '[manager@ttyS0]show ' repeated 1 times"),
+    19:20:56 "show platform counter sdma", 19:21:00 "show interface ...", 19:21:06 "show log | include ...".
+  -> NO corosync / coroipcs / flow-control line on either console during 5 min of line-rate DLF across the stack.
+  IE520#show log | include coroipcs|corosync|flow control (19:21:06): only the three IMISH echoes of that command
+    (19:07:00, 19:13:56, 19:21:06).
+  `show mac address-table | include 9999` after: still no entry.  `show stack`: both Ready, member 2 Active Master.
+
