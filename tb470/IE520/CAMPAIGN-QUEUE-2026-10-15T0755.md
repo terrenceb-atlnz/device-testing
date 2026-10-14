@@ -72,6 +72,40 @@ Topology: "Adapted load" of the reporter's config; "I'll recable now": tb470 eth
 | --- | --- | --- | --- | --- |
 | 1 | coro-dlf (corosync flow-control repro) | tb470/IE520/corosync-dlf-2026-10-15T0755/ | DONE 08:36 -- PASS (not reproduced); cleanup closed 09:13: u5 witness stopped 09:11:04, u5 terminal no monitor at exec, after-run read-only probe = same expected MISMATCH set, no USER-CONFLICT (eth1 FDB entry aged out -> NEEDS-CHECK). Still open, a tools defect: `tb killmine` refuses tb-launched console tools | runs: A = eth1 only (member 1 ingress); B = eth1 + eth3 at once (the report's method). Each: line rate, several minutes, terminal monitor on u5 and u4, sdma CPU counters before/after |
 
+## Row 2 — coro-cpu: the CPU-bound variant (Test Engineer, 2026-10-15 09:2x: "run a version that reaches the CPU")
+
+Why: in row 1 the ~48.6 M flooded frames never reached either CPU (sdma ~24 pps throughout). corosync is the
+VCS cluster messaging and `coroipcs` flow control is its IPC back-pressure, so the reporter's trigger is most
+likely CPU-bound traffic crossing the stack (ingress on the backup, handled on the master), not a hardware flood.
+Hypothesis to test: frames the switch must punt to the CPU, entering on the BACKUP member.
+
+Setup (running-only, restored after; no `write`, no reload): the reporter's `vlan1000` (10.38.29.15/27, ports
+1.0.9/1.0.24/2.0.9, all down) is the only L3 interface. Move the injection ports into it so it comes up and
+to-me traffic exists: `interface port1.0.13,port2.0.13` / `switchport access vlan 1000`. Restore = back to VLAN 100,
+diff against the pre-run running-config.
+
+Probe first (15 s each, --rate 50, sdma `rxDmaPcktCnt[*]` on BOTH members before/after, baseline ~24 pps; memory
+`ie520-is-marvell-cpu-queues`: copy-to-cpu q0, send-to-cpu q6, background q7). Distinct --dport per variant:
+- P1 unicast to-me: `--dst-mac 0000.cd37.0a66` (the stack MAC) `--dst-ip 10.38.29.15` — must reach the CPU;
+- P2 subnet broadcast: `--dst-mac ff:ff:ff:ff:ff:ff --dst-ip 10.38.29.31`;
+- P3 (control) broadcast in VLAN 100 as row 1 was, if cheap.
+Keep the variants whose sdma delta is thousands per 15 s. CPU rate-limiting will cap the punted rate; that is the
+point (sustained max CPU/IPC load), so offer line rate in the runs and record what `show cpu` and sdma show.
+
+Runs (5 min each, terminal monitor ON on u4 AND u5 — ckcon window on one, witness_log on the other, as row 1;
+`show cpu` + sdma from the u4 window every ~60 s; corosync/coroipcs/flow-control grep after each):
+- R1 ingress on the BACKUP (member 1): eth1 -> port1.0.13 only, P1;
+- R2 ingress on the MASTER (member 2): eth3 -> port2.0.13 only, P1;
+- R3 both at once, P1; then R4 = R3 with P2 if P2 reached the CPU.
+Verdict as row 1: FAIL = the lines appear (record first time, cadence, member); PASS = none, WITH sdma/`show cpu`
+proof the CPU was loaded. Restore, then the read-only after-run probe to /tmp/coro1015/bench-state-after2.md.
+
+## Queue (continued)
+
+| # | case(s) | group dir | state | note |
+| --- | --- | --- | --- | --- |
+| 2 | coro-cpu (corosync flow-control repro, CPU-bound traffic) | tb470/IE520/corosync-dlf-2026-10-15T0755/ (case folder `coro-cpu/`) | QUEUED | plan in "Row 2" above; same consoles, same facts; the only config change is running-only (VLAN 1000 on the injection ports) and is restored |
+
 ## Results
 
 | case | title | group | verdict | reason | working log | graded |
