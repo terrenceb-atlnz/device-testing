@@ -27,6 +27,19 @@ boot config was translated (`port3.0.x`→`port1.0.x`). The third unit was kept 
 reloaded once to prove the IDs and config, then `boot system` to the old build and reloaded.
 Handover `IE520/SESSION-HANDOVER-2026-10-05.md` has the way back.
 
+**Renumber with NO file transfer — done 2026-10-15** (1/3/4 → 1/2 for the Aug `-42` build, at
+Terrence's request). The 10-05 `python3 -m http.server` delivery is now blocked by the auto-mode
+classifier ("Expose Local Services"), so the config was translated in place from the CLI:
+1. `stack 3 renumber 1`, `stack 4 renumber 2` (Pending ID shows at once; the old ID 1 being
+   `Provisioned` did not block it).
+2. Rewrite the `port1.0.x` blocks to mirror `port3.0.x` (old member-1 settings removed),
+   `switch 2 provision ie520-28`, give `port2.0.x` the `port4.0.x` settings, `write`, `reload`.
+3. After the reload, `no switch 3 provision` and `no switch 4 provision` (no prompt; their port
+   config goes with them), `write`.
+Running-config then equalled the offline translation exactly. Before the reload, point
+`boot system` at the running file, and mind each member's FORCED bootloader file
+(platforms/IE520.md §2): that reload split the stack because member 4 was forced to a different build.
+
 **(Historical, OLD build, 2026-09-04):** `stack 1 renumber 3|4` → `% The max stack member ID
 supported by this product is 2`; `switch 3 provision ie520-28` → `% Invalid switch value`. That is
 what the new build fixed.
