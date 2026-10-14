@@ -273,10 +273,18 @@ def main(argv):
             'u=$(ps -o user= -p {p}) || {{ echo "tb: no process {p}"; exit 3; }}; c=$(ps -o args= -p {p}); '
             'echo "tb: {p} $u $c"; case "$c" in *minicom*|*screen*|*tmux*|*picocom*) '
             'echo "tb: refusing -- {p} is an interactive console session, never ours to kill"; exit 5;; esac; '
+            # Accept (1) an absolute /tmp/<x>/tools/ or framework path on the command line, or (2) a bare
+            # `python3 <tool>.py ...` whose cwd is /tmp/<x>/tools -- which is how this wrapper itself launches
+            # every console tool (`cd /tmp/<x>/tools && python3 <tool>.py`), so until 2026-10-15 killmine
+            # refused its own tools (coro-dlf queue I-1).
+            'w=$(readlink /proc/{p}/cwd 2>/dev/null); '
             'if echo "$c" | grep -qE "python3?[0-9.]* .*(/tmp/[^ ]+/tools/|bench_probe\\.py|/home/st-art/pytest-create/)"; then :; '
-            'else echo "tb: refusing -- {p} is not a device-testing tool, probe or framework run"; exit 5; fi; '
+            'elif echo "$w" | grep -qE "^/tmp/[^/]+/tools$" && echo "$c" | grep -qE "^python3?[0-9.]* [A-Za-z0-9_]+\\.py( |$)"; then :; '
+            'else echo "tb: refusing -- {p} is not a device-testing tool, probe or framework run (cwd $w)"; exit 5; fi; '
             'for f in $(ls -l /proc/{p}/fd 2>/dev/null | grep -o "/dev/ttyUSB[0-9]*" | sort -u); do stty -F $f -hupcl 2>/dev/null; done; '
-            'if [ "$u" = "$(whoami)" ]; then kill {p}; elif echo "$c" | grep -q /home/st-art/pytest-create/; then sudo -n kill {p}; '
+            # SIGINT first so a tool's finally: block runs (witness_log writes "witness detached"); SIGTERM if it lingers.
+            'if [ "$u" = "$(whoami)" ]; then kill -INT {p}; sleep 2; ps -p {p} > /dev/null && kill {p}; '
+            'elif echo "$c" | grep -q /home/st-art/pytest-create/; then sudo -n kill {p}; '
             'else echo "tb: refusing -- {p} belongs to $u"; exit 5; fi; sleep 1; '
             'ps -p {p} > /dev/null && echo "tb: {p} still running" || echo "tb: {p} stopped"').format(p=pid))
 
