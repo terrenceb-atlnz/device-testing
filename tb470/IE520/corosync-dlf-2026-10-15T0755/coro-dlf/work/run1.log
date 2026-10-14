@@ -1,0 +1,111 @@
+COROSYNC FLOW-CONTROL DEFECT REPRODUCTION -- coro-dlf, run 1 (working log, tester = bench-runner)
+====================================================================================================
+Queue:   tb470/IE520/CAMPAIGN-QUEUE-2026-10-15T0755.md, row 1 (group dir corosync-dlf-2026-10-15T0755/)
+Kind:    defect reproduction, not an AWPTCM case (no test-case DB text; the "case text" is the report below)
+
+SESSION FACTS (Test Engineer's, from the dispatch; used, not changed)
+  Test Engineer: terrenceb@terrenceb-dl     box: tb470     sentinel: parent session (/test-mode)
+  consoles: u4, u5 at 115200 -- u5 = S/N 264A23066 = stack member 1 (swi_c); u4 = S/N 264A23052 =
+            stack member 2 (swi_d), stack stk_a. u0-u3 NOT touched.
+  PDU 10.36.150.14, outlets u4=4, u5=5 (no power-cycle expected or used in this run)
+  constraints: "Now" (office hours); ~1 Gb/s of DLF per host NIC accepted; NO reload, NO write,
+            NO boot/config-file change, NO bench_probe.py apply, NO lldp change.
+
+THE REPORT (verbatim from the queue file)
+  "with term mon enabled and DLF traffic going across the stack link the following logs can be seen:"
+    20:53:19 IE520 corosync[1927]:   [IPC   ] coroipcs.c:383 Enabling flow control for 705
+    20:53:19 IE520 corosync[1927]:   [IPC   ] coroipcs.c:373 Disabling flow control for 705
+    ... (pairs every ~3-30 s, 20:53:19 - 20:55:26)
+  Consequences: none observed. Method: 1. connect an Ixia port to each stack member; 2. use Ixia to
+  send DLF traffic into both stack members.
+  Expected for this run: FAIL (= reproduced) if any `coroipcs ... flow control` line appears under DLF;
+  PASS (= not reproduced) only with proof the DLF crossed the stack link at line rate and that
+  terminal monitor was really on.
+
+DEVICES
+  stk_a "IE520" (hostname from the reporter's config), 2-member VCStack, Normal operation
+    member 1 = u5, AT-IE520-28GSX S/N 264A23066, MAC 84e3.2787.0740, prio 128, Backup Member
+    member 2 = u4, AT-IE520-28GSX S/N 264A23052, MAC 84e3.2787.09c0, prio 1,   Active Master
+    software tomahawk_ie520-20260825-42 (IE520-tb470.rel, built Tue Aug 25 07:43:35 UTC 2026), bootloader 9.2.0
+    boot config flash:/coro-repro.cfg (the reporter's config, adapted -- see queue "Bench at queue creation")
+    stack MAC 0000.cd37.0a66; uptime at 08:05 NZDT 0 days 00:05:52 (both members)
+  Partner (not on our consoles, not touched): AR4050S on u1, behind sa2 = port1.0.2 + port2.0.2 (VLAN 100)
+
+HOST NICS (tb470, measured 08:05 NZDT with `tools/tb nics tb470`)
+  eth1 00:f0:4d:00:77:16  10.38.215.1/27   -> stack port1.0.13 (member 1), VLAN 100, 1000BASE-T a-full a-1000
+  eth3 00:f0:4d:00:77:18  10.38.215.65/27  -> stack port2.0.13 (member 2), VLAN 100, 10GBASE-T SFP, a-full a-1000
+CLOCKS
+  host `date` 2026-10-15 08:05:37 NZDT (= 19:05:37 UTC) beside DUT `show clock` UTC 19:06:50 -> the DUT
+  clock runs ~73 s AHEAD of the box (DUT logs in UTC). Host stamps below are NZDT; device stamps UTC.
+
+GATES RUN (dispatch's adapted list)
+  1. 08:04 `tools/tb precheck tb470 4,5` -> exit 0 CLEAR (/dev/u4=ttyUSB0 free, /dev/u5=ttyUSB1 free;
+     only terrence's own idle shells logged in). `&&`-gated into `tools/tb scratch tb470 coro1015`
+     (tools refreshed in /tmp/coro1015/tools, 41 files).
+  2. 08:04 `tools/tb peek tb470 coro1015 u4 115200` -> 'IE520 login:' (bare banner = Active Master);
+     `... u5 115200` -> 'IE520#' (exec, logged-in backup session relayed to the master). No shell,
+     no config mode, no boot menu.
+     `tools/tb template tb470` -> /nfsHome mounted (nfs4 10.36.250.11:/home); tb470.setup present (Oct 13 12:21).
+  3. 08:04 `tools/tb probe tb470 --consoles 4,5 --no-prompt --read-only --pdu 10.36.150.14
+     --outlet u4=4,u5=5 --baud 115200 --out /tmp/coro1015/bench-state.md` -> exit 1 MISMATCH (27) +
+     NEEDS-CHECK (2), NO USER-CONFLICT. Expected: the probe saw only u4/u5, so every swi_a/b/e/f
+     line is MISSING_IN_LIVE and [stack] stk_a = {swi_c, swi_d} vs template {swi_a, swi_c, swi_d}
+     (stack deliberately off-template). NEEDS-CHECK: tb-swi_e eth2 and tb-swi_f eth3 (eth3 recabled
+     to the stack today; read-only probe sends no pings, so not learned yet). Measured, matching the
+     session facts: u4 = swi_d 264A23052 member 2 Active Master; u5 = swi_c 264A23066 member 1
+     Backup; both tomahawk_ie520-20260825-42, bootloader 9.2.0, flash:/IE520-tb470.rel; Normal
+     operation; tb eth1 -> swi_c port1.0.13 "MAC learned on a physical port". Committed
+     bench-state.md NOT overwritten (written to the box's /tmp only).
+  4. No framework script: gates 5-7 (.setup, preflight, run .setup) do not apply. Gate 7's spirit:
+     `show boot` + `show running-config` recorded before (below) and compared after.
+  5. MAC-learning proof of both injection paths (08:06:43 NZDT):
+       `tools/tb ping tb470 eth1 10.38.215.2 2`  (2 tx, 0 rx -- the point is the ARP broadcast)
+       `tools/tb ping tb470 eth3 10.38.215.66 2` (2 tx, 0 rx)
+     then on u4 `show mac address-table | include 7716|7718|9999`:
+       100  port1.0.13   00f0.4d00.7716   forward       dynamic
+       100  port2.0.13   00f0.4d00.7718   forward       dynamic
+     -> eth1 learned on port1.0.13 (member 1) and eth3 learned on port2.0.13 (member 2): BOTH paths proven.
+     `show interface port2.0.13`: input packets 3, output packets 5 (broadcast 5) at that time.
+  6. DLF MAC 0200.0000.9999 absent from the MAC table (same output, no 9999 line); re-checked before each run below.
+  9. Sentinel: parent (dispatch "sentinel: parent").
+ 10. No framework script, so no defaulting-CLI check; every CLI command used is a read-only `show`
+     plus the exec-only `terminal monitor` / `terminal no monitor`.
+
+PRE-RUN CAPTURE (08:05:37-08:06:01 NZDT, u4 = master console)
+  tool: `tools/tb ckcon tb470 coro1015 u4 115200 "show clock" "show system" "show stack" "show boot"
+        "show running-config" "show log | include orosync|otem|CMSG|IPC|flow control" "show exception log"
+        "show reboot history" "show interface port1.0.13,port2.0.13 status" "show interface sa2 status"
+        "show mac address-table | include 9999|7716|7718" "show platform counter sdma"`
+  IE520#show stack
+    ID   Pending ID  MAC address        Priority  Status  Role
+    1    -           84e3.2787.0740     128       Ready   Backup Member
+    2    -           84e3.2787.09c0     1         Ready   Active Master
+    Operational Status                 Normal operation
+    Stack MAC address                  0000.cd37.0a66 (Virtual MAC)
+  IE520#show boot
+    Current software   : IE520-tb470.rel
+    Current boot image : flash:/IE520-tb470.rel (file exists)
+    Backup  boot image : Not set
+    Default boot config: flash:/default.cfg
+    Current boot config: flash:/coro-repro.cfg (file exists)
+    Backup  boot config: Not set
+    Autoboot status    : disabled
+    Boot Security Level: none
+  IE520#show log | include orosync|otem|CMSG|IPC|flow control
+    2026 Oct 14 19:07:00 user.notice IE520 IMISH[6066]: [manager@ttyS0]show log | include orosync|otem|CMSG|IPC|flow control
+    (only the command's own echo: no corosync/totem/CMSG/IPC/flow-control line since boot)
+  IE520#show exception log -> member 1: None; member 2: None
+  IE520#show reboot history -> newest entry both members: 2026-10-14 19:00:16 Expected User Request
+    (the sentinel's config reload); full list in the box transcript and work/pre-run.txt
+  IE520#show interface port1.0.13,port2.0.13 status
+    port1.0.13  -  connected  100 a-full a-1000  1000BASE-T
+    port2.0.13  -  connected  100 a-full a-1000  10GBASE-T
+  IE520#show interface sa2 status
+    sa2         -  connected  100 a-full a-1000  -
+  running-config: saved as coro-dlf/stk_a.cfg (157 lines + 3 header lines) and work/running-config-pre.txt
+  sdma: work/sdma-pre.txt (member 1 rxDmaPcktCnt[7]=11303, member 2 [7]=10766 accumulated since boot;
+        clear-on-read registers)
+  IE520#show log config (08:06:56): Buffered log level notices (50kb); Console log level critical;
+    Permanent log level warnings; MONITOR LOG level DEBUGGING (program/facility/msg any) -- so every
+    severity reaches a `terminal monitor` session; External log disabled.
+
