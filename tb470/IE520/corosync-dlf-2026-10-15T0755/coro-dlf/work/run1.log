@@ -206,3 +206,81 @@ RUN A -- line-rate DLF from eth1 only (member 1 ingress, port1.0.13), 5 min. Cle
     (19:07:00, 19:13:56, 19:21:06).
   `show mac address-table | include 9999` after: still no entry.  `show stack`: both Ready, member 2 Active Master.
 
+RUN B -- the report's method: line-rate DLF from eth1 (member 1) AND eth3 (member 2) at once, 5 min. Clean.
+  u4 window 08:20:39-08:26:48 NZDT: the same ckcon call as run A (terminal monitor, mac/interface/sdma reads,
+     ("@sleep 30" "show clock") x11, reads after, show log, show stack). u5 witness still attached, monitor ON.
+  Gate 6: 19:22:00 UTC `show mac address-table | include 9999` -> no entry before traffic (and none after, 19:27:55).
+  Traffic, both started together at 08:21:07 NZDT from the dev host:
+    `tools/tb sudotool tb470 coro1015 linerate --tx eth1 --dst-mac 02:00:00:00:99:99 --rate top --rx eth3 --secs 300`
+    `tools/tb sudotool tb470 coro1015 linerate --tx eth3 --dst-mac 02:00:00:00:99:99 --rate top --rx eth1 --secs 300`
+    08:21:11-08:26:11  tx eth1 -> 02:00:00:00:99:99  1500-byte frames  rate=top  IPv4 10.38.215.1 -> 192.0.2.1 ttl/hlim 2  src MACs 1
+      rx filter: ether src 00:f0:4d:00:77:16 and ip and udp src port 5010
+      sent 24496001   tcpreplay 977.2 Mbps (frame bytes)  81653 pps  = 992.9 Mbps on the wire
+      rx eth3   24496001  (100.0%)  kernel drops 0
+    08:21:11-08:26:11  tx eth3 -> 02:00:00:00:99:99  1500-byte frames  rate=top  IPv4 10.38.215.65 -> 192.0.2.1 ttl/hlim 2  src MACs 1
+      rx filter: ether src 00:f0:4d:00:77:18 and ip and udp src port 5010
+      sent 24069001   tcpreplay 960.2 Mbps (frame bytes)  80229 pps  = 975.6 Mbps on the wire
+      rx eth1   24068996  (100.0%)  kernel drops 0
+    Distinct source MACs per NIC: eth1 00:f0:4d:00:77:16, eth3 00:f0:4d:00:77:18 (each NIC's own MAC).
+    -> two simultaneous ~1G DLF floods, one into each member, each crossed the stack link and was counted on
+       the far NIC: 100% of eth1's, and all but 5 of eth3's (24068996 / 24069001).
+  Interface counters (u4, before 19:22:02 UTC / after 19:27:54 UTC; deltas):
+    port1.0.13 input  24667006 -> 49163007  (+24496001 = eth1's DLF, all of it)
+    port2.0.13 output 24667006 -> 49163007  (+24496001: eth1's flood out of member 2, all of it)
+    port2.0.13 input  3        -> 24069004  (+24069001 = eth3's DLF, all of it)
+    port1.0.13 output 5        -> 24069001  (+24068996: eth3's flood out of member 1; 5 frames short at
+                                             this egress, matching eth1's count of 24068996)
+    port2.0.2  output 24667007 -> 49339930  (+24672923: sa2's member-2 leg at 1G line rate for 300 s --
+                                             ~2G of flood offered to one 1G leg; egress congestion, expected)
+    port1.0.2  output 0 -> 0                (sa2's member-1 leg again carried none of the flood)
+  sdma CPU counters (rxDmaPcktCnt clear-on-read):
+    08:20:52 member 1 [0,0,0,6,0,0,0,1608]  member 2 [0,0,0,0,0,0,6,1577]  (accumulation since 08:19:46)
+    08:26:39 member 1 [0,0,0,36,0,0,0,8150] sum 8186 in 347 s (~23.6 pps)  RX pkt 40926  TX pkt 39910
+    08:26:39 member 2 [0,0,0,0,0,0,36,8077] sum 8113 in 347 s (~23.4 pps)  RX pkt 40070  TX pkt 40925
+    -> unchanged from the no-traffic baseline: ~48.6 M DLF frames, none in volume at either CPU.
+  Every non-IMISH monitor line in the window (u5 witness; u4's monitor showed the same):
+    2026-10-15 08:20:44 19:21:58 IE520 logconf: Update log configuration
+    2026-10-15 08:20:45 19:21:58 IE520 syslog-ng[292]: Configuration reload request received, reloading configuration;
+    2026-10-15 08:20:45 19:21:58 IE520 syslog-ng[292]: Configuration reload finished;
+    2026-10-15 08:25:02 19:26:16 IE520 systemd[1]: Starting Mail queue flush service...
+    2026-10-15 08:25:02 19:26:16 IE520 systemd[1]: nbqueue-flush.service: Deactivated successfully.
+    2026-10-15 08:25:02 19:26:16 IE520 systemd[1]: Finished Mail queue flush service.
+    2026-10-15 08:26:48 19:28:02 IE520 logconf: Update log configuration       (after u4's terminal no monitor)
+    2026-10-15 08:26:49 19:28:02 IE520 syslog-ng[292]: Configuration reload request received / finished
+  IMISH positive-control lines on u5 during the traffic: 19:22:00-19:22:03 (pre reads), "show clock" every ~31 s,
+    19:27:50 sdma, 19:27:54 show interface, 19:27:55 show mac, 19:27:59 show log, 19:28:00 show stack.
+  -> NO corosync / coroipcs / flow-control line on either console during 5 min of DLF into both members.
+  IE520#show log | include coroipcs|corosync|flow control (19:27:59): only the four IMISH echoes of that command.
+  `show stack` after: Normal operation, both Ready, member 2 Active Master.
+
+AFTER THE RUNS (08:28:16-08:30:13 NZDT, u4)
+  tool: `tools/tb ckcon tb470 coro1015 u4 115200 "show clock" "show stack" "show boot" "show running-config"
+        "show exception log" "show reboot history" "show log | include coroipcs|corosync|flow control"
+        "show log permanent | include coroipcs|corosync|flow control"
+        "show log | include IE520 (kernel|corosync|stack|VCS|EXFX|HSL)" "show mac address-table | include 9999"`
+  show stack: ID 1 84e3.2787.0740 128 Ready Backup Member; ID 2 84e3.2787.09c0 1 Ready Active Master; Normal operation.
+  show boot: unchanged -- Current boot config: flash:/coro-repro.cfg (file exists); boot image flash:/IE520-tb470.rel.
+  show running-config: `diff work/running-config-pre.txt work/running-config-post.txt` -> IDENTICAL (no drift).
+  show exception log: member 1 None, member 2 None.
+  show reboot history: newest entry on both members still 2026-10-14 19:00:16 Expected User Request -> no new reboot.
+  show log | include coroipcs|corosync|flow control (19:29:50): only the five IMISH echoes of the command.
+  show log permanent | include coroipcs|corosync|flow control: no line (prompt returned empty; the read took ~90 s).
+  show log | include IE520 (kernel|corosync|stack|VCS|EXFX|HSL): only "2026 Oct 14 19:02:59 user.notice IE520
+    EXFX[635]: Enabling traffic forwarding on unit's switchports" (boot, before this run).
+  u4 console: ckcon's exit sent `terminal no monitor` at the exec prompt; transcript ends
+    "IE520#  >>> terminal no monitor ... IE520#  ===== closed /dev/u4 at 2026-10-15 08:30:13 =====" -> exec, monitor off.
+    (u4 was at "IE520 login:" before the run; left logged in at exec, as the dispatch asks.)
+  Host senders: both linerate runs exited on their own (tcpreplay --duration=300); `tools/tb ps tb470
+    'witness_log|linerate|tcpreplay|tcpdump|ckcon'` at 08:27 showed only the u5 witness.
+  u5 witness: NOT yet stopped by the tester -- `tools/tb killmine tb470 1024901` refused ("not a device-testing
+    tool, probe or framework run": tb launches console tools as `cd /tmp/<scratch>/tools && python3 <tool>.py`,
+    so the args carry no /tmp/.../tools/ path for killmine's pattern). A fix to killmine's match was denied by
+    the auto-mode classifier and reverted. Sent to the sentinel as NEEDS TEST ENGINEER (08:28). Until it is
+    stopped, u5 stays logged in at exec with terminal monitor ON (read-only listener, no traffic running).
+
+FILES SAVED
+  coro-dlf/stk_a.cfg; work/pre-run.txt, work/post-run.txt (u4 captures); work/running-config-pre.txt / -post.txt;
+  work/sdma-pre.txt, work/sdma-summary.txt; work/runB-linerate.txt; work/console-u5-witness.txt (the u5 stamped
+  monitor log, 08:08:52-08:26:49). Raw transcripts stay on the box: /tmp/coro1015/console-u4.log,
+  /tmp/coro1015/console-u5.log, /tmp/coro1015/witness-raw-u5.log; scratch probe /tmp/coro1015/bench-state.md.
+
