@@ -86,3 +86,10 @@ Related: [[tb470-topology-and-setup]], [[setup-file-declares-topology]],
   overwrite `<box>.static`. A new unit is appended; a disagreement is a USER-CONFLICT (exit 4)
   for the Test Engineer to settle.
 - Regenerating a tb470 capture without facts is byte-identical apart from the stamp.
+
+**A subset probe rewrites the WHOLE bench-state.md (observed 2026-10-12/13 and 2026-10-15, tb470 u0/u1).**
+`run --consoles 0,1` writes a two-unit file, so the diff reports every other console's units, links and outlets as
+`MISSING_IN_LIVE`. That is the probe's scope, not a missing unit. Read only the session's own units in the diff
+(`diff` runs offline from the repo), then `git checkout bench-setup/bench-state.md` to keep the last full capture.
+**Never `apply` from a subset file:** it would delete the other units from the template. A full re-probe waits until
+every console is free.

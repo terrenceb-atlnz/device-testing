@@ -3,6 +3,9 @@
 Session `50f164f5` (VS Code, desktop), the same session as the 2026-10-09 x230 campaign (its handover, with the 10-12
 update, is [SESSION-HANDOVER-2026-10-09.md](SESSION-HANDOVER-2026-10-09.md)). Wrapped ~12:20 NZDT on `/wrap-dt`.
 
+> **Superseded by [SESSION-HANDOVER-2026-10-15.md](SESSION-HANDOVER-2026-10-15.md):** final logs are now CREATED
+> (`b7d69c0`, `af52dad`) and T33234 is UNSUPPORTED. The "NOT created" and "T33234 PASS" lines below are as of 10-13.
+
 ## Update 12:2x (after the wrap)
 - OPEN 2 closed: T47228 FAIL stands (Terrence). OPEN 3 closed: the TPM daemon is how the unit reaches the idevid servers.
 - OPEN 4 done: `no lacp global-passive-mode enable` + `write` on the x230, 12:16 (running = startup).
