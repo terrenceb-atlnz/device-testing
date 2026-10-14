@@ -28,3 +28,11 @@ packet per packet sent (1336 grades `len == numPkts`; a `DUP!` = software re-for
 Only ONE rule may claim the flow — an interface `access-group` and a QoS `service-policy` on the
 same port for the same flow cannot be attributed. Related: [[ie520-dos-test-method]],
 [[campaign-measurement-discipline]].
+
+**Measured 2026-10-15 (tb470 2-member stack, build `tomahawk_ie520-20260825-42`, coro-cpu run,
+`tb470/IE520/corosync-dlf-2026-10-15T0755/coro-cpu/work/run1.log`):** on this build the queues are NOT 0/6:
+- unicast to the stack's own MAC+IP (to-me) → **`rxDmaPcktCnt[1]`** on the MASTER, whichever member it entered;
+- broadcast (subnet or off-subnet) → **`rxDmaPcktCnt[2]`** on the master (a copy; the frame is also flooded in hardware);
+- q0 and q6 stayed flat throughout; q7 is background (~24 pps per member); the ingress backup's CPU saw nothing.
+- The punt is rate-limited at ~17–19 kpps per packet (not per byte): 5.1–5.7 M frames per 5 min from ~24.6 M offered.
+So read every queue's delta, not just q0/q6; the queue is per punt reason and per build.
