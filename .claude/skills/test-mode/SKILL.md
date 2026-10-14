@@ -70,14 +70,20 @@ away.
          (`tools/tb fwprep` + `fw`); never edit it, copy it to change it. `kind: manual`
          is run by hand as today. Write each case's kind, and a script case's `script_rel`, into its
          queue row: `--resume` and `/create-logs --auto` read it from there;
-       - `kind` at the top: `validation` and `composer` are a normal TRIAGE then RUN of
-         `cases[]`. **`composer-validate` is a TRIAGE only, with no cases:** the probe runs with
+       - `kind` at the top: `validation`, `composer` and `scripts` are a normal TRIAGE then RUN
+         of `cases[]`. **`composer-validate` is a TRIAGE only, with no cases:** the probe runs with
          `--template ~/claude/Test-cases/<template_setup_rel>` (the `.setup` inside a template
          folder is not always named after it) and the triage report is the result. After the
          probe, print one line, exactly `PROBE <MATCH|MISMATCH|NEEDS-CHECK> <template>`, and put
          the differences in plain words in the report (Ask-CK shows its green check only on
          `PROBE MATCH`);
        - **`validation`** (one script case) adds the repair loop and the review of §11;
+       - **`scripts`** (Ask-CK's Run Scripts, its `plans/PLAN-run-scripts.md`; Terrence
+         2026-10-15): one or more `kind: script` cases that Validation has already finalized. Run
+         them **in the order `cases[]` gives** (the order the Test Engineer ticked them). There
+         is no repair loop and no review (§11 is `validation` only). A script that fails, errors
+         or is BLOCKED does **not** stop the run: record its `RESULT` and go on to the next case.
+         The hand-off's `source` says where the scripts came from (`generated` only, for now);
        - `options` (email, start_after) are Ask-CK's server's. This session sends no mail.
 2. **Ask the setup questions in ONE AskUserQuestion call**, before touching any box. (A
    `Driver: ask-ck` campaign takes these answers from the hand-off; a missing one goes through
