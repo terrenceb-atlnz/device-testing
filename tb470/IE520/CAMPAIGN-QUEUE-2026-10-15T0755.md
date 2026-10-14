@@ -76,5 +76,12 @@ Topology: "Adapted load" of the reporter's config; "I'll recable now": tb470 eth
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
+| coro-dlf | corosync coroipcs "flow control" log lines under DLF across the stack link (defect repro) | corosync-dlf-2026-10-15T0755 | PASS (not reproduced) | No corosync/coroipcs flow-control line on terminal monitor (u4+u5, debugging) or buffered/permanent log through baseline, run A (eth1 DLF into member 1, 24.67M frames, 100% across the stack) and run B (eth1+eth3 into both members at once, 5 min, 100% / 99.99998% on the far NICs); CPU sdma unchanged (~24 pps/member): the flood never reached either CPU | corosync-dlf-2026-10-15T0755/coro-dlf/work/run1.log | tester |
 
 ## Issues
+
+- **I-1 (2026-10-15 08:28) `tools/tb killmine` refuses tb-launched console tools.** `tb` starts them as
+  `cd /tmp/<scratch>/tools && python3 <tool>.py`, so the command line carries no `/tmp/.../tools/` path and
+  killmine's pattern never matches; the tester could not stop its own u5 `witness_log.py` (PID 1024901). A widened
+  match was denied by the auto-mode classifier and reverted. NEEDS TEST ENGINEER: stop PID 1024901 by hand, and
+  decide the killmine fix.
