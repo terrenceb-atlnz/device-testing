@@ -1,0 +1,89 @@
+COROSYNC FLOW-CONTROL DEFECT REPRODUCTION, CPU-BOUND VARIANT -- coro-cpu, run 1 (working log, tester = bench-runner)
+====================================================================================================
+Queue:   tb470/IE520/CAMPAIGN-QUEUE-2026-10-15T0755.md, row 2 (group dir corosync-dlf-2026-10-15T0755/, case folder coro-cpu/)
+Kind:    defect reproduction, not an AWPTCM case. The "case text" is the report quoted in row 1's log
+         (coro-dlf/work/run1.log "THE REPORT") plus the queue's "Row 2 -- coro-cpu" plan.
+Method:  row 1's (coro-dlf/work/run1.log): same consoles, gates, witness_log on u5, ckcon window on u4,
+         linerate from the host NICs, sdma reads on u4. Only the traffic differs: CPU-bound (to-me) instead of DLF.
+
+SESSION FACTS (Test Engineer's, from the dispatch; used, not changed)
+  Test Engineer: terrenceb@terrenceb-dl     box: tb470     sentinel: parent session (/test-mode)
+  consoles: u4, u5 at 115200 -- u5 = S/N 264A23066 = stack member 1 = BACKUP (swi_c); u4 = S/N 264A23052 =
+            stack member 2 = ACTIVE MASTER (swi_d, `stack 2 priority 1`), stack stk_a. u0-u3 NOT touched.
+  PDU 10.36.150.14, outlets u4=4, u5=5 -- no power-cycle wanted, none used.
+  constraints: office hours; ~1 Gb/s per host NIC accepted; NO reload, NO write, NO boot/config-file change,
+            NO bench_probe.py apply, NO lldp change. The ONLY config change allowed is running-only (the VLAN
+            move below) and it is restored.
+  session dir / stamp: tb470/IE520/, 2026-10-15T0755
+
+WHY THIS VARIANT (queue "Row 2")
+  Row 1 (coro-dlf, PASS = not reproduced) flooded ~48.6 M DLF frames across the stack link at 1G line rate and
+  neither CPU saw them (sdma ~24 pps per member throughout); no `coroipcs ... flow control` line appeared.
+  corosync is the VCS cluster messaging and coroipcs flow control is its IPC back-pressure, so the hypothesis
+  here is CPU-bound traffic crossing the stack: frames the switch must punt to the CPU, entering on the BACKUP
+  member (handled on the MASTER). The stack still runs the reporter's config flash:/coro-repro.cfg; its only L3
+  interface is vlan1000 10.38.29.15/27 (ports 1.0.9/1.0.24/2.0.9, all down). The injection ports are moved into
+  VLAN 1000 (running-only) so vlan1000 comes up and to-me traffic exists.
+  Expected: FAIL (= reproduced) if any `coroipcs ... flow control` line appears under CPU-bound traffic;
+  PASS (= not reproduced) only WITH proof the CPU was loaded (sdma deltas, `show cpu`) and terminal monitor
+  live on both consoles.
+
+DEVICES (measured by the read-only probe 09:19 NZDT and `show stack`; same as row 1)
+  stk_a "IE520", 2-member VCStack, Normal operation
+    member 1 = u5, AT-IE520-28GSX S/N 264A23066, MAC 84e3.2787.0740, prio 128, Backup Member
+    member 2 = u4, AT-IE520-28GSX S/N 264A23052, MAC 84e3.2787.09c0, prio 1,   Active Master
+    software tomahawk_ie520-20260825-42 (flash:/IE520-tb470.rel), bootloader 9.2.0
+    boot config flash:/coro-repro.cfg; stack MAC (virtual) 0000.cd37.0a66 = vlan1000's MAC
+  Partner (not on our consoles, not touched): AR4050S on u1 behind sa2 = port1.0.2 + port2.0.2 (VLAN 100).
+
+HOST NICS (tb470, `tools/tb nics tb470` 09:18:5x NZDT; MACs as in row 1's log)
+  eth1 00:f0:4d:00:77:16  10.38.215.1/27   carrier up -> stack port1.0.13 (member 1 = BACKUP)
+  eth3 00:f0:4d:00:77:18  10.38.215.65/27  carrier up -> stack port2.0.13 (member 2 = MASTER)
+CLOCKS
+  host `date` 2026-10-15 09:19:46 NZDT (= 20:19:46 UTC) beside DUT `show clock` "UTC Time: Wed, 14 Oct 2026
+  20:20:59 +0000" -> the DUT clock runs ~73 s AHEAD of the box (unchanged from row 1). Host stamps below are
+  NZDT; device stamps are UTC.
+
+GATES RUN (dispatch's list)
+  1. 09:18:53 `tools/tb precheck tb470 4,5` -> exit 0 CLEAR (/dev/u4=ttyUSB0 free, /dev/u5=ttyUSB1 free; only
+     terrence's own idle shells logged in). `&&`-gated into `tools/tb scratch tb470 coro1015` (41 tools refreshed).
+  2. `tools/tb peek tb470 coro1015 u4 115200` -> 'IE520#'; `... u5 115200` -> 'IE520#'. Both at exec, logged in,
+     no shell, no config mode (as row 1's cleanup left them at 09:11).
+     `tools/tb template tb470` -> /nfsHome mounted (nfs4 10.36.250.11:/home); tb470.setup present (Oct 13 12:21).
+  3. `tools/tb probe tb470 --consoles 4,5 --no-prompt --read-only --pdu 10.36.150.14 --outlet u4=4,u5=5
+     --baud 115200 --out /tmp/coro1015/bench-state-pre2.md` -> exit 1 MISMATCH (26) + NEEDS-CHECK (3),
+     NO USER-CONFLICT. The same expected set as row 1's after-run probe: swi_a/b/e/f lines MISSING_IN_LIVE
+     (only u4/u5 probed), stk_a = {swi_c, swi_d} vs template {swi_a, swi_c, swi_d} (stack deliberately
+     off-template); NEEDS-CHECK tb eth1/eth2/eth3 "MAC not learned" (read-only probe sends no pings; the FDB
+     entries aged out since row 1). Measured: u4 = swi_d 264A23052 stk_a member 2 Active Master; u5 = swi_c
+     264A23066 member 1 Backup Member; both tomahawk_ie520-20260825-42, bootloader 9.2.0. Committed
+     bench-state.md NOT overwritten (scratch output on the box only). Probe stdout: scratchpad probe-pre2.out.
+  4. Pre-run capture (below): `show boot` and `show running-config` saved; compared after restore.
+  5-8. No framework script: .setup / preflight / run-flags gates do not apply.
+  9. Sentinel: parent (dispatch "sentinel: parent").
+  10. No defaulting CLI. Config lines sent are exactly `interface port1.0.13,port2.0.13` + `switchport access
+     vlan 1000` (and `... vlan 100` to restore), both valid on this platform (the running-config already holds
+     `switchport access vlan 100|1000` lines on these and other ports).
+
+PRE-RUN CAPTURE (09:19:40-09:20:10 NZDT, u4 = master console) -> work/pre-run.txt
+  tool: `CKTO=120 tools/tb ckcon tb470 coro1015 u4 115200 "show clock" "show stack" "show boot" "show running-config"
+        "show exception log" "show reboot history" "show interface vlan1000" "show interface port1.0.13,port2.0.13 status"
+        "show mac address-table | include 7716|7718" "show platform counter sdma" "show cpu"
+        "show log | include coroipcs|corosync|flow control"`
+  IE520#show stack: 1 84e3.2787.0740 128 Ready Backup Member; 2 84e3.2787.09c0 1 Ready Active Master; Normal operation
+  IE520#show boot: Current boot config: flash:/coro-repro.cfg (file exists); boot image flash:/IE520-tb470.rel
+  IE520#show running-config -> work/running-config-pre.txt (156 lines); `diff` against row 1's coro-dlf/stk_a.cfg
+    (less 3 header lines) -> IDENTICAL: the bench config is exactly as row 1 left it.
+  IE520#show exception log -> member 1: None; member 2: None
+  IE520#show reboot history -> in work/pre-run.txt (newest entry both members 2026-10-14 19:00:16, the config reload)
+  IE520#show interface vlan1000: "Link is DOWN, administrative state is UP", address 0000.cd37.0a66,
+    IPv4 10.38.29.15/27 broadcast 10.38.29.31 (all three member ports down, as the plan says)
+  IE520#show interface port1.0.13,port2.0.13 status: both connected, VLAN 100, a-full a-1000
+  IE520#show mac address-table | include 7716|7718 -> no entry (eth1/eth3 aged out since row 1)
+  IE520#show platform counter sdma (accumulated since row 1's last read ~08:30, clear-on-read):
+    member 1 rxDmaPcktCnt[0..7] = [0,0,0,42,0,0,0,10515]; member 2 = [0,0,0,0,0,0,42,10321]
+  IE520#show cpu (idle): member 1 "1 second: 3%, 20 seconds: 8%, 60 seconds: 5%", load 1.83/2.07/2.5,
+    userspace 4% kernel 7% interrupts 1%; top: hostd 1.5%, exfx 1.0%, corosync 0.0% (pid 1551 member 1,
+    pid 1634 member 2). Format: per member, CPU averages / System load averages / Current CPU load / process table.
+  IE520#show log | include coroipcs|corosync|flow control (20:21:22 UTC): only the IMISH echoes of that command
+    from row 1 (19:07:00 .. 19:31:24) and this one. No corosync/coroipcs/flow-control line since boot.

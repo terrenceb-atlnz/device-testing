@@ -100,11 +100,30 @@ Runs (5 min each, terminal monitor ON on u4 AND u5 — ckcon window on one, witn
 Verdict as row 1: FAIL = the lines appear (record first time, cadence, member); PASS = none, WITH sdma/`show cpu`
 proof the CPU was loaded. Restore, then the read-only after-run probe to /tmp/coro1015/bench-state-after2.md.
 
+## Row 2 bench setup and restore recipe (tester, 2026-10-15 09:22 NZDT; written before the first run)
+
+- **Setup (running-only, from u4 via `tools/tb cfg tb470 coro1015 u4 115200 ...`):** `configure terminal` /
+  `interface port1.0.13,port2.0.13` / `switchport access vlan 1000` / `end`. That brings the reporter's
+  `vlan1000` (10.38.29.15/27, stack MAC 0000.cd37.0a66) up on the two injection ports. Then
+  `terminal monitor` on u5 (witness_log) and u4 (ckcon window) per run. Traffic: `tools/linerate.py` via
+  `tools/tb sudotool tb470 coro1015 linerate ...` from eth1 / eth3, to-me UDP (dst 0000.cd37.0a66 / 10.38.29.15)
+  or subnet broadcast (10.38.29.31). No `write`, no reload, no boot/config-file change, no lldp change, no
+  `bench_probe.py apply`, no PDU.
+- **Restore (a fresh tester can do this if the run dies):**
+  1. `tools/tb ps tb470 'linerate|tcpreplay|tcpdump|witness_log'` and `tools/tb killmine tb470 <pid>` for any of
+     this run's senders/witness still alive (killmine accepts tb-launched console tools since d425f0b).
+  2. On u4: `tools/tb cfg tb470 coro1015 u4 115200 "configure terminal" "interface port1.0.13,port2.0.13"
+     "switchport access vlan 100" "end" "show running-config"` (cfg's exit path leaves the console at exec with
+     `terminal no monitor`). On u5: `tools/tb ckcon tb470 coro1015 u5 115200 "show clock"` (same exit path).
+  3. `show running-config` must equal `corosync-dlf-2026-10-15T0755/coro-cpu/work/running-config-pre.txt`
+     (= coro-dlf/stk_a.cfg less its 3 header lines); `show boot` still `Current boot config: flash:/coro-repro.cfg`.
+  4. Going back to `flash:/tb470-bench.cfg` (+ stack reload) is the Test Engineer's decision, NOT the tester's.
+
 ## Queue (continued)
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 2 | coro-cpu (corosync flow-control repro, CPU-bound traffic) | tb470/IE520/corosync-dlf-2026-10-15T0755/ (case folder `coro-cpu/`) | QUEUED | plan in "Row 2" above; same consoles, same facts; the only config change is running-only (VLAN 1000 on the injection ports) and is restored |
+| 2 | coro-cpu (corosync flow-control repro, CPU-bound traffic) | tb470/IE520/corosync-dlf-2026-10-15T0755/ (case folder `coro-cpu/`) | RUNNING 09:22 -- gates clean (precheck CLEAR, both consoles at exec, read-only probe = expected MISMATCH set, no USER-CONFLICT), pre-run capture saved | plan in "Row 2" above; same consoles, same facts; the only config change is running-only (VLAN 1000 on the injection ports) and is restored |
 
 ## Results
 
