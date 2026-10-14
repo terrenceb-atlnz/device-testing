@@ -70,7 +70,7 @@ Topology: "Adapted load" of the reporter's config; "I'll recable now": tb470 eth
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | coro-dlf (corosync flow-control repro) | tb470/IE520/corosync-dlf-2026-10-15T0755/ | DONE 08:36 -- PASS (not reproduced); OPEN: u5 witness PID 1024901 to stop (killmine refuses it), then u5 terminal no monitor + after-run probe | runs: A = eth1 only (member 1 ingress); B = eth1 + eth3 at once (the report's method). Each: line rate, several minutes, terminal monitor on u5 and u4, sdma CPU counters before/after |
+| 1 | coro-dlf (corosync flow-control repro) | tb470/IE520/corosync-dlf-2026-10-15T0755/ | DONE 08:36 -- PASS (not reproduced); cleanup closed 09:13: u5 witness stopped 09:11:04, u5 terminal no monitor at exec, after-run read-only probe = same expected MISMATCH set, no USER-CONFLICT (eth1 FDB entry aged out -> NEEDS-CHECK). Still open, a tools defect: `tb killmine` refuses tb-launched console tools | runs: A = eth1 only (member 1 ingress); B = eth1 + eth3 at once (the report's method). Each: line rate, several minutes, terminal monitor on u5 and u4, sdma CPU counters before/after |
 
 ## Results
 
