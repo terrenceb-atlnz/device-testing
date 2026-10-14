@@ -87,3 +87,171 @@ PRE-RUN CAPTURE (09:19:40-09:20:10 NZDT, u4 = master console) -> work/pre-run.tx
     pid 1634 member 2). Format: per member, CPU averages / System load averages / Current CPU load / process table.
   IE520#show log | include coroipcs|corosync|flow control (20:21:22 UTC): only the IMISH echoes of that command
     from row 1 (19:07:00 .. 19:31:24) and this one. No corosync/coroipcs/flow-control line since boot.
+
+QUEUE AND COMMIT BEFORE THE FIRST DEVICE CHANGE
+  Row 2 marked RUNNING 09:22 and its setup/restore recipe written into the queue file; committed 5f44b3b.
+
+SETUP (running-only, 09:21:53-09:22:25 NZDT, u4) -> work/setup.txt, work/setup-check.txt
+  tool: `tools/tb cfg tb470 coro1015 u4 115200 "configure terminal" "interface port1.0.13,port2.0.13"
+        "switchport access vlan 1000" "end" "show interface port1.0.13,port2.0.13 status"
+        "show interface vlan1000 | include Link"` -> rc 0, no `% ` line.
+    IE520#configure terminal
+    IE520(config)#interface port1.0.13,port2.0.13
+    IE520(config-if)#switchport access vlan 1000
+    IE520(config-if)#end
+    IE520#show interface port1.0.13,port2.0.13 status
+      port1.0.13  -  connected  1000 a-full a-1000  1000BASE-T
+      port2.0.13  -  connected  1000 a-full a-1000  10GBASE-T
+    IE520#show interface vlan1000 | include Link  ->  Link is UP, administrative state is UP
+  MAC-learning prime (09:22:0x-09:22:1x): `tools/tb ping tb470 eth1 10.38.29.15 2` and `... eth3 10.38.29.15 2`
+    (2 tx, 0 rx each: the DUT has no route back to 10.38.215.0/27, so no echo reply is possible; the ARP
+    broadcast is the point) plus the row-1 on-link pings `eth1 10.38.215.2 2` / `eth3 10.38.215.66 2`.
+  `tools/tb ckcon tb470 coro1015 u4 115200 "show mac address-table | include 7716|7718" "show interface vlan1000 |
+    include Link" "show arp" "show running-config interface port1.0.13" "show running-config interface port2.0.13"`:
+      1000 port1.0.13   00f0.4d00.7716   forward       dynamic     <- eth1 learned on member 1's port, VLAN 1000
+      1000 port2.0.13   00f0.4d00.7718   forward       dynamic     <- eth3 learned on member 2's port, VLAN 1000
+      Link is UP, administrative state is UP
+      show arp: (empty -- the pings' ARP requests were for 10.38.29.15 itself / off-subnet targets)
+      both ports: switchport / switchport mode access / switchport access vlan 1000
+  coro-cpu/stk_a.cfg saved 09:23:11 NZDT from `show running-config` on u4 (master) after this setup, 3 header lines
+    + 156 config lines (work/rc-setup.txt). `diff work/running-config-pre.txt work/rc-setup.txt` = exactly the two
+    expected lines: port1.0.13 and port2.0.13 `switchport access vlan 100` -> `switchport access vlan 1000`.
+
+VARIANT PROBES (which traffic reaches a CPU; 15 s each at --rate 50 from eth1 = member 1 = BACKUP ingress)
+  helper: scratchpad variant.sh = `tools/tb ckcon tb470 coro1015 u4 115200 "show clock | include UTC Time"
+    "show platform counter sdma"` (pre-read, clears the clear-on-read rxDmaPcktCnt), then
+    `tools/tb sudotool tb470 coro1015 linerate --tx eth1 --rx eth3 --dst-mac <M> --dst-ip <IP> --dport <N> --rate 50 --secs 15`,
+    then the same ckcon post-read. Files: work/sdma-P<n>-pre.txt, work/sdma-P<n>-post.txt, work/linerate-P<n>.txt.
+    Each post-read is the delta since the pre-read (an interval of ~31 s: 15 s burst + tool start/stop + logins).
+    Background (no traffic) per such interval is ~700-750 on queue 7 (member 1) / queue 7 (member 2), i.e. ~24 pps.
+  P1 unicast to-me: dst-mac 00:00:cd:37:0a:66 (stack virtual MAC = vlan1000's), dst-ip 10.38.29.15, dport 9001
+    09:23:17 pre:  member 1 [0,0,0,20,0,0,0,4984]  member 2 [0,0,12,0,0,0,20,4893]  (accumulated since 09:20)
+    09:23:31-09:23:46 sent 62668 frames (4178 pps, 50.8 Mbps on the wire); rx eth3 0 (to-me: consumed, not forwarded)
+    09:23:48 post: member 1 [0,0,0,4,0,0,0,745]     member 2 [0,62668,0,0,0,0,4,737]; member 2 RX pkt 120914 -> 184323 (+63409)
+    -> EVERY frame (62668 = sent) reached the MASTER's CPU on rxDmaPcktCnt[1]; the ingress member's (backup's)
+       own CPU saw none. Keep.
+  P2 subnet broadcast: dst-mac ff:ff:ff:ff:ff:ff, dst-ip 10.38.29.31, dport 9002
+    09:24:08 pre:  member 1 [0,0,0,2,0,0,0,490]     member 2 [0,0,0,0,0,0,2,484]
+    09:24:23-09:24:38 sent 62668 (4178 pps); rx eth3 62668 (100%: broadcast is also flooded across the stack to member 2's port)
+    09:24:40 post: member 1 [0,0,0,3,0,0,0,751]     member 2 [0,0,62668,0,0,0,3,736]; member 2 RX pkt +63403
+    -> every frame reached the MASTER's CPU on rxDmaPcktCnt[2], AND was flooded. Keep.
+  P3 control, broadcast off-subnet: dst-mac ff:ff:ff:ff:ff:ff, dst-ip 192.0.2.255, dport 9003
+    09:24:51 pre:  member 1 [0,0,0,1,0,0,0,253]     member 2 [0,0,0,0,0,0,1,244]
+    09:25:05-09:25:20 sent 62668; rx eth3 62668 (100%)
+    09:25:22 post: member 1 [0,0,0,3,0,0,0,738]     member 2 [0,0,62668,0,0,0,3,730]
+    -> same as P2 (queue 2 on the master): an L2 broadcast in VLAN 1000 is copied to the CPU whatever its IP
+       destination, because vlan1000 is an L3 interface. (Row 1's DLF was UNICAST to an unknown MAC in VLAN 100,
+       which has no L3 interface: hardware flood only, no CPU copy.) Not used for a run: P2 covers it.
+  Queues seen on this build: to-me unicast -> rxDmaPcktCnt[1]; broadcast copy -> rxDmaPcktCnt[2]; q0 and q6 (the
+    memory's copy-/send-to-cpu queues from an ACL test) stayed at 0 -- different punt reasons, different queues.
+  Decision: P1 for R1-R3, P2 for R4 (both moved the master's CPU by tens of thousands per 15 s). The variant
+    "P1 with --ttl 1" was not needed.
+
+RUN WINDOW METHOD (R1-R4; row 1's, plus the CPU reads)
+  u5 (member 1 = BACKUP console, relayed to the master CLI): `tools/tb witness_log tb470 coro1015 u5
+    /tmp/coro1015/console-u5.log 115200` (box PID 1063292), attached 09:26:25, "terminal monitor enabled; going
+    READ-ONLY" 09:26:29 NZDT; kept attached through R1-R4 (the file is row 1's, appended).
+  u4 (member 2 = MASTER console): one ckcon call per run (scratchpad window.sh): `CKTO=240 tools/tb ckcon tb470
+    coro1015 u4 115200 "terminal monitor" "show clock | include UTC Time" "show mac address-table | include 7716|7718"
+    "show platform counter sdma" "show cpu | exclude [^ ] +0\.0 +[0-9-]"` then 6 x `"@sleep 48" "show clock | include
+    UTC Time" "show platform counter sdma" "show cpu | exclude ..."` then `"show log | include coroipcs|corosync|flow
+    control" "show stack" "show interface port1.0.13,port2.0.13 | include ^Interface|input packets|output packets"`.
+    The exclude drops every 0.0 % process line, so each `show cpu` shows the averages, load, current load split and
+    the busy processes per member. ckcon's exit path sends `terminal no monitor` from exec. Transcript
+    /tmp/coro1015/console-u4.log; per-run copies work/window-R<n>.txt.
+  Traffic started ~20 s after the window opened (after `terminal monitor` and the first reads), 300 s at line rate.
+  sdma reads are ~56 s apart; each rxDmaPcktCnt value is the count since the previous read (clear-on-read).
+  Positive control that terminal monitor was live: every u4 command echoes as an `IMISH[3431]: [manager@ttyS0]<cmd>`
+    user.notice line on BOTH consoles (u5 stamped; u4 inline), plus the `logconf` / syslog-ng reload lines at each
+    terminal monitor on/off and the systemd "Mail queue flush" lines. Monitor filter = debugging (row 1's `show log
+    config`), so a corosync line at any severity would show.
+
+RUN R1 -- P1 to-me at line rate from eth1 ONLY (ingress on member 1 = BACKUP), 5 min. Clean, no corosync line.
+  window 09:26:45-09:32:45 NZDT (work/window-R1.txt); traffic:
+    `tools/tb sudotool tb470 coro1015 linerate --tx eth1 --rx eth3 --dst-mac 00:00:cd:37:0a:66 --dst-ip 10.38.29.15
+     --dport 9001 --rate top --secs 300` (work/linerate-R1.txt)
+    09:27:14-09:32:14  sent 24668501  tcpreplay 984.1 Mbps (frame bytes)  82227 pps = 999.9 Mbps on the wire; rx eth3 0 (to-me)
+  MAC table at 09:26:53: 1000 port1.0.13 00f0.4d00.7716; 1000 port2.0.13 00f0.4d00.7718 (both still learned).
+  Interface counters: port1.0.13 input 49163007 (row 1 end) + 3 x 62668 (probes) -> 74019518 at 09:32:43 = +24668501
+    for R1 (every frame sent entered member 1); port2.0.13 input unchanged at 24069010 (eth3 idle).
+  sdma rxDmaPcktCnt per ~56 s interval (member 2 = MASTER; member 1 = BACKUP, the ingress unit):
+    09:26:57 (pre)  m1 [0,0,0,8,0,0,0,2288]   m2 [0,0,0,0,0,0,8,2257]          (since 09:25:22)
+    09:27:53        m1 [0,0,0,6,0,0,0,1354]   m2 [0,675830,0,0,0,0,6,1328]     (traffic from 09:27:14: ~39 s of it)
+    09:28:50        m1 [0,0,0,6,0,0,0,1346]   m2 [0,1013136,0,0,0,0,6,1343]    = ~17.8 kpps punted to the master CPU
+    09:29:46        m1 [0,0,0,6,0,0,0,1313]   m2 [0,1006560,0,0,0,0,6,1292]
+    09:30:42        m1 [0,0,0,5,0,0,0,1357]   m2 [0,1000720,0,0,0,0,5,1333]
+    09:31:38        m1 [0,0,0,6,0,0,0,1343]   m2 [0,1002320,0,0,0,0,6,1341]
+    09:32:34        m1 [0,0,0,5,0,0,0,1456]   m2 [0,666815,0,0,0,0,5,1422]     (traffic ended 09:32:14)
+    total R1: 5,365,381 frames punted to the master's CPU (queue 1) out of 24,668,501 offered: the CPU rate limiter
+    caps the punt at ~17.8 kpps (~218 Mbps of 1500-byte frames); the backup's CPU stayed at background (~24 pps).
+    member 2 "RX packet counter" 314127 -> 5687602 over the run (+5.37 M, matches).
+  show cpu during the run (member 2 = MASTER; member 1 stayed at 2-6 %, exfx <= 7 %):
+    09:27:00 (pre)  m2: 1 s 4 %, 20 s 8 %, 60 s 6 %; load 2.42/2.58/2.34; user 7 % kernel 4 % irq 0 %; exfx 6.8 %
+    09:27:56        m2: 1 s 33 %, 20 s 36 %, 60 s 24 %; load 3.66/2.87/2.45; user 14 % kernel 13 % irq 30 %; exfx 50.4 %, hostd 1.4 %
+    09:28:52        m2: 31 / 36 / 34 %; load 3.46/2.95/2.50; user 15 % kernel 8 % irq 36 %; exfx 51.7 %
+    09:29:48        m2: 38 / 35 / 33 %; load 2.85/2.82/2.48; user 16 % kernel 32 % irq 36 %; exfx 55.0 %, hostd 1.7 %, corosync 0.5 %
+    09:30:45        m2: 31 / 34 / 33 %; load 2.95/2.90/2.53; user 15 % kernel 10 % irq 33 %; exfx 51.0 %
+    09:31:41        m2: 39 / 35 / 33 %; load 3.01/2.93/2.56; user 12 % kernel 12 % irq 32 %; exfx 50.2 %
+    09:32:37 (post) m2: 5 / 7 / 25 %; exfx 6.9 % (traffic over)
+    -> the master's CPU ran at ~31-39 % for the whole 5 min, exfx (the switching/punt daemon) at ~50-55 %, with
+       ~30-36 % of the CPU in interrupts; corosync itself stayed at 0.4-0.5 %.
+  Every non-IMISH monitor line in the window (u5 witness, NZDT + DUT UTC; u4's monitor showed the same):
+    2026-10-15 09:26:50 20:28:04 IE520 logconf: Update log configuration
+    2026-10-15 09:26:51 20:28:04 IE520 syslog-ng[292]: Configuration reload request received / finished
+    2026-10-15 09:31:02 20:32:16 IE520 systemd[1]: Starting Mail queue flush service... / Deactivated successfully / Finished
+    2026-10-15 09:32:02 20:33:16 IE520 IMI[576]: Writing unsaved config changes to temporary memory
+    2026-10-15 09:32:02 20:33:17 IE520 IMI[576]: Unsaved config changes have been written to temporary memory
+    2026-10-15 09:32:03 20:33:17 IE520 sudo: root : PWD=/ ; USER=root ; COMMAND=/usr/bin/stk_file_sync_by_node --log_if_ok 1 /var/spool/.saved.cfg /var/lib/stack/master_config /flash/.certs /var/run/certs
+      (the stack's own periodic copy of the UNSAVED running config to member 1's temporary memory, ~10 min after
+       my running-only VLAN change; it is not a `write`: `show boot` and the startup config are unchanged, below)
+    2026-10-15 09:32:44 20:33:59 IE520 logconf: Update log configuration (u4's terminal no monitor) + syslog-ng reload
+  -> NO corosync / coroipcs / flow-control line on either console. `show log | include coroipcs|corosync|flow control`
+     at 09:32:41: only the IMISH echoes of that command. `show stack`: Normal operation, both Ready.
+
+RUN R2 -- P1 to-me at line rate from eth3 ONLY (ingress on member 2 = MASTER), 5 min. Clean, no corosync line.
+  window 09:33:20-09:39:19 NZDT (work/window-R2.txt); traffic:
+    `tools/tb sudotool tb470 coro1015 linerate --tx eth3 --rx eth1 --dst-mac 00:00:cd:37:0a:66 --dst-ip 10.38.29.15
+     --dport 9001 --rate top --secs 300` (work/linerate-R2.txt)
+    09:33:51-09:38:51  sent 24668501  984.1 Mbps (frame bytes)  82228 pps = 999.9 Mbps on the wire; rx eth1 0 (to-me)
+  MAC table 09:33:28: 1000 port1.0.13 00f0.4d00.7716 (7718 not shown this read: eth3 idle since the probes; it is
+    re-learned by the traffic). port2.0.13 input 24069010 -> 48737511 at 09:39:18 = +24668501 (every frame entered member 2).
+  sdma per ~56 s interval:
+    09:33:32 (pre)  m1 [0,0,0,6,0,0,0,1424]   m2 [0,0,0,0,0,0,6,1389]
+    09:34:28        m1 [0,0,0,5,0,0,0,1366]   m2 [0,611430,0,0,0,0,5,1345]
+    09:35:24        m1 [0,0,0,6,0,0,0,1353]   m2 [0,957264,0,0,0,0,6,1335]
+    09:36:21        m1 [0,0,0,6,0,0,0,1348]   m2 [0,965200,0,0,0,0,6,1345]
+    09:37:17        m1 [0,0,0,5,0,0,0,1308]   m2 [0,964576,0,0,0,0,6,1292]
+    09:38:13        m1 [0,0,0,6,0,0,0,1344]   m2 [0,965184,0,0,0,0,5,1340]
+    09:39:09        m1 [0,0,0,6,0,0,0,1358]   m2 [0,679359,0,0,0,0,6,1337]
+    total R2: 5,143,013 punted to the master's CPU (queue 1), ~17 kpps steady; member 1 background only.
+  show cpu (member 2): 09:34:31 34/35/23 %, user 15 kernel 13 irq 30, exfx 50.0 %; 09:35:27 31/35/33 %, exfx 49.0 %;
+    09:36:23 34/34/32 %, exfx 55.8 %; 09:37:19 31/34/33 %, user 14 kernel 15 irq 29, exfx 51.0 %; 09:38:16 31/34/33 %,
+    exfx 49.2 %; 09:39:11 (post) 6/9/24 %, exfx 1.4 %. corosync 0.4-0.5 % throughout. Member 1: 2-6 %, exfx <= 7 %.
+  Non-IMISH monitor lines (u5 witness): 09:33:24/26 logconf + syslog-ng reload (monitor on); 09:36:07 systemd Mail
+    queue flush x3; 09:39:19/20 logconf + syslog-ng reload (monitor off). Nothing else.
+  -> NO corosync / coroipcs / flow-control line on either console; show log grep at 09:39:16 clean; stack Normal.
+
+RUN R3 -- P1 to-me at line rate from eth1 AND eth3 at once (both members' ingress), 5 min. Clean, no corosync line.
+  window 09:39:50-09:45:49 NZDT (work/window-R3.txt); traffic (scratchpad runboth.sh), both started 09:40:10:
+    `tools/tb sudotool tb470 coro1015 linerate --tx eth1 --rx eth3 --dst-mac 00:00:cd:37:0a:66 --dst-ip 10.38.29.15 --dport 9001 --rate top --secs 300`
+    `tools/tb sudotool tb470 coro1015 linerate --tx eth3 --rx eth1 --dst-mac 00:00:cd:37:0a:66 --dst-ip 10.38.29.15 --dport 9001 --rate top --secs 300`
+    09:40:13-09:45:13  eth1 sent 24654001 (82179 pps, 999.3 Mbps on the wire); eth3 sent 24654501 (82181 pps, 999.3 Mbps)
+    (work/linerate-R3-eth1.txt, -eth3.txt)
+  Interface counters 09:45:48: port1.0.13 input 74019518 -> 98673519 (+24654001 = all of eth1's); port2.0.13 input
+    48737511 -> 73392012 (+24654501 = all of eth3's).
+  sdma per ~56 s interval:
+    09:40:02 (pre)  m1 [0,0,0,5,0,0,0,1309]   m2 [0,0,0,0,0,0,5,1276]
+    09:40:58        m1 [0,0,0,5,0,0,0,1357]   m2 [0,752150,0,0,0,0,5,1355]
+    09:41:54        m1 [0,0,0,6,0,0,0,1365]   m2 [0,980320,0,0,0,0,6,1339]
+    09:42:50        m1 [0,0,0,6,0,0,0,1317]   m2 [0,979088,0,0,0,0,6,1297]
+    09:43:46        m1 [0,0,0,5,0,0,0,1353]   m2 [0,977472,0,0,0,0,5,1337]
+    09:44:43        m1 [0,0,0,6,0,0,0,1350]   m2 [0,971888,0,0,0,0,6,1330]
+    09:45:39        m1 [0,0,0,6,0,0,0,1362]   m2 [0,556863,0,0,0,0,6,1336]
+    total R3: 5,217,781 punted to the master's CPU (queue 1): the SAME ~17.5 kpps cap as with one NIC, so the
+    punt is limited per CPU, not per ingress port; ~49.3 M frames offered. Member 1's CPU: background only.
+  show cpu (member 2): 09:41:00 31/35/26 %, exfx 49.5 %; 09:41:57 31/34/33 %, user 12 kernel 17 irq 32, exfx 51.2 %,
+    corosync 0.5 %; 09:42:53 31/35/33 %, exfx 50.0 %; 09:43:49 32/35/33 %, exfx 48.7 %; 09:44:45 35/36/34 %, user 21
+    kernel 15 irq 28, exfx 55.5 %; 09:45:41 (post) 5/7/22 %, exfx 6.7 %. Member 1: 3-7 %, exfx <= 7.4 %.
+  Non-IMISH monitor lines (u5 witness): 09:39:54/55 logconf + syslog-ng reload (monitor on); 09:41:12 systemd Mail
+    queue flush x3; 09:45:49/50 logconf + syslog-ng reload (monitor off). Nothing else.
+  -> NO corosync / coroipcs / flow-control line on either console; show log grep at 09:45:45 clean; stack Normal.
