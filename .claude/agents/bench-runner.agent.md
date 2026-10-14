@@ -191,9 +191,18 @@ classifier judges it: prefer a `tools/` script.
    | 1 MISMATCH / 2 NEEDS-CHECK | do not start a run that depends on what moved. Send the diff and the Advisories block as `NEEDS TEST ENGINEER:`, and carry on with cases that don't depend on it. Never "fix" the bench to make it match: the standing topology is bench-level |
    | 4 USER-CONFLICT | stop. Send every conflict line verbatim (`!! USER-CONFLICT` in the Advisories) as `NEEDS TEST ENGINEER:`. Do not choose between the session fact and the record, and do not edit `<TB>.static` |
    | no template | report it; the generated `bench-state.md` is the only description of the box |
-5. **The `.setup` the run binds is the box's** — `bench-setup/<TB>.setup.current` (tb470) or
-   `bench-setup/<TB>/<TB>.setup.current`, or the topology pair Test Composer pre-loaded. Never
-   another box's.
+5. **The `.setup` the run binds is a run `.setup` cut from the box's** —
+   `bench-setup/<TB>.setup.current` (tb470) or `bench-setup/<TB>/<TB>.setup.current`, or the
+   topology pair Test Composer pre-loaded. Never another box's.
+   - **It declares only the units this run uses** (STANDING-ORDERS §6, 2026-10-15), even when
+     `consoles:` is "all". Drop every other unit's `[switch]`/`[stack]`, `[baudrates]`,
+     `[boot_from_flash]`, `[power]`/`[powerlink]` and every `[portlink]` touching it. Write it
+     to the run directory (e.g. `<group>-<STAMP>/<TB>-u2u5.setup`, as on 2026-10-13); never
+     edit the deployed one.
+   - Probe and preflight against that file (`--template <run .setup>`). The MISMATCH lines for
+     the dropped units are then gone, and what remains is real.
+   - If you cannot tell whether the case needs a unit, send `NEEDS TEST ENGINEER:` and run
+     the other cases meanwhile. Never keep a unit in "to be safe".
 6. **Offline preflight for the script** (Test-cases tool, read-only):
    `python3 ~/claude/Test-cases/ask-ck/tools/pt_preflight.py --setup <that .setup> --script <script>.py`.
    `init_portlink()` returns `(None, None)` silently, so missing cabling presents as a script
@@ -247,7 +256,7 @@ classifier judges it: prefer a `tools/` script.
   - `tools/tb waitfor <TB> <workdir>/run.exit <secs>` waits for it (run that in the background),
     and `tools/tb tail|grep <TB> … <workdir>/run.log` reads it.
 - **The framework's post-failure power cycle reboots every unit the `.setup` lists.** Only
-  units on the session's consoles are in that `.setup`. If a session fact says "no PDU", the
+  units this run uses are in the run `.setup` (gate 5); a unit outside it is never cycled. If a session fact says "no PDU", the
   cycle silently does nothing: record that in the working log.
 - **Timeouts:** the framework's defaults assume flash-booting units; say so in the working log
   when you raise one. On a hang, keep the partial output: completed TestCases are evidence.

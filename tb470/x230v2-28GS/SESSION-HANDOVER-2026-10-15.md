@@ -66,8 +66,10 @@ git checkout bench-setup/bench-state.md     # a u0/u1 probe writes a two-unit fi
 ## OPEN (Test Engineer)
 1. **Review point, T47228:** its Results row says the change was "proven at both link ends", but the evidence covers
    only the disable. Should the row be reworded? The final log states only what is sourced.
-2. The 2026-10-12 Ask-CK run power-cycled outlets 1 and 7 although its scope excluded the x230 and 4050. Should a
-   `Consoles: "all"` Ask-CK run exclude the outlets of units it does not use? (Carried from 10-13 OPEN 6.)
+2. ~~The 2026-10-12 Ask-CK run power-cycled outlets 1 and 7 although its scope excluded the x230 and 4050. Should a
+   `Consoles: "all"` Ask-CK run exclude the outlets of units it does not use? (Carried from 10-13 OPEN 6.)~~
+   **ANSWERED 2026-10-15 (Test Engineer): yes.** Every run binds a run `.setup` declaring only the units it uses;
+   STANDING-ORDERS §6, bench-runner gate 5.
 3. Proposed tools from the reviews, none built: `case_tokens --split-at-result`, `ckcon.py --error-regex`,
    `tools/ifdelta.py`, `restconf.py --plan`, `tools/tb fw --wait --summary`, `tools/fwclean.py`. Details:
    [cli REVIEW.md](cli-2026-10-13T0949/REVIEW.md), [mdix REVIEW.md](mdix-2026-10-13T0949/REVIEW.md).

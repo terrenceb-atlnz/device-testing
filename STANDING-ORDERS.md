@@ -110,6 +110,20 @@ mind that restart."*
   `no polarity` (2026-09-29) caused two full-bench cycles with nothing measured. The tester
   checks the defaulting commands against the platform before launch, and stops a run whose
   failures are systematic rather than letting N cases pay N cycles.
+- **A run's `.setup` declares only the units that run uses** (bench owner, 2026-10-15, closing
+  the 2026-10-13 handover's OPEN 6). The post-failure cycle reboots every unit the script
+  initialises, and a generated script's `init_all_devices()` initialises every unit in the
+  `.setup`. On 2026-10-12 an Ask-CK run with `Consoles: "all"` bound the deployed `tb470.setup`,
+  so the x230 and AR4050S, which it never used, were cycled with the IE520s. So:
+  - Any run, including one whose consoles are "all", binds a run `.setup` in its run directory.
+    That file is the box's `.setup` with every other unit removed: its `[switch]`/`[stack]`
+    entry, `[baudrates]`, `[boot_from_flash]`, `[power]`/`[powerlink]`, and every
+    `[portlink]` that touches it.
+  - A unit is used when the case's script or steps need it: the DUT, a partner, a traffic or
+    reference unit. If preflight cannot tell, ask the Test Engineer; do not keep a unit "to be
+    safe".
+  - The deployed `.setup` is never edited for this. A run that uses every unit binds a copy of
+    it unchanged.
 - **Bench setup (cabling, aggregators, VLAN isolation, boot pointers) is set ONCE before the
   TestSet and restored ONCE after it.** Between cases only the case's own steps and its
   `tear_down()` run. A case needing a different physical setup is a different TestSet (§3).
