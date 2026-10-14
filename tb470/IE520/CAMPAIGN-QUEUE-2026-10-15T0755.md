@@ -50,11 +50,27 @@ Topology: "Adapted load" of the reporter's config; "I'll recable now": tb470 eth
 - Injection: tb470 eth1 -> port1.0.13 (member 1); tb470 eth3 -> port2.0.13 (member 2, Test Engineer's recable, unverified
   at queue creation). DLF floods in VLAN 100 cross the stack link to the other member's sa2 leg and injection port.
 
+## Group 1 bench setup and restore recipe (tester, 2026-10-15 08:10 NZDT; written before the first run)
+
+- **Setup:** none by the tester. The stack already boots `flash:/coro-repro.cfg` (sentinel, at the Test
+  Engineer's direction; see "Bench at queue creation"). The tester changes only session-scoped,
+  running-only state: `terminal monitor` on the u4 and u5 console sessions. Traffic: `tools/linerate.py`
+  from tb470 eth1 / eth3 (DLF dst 02:00:00:00:99:99), plus a few MAC-learning frames per NIC.
+  No `write`, no reload, no boot/config-file change, no lldp change, no `bench_probe.py apply`.
+- **Restore (a fresh tester can do this if the run dies):**
+  1. `tools/tb ps tb470 'linerate|tcpreplay|tcpdump'` and `tools/tb killmine tb470 <pid>` for any of
+     this run's senders/counters still alive.
+  2. On u4 and u5: `tools/tb ckcon tb470 coro1015 u4 115200 "show clock"` (its login/exit path does
+     `end` then `terminal no monitor` via console.py `monitor_off()`), then `exit` at the exec prompt.
+  3. Check `show boot` still says `Current boot config: flash:/coro-repro.cfg` and `show running-config`
+     equals `corosync-dlf-2026-10-15T0755/coro-dlf/stk_a.cfg` (less its 3 header lines).
+  4. Going back to `flash:/tb470-bench.cfg` (+ stack reload) is the Test Engineer's decision, NOT the tester's.
+
 ## Queue
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | coro-dlf (corosync flow-control repro) | tb470/IE520/corosync-dlf-2026-10-15T0755/ | QUEUED | runs: A = eth1 only (member 1 ingress); B = eth1 + eth3 at once (the report's method). Each: line rate, several minutes, terminal monitor on u5 and u4, sdma CPU counters before/after |
+| 1 | coro-dlf (corosync flow-control repro) | tb470/IE520/corosync-dlf-2026-10-15T0755/ | RUNNING (tester, 2026-10-15 08:10) | runs: A = eth1 only (member 1 ingress); B = eth1 + eth3 at once (the report's method). Each: line rate, several minutes, terminal monitor on u5 and u4, sdma CPU counters before/after |
 
 ## Results
 
