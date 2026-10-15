@@ -94,7 +94,7 @@ the wiki and neither can WebFetch.
 | --- | --- | --- | --- | --- |
 | A | T43851 ARP Probe · T43853 120-day lease | dhcp-server-2026-10-15T1458 | **DONE** 15:42 — 2 PASS | DUT = DHCP server, VLAN 10, host eth3 as client + ARP responder |
 | B | T43852 DHCP Relay · T43850 Option 82 | dhcp-relay-2026-10-15T1458 | **DONE** 16:38 — 2 PASS | DUT = relay; eth3 client side, eth4 scapy DHCP server. Option 82 is a RELAY feature (TFS S1566.100), not a server one |
-| C | T35370 Extended ID · T43854 DNS Relay | dhcp-client-2026-10-15T1458 | RUNNING (dispatched 16:40) | DUT = DHCP client on VLAN 48; eth4 scapy server, eth3 the querying host for DNS |
+| C | T35370 Extended ID · T43854 DNS Relay | dhcp-client-2026-10-15T1458 | **DONE** 17:18 — 2 PASS | DUT = DHCP client on VLAN 48; eth4 scapy server, eth3 the querying host for DNS |
 
 **Triage 2026-10-15 15:10 — 6 runnable, 0 blocked by topology, 0 blocked otherwise.** No
 recabling, no partner switch, no licence. swi_b and swi_a are not needed by any of the six, which
@@ -412,6 +412,7 @@ and eth4 by host-MAC learning on exactly those ports and cannot exit 0 otherwise
 | T43852 | PASS | 5/5 crafted DISCOVERs and REQUESTs relayed **1:1 in 0.76 ms**, giaddr rewritten to 192.168.10.1 and hops incremented; all 5 OFFERs/ACKs returned to the right clients on the far side; **both** zero-relay controls clean (`no service dhcp-relay`, and relay on with no `server-address`); hop threshold enforced at the default 10 (hops 2 relayed as 3, hops 10 dropped). Four harness faults found and fixed first, all recorded in the log under HARNESS FAULTS; no measurement in the verdict predates the fixes | tester | dhcp-relay-2026-10-15T1458/T43852/work/run1.log |
 | T43850 | PASS | insertion off/on matched pair; circuit-id `vlan10` and remote-id = switch MAC on the wire (S1566.100.01/.06); ASCII override `CK-REMOTE-82` and its revert to the MAC proven in captured frames; remote-id correctly **refused** while agent-option is disabled (S1566.100.07); **all four** information-policy actions (replace/keep/drop/append) correct; option 82 **stripped** from replies per RFC 3046; survives reboot | tester | dhcp-relay-2026-10-15T1458/T43850/work/run1.log |
 | T35370 | PASS | the whole DHCP-client identity surface measured on the wire: **option 61** (type byte 0x01 + SVI MAC), **option 12** hostname `CKDHC1`, **option 124** carrying IANA enterprise **207** (Allied Telesis), and **125** added to the parameter request list. Each absent in the baseline and each removed cleanly by its `no` form. No TFS exists for "Extended ID", so the build's identity surface was enumerated by help probe and **all four** measured rather than one being guessed | tester | dhcp-client-2026-10-15T1458/T35370/work/run1.log |
+| T43854 | PASS | forwarding ON: **5/5** crafted queries forwarded upstream and 5/5 correct answers returned, counted at both NICs and agreeing with tcpdump exactly; forwarding OFF control: the same 5 queries demonstrably on the wire, **0** forwarded; a DHCP-learned name-server is imported and genuinely used; settings survive a reboot. `dnsresp.py` was unproven, so every leg ran tcpdump alongside it and the two agreed in every graded leg — that is what verifies the tool. Two limbs deliberately not graded the easy way: **ordering** recorded as the observation O-8 (not a failure), and the **cache** limb **UNMEASURED** with its reason | tester | dhcp-client-2026-10-15T1458/T43854/work/run1.log |
 
 ## Issues
 
@@ -530,3 +531,26 @@ review), NOTED (no decision needed now), CLOSED (decided or answered).
   + 3 replies; the scapy server decoded 3 of 4 because the first arrived during its scapy import
   (same cost as Group B's harness fault). No DUT loss, no verdict count affected.
   **tcpdump is authoritative for the wire; the scapy tool only for what it decoded.**
+- **O-8 (T43854) A DHCP-learned name-server is queried in PREFERENCE to a statically configured
+  one.** Two responders on one NIC with different A records: the relay queried the DHCP-learned
+  `192.168.48.2` and **never ARPed** for the static `192.168.48.9`. A control with `.9` as the only
+  server proves `.9` is reachable and used, so this is preference, not unreachability.
+  S1570.1.12 says DHCP-learned servers are "added **last**" of the configured list, which describes
+  **list position**; a resolver need not walk its list in order. The measurement shows external
+  preference and cannot show internal order — and neither can `show ip name-server`, whose display is
+  type-grouped. Recorded as an observation, not graded. (The tester numbered this O-6 in its report;
+  **O-6 was already taken** by T35370's shared SVI MAC, so it is O-8 here and in the working log's
+  cross-reference.)
+- **T43854 cache limb: UNMEASURED, and the one item in the campaign that wants a developer, not
+  another bench run.** Two identical queries 5.3 s apart, inside the TTL, both went upstream with
+  `ip dns forwarding cache` enabled. NOT graded a failure: the TFS separates a Name Resolver Process
+  from a DNS Relay Process, and S1570.1.03/.11 both say "name **resolve result**", which plausibly
+  scopes the cache to the device's own lookups rather than relayed third-party queries. If so the
+  premise is wrong — the same class of error as Group B's checking-direction mistake (F-2). Nothing on
+  this bench separates "not cached by design" from "cache broken".
+- **I-5 (T43854) A DHCP-client DNS update restarts the relay process and clears sessions — a
+  documented TFS limitation that reads as a hard defect.** The static-only control first forwarded
+  **nothing**, which looks like "the DUT cannot use a statically configured DNS server". After a 20 s
+  settle the identical configuration forwarded every query and ARPed for the server first. Every
+  graded leg now waits 20 s; the rule is in the `dnsresp.py` README entry so the next person does not
+  re-buy it.
