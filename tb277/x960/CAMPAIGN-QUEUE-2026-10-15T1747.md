@@ -138,7 +138,7 @@ re-reading as a top-three cost.
 | --- | --- | --- | --- | --- |
 | A | T33248 Static ARP · T33247 Clear ARP · T33249 ARP Logging · T33246 ARP Polling · T43848 Proxy ARP · T43849 Local Proxy ARP | arp-2026-10-15T1747 | **DONE 2026-10-15T2000 — 6 PASS, bench restored and re-probed (exit 0, all three configs identical to the pre-campaign capture)** | DUT + both host NICs. Two L3 segments (eth3/VLAN 10, eth4/VLAN 48) give proxy ARP its two sides without a partner. Run first: it is the least topology-hungry and it proves the bench before the routing underlay goes in |
 | B | T43855 IPv4 Static · T43861 ECMP Routing · T43862 Secondary IP Address | static-2026-10-15T1747 | **DONE** 21:21 — 3 PASS (underlay + restore recipe below; underlay stays up for C and D) | Needs the routing underlay (below) and both partners. ECMP uses the DUT's **two** links to one partner, or one link to each — the triangle gives equal-cost paths either way |
-| C | T43857 OSPFv2 · T43856 RIP v1/v2 | igp-2026-10-15T1747 | **IN PROGRESS** from 21:35 (setup + restore recipe below; underlay verified intact, nothing group-level changed) | Same underlay as B. `service ospf` / `service rip` FIRST |
+| C | T43857 OSPFv2 · T43856 RIP v1/v2 | igp-2026-10-15T1747 | **DONE** 22:35 -- 2 PASS (11 of 13 overall). Underlay left UP and verified intact for group D. Two `no service <proto>` lines left on swi_d -- see the restore note below | Same underlay as B. `service ospf` / `service rip` FIRST |
 | D | T43858 BGPv4 · T43859 VRF-Lite | bgp-vrf-2026-10-15T1747 | RUNNABLE (triaged 2026-10-15T1805) | Same underlay. `service bgp` first. VRF-Lite may need a feature the DUT lacks — that is UNSUPPORTED **with the refused command quoted**, after the service gate has been ruled out |
 
 **Group order is deliberate.** A runs on a bench almost identical to the one just restored. B, C
@@ -751,6 +751,41 @@ python3.8 tools/rcdiff.py /tmp/ckB/swia-pre.out <post>
 Pre-group baselines are on the box at `/tmp/ckB/{dut,swib,swia}-pre.out`, captured
 2026-10-15 20:13–20:15 NZDT, and `bench-setup/tb277/captures/2026-10-15T071248Z/` in the repo.
 
+### 🔴 ADDED AFTER GROUP C -- FINISH THE RESTORE WITH ONE RELOAD OF swi_d
+
+After the three RESTORE blocks above have been applied at the end of group D, **swi_d will
+still carry two extra lines that no configuration command can remove**:
+
+```
+no service rip
+no service ospf
+```
+
+They are T43857's **FINDING F-5**, mechanism settled in T43856 step 7b: `no service <proto>`
+writes a real configuration line, and once that line is in a config file it is carried through
+every subsequent boot of that file. swi_d acquired them because its two reboot-persistence
+limbs booted from staged configs containing `service ospf` / `service rip`. **swi_b and swi_a
+had the identical commands applied and are byte-identical to their pre-campaign state**,
+because neither ever booted from such a config. No daemon is left running (`show process |
+include ospf` returns nothing after the second reboot) and both lines are semantically the
+platform default.
+
+**The remedy, and it is cheap:** once the underlay restore is done and swi_d's running-config
+is otherwise back to the pre-campaign capture, reload swi_d from `flash:/default.cfg` -- which
+is already its restored boot pointer and does not mention either service:
+
+```
+show boot                     ! confirm Current boot config: flash:/default.cfg (file exists)
+reload                        ! answers (y/n) -- tools/ckreload.py; 61 s to login on this unit
+show running-config | include service    ! must no longer list no service rip / no service ospf
+```
+**swi_d only.** Never swi_a (RISK-1, boot image `Not set`). Do it LAST, after the underlay is
+removed: `flash:/default.cfg` does not contain the underlay, so a reload before then would
+destroy what groups C and D are standing on.
+
+**Group D will add a third such line** (`no service bgp`) if T43858 includes a
+reboot-persistence limb, which it should. One reload at the very end clears all of them.
+
 ### Nothing is written to startup-config
 
 The reboot-persistence limbs stage a **named** boot config and put the pointer back:
@@ -891,6 +926,8 @@ Captures and step outputs on the box in `/tmp/ckC/`; console transcripts `/tmp/c
 | T43861 | PASS | ECMP proven **per egress port on four counters across three devices**, never from `show ip route`: one route = 1920/1920 on a single port; two routes = a real split; **`maximum-paths 1` collapses the identical flow set to 1280/0**; removal returns all traffic to the survivor; survives a real reload. An instrument artefact was found and corrected mid-case — varying all four 5-tuple fields by the same index correlates the two addresses the hash actually uses and gave a misleading **81/19**; decorrelated spans gave **50/50**, and the verdict rests on the corrected legs. Three product findings recorded (F-1..F-3 below), none a failure of the feature | tester | static-2026-10-15T1747/T43861/work/run1.log |
 | T43862 | PASS | the secondary address proven **serving traffic**, not merely displayed: ARP **0/4** off → **4/4** on → **0/4** removed, and forwarding into the secondary subnet **0/5** → **5/5** → **0/5**; the connected route appears and disappears with it; survives a real reload. Multiple secondaries coexist; `ip address … secondary` with no primary is refused (`% Configure primary first`); removing the primary while a secondary exists is **refused, not cascaded** (`% Must delete secondary before deleting primary`). One planned discriminator was **discarded at baseline because it did not discriminate** — a frame merely *sourced* in the secondary subnet crosses the DUT with the feature off too, since forwarding is destination-based and there is no uRPF | tester | static-2026-10-15T1747/T43862/work/run1.log |
 | T43857 | PASS | OSPFv2 proven **on the wire across 9 counted legs**: the service gate measured, Full adjacency to **two** neighbours, routes learned from the protocol (code `O`, AD 110, partner Router LSAs, **no static route anywhere**) forwarding 5/5 + 5/5 against a control dropped in every leg. **The sharpest limb:** withdrawing ONE advertisement — link, port and adjacency all left up — dropped the subject to **0/5 in under 7 s** while the second neighbour stayed **5/5 in the SAME leg**. Static AD 1 displaces OSPF AD 110 **in the dataplane**, attributed by ICMP time-exceeded from the static next hop. `passive-interface` gives **0 OSPF packets in 30 s** while the Router LSA held at the neighbour still carries the network. Survives a real 61 s reboot | tester | igp-2026-10-15T1747/T43857/work/run1.log |
+| T43857 | PASS | OSPFv2 proven on the wire across 9 counted legs: service gate measured (`router ospf` rejected ~1 s after `service ospf`, accepted within 7 s -- the two cannot share a console batch), Full adjacency to two neighbours over two interfaces in 17 s, routes learned FROM THE PROTOCOL (code `O`, AD 110, each carried by the owning partner's Router LSA in the LSDB) with **no static route anywhere**, forwarding 5/5 + 5/5 against a control dropped and an instrument control answering in every leg. **Withdrawal proven in its strongest form**: one advertisement removed on the neighbour with the port, link and adjacency all still up, subject 5/5 -> 0/5 in under 7 s while the second neighbour's prefix stayed 5/5 in the SAME leg, and swi_b re-originated its Router LSA with one fewer link. Static AD 1 displaces OSPF AD 110 **in the dataplane**, attributed by 5 ICMP time-exceeded sourced from the static next hop. `passive-interface`: 0 OSPF packets in 30 s while the DUT's Router LSA held at the NEIGHBOUR still carries the network, and user traffic untouched. Survives a real 61 s reboot | tester | igp-2026-10-15T1747/T43857/work/run1.log |
+| T43856 | PASS | RIP proven on the wire across 8 counted legs, **both versions read out of the protocol's own packets rather than a `show`**: the default is RIPv2 to multicast 224.0.0.9, TTL 1, explicit prefix length + route tag + next-hop on every entry (confirming the guide's "by default, RIP only sends and receives RIPv2 packets"); `version 1` on the same wire 34 s later is RIPv1 to broadcast 192.168.10.255 at ff:ff:ff:ff:ff:ff, TTL 64, no masks, no tags, and the four 10/8 entries collapsed into one classful `10.0.0.0`. The version change had a **selective, measured effect on traffic**: swi_a, left at v2, timed out after exactly the documented 180 s, dropped out of `Routing Information Sources` with 0 bad packets, and went 5/5 -> 0/5 while the two v1 prefixes stayed 5/5 in the same leg; returning to v2 recovered it in ~6 s. Withdrawal used the tightest control the bench allows -- one prefix withdrawn while the other prefix **from the same neighbour over the same port** kept forwarding -- and caught the mechanism: a triggered update at metric 16 took the route out of the FIB in 13 s, then the documented 120 s garbage-collect timer ran it out of the database, which `show ip route` alone cannot distinguish from a 180 s timeout. Removal returns the dataplane to baseline; survives a real 61 s reboot | tester | igp-2026-10-15T1747/T43856/work/run1.log |
 
 ## Issues
 
@@ -1073,3 +1110,55 @@ Captures and step outputs on the box in `/tmp/ckC/`; console transcripts `/tmp/c
     refused, the daemon appears seconds later;
   - **stop needs a RELOAD** — `no service ospf` answers `% Save the config and restart for this
     change to take effect.` and the daemon keeps running.
+
+- **GROUP C COMPLETE -- 2 of 2 PASS** (T43857 OSPFv2, T43856 RIP v1/v2). 11 of 13 cases done,
+  11 PASS. The shared B/C/D underlay is left UP and was verified intact in the post-teardown
+  capture (all four SVIs, DUT still STP root with port1.0.4/10/16/48 Forwarding and
+  port1.0.2/1.0.14 shut, both partner loopbacks and both partner return routes).
+  **swi_b and swi_a are byte-identical to the group-C start state**; swi_d differs by exactly
+  the two `no service` lines below.
+- **🔴 FINDING F-5 (T43857, mechanism settled in T43856 step 7b) -- `no service <proto>` WRITES
+  A STICKY CONFIG LINE ON A DEVICE THAT BOOTED WITH `service <proto>`.** swi_d ends group C with
+  `no service rip` and `no service ospf` in running-config; swi_b and swi_a, given the identical
+  commands, end with nothing. The difference is that swi_d's two reboot-persistence limbs booted
+  from staged configs containing the service. **It is not a "daemon still running" indicator**:
+  after the second reboot `show process | include ospf` returns nothing at all and the line is
+  still there. ⇒ **Every reboot-persistence limb on a service-gated protocol (ospf, rip, bgp,
+  pim, vrrp, bfd) leaves such a line, and its teardown diff cannot come back clean however
+  carefully the case is written.** Cosmetic -- semantically the platform default -- but real.
+  **Remedy written into the shared RESTORE block: one reload of swi_d from `flash:/default.cfg`
+  at the very end of group D, AFTER the underlay restore.** For `platforms/x960.md`.
+- **🔴 F-3 NARROWED (T43856 step 7a), and this is good news for future cases.** T43861's F-3 says
+  an ECMP next hop with unresolved ARP is silently absent from the dataplane while the route
+  table still reads `*>`. Group C hit the same condition harder -- after the reboot the DUT's ARP
+  table was **completely empty** while three RIP routes sat in the FIB, and RIPv2 talks to
+  224.0.0.9 so **nothing primes the next hop** (in T43857 the OSPF adjacency resolved both next
+  hops for free). The leg was deliberately run cold: **15 of 15 forwarded, not one frame lost,
+  and the ARP table filled itself from the traffic.** ⇒ the F-3 hazard belongs to **ECMP group
+  membership**, not to next-hop resolution in general. Check `show arp` before believing an ECMP
+  route group; you need not before a single-path leg. T43861's measurement stands unchanged.
+- **🔴 PLATFORM FACT (T43857) -- `service ospf` and `router ospf` CANNOT SHARE A CONSOLE BATCH.**
+  Measured on all three devices: `router ospf 1` sent ~1 s after `service ospf` is rejected with
+  `% OSPF protocol daemon is not running or feature license is not available`; the daemon is up
+  within 7 s. The guide prints the two as consecutive lines to type, which a human does slowly
+  enough and a script does not. Worse, the rejection makes `cfg.py` abandon the rest of the
+  batch. T43856 avoided it by sending `service rip` to all three devices in its own batch and
+  waiting 10 s -- no rejection. **The licence half of that message is a red herring on these
+  units** and must never be read as UNSUPPORTED.
+- **TECHNIQUE (group C) -- the second neighbour is what makes a withdrawal leg trustworthy.**
+  Both cases used two partners advertising two different prefixes, so every withdrawal leg
+  carried a LIVE positive control measured in the same 20-25 frame capture. T43856 went one
+  better: it withdrew one of **two prefixes from the same neighbour over the same port**, which
+  rules out link, port, neighbour, adjacency and instrument in a single leg. Cheap, and it turns
+  a zero into a measurement. Reusable by T43858 (BGP) as-is.
+- **TECHNIQUE (group C) -- a routing protocol's own packets are the only thing that can prove
+  WHICH protocol ran.** One `tcpdump -c 1 -v` per version, on the host NIC, after adding the
+  host's VLAN to the protocol's `network` statements, decoded OSPFv2 Hellos (router-id, area,
+  10/40 timers) and told RIPv1 from RIPv2 on nine separate attributes. Neither fact is available
+  from any `show` command. ~2 KB per capture, seconds to run. T43858 should capture its BGP
+  OPEN/UPDATE the same way (TCP 179 is unicast, so point the DUT's session so it crosses a
+  capturable link, or capture on the partner's console counters instead).
+- **TOOL NOTE (group C) -- `tools/arpleg.py --icmp` carried all 17 counted legs of both cases**
+  with no modification: subject(s) + control + instrument-control in one 20-25 frame leg, the
+  reply SOURCE address giving far-side attribution, and `--answer` keeping the DUT's ARP for the
+  scapy sender alive. No new tool was needed and none was written.
