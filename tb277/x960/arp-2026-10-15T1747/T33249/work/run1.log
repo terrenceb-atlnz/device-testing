@@ -1,0 +1,332 @@
+T33249  IPv4_ARP - ARP Logging  --  working log, run 1
+=======================================================
+
+RUN START: 2026-10-15 18:42 NZDT (2026-10-15 05:42 UTC)
+RUN END:   2026-10-15 18:51 NZDT (2026-10-15 05:51 UTC)
+
+Run quality: clean.
+
+
+1. SESSION FACTS
+----------------
+Test Engineer : bidhanc@bidhanc-dl  (AWAY -- unattended campaign, no prompts)
+Testbox       : tb277
+Consoles      : u2 = swi_d (DUT) @115200.  u3 = swi_b and u5 = swi_a were NOT opened.
+PDU           : 10.36.230.212 outlet 1 (u2).  Not used -- the reboot limb is a CLI `reload`.
+Constraints   : None (full authority within tests; power cycles allowed).
+Campaign      : tb277/x960/CAMPAIGN-QUEUE-2026-10-15T1747.md, group A `arp-2026-10-15T1747`,
+                case 3 of 6.
+Sentinel      : parent session (/test-mode one-session shape).
+Driver        : manual console + scapy.  No `.setup` on tb277 => no framework.
+
+
+2. DEVICE, HOST NICs AND LINKS
+------------------------------
+As case 1 of this group, recorded in full at
+tb277/x960/arp-2026-10-15T1747/T33248/work/run1.log sections 2 and 3.  In brief:
+
+  swi_d  /dev/u2 @115200  awplus  AT-x960-56YSQ  S/N A2WQS700B  sin_x96056-20261012-24
+         SVI MAC e0:1a:ea:d4:70:43 (vlan10 and vlan48 share it)
+  tb277 eth3  00:0d:b9:55:77:0e -> swi_d port1.0.10  (VLAN 10, 192.168.10.0/24)
+  tb277 eth4  00:0d:b9:55:77:0f -> swi_d port1.0.48  (VLAN 48, 192.168.48.0/24)
+  No host networking was changed.  192.168.10.2 / 00:11:22:33:44:01 and
+  192.168.48.2 / 00:11:22:33:44:02 are scapy fictions.
+
+
+3. CLOCKS -- stated explicitly, because this case correlates DUT LOG TIMESTAMPS with box time
+----------------------------------------------------------------------------------------------
+Measured in-run, bracketing the DUT reading between two box readings:
+
+  box   `date -u`      05:44:37 UTC
+  swi_d `show clock`   05:44:34 UTC   ("Timezone: UTC, Timezone Offset: +00:00,
+                                        Summer time zone: None")
+  box   `date -u`      05:44:48 UTC
+
+  => swi_d clock = box clock - 3 s.  Identical to the pair taken at group setup (05:16:43 /
+     05:16:40 / 05:16:49).  A DUT log line stamped T corresponds to box time T + 3 s, which is
+     well inside the 1-second resolution of a syslog stamp and needs no correction when reading
+     a DUT log line against a pcap.
+
+  swi_b (u3) RISK-5, stated as the dispatch requires even though it does not apply here: swi_b's
+  clock is +12 h 59 m ahead of UTC while it also reports "Timezone: UTC".  **swi_b is NOT used
+  by this case and its console was never opened**, so no swi_b timestamp enters this case's
+  evidence and no correction or `clock set` was needed.  Every timestamp quoted below is swi_d's.
+
+
+4. CASE TEXT AND GROUNDING
+--------------------------
+AWPTCM T33249 "IPv4_ARP - ARP Logging".
+
+STEP TEXT: NONE EXISTS.  No exact-title match in ck.db (checked at triage for all 13 campaign
+titles; only T43849 has step text).
+
+Grounded in:
+  (a) X960 platform support TPS row 21 "ARP Logging" -- priority 1, "Yes", note column empty.
+  (b) `ip_feature_overview_guide.pdf` (repo root `Feature Overview Guides/`), the ARP logging
+      section (p9).
+  (c) The DUT's own CLI, read-only `?` probe:
+        awplus(config)# arp log ?
+          mac-address-format  MAC address format
+          <cr>
+        awplus(config)# arp log mac-address-format ?
+          ieee  Standard format for a MAC address
+  (d) STANDING-ORDERS Section 7 and memory `satisfactory-level-of-testing`.
+
+OBJECTIVE: with `arp log` configured, the DUT logs ARP cache events caused by real ARP traffic;
+with it absent it logs none; the `mac-address-format ieee` sub-option changes how the MAC is
+rendered; both are removable; and the setting survives a reboot and still logs afterwards.
+
+METHOD NOTE: every leg below drives a COMPLETE, CRAFTED ARP resolution rather than inspecting a
+table -- `tools/arpleg.py` sends routed probes that force the DUT to broadcast an ARP request,
+and its `--answer` responder replies, so the DUT creates a genuine dynamic entry.  (That
+responder is necessary: this DUT does not learn from a request it merely answers --
+T33247/work/run1.log section 5.)  `clear log buffered` is run immediately before each leg, so
+the log read afterwards holds that leg's events and nothing earlier.  `clear arp-cache` is run
+with it, so each leg produces a `del` (the clear) and an `add` (the re-learn).
+
+
+5. BENCH SETUP FOR THIS CASE
+----------------------------
+Group A's shared setup only (vlan 10 + vlan 48 with their SVI addresses, port1.0.10 and
+port1.0.48 members).  This case adds NOTHING before step 1 -- `arp log` is the subject and is
+configured inside step 2.
+
+Config saved: tb277/x960/arp-2026-10-15T1747/T33249/swi_d.cfg
+  -- 3 header + 97 config lines, captured 18:44 NZDT, AFTER setup and BEFORE step 1.
+
+TOOLS: tools/arpleg.py (--probe, --answer, --answer-iface, --watch), tools/cfg.py,
+tools/ckcon.py, tools/ckyn.py, tools/ckreload.py, tools/rc2cfg.py, tools/rcdiff.py,
+tools/qmark.py.  Captures on the box: /tmp/ck1747/T33249/
+
+
+6. STEPS
+--------
+
+STEP 1 -- BASELINE, FEATURE OFF.  A full ARP resolution must produce NO ARP log entry.
+
+  awplus# show running-config | include arp
+  awplus#                                      <- no arp line of any kind; `arp log` is not set
+  awplus# clear log buffered
+  awplus# clear arp-cache
+
+  tool: sudo python3.8 tools/arpleg.py --tag L0-log-off --out /tmp/ck1747/T33249 \
+          --iface eth3 --watch eth4 --probe 192.168.48.2 --sender-ip 192.168.10.2 \
+          --sender-mac 00:11:22:33:44:01 --gw-mac e0:1a:ea:d4:70:43 --count 3 \
+          --answer 192.168.48.2=00:11:22:33:44:02,192.168.10.2=00:11:22:33:44:01 \
+          --answer-iface eth3,eth4 --wait 6
+
+  answerer sent 1 ARP reply/replies (eth3:0, eth4:1)
+    x1  ARP-REQ   who-has 192.168.48.2 tell 192.168.48.1  [e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+    x1  ARP-REPLY 192.168.48.2 is-at 00:11:22:33:44:02    [00:11:22:33:44:02 -> e0:1a:ea:d4:70:43]
+
+  So a real resolution happened on the wire: the DUT broadcast a request, our responder answered,
+  and the DUT created the entry.
+
+  awplus# show log
+  (19 lines.  The ONLY line matching "arp", case-insensitive, is the command audit echo of my
+   own console input:
+     2026 Oct 15 05:42:44 user.notice awplus IMISH[2855]: [manager@ttyS0]clear arp-cache
+   There is NO ARP_LOG line and no ARP event line of any kind.)
+
+  Reading: with the feature off, a complete ARP exchange leaves nothing in the log.  Note the
+  IMISH line: an "arp" grep over `show log` matches the audit trail of the tester's own
+  commands, which is not ARP logging.  Every count below therefore matches `ARP_LOG`, not `arp`.
+  STEP 1 VERDICT: PASS (baseline established).
+
+STEP 2 -- ENABLE `arp log` AND PROVE IT LOGS THE SAME EVENTS.
+
+  awplus# configure terminal
+  awplus(config)# arp log
+  awplus(config)# end
+  awplus# show running-config | include arp
+  arp log
+  awplus# clear log buffered
+  awplus# clear arp-cache
+
+  tool: the SAME arpleg.py invocation as step 1, tag L1-log-on.
+  answerer sent 1 ARP reply/replies (eth3:0, eth4:1)
+    x1  ARP-REQ   who-has 192.168.48.2 tell 192.168.48.1  [e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+    x1  ARP-REPLY 192.168.48.2 is-at 00:11:22:33:44:02    [00:11:22:33:44:02 -> e0:1a:ea:d4:70:43]
+
+  awplus# show log
+  2026 Oct 15 05:43:47 user.notice awplus HSL[936]: ARP_LOG port1.0.48 vlan48 del 0011.2233.4402 (192.168.48.2)
+  2026 Oct 15 05:43:55 user.notice awplus HSL[936]: ARP_LOG port1.0.48 vlan48 add 0011.2233.4402 (192.168.48.2)
+
+  Reading: identical crafted traffic, zero ARP_LOG lines with the feature off and two with it on.
+  The log records BOTH directions of the cache change:
+    - `del` at 05:43:47, the entry removed by `clear arp-cache`;
+    - `add` at 05:43:55, the entry created by the responder's reply to the DUT's own request.
+  Each line carries the egress port (port1.0.48), the VLAN (vlan48), the MAC in AW+ dotted form
+  (0011.2233.4402) and the IP (192.168.48.2) -- all four matching the frames in the capture.
+  Facility/severity `user.notice`, emitting process `HSL[936]`.
+  STEP 2 VERDICT: PASS.
+
+STEP 3 -- THE `mac-address-format ieee` SUB-OPTION.
+
+  awplus# configure terminal
+  awplus(config)# arp log mac-address-format ieee
+  awplus(config)# end
+  awplus# show running-config | include arp
+  arp log
+  arp log mac-address-format ieee
+  awplus# clear log buffered
+  awplus# clear arp-cache
+
+  tool: sudo python3.8 tools/arpleg.py --tag L2-ieee --out /tmp/ck1747/T33249 \
+          --iface eth3 --watch eth4 --probe 192.168.48.2 --sender-ip 192.168.10.2 \
+          --sender-mac 00:11:22:33:44:01 --gw-mac e0:1a:ea:d4:70:43 --count 3 \
+          --answer 192.168.48.2=00:11:22:33:44:02 --answer-iface eth4 --wait 6
+  answerer sent 1 ARP reply/replies (eth4:1)
+
+  awplus# show log
+  2026 Oct 15 05:44:39 user.notice awplus HSL[936]: ARP_LOG port1.0.48 vlan48 del 00-11-22-33-44-02 (192.168.48.2)
+  2026 Oct 15 05:44:46 user.notice awplus HSL[936]: ARP_LOG port1.0.48 vlan48 add 00-11-22-33-44-02 (192.168.48.2)
+
+  Reading: the same MAC, same port, same VLAN, same IP, same event pair -- rendered
+  `00-11-22-33-44-02` (IEEE hyphenated) instead of `0011.2233.4402` (AW+ dotted).  A direct A/B
+  on events of the same kind; nothing else in the line changed.
+  Note the sub-option is held as its OWN running-config line beside `arp log`, not folded into it.
+  STEP 3 VERDICT: PASS.
+
+STEP 4 -- REMOVAL, BOTH FORMS, EACH PROVEN SEPARATELY.
+          (memory `satisfactory-level-of-testing`; and OPEN-4 from the previous campaign was
+          exactly a `no` form sent only in teardown with no `show` after it.)
+
+  4a.  Remove the sub-option only:
+       awplus# configure terminal
+       awplus(config)# no arp log mac-address-format ieee
+       awplus(config)# end
+       awplus# show running-config | include arp
+       arp log                                 <- the sub-option line is gone, `arp log` remains
+       awplus# clear log buffered
+       awplus# clear arp-cache
+       tool: arpleg.py tag L3-fmt-removed, same invocation as step 3.
+       awplus# show log
+       2026 Oct 15 05:45:33 user.notice awplus HSL[936]: ARP_LOG port1.0.48 vlan48 del 0011.2233.4402 (192.168.48.2)
+       2026 Oct 15 05:45:41 user.notice awplus HSL[936]: ARP_LOG port1.0.48 vlan48 add 0011.2233.4402 (192.168.48.2)
+       Reading: logging continues, and the MAC has REVERTED to the AW+ dotted form.  The removal
+       is proven on the log output itself, not only in running-config.
+
+  4b.  Remove the feature:
+       awplus# configure terminal
+       awplus(config)# no arp log
+       awplus(config)# end
+       awplus# show running-config | include arp
+       awplus#                                 <- no output: no arp line of any kind
+       awplus# clear log buffered
+       awplus# clear arp-cache
+       tool: arpleg.py tag L4-log-removed, same invocation.  answerer sent 1 ARP reply.
+       awplus# show log
+       ARP_LOG lines: 0
+       Reading: the identical leg, which produced two ARP_LOG lines at step 2 and two at 4a,
+       now produces NONE.  Removal is proven in running-config AND in behaviour.
+  STEP 4 VERDICT: PASS.
+
+STEP 5 -- PERSISTENCE ACROSS A REBOOT.  Nothing is written to startup-config; the setting is
+          staged in a NAMED boot config and the pointer is put back afterwards.
+
+  awplus# configure terminal
+  awplus(config)# arp log
+  awplus(config)# end
+  awplus# copy running-config flash:/ckT33249.cfg
+  Successful operation
+  awplus# configure terminal
+  awplus(config)# boot config-file flash:/ckT33249.cfg
+  awplus(config)# end
+  awplus# show boot
+  Current boot config: flash:/ckT33249.cfg (file exists)
+
+  RELOAD (tools/ckreload.py /dev/u2 115200 <transcript> 600):
+    18:47:35 >>> reload
+    reboot question: 'reboot system? (y/n):' -> y
+    18:48:35 login seen after 60 s
+  Reload started 05:47:32 UTC, login prompt 05:48:35 UTC, measurement from 05:49:44 UTC.
+
+  AFTER THE REBOOT:
+  awplus# show running-config | include arp
+  arp log
+  awplus# show boot
+  Current boot config: flash:/ckT33249.cfg (file exists)
+  awplus# clear log buffered
+  awplus# clear arp-cache
+
+  tool: sudo python3.8 tools/arpleg.py --tag L5-after-reload --out /tmp/ck1747/T33249 \
+          --iface eth3 --watch eth4 --probe 192.168.48.2 --sender-ip 192.168.10.2 \
+          --sender-mac 00:11:22:33:44:01 --gw-mac e0:1a:ea:d4:70:43 --count 3 \
+          --answer 192.168.48.2=00:11:22:33:44:02 --answer-iface eth4 --wait 6
+  answerer sent 1 ARP reply/replies (eth4:1)
+    x1  ARP-REQ   who-has 192.168.48.2 tell 192.168.48.1  [e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+    x1  ARP-REPLY 192.168.48.2 is-at 00:11:22:33:44:02    [00:11:22:33:44:02 -> e0:1a:ea:d4:70:43]
+
+  awplus# show log
+  2026 Oct 15 05:49:56 user.notice awplus HSL[944]: ARP_LOG port1.0.48 vlan48 add 0011.2233.4402 (192.168.48.2)
+
+  Reading: the setting is back in the configuration AND still working -- a crafted resolution
+  after the reboot produced its ARP_LOG line.  Only an `add` appears because the post-boot cache
+  was already empty, so the `clear arp-cache` had nothing to delete; that is consistent with the
+  cache being volatile across a reboot (also seen in T33248 step 6, where `show arp` after the
+  reload held only the static entry).
+  INDEPENDENT CONFIRMATION THAT THE REBOOT WAS REAL: the emitting process id changed from
+  HSL[936] before the reload to HSL[944] after it.  The log line is from a new process, not a
+  stale buffer.
+  STEP 5 VERDICT: PASS.
+
+
+7. TEARDOWN AND RESTORE
+-----------------------
+  awplus# configure terminal
+  awplus(config)# boot config-file flash:/default.cfg
+  awplus(config)# no arp log
+  awplus(config)# end
+  awplus# clear arp-cache
+  awplus# delete flash:/ckT33249.cfg
+  Successful operation
+  awplus# show boot
+  Current boot config: flash:/default.cfg (file exists)       <- baseline pointer restored
+
+  TEARDOWN DIFF (STANDING-ORDERS Section 1), against the GROUP BASELINE -- the state case 1
+  restored to, itself byte-identical to the pre-campaign probe capture
+  bench-setup/tb277/captures/2026-10-15T051005Z/u2.show_running-config.txt:
+    tools/rcdiff.py /tmp/ck1747/T33248/post-rc.out /tmp/ck1747/T33249/post-rc.out
+    -> no output.  NO RESIDUE.
+  (This case's own pre-step-1 copy is the same state, since the case added nothing at setup, so
+  one comparison serves both.)
+
+  Group A's shared setup (vlan 10 / vlan 48 and their SVI addresses) is deliberately left in
+  place for the next case.
+
+  Devices touched: swi_d only.  Processes started: none left running -- every tcpdump and every
+  ARP responder was started and stopped by arpleg.py inside its own leg.
+  Console state, read from the transcript /tmp/ck1747/console-u2.log, not from tool stdout:
+  exec prompt `awplus#`, `terminal no monitor`.
+
+
+8. MINOR NOTES
+--------------
+  - `clear log buffered` is accepted at exec and is what makes each leg's log readable in
+    isolation.  Without it `show log` carries the whole day.
+  - An "arp" grep over `show log` matches the IMISH command-audit echo of the tester's own
+    `clear arp-cache`.  Match `ARP_LOG` instead.  A case that counted "arp" lines would have
+    read a non-zero baseline and called the feature already on.
+  - `terminal monitor` was never used.  It is exec-only and does not toggle (memory
+    `terminal-monitor-exec-only`); the log was read with `show log` instead, which needs none of
+    that and cannot leave a console streaming.
+
+
+9. FILES
+--------
+  tb277/x960/arp-2026-10-15T1747/T33249/swi_d.cfg        deliverable, after setup / before step 1
+  tb277/x960/arp-2026-10-15T1747/T33249/work/run1.log    this file
+  On the box (NOT committed): /tmp/ck1747/T33249/*.pcap, log-off.out, log-on.out, log-ieee.out,
+  log-fmtrm.out, log-removed.out, log-after-reload.out, pre-rc.out, post-rc.out, and the console
+  transcripts /tmp/ck1747/console-u2.log and console-u2-reload.log
+
+
+VERDICT: PASS -- `arp log` is absent by default and an identical crafted ARP resolution produces
+zero ARP_LOG lines in that state; with it configured the same resolution produces a log line per
+cache event, carrying the correct port, VLAN, MAC and IP, matched against the frames in the
+capture; `arp log mac-address-format ieee` changes the MAC rendering from 0011.2233.4402 to
+00-11-22-33-44-02 and nothing else; both forms are removable, each proven separately in
+running-config AND in the log output that follows; and the setting survives a reboot and still
+logs afterwards, with the emitting process id changing across the reload as independent proof
+the reboot was real.
