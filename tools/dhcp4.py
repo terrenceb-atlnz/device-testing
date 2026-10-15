@@ -129,7 +129,7 @@ def describe82(raw):
 
 def summarize(pkt):
     """One DHCP/BOOTP frame as a plain dict."""
-    _, d = opts_of(pkt)
+    out, d = opts_of(pkt)
     s = {
         "type": msgtype_of(pkt),
         "xid": hex(pkt[BOOTP].xid),
@@ -148,8 +148,16 @@ def summarize(pkt):
         if k == "message-type":
             continue
         s["options"][str(k)] = _jsonable(v)
-    if OPT82 in d:
-        s["option82"] = describe82(d[OPT82])
+    # Option 82 can legitimately appear TWICE: `ip dhcp-relay information policy append`
+    # puts the relay's own TLV after the client's. opts_of()'s dict keeps only the first,
+    # so always report every occurrence or an appended field silently disappears
+    # (measured on tb277, 2026-10-15 -- it briefly read as "append did not append").
+    all82 = [v for (k, v) in out if k == OPT82]
+    if all82:
+        s["option82"] = describe82(all82[0])
+        s["option82_count"] = len(all82)
+        if len(all82) > 1:
+            s["option82_all"] = [describe82(v) for v in all82]
     return s
 
 
@@ -412,7 +420,11 @@ def cmd_server(args):
             opts.append(("router", args.router))
         if args.dns:
             opts.append(("name_server", args.dns))
-        if args.echo_option82 and OPT82 in d:
+        if args.option82_override:
+            # deliberately return option 82 that does NOT match what the relay inserted,
+            # to exercise `ip dhcp-relay agent-option checking` on the response path
+            opts.append((OPT82, parse_optfile(args.option82_override)))
+        elif args.echo_option82 and OPT82 in d:
             opts.append((OPT82, d[OPT82]))      # RFC 3046 echo; never (82, ...)
         opts.append("end")
         gi = pkt[BOOTP].giaddr
@@ -543,6 +555,9 @@ def main():
     s.add_argument("--lease", type=int, default=3600)
     s.add_argument("--arp-for", help="IPs to answer ARP for (default: --server-ip)")
     s.add_argument("--echo-option82", action="store_true", help="echo option 82 (RFC 3046)")
+    s.add_argument("--option82-override",
+                   help="return THIS option 82 instead of echoing, to exercise relay "
+                        "response-path checking; 'circuit:<s>,remote:<s>' or 'hex:<bytes>'")
     s.add_argument("--duration", type=float, default=60.0)
     s.add_argument("--pcap")
     s.add_argument("--json")

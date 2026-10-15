@@ -537,6 +537,10 @@ or interface: every frame is crafted and read at layer 2, so it needs only a raw
   reports "nothing arrived" while tcpdump on the same NIC prints the packet plainly. That reads
   as a broken relay. This tool fixes it at import with `bind_layers(UDP, BOOTP, dport=67)` and
   `dport=68`; any other scapy tool that must see relayed DHCP needs the same two lines.
+- **Option 82 can appear TWICE.** `ip dhcp-relay information policy append` puts the relay's
+  own TLV after the client's, so `decode`/`summarize` report `option82_count` and, when there is
+  more than one, `option82_all`. A tool that keeps only the first option of a given name reads an
+  appended field as missing and grades `append` as not appending (measured on tb277).
 - **Counting discipline:** use `--clients N`, not a shell loop of one-client runs. Each fresh
   process pays several seconds of scapy import, so a loop meant to send N clients a few seconds
   apart actually spreads them much further and silently under-fills a capture window, which

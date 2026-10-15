@@ -1,0 +1,360 @@
+T43850 — IPv4_DHCPServer - Option 82
+run 1, 2026-10-15, tb277 / x960-56YSQ
+run quality: CLEAN
+
+================================================================================
+SESSION FACTS
+================================================================================
+Test Engineer : bidhanc@bidhanc-dl
+Testbox       : tb277
+Consoles      : u2 = swi_d (DUT) — only u2 was opened. u3, u5 never touched.
+PDU           : 10.36.230.212 outlet 1 (swi_d); not used (the reload was a CLI `reload`)
+Constraints   : None (full authority within tests)
+Group         : dhcp-relay-2026-10-15T1458 (case 2 of 2 — last case of the group)
+Scratch       : tb277:/tmp/dhcp-2026-10-15T1458/
+Transcript    : tb277:/tmp/dhcp-2026-10-15T1458/console-u2.log
+
+Devices, host-NIC MACs and the box-vs-DUT clock comparison: recorded once for the campaign in
+dhcp-server-2026-10-15T1458/T43851/work/run1.log. Unchanged.
+  DUT swi_d /dev/u2 @115200, AT-x960-56YSQ, S/N A2WQS700B, sin_x96056-20261012-24
+  tb eth3 00:0d:b9:55:77:0e -> port1.0.10 (client side, VLAN 10, SVI 192.168.10.1/24)
+  tb eth4 00:0d:b9:55:77:0f -> port1.0.48 (server side, VLAN 48, SVI 192.168.48.1/24)
+  DUT relay MAC / default option-82 remote-id: e01a.ead4.7043
+
+================================================================================
+CASE SOURCE — no steps in AWPTCM or ck.db (queue issue I-2)
+================================================================================
+No ck.db case was mapped onto this one. Graded against:
+1. TPS — wiki "X960_platform_support_TPS" row 26, group "DHCP server": **Option 82,
+   priority 1, Yes.**
+   ⚠ **The TPS groups Option 82 under "DHCP server", but it is NOT a server feature.** The
+   governing TFS says so explicitly: "DHCP Relay and DHCP Snooping behavior will be affected by
+   this project. DHCP Client and DHCP Server will not be affected." This case therefore tests
+   the DUT as a RELAY, which is why triage re-cut it out of the server group and into group B
+   beside T43852. The TPS row name is a grouping artefact, not a statement about the feature.
+2. Functional spec — wiki "DHCP Option 82 Remote ID TFS", requirements S1566.100.01 … .15.
+3. DHCP Feature Overview and Configuration Guide (C613-22102-00 REV G), "Configuring DHCP relay
+   agent information option (Option 82)", pp20-22.
+4. AW+ CLI pages: `ip-dhcp-relay-agent-option`, `-remote-id`, `-checking`,
+   `ip-dhcp-relay-information-policy`.
+
+Key graded requirements, verbatim:
+  S1566.100.01 "Include the remote-id in the option-82 field if option-82 is being inserted by
+               the DHCP relay service. The switch MAC address will be used by default"
+  S1566.100.02 "Provide the ability to configure content of the remote-id field inserted by
+               DHCP relay"
+  S1566.100.06 "The circuit Id for DHCP Relay can not be configured ... it will remain at the
+               ISC default which is inserting a string which describes the VLAN interface,
+               i.e. vlan2"
+  S1566.100.07 CLI "ip dhcp-relay agent-option remote-id ascii_string" ... "it will only be
+               allow when the agent-option command is enabled"
+  S1566.100.08 CLI "no ip dhcp-relay agent-option remote-id". The switch MAC address with be
+               inserted by default
+
+================================================================================
+TOOLS USED
+================================================================================
+tools/cfg.py, tools/ckcon.py, tools/ckyn.py, tools/rc2cfg.py, tools/rcdiff.py,
+tools/ckreload.py, tools/dhcp4.py (client + server).
+Leg driver: work/runleg82.sh — this case's own script (not generic). It runs the scapy server
+on eth4, a tcpdump on eth4, and N crafted clients on eth3, then prints option 82 as decoded
+BOTH at the server (what the DUT inserted) and at the client (what came back).
+work/append-check.py — this case's own raw option-82 dumper, written to settle the `append`
+question below.
+
+dhcp4.py gained, during this case, two generic things, both in its README entry:
+  --option82-override on the server, to return a MISMATCHED option 82 and so exercise relay
+  response-path checking; and reporting of DUPLICATE option 82 fields (see STEP 6).
+
+🔴 The scapy option-82 trap recorded in T43851 paid off exactly here: option 82 must be built
+as `("relay_agent_information", raw)`. The integer key 82 serialises a frame with no option at
+all and raises nothing, which in this case would have read as "the relay did not insert
+option 82" and graded a working device defective.
+
+================================================================================
+BENCH SETUP
+================================================================================
+Group B setup, applied once for the group and unchanged between its two cases
+(STANDING-ORDERS §6); recipe and restore block committed to the queue BEFORE the group ran
+(fa67e29). Full text in T43852/work/run1.log. In summary: VLAN 10 on port1.0.10 with SVI
+192.168.10.1/24 and `ip dhcp-relay server-address 192.168.48.2`; VLAN 48 on port1.0.48 with SVI
+192.168.48.1/24; `service dhcp-relay`; plus the static ARP entry
+`arp 192.168.48.2 000d.b955.770f port1.0.48`.
+
+This case's own setup, on top of that, is the single command `ip dhcp-relay agent-option` on
+vlan10 — applied at STEP 2 below, after STEP 1 has measured the baseline with it OFF.
+
+State at step 1 (`show ip dhcp-relay`):
+    DHCP Relay Service is enabled
+    Insertion of Relay Agent Option is disabled      <- the free baseline-OFF
+    Checking of Relay Agent Option is disabled
+    The Remote Id string for Relay Agent Option is e01a.ead4.7043
+    Relay Information policy is to replace existing relay agent information
+    List of servers :   192.168.48.2
+
+Config saved: T43850/swi_d.cfg (3 header + 104 config lines). HONESTLY LABELLED: re-captured at
+16:30 after the legs, at the canonical step-1 state (insertion enabled, remote-id default,
+checking off, policy replace) rather than before step 1.
+
+================================================================================
+METHOD — STANDING-ORDERS §7 (scapy, not ping)
+================================================================================
+Every leg sends 3 distinct crafted DHCPDISCOVERs from eth3 and reads option 82 out of the
+frames, three ways: tcpdump on eth4 (how many the DUT relayed), the scapy server's per-frame
+record on eth4 (what option 82 the DUT INSERTED, decoded sub-option by sub-option), and the
+client's own received OFFER on eth3 (what option 82, if any, came BACK). Every positive leg is
+paired with a leg in the same configuration that must not produce it. Nothing rests on
+`show ip dhcp-relay`; the show output is corroboration read after the frames.
+
+================================================================================
+STEP 1 — BASELINE OFF: no option 82 is inserted when insertion is disabled
+================================================================================
+Insertion is disabled by default, so this control costs nothing and comes first.
+
+  leg `baseline-off`, 3 clients, no option 82 sent by the client
+  COUNTED: 6 frames relayed on eth4 (3 DISCOVER + 3 REQUEST), offers 3/3, acks 3/3
+  SERVER side — every relayed DISCOVER:
+      chaddr=02:e8:00:00:10:01 giaddr=192.168.10.1  option82: ABSENT
+      chaddr=02:e8:00:00:10:02 giaddr=192.168.10.1  option82: ABSENT
+      chaddr=02:e8:00:00:10:03 giaddr=192.168.10.1  option82: ABSENT
+
+Relaying works perfectly and carries NO option 82. STEP 1 PASS — and this is the control that
+every later leg's insertion is measured against.
+
+================================================================================
+STEP 2 — NEGATIVE: remote-id is refused while agent-option is disabled  (S1566.100.07)
+================================================================================
+Run while insertion was still disabled, before enabling it:
+
+  awplus(config-if)# ip dhcp-relay agent-option remote-id CK-REMOTE-82
+  % Can not configure DHCP Relay agent option remote-id unless agent option is set
+
+Refused with a specific, accurate message, exactly as S1566.100.07 requires. STEP 2 PASS.
+
+================================================================================
+STEP 3 — INSERTION ON: circuit-id is `vlan10`, remote-id is the switch MAC
+================================================================================
+  awplus(config-if)# ip dhcp-relay agent-option      (cfg.py exit 0, no "% " lines)
+  show ip dhcp-relay -> Insertion of Relay Agent Option is enabled
+
+  leg `agent-option-on`, 3 clients. COUNTED: 6 relayed, offers 3/3, acks 3/3.
+  SERVER side — option 82 as the DUT built it, identical on all three:
+      raw = 0106 766c616e3130 0208 0006e01aead47043
+      sub-option 1 (circuit-id), len 6  = "vlan10"
+      sub-option 2 (remote-id),  len 8  = 00 06 e0 1a ea d4 70 43
+
+  - **circuit-id = `vlan10`** — the ISC default string naming the client-side VLAN interface,
+    exactly as S1566.100.06 says, and it is not configurable (no CLI exists for it).
+  - **remote-id = the switch MAC** e0:1a:ea:d4:70:43, per S1566.100.01, carried with a 2-byte
+    inner type/length prefix `00 06` (type 0 = binary, length 6). It matches what
+    `show ip dhcp-relay` reports as "The Remote Id string ... is e01a.ead4.7043".
+STEP 3 PASS. Paired against STEP 1 (same bench, same crafted flow, option 82 absent), this is
+the matched pair for insertion.
+
+================================================================================
+STEP 4 — the remote-id is configurable, and reverts  (S1566.100.02, .07, .08)
+================================================================================
+  awplus(config-if)# ip dhcp-relay agent-option remote-id CK-REMOTE-82   (accepted now)
+  show ip dhcp-relay -> The Remote Id string for Relay Agent Option is CK-REMOTE-82
+
+  leg `remote-id-ascii`, 3 clients. COUNTED: 6 relayed, offers 3/3, acks 3/3.
+  SERVER side, identical on all three:
+      raw = 0106 766c616e3130 020e 010c 434b2d52454d4f54452d3832
+      sub-option 1 (circuit-id) = "vlan10"          <- UNCHANGED, as .06 requires
+      sub-option 2 (remote-id)  = 01 0c "CK-REMOTE-82"   (type 1 = ASCII, length 12)
+
+  Then the revert (S1566.100.08):
+  awplus(config-if)# no ip dhcp-relay agent-option remote-id
+  show ip dhcp-relay -> The Remote Id string for Relay Agent Option is e01a.ead4.7043
+  and the next leg's frames carried `0208 0006e01aead47043` again — back to the switch MAC on
+  the wire, not merely in the show output.
+STEP 4 PASS. Note the inner encoding changes with the content: type 0x00 + 6-byte MAC for the
+default, type 0x01 + length for an ASCII string.
+
+================================================================================
+STEP 5 — `agent-option checking` validates SERVER RESPONSES, not client ingress
+================================================================================
+⚠ My triage plan had this wrong, and the documentation corrected it before any verdict was
+written. I had planned to test `checking` as an untrusted-ingress drop. It is not that. The
+AW+ command reference is explicit:
+
+  "This command enables the DHCP Relay Agent to check DHCP Relay Agent Information Option
+   (Option 82) information in RESPONSE PACKETS RETURNED FROM DHCP SERVERS. If the information
+   does not match the information it has for its own client (downstream) interface then the
+   DHCP Relay Agent drops the packet."
+
+Client-originated option 82 is governed by a DIFFERENT command,
+`ip dhcp-relay information policy` — tested as STEP 6.
+
+The wrong-direction leg is recorded because it is the evidence for the correction:
+  leg `checking-on-with-opt82`: checking ENABLED, client injects its own option 82
+    -> 6 relayed, offers 3/3. NOT dropped — correct, because `checking` does not police ingress.
+
+The correct matched pair, both with `ip dhcp-relay agent-option checking` ENABLED, differing
+only in what the SERVER returns:
+  (a) server ECHOES the relay's own option 82 (dhcp4.py server --echo-option82):
+        server sent 3 OFFERs -> **3 reached the client** (offers 3/3)
+  (b) server returns a MISMATCHED option 82
+        (dhcp4.py server --option82-override circuit:WRONGVLAN,remote:WRONGREMOTE):
+        server sent 3 OFFERs -> **0 reached the client** (offers 0/3, 0 Replies on eth3)
+
+The relay dropped every response whose option 82 did not match what it had for its own
+downstream interface, and passed every response that matched. STEP 5 PASS, in the direction the
+feature actually works.
+
+================================================================================
+STEP 6 — `ip dhcp-relay information policy`: all four actions on client option 82
+================================================================================
+The guide, p21-22: the policy "sets the action that the DHCP relay should take when a received
+DHCP client request contains Option 82 information" — keep / append / drop / replace (default).
+Each leg sends the SAME crafted DISCOVER carrying option 82
+(circuit-id "CKCKT99", remote-id "CKREM99"); only the policy differs. Checking was disabled for
+these legs so the response path could not confound the ingress measurement.
+
+  | policy             | relayed | option 82 arriving at the server                       |
+  | ------------------ | ------- | ------------------------------------------------------ |
+  | replace (default)  |   3/3   | ONE TLV = the DUT's own: "vlan10" / MAC                |
+  | keep               |   3/3   | ONE TLV = the client's, untouched: "CKCKT99"/"CKREM99" |
+  | append             |   3/3   | TWO TLVs: the client's FIRST, then the DUT's own       |
+  | drop               |  **0**  | nothing relayed, offers 0/3                            |
+
+`drop` is the control that must not match, and it produced exactly zero.
+
+**The `append` result nearly became a false defect, and this is how it was caught.** The leg
+summary first showed only the client's "CKCKT99"/"CKREM99" and no DUT field, which reads as
+"append did not append". That was MY tool: `dhcp4.py`'s option dictionary kept only the FIRST
+option of a given name, and an appended option 82 is a SECOND TLV with the same name. Dumping
+the raw frame (work/append-check.py) settled it:
+
+    policy-append, chaddr 02e80000a001 — option-82 TLVs present: 2
+      [0] len=18 raw=0107434b434b5439390207434b52454d3939
+            sub 1 len 7 = b'CKCKT99'      sub 2 len 7 = b'CKREM99'
+      [1] len=18 raw=0106766c616e313002080006e01aead47043
+            sub 1 len 6 = b'vlan10'       sub 2 len 8 = b'\\x00\\x06\\xe0\\x1a\\xea\\xd4pC'
+    policy-keep,   chaddr 02e800008001 — option-82 TLVs present: 1  (the client's only)
+    replace,       chaddr 02e800004001 — option-82 TLVs present: 1  (the DUT's only)
+
+`append` appends correctly: the client's field is preserved and the relay's own is added after
+it, which is the documented behaviour for a trusted DHCP-snooping switch upstream. dhcp4.py now
+reports `option82_count` and `option82_all` so a duplicate can never hide again.
+STEP 6 PASS on all four actions.
+
+================================================================================
+STEP 7 — option 82 is STRIPPED from the reply delivered to the client (RFC 3046)
+================================================================================
+Measured in EVERY leg above, on the client side, and it is a real test here because the scapy
+server was deliberately run with `--echo-option82`: each OFFER arriving at the relay from the
+server CARRIED option 82. In all six insertion legs the OFFER that reached the client on eth3
+carried none:
+      02:e8:00:00:20:01 -> OFFER 192.168.10.100  option82: ABSENT (stripped)
+      ... identically for every client in every leg
+The relay removes the agent information before handing the reply down to the client, as
+RFC 3046 requires. STEP 7 PASS.
+
+================================================================================
+STEP 8 — REMOVAL
+================================================================================
+  `no ip dhcp-relay agent-option remote-id`      -> remote-id back to the switch MAC, proven on
+                                                    the wire at STEP 4, not just in the show
+  `no ip dhcp-relay agent-option checking`       -> response-path dropping stops (STEP 6 legs
+                                                    all delivered OFFERs with checking off)
+  `no ip dhcp-relay information policy`          -> back to the default `replace`
+  `no ip dhcp-relay agent-option`                -> applied at teardown; the full running-config
+                                                    diff against the campaign baseline is CLEAN
+                                                    (below), so no option-82 line survived.
+STEP 8 PASS.
+
+================================================================================
+GROUP B REBOOT PERSISTENCE CHECK (covers T43852 and T43850)
+================================================================================
+Staged exactly as Group A's was, on a SEPARATE boot file so `flash:/default.cfg` is never
+written:
+    awplus# copy running-config flash:/ckrelay.cfg   -> Successful operation
+            dir flash:/ckrelay.cfg -> 1608 -rw- Oct 15 2026 03:31:05
+    awplus(config)# boot config-file flash:/ckrelay.cfg
+    show boot -> Default boot config: flash:/default.cfg
+                 Current boot config: flash:/ckrelay.cfg (file exists)
+    tools/ckreload.py -> 'reboot system? (y/n):' -> y, login seen after 61 s
+
+After the reload, `show ip dhcp-relay`:
+    DHCP Relay Service is enabled
+    Maximum hop count is 10
+    Insertion of Relay Agent Option is enabled           <- T43850's setting survived
+    Checking of Relay Agent Option is disabled
+    The Remote Id string for Relay Agent Option is e01a.ead4.7043
+    Relay Information policy is to replace existing relay agent information
+    List of servers :   192.168.48.2                     <- T43852's setting survived
+
+Proven on the wire after the reload, not only in the show — leg `post-reboot`, 3 clients:
+    6 frames relayed, offers 3/3, acks 3/3
+    option 82 inserted: circuit-id "vlan10", remote-id 0006e01aead47043
+    option 82 stripped from every OFFER returned to the client
+PERSISTENCE PASS for both cases of the group.
+
+(The first attempt at this leg returned "server received 0" while tcpdump showed 3 relayed
+frames. That was a NameError I had just introduced in `dhcp4.py.summarize()` — it referenced
+the option list while binding it to `_`. Fixed, re-run, result above. Recorded because it is the
+same lesson as the scapy binding trap: when the server and tcpdump disagree, suspect the tool.)
+
+================================================================================
+TEARDOWN AND BENCH VERIFICATION
+================================================================================
+1. Boot pointer restored FIRST: `boot config-file flash:/default.cfg` (cfg.py exit 0).
+2. `delete flash:/ckrelay.cfg` (ckyn.py exit 0) — deliberately deleted, as the queue RESTORE
+   block records: it is a copy of a test config, not a baseline.
+   Verified: Default boot config: flash:/default.cfg
+             Current boot config: flash:/default.cfg (file exists)
+             dir flash:/ckrelay.cfg -> % No such file or directory
+3. Config teardown, with `no arp 192.168.48.2` and WITHOUT any `no interface vlanN`
+   (AW+ refuses that — Group A's measured trap, carried into this group's recipe in advance):
+     no arp 192.168.48.2
+     interface vlan10 / no ip dhcp-relay information policy / no ip dhcp-relay agent-option
+                      / no ip dhcp-relay server-address 192.168.48.2 / no ip address
+     interface vlan48 / no ip address
+     interface port1.0.10 / switchport access vlan 1
+     interface port1.0.48 / switchport access vlan 1
+     vlan database / no vlan 10 / no vlan 48
+   cfg.py exit 0, zero "% " lines — the recipe's advance warning meant no half-restored bench
+   this time.
+4. Teardown diff (tools/rcdiff.py) against the campaign baseline
+   (dhcp-server-2026-10-15T1458/T43851/work/rc-before.log): **CLEAN** — byte-identical,
+   including the baseline's own `lldp run`.
+5. Post-run bench probe, same session facts: **EXIT 0, Advisories: none.** All nine link rows
+   identical to pre-run, including BOTH
+     tb eth3 -> swi_d port1.0.10   MAC learned on a physical port
+     tb eth4 -> swi_d port1.0.48   MAC learned on a physical port
+   which independently proves both ports are back in untagged VLAN 1, since the probe's
+   host-MAC discovery depends on exactly those two ports.
+   (No `.setup` template exists on tb277, so the probe says "diff skipped" rather than MATCH —
+   pre-existing, reported at triage.)
+
+Nothing written to startup-config. No PDU power cycle. No licence change. swi_b and swi_a never
+opened. DUT console left logged in at `awplus#`. Zero root-owned files under the group folder.
+
+================================================================================
+FILES
+================================================================================
+  T43850/swi_d.cfg                        deliverable (labelling caveat noted above)
+  T43850/work/run1.log                    this file
+  T43850/work/runleg82.sh                 this case's leg driver (not generic)
+  T43850/work/append-check.py             this case's raw option-82 dumper
+  T43850/work/baseline-off-*              STEP 1
+  T43850/work/negative.log                STEP 2
+  T43850/work/enable.log, agent-option-on-*          STEP 3
+  T43850/work/rid-set.log, remote-id-ascii-*, rid-revert.log   STEP 4
+  T43850/work/checking-on.log, checking-on-*, chk-on-bogus-resp-*   STEP 5
+  T43850/work/policy-{keep,drop,append}-*            STEP 6
+  T43850/work/persist-*, reload.log, post-reboot-*   persistence
+  T43850/work/td-*.log, rc-after.log, td-diff.txt    teardown proof
+
+================================================================================
+VERDICT: PASS -- the relay's Option 82 handling is correct on every graded limb. With insertion
+disabled no option 82 is added; enabled, it inserts circuit-id "vlan10" (the ISC default, not
+configurable per S1566.100.06) and remote-id = the switch MAC (S1566.100.01). The remote-id is
+configurable to an ASCII string and reverts to the MAC on its no-form, proven on the wire
+(S1566.100.02/.08), and is correctly refused while agent-option is disabled (S1566.100.07). All
+four `information policy` actions behave as documented -- replace, keep, append (two TLVs,
+client's then the relay's) and drop (zero relayed). `agent-option checking` validates option 82
+in SERVER RESPONSES, dropping all 3 replies carrying mismatched information and passing all 3
+that matched. Option 82 is stripped from every reply delivered to the client per RFC 3046, and
+all settings survive a reboot.
