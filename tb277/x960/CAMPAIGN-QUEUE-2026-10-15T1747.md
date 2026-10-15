@@ -360,8 +360,15 @@ DUT  vlan42  port1.0.14   10.0.42.1/30   <-> swi_a port1.0.14  10.0.42.2/30
 DUT  vlan61  port1.0.16   10.0.61.1/30   <-> swi_b port1.0.16  10.0.61.2/30
 (swi_b port1.0.2 left alone — it is in static-channel-group 1, RISK-2)
 ```
-Restore: every port back to untagged VLAN 1, every `interface vlanN` address removed **before**
-`no interface vlanN` (`% Removal of interface not allowed` otherwise — 10-15 handover).
+**🔴 Restore, CORRECTED from T43849's measurement (2026-10-15 19:24) — the carried-over recipe was
+wrong.** `no interface vlanN` is **refused on this build** with `% Removal of interface not
+allowed` *even with the address removed AND every member port moved out*. What actually removes
+the SVI is **`vlan database` / `no vlan N`**. The order that works:
+```
+interface port1.0.X / switchport access vlan 1      # every member port out of the VLAN first
+interface vlanN / no ip address
+vlan database / no vlan N                           # this removes the SVI too
+```
 
 | case | runnable | bench it needs |
 | --- | --- | --- |
@@ -427,24 +434,28 @@ end
 
 ### RESTORE — swi_d, apply once after case 6 (and after any abort)
 
-**Address first, interface second**: `no interface vlanN` answers `% Removal of interface not
-allowed` while an address is still on it (2026-10-15 handover).
+**🔴 CORRECTED 2026-10-15 19:24 from T43849.** `no interface vlanN` is refused on this build
+(`% Removal of interface not allowed`) **even after the address is removed and every member port
+is moved out**. `vlan database` / `no vlan N` is what removes the SVI. Ports out FIRST, then the
+address, then the VLAN:
 
 ```
 configure terminal
+interface port1.0.10
+ switchport access vlan 1
+ exit
+interface port1.0.48
+ switchport access vlan 1
+ exit
 interface vlan10
  no ip address
  exit
 interface vlan48
  no ip address
  exit
-no interface vlan10
-no interface vlan48
-interface port1.0.10
- switchport access vlan 1
- exit
-interface port1.0.48
- switchport access vlan 1
+vlan database
+ no vlan 10
+ no vlan 48
  exit
 vlan database
  no vlan 10,48
@@ -505,6 +516,7 @@ and diff `captures/<new>/u2.show_running-config.txt` against
 | T33247 | PASS | all three implemented `clear arp-cache` forms (single address, unqualified, global) proven **in the dataplane**, not in the table: a cleared address draws broadcast ARPs and forwards 0/5 while a surviving entry forwards 5/5 with no ARP; the static entry is explicitly protected and still forwarding after every clear. Single-address and unqualified clears are distinguishable **on the wire** — after the targeted clear the DUT sent 5 ICMP host-unreachables unicast to the OTHER dynamic entry's MAC, which it could only do because that entry survived. `vrf` form recorded NOT EXERCISED (no VRF on the DUT yet; that is T43859) rather than claimed | tester | arp-2026-10-15T1747/T33247/work/run1.log |
 | T33249 | PASS | `arp log` emits one line per ARP cache event for crafted traffic that produces **zero** lines with the feature off; port, VLAN, MAC and IP in each line matched against the frames in the capture, and both directions appear (`del` from the clear, `add` from the re-learn). `mac-address-format ieee` changes only the MAC rendering (`0011.2233.4402` → `00-11-22-33-44-02`) and is held as its own running-config line. Both forms removable, each proven in running-config AND in the log output after it; survives a reboot and still logs | tester | arp-2026-10-15T1747/T33249/work/run1.log |
 | T43848 | PASS | with `ip proxy-arp` on vlan10 the DUT answers ARP for a vlan48 address with its **own** MAC, where the identical request drew **nothing** with the feature off; silent for an unroutable address and for the ingress interface's own subnet; the proxied address is genuinely reachable; removal and reboot persistence both proven on the wire. One four-target ARP leg replayed OFF / ON / after reload, with the DUT's own address as an instrument control in **every** leg so each zero is a measurement, not a dead instrument. **No ping anywhere** — a ping crosses vlan10→vlan48 identically with proxy ARP on or off and would have proved nothing | tester | arp-2026-10-15T1747/T43848/work/run1.log |
+| T43849 | PASS | the authored expected result of ck.db **AWP-4357** met in full on hardware: swi_b's `ping 23.1.1.3` fails 100% **and its ARP table holds `23.1.1.3 → e01a.ead4.7043`, the DUT's MAC**; underneath, the crafted ARP drew **0** replies with the feature off and **3** carrying the DUT's MAC with it on. **The ping fails in BOTH states and carries no verdict on its own** — what separates them is the SOURCE of the unreachable: `From 23.1.1.2` (swi_b itself, packets never left) vs `From 23.1.1.1` (the DUT, which resolved, forwarded, then ARPed for the target itself). Also measured: local proxy ARP is bounded by the DUT interface's own /24, not the neighbour's /16 idea of on-link. Removal and reboot persistence both proven | tester | arp-2026-10-15T1747/T43849/work/run1.log |
 
 ## Issues
 
@@ -572,3 +584,16 @@ and diff `captures/<new>/u2.show_running-config.txt` against
   before T33246 uses `10.38.22.34`.
   **It bears on T33246**, which plans to put the DUT's vlan10 in the box's real eth3 subnet, and on
   any future case that uses bench addressing rather than private test subnets.
+- **🔴 TOOL TRAP (T43849) — `cfg.py` stops at the first `% ` line and abandons the rest of its
+  batch.** The `no interface vlanN` refusal above aborted a teardown batch twice, including a
+  pending `no shutdown`, leaving residue the diff then caught. Do not put a command that may emit
+  a benign `% ` in the middle of a batch whose later lines matter.
+- **🔴 TOOL TRAP (T43849) — `rcdiff.py` PRINTS differences but EXITS 0.** So
+  `rcdiff.py ... && echo clean` prints "clean" over a dirty diff. **Read its output, never its
+  exit code.** This is the same class as the `% `-line trap: a gate that tests the wrong signal.
+- **BENCH CHANGE RETAINED (T43849, declared).** swi_b's clock was `+12h59m39s` ahead while
+  reporting `Timezone: UTC`; it was set with `clock set <HH:MM:SS> 15 Oct 2026` and both devices
+  now agree with the box to within ~4 s. **This is deliberately NOT reverted** — restoring a
+  13-hour error would be restoring a fault. It is the one thing group A leaves different from how
+  it found the bench. (The time-only form `clock set HH:MM:SS` is refused as `% Incomplete
+  command` despite being the only form `?` offers.)
