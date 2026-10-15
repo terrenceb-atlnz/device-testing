@@ -294,6 +294,99 @@ host-MAC learning on exactly those two ports, so it cannot exit 0 otherwise.
 Nothing is written to startup-config, so a power-cycle of outlet 1 on 10.36.230.212 is also a
 valid last-resort restore.
 
+## Group C bench setup and restore recipe (written before the first case, 2026-10-15)
+
+**If this tester dies mid-group, a fresh tester restores the DUT with the RESTORE block below.**
+Only swi_d (/dev/u2 @115200). swi_b and swi_a are not used.
+Scratch: `/tmp/dhcp-2026-10-15T1458/`. Baseline unchanged from Groups A/B and verified CLEAN at
+the end of Group B; reference copy `dhcp-server-2026-10-15T1458/T43851/work/rc-before.log`.
+
+### Roles — the DUT is the CLIENT this group
+DUT swi_d vlan48 = **DHCP client** (`ip address dhcp`) and, for T43854, **DNS relay**.
+tb eth4 (00:0d:b9:55:77:0f) -> port1.0.48 = the **DHCP server + DNS server** side (scapy).
+tb eth3 (00:0d:b9:55:77:0e) -> port1.0.10 = the **DNS querying host** (T43854 only).
+
+Note the DUT's DEFAULT config already has `interface vlan1 / ip address dhcp` with
+`ip dhcp-client vendor-identifying-class` and `ip dhcp-client request vendor-identifying-specific`.
+vlan1 keeps running its own DHCP client throughout; it is isolated from VLAN 48, so it cannot
+reach the scapy server, but frames are attributed by the NIC that sees them (eth4 = vlan48 only).
+
+### Help-probe result (read-only, run before this recipe) — the client identity surface
+`ip address dhcp [client-id <IFNAME>] [hostname <WORD>]` ·
+`ip dhcp-client vendor-identifying-class` (option 124) ·
+`ip dhcp-client request vendor-identifying-specific` (option 125) ·
+`ip dhcp-client default-route [distance]`.
+TPS row 30 "Extended ID" is graded against THIS surface; all of it is measured on the wire.
+
+### SETUP (applied once for the whole group, STANDING-ORDERS §6)
+```
+configure terminal
+ vlan database
+  vlan 10 name CKDNSCLI
+  vlan 48 name CKDHCPSRV
+  exit
+ interface port1.0.10
+  switchport access vlan 10
+  exit
+ interface port1.0.48
+  switchport access vlan 48
+  exit
+ interface vlan10
+  ip address 192.168.10.1/24
+  exit
+ interface vlan48
+  ip address dhcp
+  exit
+ end
+```
+T43854 adds, in its own steps: `ip name-server 192.168.48.9` (a STATIC server configured BEFORE
+the lease, so S1570.1.12's "DHCP-learned servers are added LAST" is testable at all) and
+`ip dns forwarding` (global, disabled by default).
+
+### RESTORE (run this to put the bench back) — boot pointer FIRST
+Any persistence reload is staged on a SEPARATE boot file; `flash:/default.cfg` is never written.
+```
+configure terminal
+ boot config-file flash:/default.cfg
+ end
+show boot                   # must read: Current boot config: flash:/default.cfg (file exists)
+delete flash:/ckclient.cfg  # only if staged; a test config, deleted not left undocumented
+```
+Then the config:
+```
+configure terminal
+ no ip dns forwarding
+ no ip name-server 192.168.48.9
+ no ip name-server 192.168.48.2      # if the DHCP-learned one persists as configured
+ interface vlan48
+  no ip address dhcp
+  exit
+ interface vlan10
+  no ip address
+  exit
+ interface port1.0.10
+  switchport access vlan 1
+  exit
+ interface port1.0.48
+  switchport access vlan 1
+  exit
+ vlan database
+  no vlan 10
+  no vlan 48
+  exit
+ end
+```
+**Do NOT use `no interface vlan10` / `no interface vlan48`** — AW+ refuses it
+(`% Removal of interface not allowed`, measured in Group A); the SVI goes when the VLAN is
+deleted. A stop-on-error driver that hits the refusal skips every later command.
+Also restore any `ip address dhcp client-id|hostname` and `ip dhcp-client` changes T35370 made:
+the baseline has `vendor-identifying-class` and `request vendor-identifying-specific` on **vlan1
+only**, and nothing on vlan48.
+
+Verify: `show running-config` must diff CLEAN against the baseline (tools/rcdiff.py), and
+**BOTH port1.0.10 and port1.0.48 back in untagged VLAN 1** — the post-run probe discovers eth3
+and eth4 by host-MAC learning on exactly those ports and cannot exit 0 otherwise.
+
 ## Known bench notes
 
 - **The DUT is at default config**, so every group builds its own setup from scratch.
