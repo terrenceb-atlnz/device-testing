@@ -1,0 +1,262 @@
+================================================================================
+TEST T35370 -- IPv4_DHCPClient - DHCP Extended ID
+================================================================================
+Run:      2026-10-15 16:40-16:56 NZDT
+Bench:    tb277, consoles u2 = swi_d (DUT); Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T35370. No steps exist for this case in the test-case database, and no
+          functional spec exists for "Extended ID". Graded against the X960 platform support
+          TPS row 30 (group "DHCP Client", Extended ID, priority 1, Yes), the X530 Software
+          TPS grouping that places Extended ID beside Host Name as a client IDENTITY option,
+          and the DUT's own CLI surface enumerated by read-only help probe before the test was
+          designed (STEP 0). 6 steps as executed.
+Build:    swi_d  sin_x96056-20261012-24 (flash:/x960-tb277.rel, build date Mon Oct 12 2026)
+Configs:  swi_d.cfg (running-config, captured 16:55 at the group setup state
+          `interface vlan48 / ip address dhcp`, after the legs; saved to startup: no)
+
+VERDICT: PASS -- the DHCP client's whole extended-identity surface on this build works as
+configured and is observable on the wire, each option absent in the baseline and each removed
+cleanly by its no-form.
+      option 61  client-id ............... PASS  (appears with RFC 2132 type byte 0x01 + the
+                                                  interface MAC, length 7; absent in baseline)
+      option 12  hostname ................ PASS  (carries exactly the configured string
+                                                  "CKDHC1"; option 61 gone in the same frame)
+      option 124 vendor-identifying-class  PASS  (enterprise number 207 = Allied Telesis)
+      option 125 requested ............... PASS  (parameter request list gains exactly 125)
+      removal of all four ................ PASS  (wire returns to the baseline row, and the
+                                                  interface stanza to `ip address dhcp`)
+CAVEAT:  All SVIs on this platform share one MAC (e01a.ead4.7043, proven in STEP 1), and
+         `ip address dhcp client-id <IFNAME>` sends the MAC of the named interface. The CONTENT
+         of option 61 therefore cannot distinguish one SVI from another on this DUT: `client-id
+         vlan10` and `client-id vlan48` give byte-identical option 61. The discriminator used
+         throughout is PRESENCE, TYPE BYTE and LENGTH of the option against its absence in the
+         STEP 0 baseline, not a content comparison. That is a property of the platform's MAC
+         allocation, not a fault in the command.
+CAVEAT:  No functional spec for "Extended ID" could be found, so the case was graded against
+         the whole identity surface the build offers rather than against a particular named
+         option. A TPS "Yes" whose command was absent would have been a finding; none was.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+    +----------------------------------------------------------+
+    |  swi_d   AT-x960-56YSQ                            DUT     |
+    |  vlan48 = "ip address dhcp"  -- the DHCP CLIENT under test |
+    |  all SVIs share MAC e01a.ead4.7043                         |
+    |  (vlan10 / port1.0.10 present from the group setup,        |
+    |   named by `client-id vlan10`, but carries no traffic)     |
+    +----------------------------------------------------------+
+            | port1.0.48   untagged VLAN 48
+            |
+            |  (1) DISCOVER / REQUEST from the DUT, carrying the identity
+            |      options under test                        ----------->
+            |  (2) OFFER / ACK back, lease 192.168.48.100/24 <-----------
+            v
+      tb277 eth4  00:0d:b9:55:77:0f
+        scapy DHCP server 192.168.48.2 -- decodes every option of every frame the DUT sends
+        tcpdump on eth4 -- the independent witness of what was on the wire
+
+  DUT    : swi_d (AT-x960-56YSQ) console u2 @115200, S/N A2WQS700B,
+           SVI MAC e01a.ead4.7043, standalone Active Master, boots from
+           flash:/x960-tb277.rel
+  link   : tb277 eth4 <-> swi_d port1.0.48 (copper, untagged VLAN 48) -- the only link this
+           case carried traffic on; the DUT is the sender, the host is the DHCP server
+  host   : tb277 eth4 00:0d:b9:55:77:0f, scapy DHCP server at 192.168.48.2,
+           leasing 192.168.48.100/24 to the DUT
+  link   : tb277 eth3 <-> swi_d port1.0.10 (untagged VLAN 10, SVI 192.168.10.1/24) (unused)
+  tools  : tools/qmark.py (read-only CLI help probe, no carriage return), tools/cfg.py,
+           tools/ckcon.py, tools/rc2cfg.py, tools/dhcp4.py (server mode), all run on tb277;
+           tcpdump on tb277 eth4
+  method : a ping cannot read option 61, so the DUT is the sender here. Each leg changes
+           exactly one configuration item, re-triggers the client with `shutdown` /
+           `no shutdown` on vlan48, and the result is read out of the captured DISCOVER and
+           REQUEST. tcpdump is authoritative for what was on the wire; the scapy server's
+           record is authoritative for what it decoded. Where the two counts differ (7 frames
+           seen, 3 decoded in the `clientid` leg) the pcap accounts for every frame: 4 from
+           the client and 3 Replies, with the first arriving before the server process had
+           finished starting. No frame was lost by the DUT and no count below depends on it.
+
+STEP 0 -- baseline (feature OFF)                                          done
+--------------------------------------------------------------------------------
+  The identity surface this build offers, enumerated read-only before anything was configured
+  (tools/qmark.py types `PREFIX ?` with NO carriage return and clears the line with Ctrl-U;
+  its self-test confirmed first that nothing gets executed):
+
+    awplus(config-if)# ip address dhcp ?
+      client-id  Specify the client identifier
+      hostname   Specify the hostname
+      <cr>
+    awplus(config-if)# ip address dhcp client-id ?
+      IFNAME  Interface name
+    awplus(config-if)# ip address dhcp hostname ?
+      WORD  Hostname for this DHCP client
+    awplus(config-if)# ip dhcp-client ?
+      default-route             Default route
+      request                   Request an option
+      vendor-identifying-class  Vendor-identifying-class
+    awplus(config-if)# ip dhcp-client request ?
+      vendor-identifying-specific  Vendor-identifying-specific
+    awplus(config-if)# ip dhcp-client vendor-identifying-class ?
+      <cr>
+    awplus(config-if)# ip dhcp-client default-route ?
+      distance  Set the administrative distance
+                                             <-- exactly four identity items: option 61,
+                                                 option 12, option 124, and the request for
+                                                 option 125. `default-route distance` is
+                                                 routing, not identity, and is out of scope.
+
+  The baseline leg, with plain `ip address dhcp` and nothing else configured.
+  COUNTED: 7 DHCP frames on eth4; server decoded DISCOVER + REQUEST.
+
+    DISCOVER chaddr=e0:1a:ea:d4:70:43 ip_src=0.0.0.0
+        opt param_req_list = [1, 3, 15, 6, 43]
+    REQUEST  chaddr=e0:1a:ea:d4:70:43
+        opt param_req_list = [1, 3, 15, 6, 43]
+        opt requested_addr = 192.168.48.100
+        opt server_id      = 192.168.48.2
+    leased: e0:1a:ea:d4:70:43 -> 192.168.48.100
+                                             <-- no option 61, no option 12, no option 124,
+                                                 and no 125 in the request list. The client
+                                                 leases successfully without any of them.
+
+  This is the control every later step is measured against. Incidental, noted and not graded:
+  the AW+ client's parameter request list is [1, 3, 15, 6, 43] -- subnet mask, router, domain
+  name, DNS server and vendor-specific. The wiki DHCP page documents only 1/3/6/15, so
+  option 43 is additional to that page's description.
+
+STEP 1 -- option 61: "ip address dhcp client-id <IFNAME>"                 PASS
+--------------------------------------------------------------------------------
+  Method: configure the client identifier on vlan48, re-trigger the client, and read option 61
+  out of the DISCOVER and REQUEST against its absence in STEP 0. Run twice, naming two
+  different interfaces, to test whether the argument is observable on the wire.
+
+  The command is REFUSED while a client is already running on the interface:
+
+awplus(config-if)# ip address dhcp client-id vlan10
+  % DHCP client is already running on this interface.
+                                             <-- a GENUINE rejection, not an advisory: cfg.py
+                                                 exits 2 AND the configuration did not change
+
+  The working sequence is to remove the client first and re-apply with the identifier:
+
+awplus(config-if)# no ip address dhcp
+awplus(config-if)# ip address dhcp client-id vlan10
+                                             <-- cfg.py exit 0, no "% " lines
+
+  Verified configured before anything was measured, not assumed:
+
+awplus# show running-config interface vlan48
+  !
+  interface vlan48
+   ip address dhcp client-id vlan10
+  !
+
+  (Had the refused attempt been measured as it stood, the capture would have shown the DEFAULT
+  client and read as "client-id has no effect" -- a false defect against TPS row 30.)
+
+  Measured, leg `clientid` with `client-id vlan10`:
+
+      DISCOVER opt client_id = 01 e01aead47043    (type 0x01 = Ethernet, then the 6-byte MAC)
+      REQUEST  opt client_id = 01 e01aead47043
+
+  Measured, leg `clientid48` with `client-id vlan48`:
+
+      DISCOVER opt client_id = 01 e01aead47043    -- byte-identical
+
+  The content discriminator is unavailable on this platform, and that is proven rather than
+  asserted -- all SVIs share one MAC:
+
+awplus# show interface vlan1 | include Hardware
+  Hardware is VLAN, address is e01a.ead4.7043
+awplus# show interface vlan10 | include Hardware
+  Hardware is VLAN, address is e01a.ead4.7043
+awplus# show interface vlan48 | include Hardware
+  Hardware is VLAN, address is e01a.ead4.7043
+
+  => STEP 1 PASS: against a baseline in which option 61 is ABSENT, the option appears and is
+     well-formed -- RFC 2132 hardware-type byte 0x01 followed by the 6-byte interface MAC,
+     length 7. The two interfaces give identical content because every SVI on this platform
+     carries the same MAC, so the <IFNAME> argument selects an interface whose address is
+     indistinguishable from the others'. Presence, type and length are the discriminator, and
+     all three are correct.
+
+STEP 2 -- option 12: "ip address dhcp hostname <WORD>"                    PASS
+--------------------------------------------------------------------------------
+awplus(config-if)# no ip address dhcp
+awplus(config-if)# ip address dhcp hostname CKDHC1
+                                             <-- cfg.py exit 0
+
+  Measured, leg `hostname`:
+
+      DISCOVER opt hostname = 434b44484331 = "CKDHC1"
+      and option 61 is ABSENT again (the command no longer carries client-id)
+
+  => STEP 2 PASS: option 12 carries exactly the configured string, and the pair cuts both ways
+     in one frame -- option 12 appears where it was absent in STEP 0, and option 61 disappears
+     where STEP 1 had put it. That is the configuration driving the wire, not a coincidence.
+
+STEP 3 -- option 124: "ip dhcp-client vendor-identifying-class"           PASS
+--------------------------------------------------------------------------------
+awplus(config-if)# ip dhcp-client vendor-identifying-class
+                                             <-- cfg.py exit 0
+
+  Measured, leg `vic`:
+
+      DISCOVER opt vendor_class = 000000cf 01 01
+               (= DHCP option 124, Vendor-Identifying Vendor Class)
+
+  => STEP 3 PASS: enterprise number 0x000000cf = 207, the IANA Private Enterprise Number for
+     Allied Telesis, followed by a 1-byte data length and 1 byte of class data. Absent in the
+     STEP 0 baseline, present here -- a clean matched pair with the correct enterprise number.
+
+STEP 4 -- option 125: "ip dhcp-client request vendor-identifying-specific" PASS
+--------------------------------------------------------------------------------
+awplus(config-if)# ip dhcp-client request vendor-identifying-specific
+                                             <-- cfg.py exit 0
+
+  Measured, leg `vis`:
+
+      DISCOVER opt param_req_list = [1, 3, 15, 6, 43, 125]
+               opt vendor_class   = 000000cf0101   (still present from STEP 3)
+
+  => STEP 4 PASS: the parameter request list gained exactly 125 (Vendor-Identifying
+     Vendor-Specific Information) and nothing else, against the baseline's [1, 3, 15, 6, 43].
+     Option 124 from STEP 3 is still carried, so the two commands are independent.
+
+STEP 5 -- removal: every identity option returns to the baseline          PASS
+--------------------------------------------------------------------------------
+awplus(config-if)# no ip dhcp-client request vendor-identifying-specific
+awplus(config-if)# no ip dhcp-client vendor-identifying-class
+awplus(config-if)# no ip address dhcp
+awplus(config-if)# ip address dhcp
+                                             <-- cfg.py exit 0, no "% " lines
+
+  Measured, leg `removal`:
+
+      DISCOVER opt param_req_list = [1, 3, 15, 6, 43]     <- 125 gone
+               opt requested_addr = 192.168.48.100
+               (no client_id, no hostname, no vendor_class)
+
+awplus# show running-config interface vlan48
+  interface vlan48
+   ip address dhcp
+
+  => STEP 5 PASS: all four options are gone from the wire and the interface stanza is back to
+     the group setup state. Removal is proven in frames first and in the running-config second,
+     so the no-forms take effect on the protocol and not merely in the configuration text.
+
+--------------------------------------------------------------------------------
+SUMMARY -- the whole identity surface, measured
+--------------------------------------------------------------------------------
+  | configuration                                      | on the wire                           |
+  | -------------------------------------------------- | ------------------------------------- |
+  | (baseline) ip address dhcp                         | no 61, no 12, no 124; PRL 1,3,15,6,43 |
+  | ip address dhcp client-id vlan10                   | opt 61 = 01 + e01aead47043            |
+  | ip address dhcp client-id vlan48                   | opt 61 = 01 + e01aead47043 (same)     |
+  | ip address dhcp hostname CKDHC1                    | opt 12 = "CKDHC1"                     |
+  | ip dhcp-client vendor-identifying-class            | opt 124 = ent 207 + 01 01             |
+  | ip dhcp-client request vendor-identifying-specific | PRL gains 125                         |
+  | all removed                                        | back to the baseline row              |
+================================================================================
