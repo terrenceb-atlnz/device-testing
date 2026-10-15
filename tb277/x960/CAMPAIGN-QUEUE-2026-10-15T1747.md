@@ -1288,68 +1288,31 @@ D** block, then the **single reload of swi_d from `flash:/default.cfg`**, then r
   reply SOURCE address giving far-side attribution, and `--answer` keeping the DUT's ARP for the
   scapy sender alive. No new tool was needed and none was written.
 
-- **🔴 F-6 (T43858, measured) -- BGPv4 on this build is NOT service-gated, unlike OSPF and RIP.**
-  `service bgp ?` offers only `evpn`; the bare `service bgp` is `% Incomplete command.`, and `bgpd`
-  runs from boot. `router bgp <asn>` is accepted straight away with no gate. **The group-D dispatch
-  told the tester "`service bgp` first, and ALONE" -- that instruction was wrong**, inherited from
-  group C's OSPF/RIP gate, and had it been followed literally it would have produced a `% ` line
-  that makes `cfg.py` abandon the whole BGP batch. The tester found it by probing the CLI surface
-  instead of trusting the dispatch, which is the correct order. Consequence for the restore:
-  group D added **no** third `no service bgp` line, so the end-of-group reload of swi_d is still
-  required but only clears group C's two.
-- **🔴 F-7 (T43858, worth a developer) -- `show running-config` disagrees with both the saved file
-  and the wire on graceful restart.** On a fresh `router bgp`, the display renders
-  ` bgp graceful-restart` while `copy running-config` writes ` no bgp graceful-restart` and the
-  DUT's own OPEN message advertises **no** Graceful Restart capability. Two of the three agree, so
-  the *display* is the outlier -- but a reader who trusts `show running-config` is told the
-  opposite of what the device does. Attributed by reading the staged boot file and the OPEN packet,
-  not inferred.
-- **🔴 F-8 (T43858; the tester labelled this O-6/O-7, renumbered into this queue's single F series
-  to avoid a collision) -- A FOURTH INSTANCE OF THE §5 MIRROR DEFECT CLASS.** A port mirror copied
-  **zero** frames while `show mirror` read Enabled, direction receive, correct monitored port, and
-  traffic demonstrably ingressed that port. This is the same failure `platforms/x960.md` §5 records
-  for other features: the read-back says the feature is on and the dataplane does nothing.
-  **No verdict rests on the mirror.** The instrument actually used was the **DUT's own `tcpdump` at
-  privileged exec**, which is the right tool on this platform for unicast control-plane protocols --
-  it solves the "no scapy host behind a partner" problem that the mirror was reached for.
-- **INCIDENT, declared (T43858, cost ~2 min, no measurement affected).** The advisory
-  `% port1.0.48 is currently configured as a mirror-port...` stopped a `cfg.py` batch mid-way and
-  left `port1.0.48` shut and out of vlan 48 for about two minutes. The tester found it **by reading
-  the batch output** rather than trusting the exit code, restored the port and verified it
-  Forwarding in vlan 48 before any further measurement; **no counted leg ran in that window.** This
-  is the third recorded consequence of the `cfg.py` stop-at-first-`%` trap in this campaign.
-
-- **🔴🔴 F-9 (T43859) -- FOR A DEVELOPER, AND SECURITY-RELEVANT. A removed inter-VRF route keeps
-  forwarding.** `no ip route vrf red 192.168.48.0/24 vlan48` removes the line from running-config
-  **and** the route from the RIB (`show ip route vrf red 192.168.48.2` -> `% Network not in
-  table`), and the DUT **keeps forwarding 5/5 across the VRF boundary**. Reproduced in three
-  successive legs over about two minutes. The mechanism is pinned down rather than guessed: a
-  second host on the same /24 that had never been forwarded to is correctly blocked **0/5**, so
-  the route really is gone and what survives is a **stale ARP-derived per-host forwarding entry**;
-  `clear arp-cache vrf blue` stops it at once.
-  **Why it matters:** VRF-Lite is documented as providing *securely isolated* routing domains, so
-  an operator closing a path would see running-config and the route table agree that it is closed
-  **while traffic still flows**. Cold-start isolation is complete and immediate, so this is **not**
-  a failure of VRF-Lite and the case is a PASS -- but the gap between "the route is gone" and "the
-  traffic has stopped" is the kind of thing a security reader will care about.
-- **🔴 F-10 (T43859; the tester numbered this F-8, renumbered here -- F-8 was already taken by the
-  mirror defect) -- a direct VRF-to-VRF interface move is REFUSED.** `ip vrf forwarding red` on an
-  interface already in `blue` gives `% vlan48: VRF is already associated`, although the Feature
-  Overview guide describes the move as supported. The working sequence is
-  `no ip vrf forwarding <old>` then `ip vrf forwarding <new>`, re-applying the address afterwards.
-- **F-11 (T43859; the tester numbered this O-8, renumbered into the single F series) -- the guide
-  overstates the inter-VRF static syntax.** It says the route "must specify both the egress VLAN
-  and next hop IP address"; the **VLAN-only** form is what works on this build.
-- **PLATFORM FACT (T43859) -- a VRF change STRIPS the interface's addressing, in both directions
-  and on VRF deletion.** `ip vrf forwarding`, `no ip vrf forwarding` and `no ip vrf <name>` each
-  emit `% All IP addresses configured on interface <x> have been removed`. Any teardown that moves
-  an SVI out of a VRF **must re-apply the address before deleting the VRF**, or the shared underlay
-  comes back an address short. The group-D teardown did this in the right order and the four
-  connected routes were verified present afterwards.
-- **GAP CLOSED (T33247, recorded here, verdict unchanged).** T33247 Clear ARP recorded the
-  `clear arp-cache vrf` form as **NOT EXERCISED** because no VRF existed on the DUT at the time.
-  T43859 exercised it against a real VRF and it works (it also stops F-9's stale forwarding).
-  T33247's verdict and its log stand as written; this note is the cross-reference.
+- **SENTINEL NOTE (group D) -- MY EARLIER DUPLICATE ENTRIES ARE WITHDRAWN; the tester's
+  numbering below is canonical, and ONE OF MY CLAIMS WAS FALSE.**
+  I recorded group D's findings from the tester's `RESULT` messages before it wrote its own
+  entries, which produced a duplicate set under different numbers. The canonical entries are the
+  tester's, further down this section: **F-6** (BGP not service-gated), **F-7** (graceful-restart
+  display), **O-6** (retracted, see below), **O-7** (mirror advisory stops a `cfg.py` batch),
+  **F-8** (VRF-to-VRF move refused), **F-9** (removed inter-VRF route keeps forwarding) and
+  **O-8** (guide overstates the inter-VRF static syntax). My duplicates -- a second F-6 and F-7,
+  and the renumbered F-10 and F-11 -- are deleted; nothing in them was lost.
+  **🔴 The one that matters: the F-8 I wrote here claimed "a fourth instance of the §5 mirror
+  defect class -- the port mirror copied zero frames". THAT IS FALSE AND IS WITHDRAWN.** The
+  mirror worked. The zero was an unflushed capture buffer: the `ls -la` ran in the same command
+  line as a `kill -INT` that never reached tcpdump, because `$!` was the wrapper. The tester
+  found the stray process at hand-back, stopped it by PID, and read 14 mirrored TCP/179 frames
+  plus mirrored ICMP out of the same file, every timestamp inside the mirror's own window. The
+  number **F-8 as I used it is retired and not reused** -- F-8 in this queue is the tester's
+  VRF-to-VRF finding. §5's M1, M2 and M3 are untouched and still stand.
+  I relayed that false claim to the Test Engineer in my T43858 report and in commit `cf9271b`;
+  this note and the tester's O-6 are the correction, left visible rather than quietly deleted.
+  **The replacement lesson is worth more than the finding would have been: a `tcpdump -w` file
+  SIZE read after an unverified kill is not a measurement.** Confirm the process has exited, or
+  read tcpdump's own `N packets captured` line. §5's own evidence for the real mirroring defects
+  is built on capture sizes, so the caution belongs beside it.
+  Still true from that limb, and kept: configuring a port as a mirror destination **removes it
+  from its access VLAN** and `no mirror interface` does not put it back.
 
 - **GROUP D COMPLETE -- 2 of 2 PASS** (T43858 BGPv4, T43859 VRF-Lite). **THE CAMPAIGN IS
   COMPLETE: 13 of 13 attempted, 13 PASS.** The shared B/C/D underlay has been taken down with
