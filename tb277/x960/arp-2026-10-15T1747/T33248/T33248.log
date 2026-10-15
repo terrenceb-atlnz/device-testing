@@ -1,0 +1,406 @@
+================================================================================
+TEST T33248 -- IPv4_ARP - Static ARP
+================================================================================
+Run:      2026-10-15 18:18-18:32 NZDT (the DUT's clock reads UTC: `show clock` gave
+          05:16:40 UTC bracketed by the box's 05:16:43 and 05:16:49, so swi_d = box
+          clock - 3 s. Every device timestamp below is swi_d's own UTC.)
+Bench:    tb277, consoles u2 = swi_d (DUT); Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     T33248 "IPv4_ARP - Static ARP". No authored step text exists for this case,
+          in AWPTCM or in ck.db: an exact-title lookup found step text for one other
+          case in this campaign and none for this one, so there are no authored steps
+          and no authored expected results. The headings below say what was actually
+          exercised. The case was graded against:
+            - X960 platform support TPS row 20 "Static ARP", priority 1, "Yes", note
+              column empty -- a row marked Yes whose command is absent would be a
+              finding, not an UNSUPPORTED;
+            - the IP Feature Overview and Configuration Guide, static ARP and
+              "deleting ARP entries" sections;
+            - the DUT's own CLI surface, read off by a read-only `?` probe (quoted in
+              STEP 1), which gives the full syntax
+              `arp A.B.C.D HHHH.HHHH.HHHH [IFRANGE] [alias]`.
+          Objective: a static ARP entry is configurable, is held as type `static`, is
+          USED by the forwarding path (the DUT stops ARPing for the address and
+          rewrites the destination MAC of routed frames to the configured one), is
+          removable, and survives a reboot. 5 steps as executed, plus a baseline.
+Build:    swi_d  sin_x96056-20261012-24  (flash:/x960-tb277.rel, build date Mon Oct 12 2026)
+          AT-x960-56YSQ, S/N A2WQS700B, standalone, console u2 @115200
+Configs:  swi_d.cfg (running-config after setup, before step 1; saved to startup: no)
+
+VERDICT: PASS -- a static ARP entry is accepted, held as `static`, and proven ON THE
+WIRE to be used by the forwarding path, while an address with no entry in the same leg
+is still ARPed for and forwards nothing; removal returns the DUT to the baseline in the
+configuration, in the table and in the dataplane; and the entry survives a reboot with
+the forwarding behaviour intact.
+      baseline, no entry ................... 0 of 5 frames forwarded, 3 broadcast ARP
+                                             requests for the target
+      entry accepted ....................... no `% ` line; verbatim in running-config
+      entry typed `static` ................. `show arp`: vlan48, port1.0.48, static
+      entry used by the dataplane .......... 5 of 5 routed frames egressed on
+                                             port1.0.48 with dst MAC 00:11:22:33:44:99
+      DUT stops ARPing for the address ..... 3 requests in the baseline, 0 with the entry
+      control in the SAME leg .............. 192.168.48.10 (no entry) still ARPed for,
+                                             0 of 5 forwarded
+      `alias` option, dependency ........... refused unless `ip proxy-arp` is on the
+                                             owning interface: "% Proxy Arp is not
+                                             enabled in the interface"
+      `alias` option, ARP behaviour ........ UNMEASURED (see CAVEAT)
+      removal .............................. gone from running-config, gone from
+                                             `show arp`, baseline restored on the wire
+      reboot ............................... entry back, and 5 of 5 frames rewritten
+                                             and forwarded again
+CAVEAT:  The `alias` form of the same command (`arp A.B.C.D MAC alias`) is accepted,
+         appears in running-config and is listed by `show arp` as static, but produced
+         NO observable change in ARP replies in either configuration reachable on this
+         bench: same-subnet, where the DUT stayed silent, and off-subnet, where plain
+         `ip proxy-arp` already answered and the alias form is refused unless proxy ARP
+         is also enabled on the owning interface. That limb is UNMEASURED; it wants an
+         answer on the intended `alias` semantics rather than another bench leg. It is
+         not the subject of this case and does not bear on the verdict. Everything else
+         was exercised with one entry, one IPv4 /24 pair and one IFRANGE value, on a
+         standalone unit; VRF forms were not exercised.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+    tb277 eth3  00:0d:b9:55:77:0e          crafted at L2 by tools/arpleg.py: the
+    (untagged VLAN 10)                     NIC's own address is never used, so the
+          |                                box's routes stay out of the measurement
+          |
+          |  (1) 5 x UDP 192.168.10.2 -> 192.168.48.9   (the entry's address)
+          |      5 x UDP 192.168.10.2 -> 192.168.48.10  (CONTROL, no entry, same leg)
+          |      both with Ethernet dst e0:1a:ea:d4:70:43, the DUT's SVI MAC
+          v
+    +---------------------------------------------------------------------+
+    |  swi_d   AT-x960-56YSQ        D U T                                 |
+    |  port1.0.10 -- vlan10  192.168.10.1/24      (ingress, routed in)    |
+    |                                                                     |
+    |     arp 192.168.48.9 0011.2233.4499 port1.0.48   <- under test      |
+    |                                                                     |
+    |  port1.0.48 -- vlan48  192.168.48.1/24      (egress, routed out)    |
+    +---------------------------------------------------------------------+
+          |
+          |  (2) with the entry: frames for .9 leave here, dst MAC rewritten
+          |      to 00:11:22:33:44:99
+          |      without it: broadcast ARP requests "who-has ... tell 192.168.48.1"
+          |      and nothing forwarded
+          v
+    tb277 eth4  00:0d:b9:55:77:0f          far-side capture: counts what the DUT
+    (untagged VLAN 48)                     forwarded and what it ARPed for
+
+  DUT     : swi_d (AT-x960-56YSQ) console u2 @115200, S/N A2WQS700B, standalone,
+            sin_x96056-20261012-24. SVI MAC e0:1a:ea:d4:70:43 -- `show interface
+            vlan10` and `show interface vlan48` BOTH report "Hardware is VLAN, address
+            is e01a.ead4.7043", so every SVI on this unit shares one MAC.
+  link    : tb277 eth3 <-> swi_d port1.0.10  (copper, untagged VLAN 10)
+  link    : tb277 eth4 <-> swi_d port1.0.48  (copper, untagged VLAN 48)
+  host    : tb277 eth3 00:0d:b9:55:77:0e -> swi_d port1.0.10 (frame source)
+            tb277 eth4 00:0d:b9:55:77:0f -> swi_d port1.0.48 (far-side capture)
+            No host networking was changed at any point. 192.168.10.2 with MAC
+            00:11:22:33:44:01 is a scapy fiction, not a host address.
+  tools   : tools/arpleg.py on tb277 -- one leg starts a capture on each NIC named,
+            sends a known count of crafted frames, stops, decodes, and prints a grouped
+            count carrying the Ethernet src/dst of every flow; it exits non-zero if its
+            own send count and the sending NIC's capture disagree.
+            tools/cfg.py and tools/ckcon.py drive the console (cfg.py stops its batch on
+            a `% ` line); tools/rc2cfg.py saved swi_d.cfg; tools/qmark.py ran the
+            read-only `?` probes; tools/ckreload.py drove the reload.
+
+  Method: every leg sends crafted frames and counts what crosses the DUT on the far
+  wire -- nothing rests on `show arp`, which on this build does not list unresolved
+  entries at all (through every baseline leg below, with the DUT actively ARPing for
+  both targets, the table stayed empty). Each measurement leg carries its own control
+  in the SAME leg: a second address of the same shape with no entry, so a change is
+  attributable to the entry and not to anything else between the legs.
+
+STEP 0 -- baseline (feature OFF): no entry, and the CLI surface the case rests on  done
+--------------------------------------------------------------------------------
+  The read-only `?` probe first, with no command executed:
+
+awplus(config)# arp ?
+  A.B.C.D           IP address of the ARP entry
+  log               ARP log
+  opportunistic-nd  Set opportunistic neighbour discovery feature on
+  vrf               VRF instance
+awplus(config)# arp 192.168.48.9 ?
+  MAC  The ARP entry's MAC address in HHHH.HHHH.HHHH format
+awplus(config)# arp 192.168.48.9 0011.2233.4499 ?
+  IFRANGE  Switch ports for the static ARP entry
+  alias    Respond to ARP requests for the IP address
+  <cr>                                   <-- full syntax, and TPS row 20 is satisfied
+
+  The routed environment the case runs in, proven in place before the first leg:
+
+awplus# show ip interface brief
+vlan10                192.168.10.1/24    admin up        running
+vlan48                192.168.48.1/24    admin up        running
+awplus# show ip route
+C       192.168.10.0/24 is directly connected, vlan10
+C       192.168.48.0/24 is directly connected, vlan48
+Gateway of last resort is not set
+
+  Then the feature off:
+
+awplus# configure terminal
+awplus(config)# no arp 192.168.48.9
+awplus(config)# end
+awplus# clear arp-cache
+awplus# show arp
+IP Address      LL Address       Interface            Port        Type
+                                         <-- empty
+
+  leg `L0b-off` (eth3 source, eth4 watch, 5 frames per target):
+  sudo python3.8 tools/arpleg.py --tag L0b-off --out <capture dir> \
+    --iface eth3 --watch eth4 --probe 192.168.48.9,192.168.48.10 \
+    --sender-ip 192.168.10.2 --sender-mac 00:11:22:33:44:01 \
+    --gw-mac e0:1a:ea:d4:70:43 --count 5 --wait 5
+
+LEG L0b-off  iface=eth3 watch=eth4 count=5
+  sent: udp 192.168.10.2 -> 192.168.48.9 (eth dst e0:1a:ea:d4:70:43)  x5
+  sent: udp 192.168.10.2 -> 192.168.48.10 (eth dst e0:1a:ea:d4:70:43)  x5
+  sent total: 10 frame(s)
+  cap L0b-off-eth3.pcap: 13 frame(s)
+    x5     UDP  192.168.10.2    -> 192.168.48.9    :9 [ours]   [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x5     UDP  192.168.10.2    -> 192.168.48.10   :9 [ours]   [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x3     ARP-REQ  who-has 192.168.10.2    tell 192.168.10.1      [eth e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+  cap L0b-off-eth4.pcap: 6 frame(s)
+    x3     ARP-REQ  who-has 192.168.48.9    tell 192.168.48.1      [eth e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+    x3     ARP-REQ  who-has 192.168.48.10   tell 192.168.48.1      [eth e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+                                         <-- far side: ARP for both, ZERO data frames
+
+  All 10 probes entered on eth3 addressed to the DUT's SVI MAC. On the far side the DUT
+  emitted broadcast ARP requests for BOTH targets -- 3 retries each, sender 192.168.48.1
+  with its own SVI MAC -- and forwarded no data frame at all. Unresolved means not
+  forwarded. The DUT also ARPed back for the source 192.168.10.2 on eth3; nothing
+  answers that, which is why no ICMP came back.
+
+  => STEP 0 done: with no entry for either target the DUT forwards 0 of 10 frames and
+     ARPs for both. This is the state every later leg is measured against, and it is
+     what makes "5 of 5 forwarded" in STEP 2 a measurement rather than an assumption.
+
+STEP 1 -- configure a static ARP entry and prove it is held as static       PASS
+--------------------------------------------------------------------------------
+awplus# configure terminal
+awplus(config)# arp 192.168.48.9 0011.2233.4499 port1.0.48
+awplus(config)# end
+awplus# show running-config | include arp
+arp 192.168.48.9 0011.2233.4499 port1.0.48       <-- verbatim, as entered
+awplus# show arp
+IP Address      LL Address       Interface            Port        Type
+192.168.48.9    0011.2233.4499   vlan48               port1.0.48  static
+
+  Accepted with no `% ` line. `show arp` resolves the entry to the right interface --
+  vlan48, worked out from the address rather than from the IFRANGE argument -- to the
+  configured port, and types it `static`.
+
+  => STEP 1 PASS: the command exists, is accepted, is held in running-config exactly as
+     entered, and the resulting entry is typed `static` on the correct interface and
+     port. TPS row 20 is satisfied on this build.
+
+STEP 2 -- the entry is USED by the forwarding path, with a no-entry control in the same leg  PASS
+--------------------------------------------------------------------------------
+  Method: this is the step `show arp` cannot answer -- a table read-back says an entry
+  exists, not that the dataplane uses it. The same probes as STEP 0 are sent, with the
+  control 192.168.48.10 (which has NO entry) in the SAME leg, same instrument.
+
+  leg `L1b-static-on`:
+  sudo python3.8 tools/arpleg.py --tag L1b-static-on --out <capture dir> \
+    --iface eth3 --watch eth4 --probe 192.168.48.9,192.168.48.10 \
+    --sender-ip 192.168.10.2 --sender-mac 00:11:22:33:44:01 \
+    --gw-mac e0:1a:ea:d4:70:43 --count 5 --wait 5
+
+LEG L1b-static-on  iface=eth3 watch=eth4 count=5
+  sent total: 10 frame(s)
+  cap L1b-static-on-eth3.pcap: 13 frame(s)
+    x5     UDP  192.168.10.2    -> 192.168.48.9    :9 [ours]   [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x5     UDP  192.168.10.2    -> 192.168.48.10   :9 [ours]   [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x3     ARP-REQ  who-has 192.168.10.2    tell 192.168.10.1      [eth e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+  cap L1b-static-on-eth4.pcap: 8 frame(s)
+    x5     UDP  192.168.10.2    -> 192.168.48.9    :9 [ours]   [eth e0:1a:ea:d4:70:43 -> 00:11:22:33:44:99]
+    x3     ARP-REQ  who-has 192.168.48.10   tell 192.168.48.1      [eth e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+                                         <-- .9 forwarded and rewritten; .10 still ARPed for
+
+  Against STEP 0's baseline, same instrument, same probes:
+    - 5 of 5 frames for 192.168.48.9 EGRESSED on eth4, with Ethernet destination
+      00:11:22:33:44:99 -- the exact MAC configured -- and Ethernet source
+      e0:1a:ea:d4:70:43, the DUT's SVI MAC. The DUT performed the L2 rewrite from the
+      static entry.
+    - The DUT sent NO ARP request for 192.168.48.9 at all: 3 in the baseline, 0 now.
+    - CONTROL, same leg: 192.168.48.10 has no entry. It was still ARPed for, 3 requests,
+      and ZERO of its 5 frames were forwarded.
+    - The tool's own send count (10) and the sending NIC's capture (10 marked frames)
+      agree; the leg exited 0 with no counter disagreement.
+
+  => STEP 2 PASS: the static entry is not merely stored, it is installed in the
+     forwarding path -- it suppresses the DUT's ARP for that address and supplies the
+     destination MAC of every routed frame, on the configured egress port. The control
+     address in the same leg, differing only in having no entry, behaved exactly as the
+     baseline did, so the change is attributable to the entry alone.
+
+STEP 3 -- the `alias` option of the same command                            PASS
+--------------------------------------------------------------------------------
+  Method: `arp A.B.C.D MAC alias` is offered by the CLI as "Respond to ARP requests for
+  the IP address", so it is exercised as part of the command's surface. Baseline off
+  first, then the dependency, then the wire.
+
+  3a. Baseline, no alias entry (leg `L2a-alias-off`, --arp 192.168.10.77,192.168.10.78):
+cap L2a-alias-off-eth3.pcap: 6 frame(s)
+  x3  ARP-REQ  who-has 192.168.10.77 tell 192.168.10.2  [00:11:22:33:44:01 -> ff:ff:ff:ff:ff:ff]
+  x3  ARP-REQ  who-has 192.168.10.78 tell 192.168.10.2  [00:11:22:33:44:01 -> ff:ff:ff:ff:ff:ff]
+                                         <-- no replies, as expected with nothing configured
+
+  3b. The first attempt to configure it was REFUSED:
+awplus(config)# arp 192.168.10.77 0011.2233.4477 alias
+% Proxy Arp is not enabled in the interface
+
+      A documented dependency: the `alias` form requires `ip proxy-arp` on the interface
+      that owns the aliased address's subnet. Confirmed twice -- a later attempt to
+      alias 192.168.48.77 while proxy ARP was enabled on vlan10 but NOT on vlan48 was
+      refused with the same message.
+
+  3c. With the dependency satisfied on vlan10:
+awplus(config)# interface vlan10
+awplus(config-if)# ip proxy-arp
+awplus(config-if)# exit
+awplus(config)# arp 192.168.10.77 0011.2233.4477 alias
+awplus(config)# end
+awplus# show running-config | include arp
+ ip proxy-arp
+arp 192.168.10.77 0011.2233.4477  alias
+arp 192.168.48.9 0011.2233.4499 port1.0.48
+awplus# show arp
+IP Address      LL Address       Interface            Port        Type
+192.168.48.9    0011.2233.4499   vlan48               port1.0.48  static
+192.168.10.77   0011.2233.4477   vlan10               -           static
+
+  3d. On the wire, with the instrument control in the SAME leg (`L2d-selfarp-control`,
+      --arp 192.168.10.1,192.168.10.77,192.168.10.78):
+cap L2d-selfarp-control-eth3.pcap: 12 frame(s)
+  x3  ARP-REQ    who-has 192.168.10.1  tell 192.168.10.2  [00:11:22:33:44:01 -> ff:ff:ff:ff:ff:ff]
+  x3  ARP-REPLY  192.168.10.1  is-at e0:1a:ea:d4:70:43    [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:01]
+  x3  ARP-REQ    who-has 192.168.10.77 tell 192.168.10.2  [00:11:22:33:44:01 -> ff:ff:ff:ff:ff:ff]
+  x3  ARP-REQ    who-has 192.168.10.78 tell 192.168.10.2  [00:11:22:33:44:01 -> ff:ff:ff:ff:ff:ff]
+                                         <-- control answered 3/3; .77 and .78 silent
+
+      The DUT answered 3 of 3 requests for its OWN address 192.168.10.1 with
+      is-at e0:1a:ea:d4:70:43. So the crafted request format is correct, the DUT is
+      receiving and answering ARP on this interface, and the capture would have held a
+      reply if one had been sent. The "no reply" below is a measurement, not an absent
+      instrument. Measured: 192.168.10.77, with its alias entry installed and
+      `ip proxy-arp` on vlan10, drew 0 replies in 3 requests; 192.168.10.78, with no
+      entry, likewise 0. No difference.
+
+  3e. The complementary leg (`L2e-alias-offsubnet`, --arp 192.168.48.77,192.168.48.5,
+      192.168.10.77) shows what IS answering in this configuration:
+cap L2e-alias-offsubnet-eth3.pcap: 15 frame(s)
+  x3  ARP-REPLY  192.168.48.77 is-at e0:1a:ea:d4:70:43  [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:01]
+  x3  ARP-REPLY  192.168.48.5  is-at e0:1a:ea:d4:70:43  [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:01]
+  (192.168.10.77: 3 requests, 0 replies)
+
+      192.168.48.5 has NO alias entry and was answered just the same, so those replies
+      are plain `ip proxy-arp` on vlan10 for addresses routed out vlan48, not the alias
+      entry.
+
+  => STEP 3 PASS for the command surface and its dependency: `arp A.B.C.D MAC alias` is
+     present, is refused with a specific message naming the precondition when
+     `ip proxy-arp` is absent from the owning interface, and once the precondition is
+     met is accepted, held in running-config and listed by `show arp` as static on the
+     right interface. The alias's effect on ARP replies is UNMEASURED: in both
+     configurations reachable on this bench it produced no reply the DUT would not have
+     produced anyway, with a live instrument control proving the measurement. That limb
+     is recorded in the CAVEAT and is not the subject of this case.
+
+STEP 4 -- removal: out of running-config, out of `show arp`, and out of the forwarding path  PASS
+--------------------------------------------------------------------------------
+awplus# configure terminal
+awplus(config)# no arp 192.168.10.77
+awplus(config)# interface vlan10
+awplus(config-if)# no ip proxy-arp
+awplus(config-if)# exit
+awplus(config)# no arp 192.168.48.9
+awplus(config)# end
+awplus# show running-config | include arp
+awplus#                                  <-- NO output: every arp line is gone
+awplus# show arp
+IP Address      LL Address       Interface            Port        Type
+awplus#                                  <-- empty
+awplus# clear arp-cache
+
+  leg `L3-removed`, the same invocation as STEP 0 and STEP 2:
+LEG L3-removed  sent total: 10 frame(s)
+  cap L3-removed-eth3.pcap: 13 frame(s)
+    x5  UDP  192.168.10.2 -> 192.168.48.9  :9 [ours]  [00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x5  UDP  192.168.10.2 -> 192.168.48.10 :9 [ours]  [00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x3  ARP-REQ who-has 192.168.10.2 tell 192.168.10.1 [e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+  cap L3-removed-eth4.pcap: 6 frame(s)
+    x3  ARP-REQ who-has 192.168.48.9  tell 192.168.48.1 [e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+    x3  ARP-REQ who-has 192.168.48.10 tell 192.168.48.1 [e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+                                         <-- identical to the STEP 0 baseline
+
+  Flow for flow and count for count the same as the baseline leg: the DUT is ARPing for
+  192.168.48.9 again -- 3 requests, against 0 while the entry was installed -- and
+  forwarding none of its 5 frames.
+
+  => STEP 4 PASS: `no arp` removes the entry from the configuration, from the table AND
+     from the dataplane. The removal is proven by the DUT returning to the measured
+     baseline behaviour, not merely by the absence of a line in a `show`.
+
+STEP 5 -- persistence across a reboot                                       PASS
+--------------------------------------------------------------------------------
+  Method: nothing is written to startup-config. The entry is staged in a NAMED boot
+  config, the unit is reloaded from it, and the boot pointer is put back afterwards.
+
+awplus# configure terminal
+awplus(config)# arp 192.168.48.9 0011.2233.4499 port1.0.48
+awplus(config)# end
+awplus# copy running-config flash:/ckT33248.cfg
+Copying...
+Successful operation
+awplus# configure terminal
+awplus(config)# boot config-file flash:/ckT33248.cfg
+awplus(config)# end
+awplus# show boot
+Current boot image : flash:/x960-tb277.rel (file exists)
+Current boot config: flash:/ckT33248.cfg (file exists)
+
+  Reload driven by tools/ckreload.py on /dev/u2 @115200:
+18:27:56 >>> reload
+reboot question: 'reboot system? (y/n):' -> y
+18:28:56 login seen after 60 s
+
+  Reload started 05:27:53 UTC, login prompt 05:28:56 UTC -- 60 s to the login banner.
+  The measurement was taken a further 60 s later, at 05:30, to let the ports finish
+  coming up.
+
+awplus# show boot
+Current boot image : flash:/x960-tb277.rel (file exists)
+Current boot config: flash:/ckT33248.cfg (file exists)
+awplus# show running-config | include arp
+arp 192.168.48.9 0011.2233.4499 port1.0.48
+awplus# show arp
+IP Address      LL Address       Interface            Port        Type
+192.168.48.9    0011.2233.4499   vlan48               port1.0.48  static
+awplus# show ip interface brief
+vlan10                192.168.10.1/24    admin up        running
+vlan48                192.168.48.1/24    admin up        running
+awplus# show clock
+UTC Time:   Thu, 15 Oct 2026 05:30:09 +0000
+
+  leg `L4-after-reload`, the same invocation again:
+LEG L4-after-reload  sent total: 10 frame(s)
+  cap L4-after-reload-eth3.pcap: 13 frame(s)
+    x5  UDP 192.168.10.2 -> 192.168.48.9  :9 [ours]  [00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x5  UDP 192.168.10.2 -> 192.168.48.10 :9 [ours]  [00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x3  ARP-REQ who-has 192.168.10.2 tell 192.168.10.1 [e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+  cap L4-after-reload-eth4.pcap: 8 frame(s)
+    x5  UDP 192.168.10.2 -> 192.168.48.9 :9 [ours]  [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:99]
+    x3  ARP-REQ who-has 192.168.48.10 tell 192.168.48.1 [e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+                                         <-- identical to the STEP 2 measurement leg
+
+  => STEP 5 PASS: after a real reboot the entry is back in the configuration AND back in
+     the forwarding path -- 5 of 5 frames rewritten to 00:11:22:33:44:99 and egressed on
+     eth4, no ARP for .9 -- while the control .10 is still ARPed for with 0 forwarded.
+     Persistence is proven on the wire, not only in a `show`.
+================================================================================

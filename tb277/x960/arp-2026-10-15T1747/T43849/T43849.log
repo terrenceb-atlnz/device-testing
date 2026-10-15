@@ -1,0 +1,415 @@
+================================================================================
+TEST T43849 -- IPv4_ARP - Local Proxy ARP: Functionality
+================================================================================
+Run:      2026-10-15 19:02-19:29 NZDT (both devices read UTC. swi_b was found
+          +12 h 59 m 39 s ahead of UTC while reporting "Timezone: UTC" -- box
+          `date -u` 06:03:26 UTC against swi_b `show clock` 19:03:05 "UTC" -- and
+          because this case correlates events across the two devices its clock was SET
+          rather than converted. Verified afterwards by bracketing each device reading
+          between two box readings: box 06:05:38 | swi_b 06:05:41 | box 06:05:45, and
+          box 06:05:45 | swi_d 06:05:41 | box 06:05:51. After the fix both devices
+          agree with each other and with the box to within about 4 s.)
+Bench:    tb277, consoles u2 = swi_d (DUT), u3 = swi_b (partner, the case's "BackupSW");
+          Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     T43849 "IPv4_ARP - Local Proxy ARP: Functionality". This case HAS authored
+          step text: ck.db AWP-4357 (internal_id 25060), a unique exact-title match,
+          517 characters, quoted verbatim:
+            "Configure DUT and BackupSW / Connect both SW via VLAN 23 / Configure DUT
+             as follows: interface VLAN23, iP address 23.1.1.1/24, ip local-proxy-arp /
+             Configure BackupSW as follows: interface VLAN23, ip address 23.1.1.2/16 /
+             From BackupSW, ping 23.1.1.3 / Expect ping to fail, but with ARP using DUT
+             MAC address. DUT responds to ARPs on an interface for other IP hosts that
+             would be on the same interface. This is a "one armed router" situation eg
+             when private vlans are configured. DUT MAC address will be saved on
+             BackupSW ARP table"
+          The authored expected result: the ping FAILS, and BackupSW's ARP table holds
+          the DUT's MAC for 23.1.1.3. The deliberate /24-vs-/16 mask mismatch is the
+          mechanism -- with 23.1.1.2/16, BackupSW believes 23.1.1.3 is on-link and ARPs
+          for it instead of routing to it. The authored steps are followed as written on
+          real hardware, with swi_b as BackupSW, and are SUPPLEMENTED -- not replaced --
+          by crafted-frame legs that measure the ARP exchange itself, plus a no-route
+          control, a mask-boundary control, removal and reboot persistence. Also graded
+          against X960 platform support TPS row 24 "Local Proxy-ARP" (priority 1, "Yes",
+          note column empty) and the IP Feature Overview and Configuration Guide, Local
+          Proxy ARP. 5 steps as executed, plus a baseline.
+Build:    swi_d  sin_x96056-20261012-24  (flash:/x960-tb277.rel, build date Mon Oct 12 2026)
+          AT-x960-56YSQ, S/N A2WQS700B, DUT, console u2 @115200
+          swi_b  sin_x96056-20260921-9
+          AT-x960-28YSQ, S/N A10737A261700021, partner (BackupSW), console u3 @9600
+Configs:  swi_d.cfg, swi_b.cfg (running-config after setup, before step 1; swi_d.cfg was
+          captured after the port1.0.2 shutdown described in TOPOLOGY, so it describes
+          the state the case actually ran under; saved to startup: no)
+
+VERDICT: PASS -- the authored expected result of AWP-4357 is met in full on real
+hardware, and beneath it the ARP exchange the ping only implies was measured on the
+wire: the DUT answers, with its own MAC, for an address on the very interface the
+request arrived on, and does not answer for an address it cannot route or for one
+outside that interface's own subnet.
+      default state ....................... OFF: no local-proxy line in running-config,
+                                            and 0 replies for 23.1.1.3
+      instrument control, every leg ....... the DUT's own address 23.1.1.1 answered 3/3
+      crafted, feature on ................. 23.1.1.3 answered 3 of 3,
+                                            is-at e0:1a:ea:d4:70:43, the DUT's own MAC
+      no route ............................ 24.1.1.3 answered 0 of 3, feature on
+      authored: "Expect ping to fail" ..... 3 transmitted, 0 received, 100% packet loss
+      authored: "ARP using DUT MAC addr" .. swi_b broadcast who-has 23.1.1.3 from
+                                            00:00:cd:42:30:29 and was answered
+      authored: saved on BackupSW's table . 23.1.1.3 -> e01a.ead4.7043, dynamic, on
+                                            vlan23 / port1.0.16
+      what makes the ping meaningful ...... the unreachable's SOURCE flips: 23.1.1.2
+                                            (BackupSW itself) off, 23.1.1.1 (the DUT) on
+      mask boundary ....................... 23.2.2.2 -- inside BackupSW's /16, outside
+                                            the DUT's /24 -- answered 0 of 3
+      removal ............................. gone from running-config, 0 replies on the
+                                            wire, BackupSW's ARP table empty again
+      reboot .............................. all four crafted limbs and the authored ping
+                                            limb reproduce
+CAVEAT:  One SVI, one partner, IPv4 only; the partner is not rebooted. The proof covers
+         `ip local-proxy-arp` on an interface whose own subnet is a directly connected
+         /24. `ip limited-local-proxy-arp` also exists on this build; it is a DIFFERENT
+         feature and was NOT TESTED here. The case ran with the DUT's port1.0.2 shut so
+         that RSTP selected port1.0.16 as the DUT<->swi_b path (see TOPOLOGY); results
+         therefore describe a single active path between the two units, not a redundant
+         one.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+    tb277 eth3  00:0d:b9:55:77:0e          tools/arpleg.py: crafted ARP requests,
+    (untagged VLAN 23)                     sender 23.1.1.5 / 00:11:22:33:44:01; also
+          |      ^                         the passive sniffer that watches the VLAN 23
+          |      |                         broadcast domain during the authored ping
+          |      |  (2) ARP REPLIES measured here -- who answered and with which MAC
+          |      |      23.1.1.3 (vlan23's OWN subnet) .. is-at e0:1a:ea:d4:70:43 when on
+          |      |      24.1.1.3 (no route) ............. never answered
+          |      |      23.2.2.2 (outside the DUT's /24)  never answered
+          |      |      23.1.1.1 (the DUT itself) ....... always answered -- the control
+          |
+          |  (1) 3 x ARP-REQ per target, broadcast
+          v
+    +---------------------------------------------------------------------+
+    |  swi_d   AT-x960-56YSQ        D U T                                 |
+    |  port1.0.10 -- vlan 23 access   (host eth3)                         |
+    |                                                                     |
+    |  interface vlan23   23.1.1.1/24                                     |
+    |     ip local-proxy-arp        <- under test: the "one armed router"  |
+    |                                  case -- both stations are on vlan23 |
+    |                                                                     |
+    |  port1.0.16 -- vlan 23 access   (to BackupSW)                       |
+    |  port1.0.2  -- SHUT for the case, so that RSTP selects port1.0.16   |
+    +---------------------------------------------------------------------+
+          |      ^
+          |      |  (4) the DUT's reply, carrying its own MAC, which is what BackupSW
+          |      |      stores in its ARP table
+          |
+          |  (3) BackupSW's ping 23.1.1.3 -> it ARPs first, and once answered it
+          |      FORWARDS the echo requests to the DUT's MAC
+          v
+    +---------------------------------------------------------------------+
+    |  swi_b   AT-x960-28YSQ    partner / "BackupSW"                      |
+    |  port1.0.16 -- vlan 23 access                                       |
+    |  interface vlan23   23.1.1.2/16   <- the authored mask mismatch:    |
+    |     with a /16 it believes 23.1.1.3 is on-link and ARPs for it      |
+    +---------------------------------------------------------------------+
+
+  DUT     : swi_d (AT-x960-56YSQ) console u2 @115200, S/N A2WQS700B, standalone,
+            sin_x96056-20261012-24, boot image flash:/x960-tb277.rel (file exists).
+            `show interface vlan23` -> "Hardware is VLAN, address is e01a.ead4.7043";
+            every SVI on this unit shares that MAC.
+  partner : swi_b (AT-x960-28YSQ) console u3 @9600, S/N A10737A261700021,
+            sin_x96056-20260921-9, prompt `x960-28YSQ#`. `show interface vlan23` ->
+            "Hardware is VLAN, address is 0000.cd42.3029".
+  link    : swi_d port1.0.16 <-> swi_b port1.0.16  (copper, untagged VLAN 23) -- the
+            case's "connect both SW via VLAN 23" leg
+  host    : tb277 eth3 00:0d:b9:55:77:0e -> swi_d port1.0.10 (untagged VLAN 23), the
+            crafted-frame source and the passive capture point. eth2 and eth4 are not
+            used. No host networking was changed. 23.1.1.5 / 00:11:22:33:44:01 is a
+            scapy fiction, not a host address.
+  tools   : tools/arpleg.py on tb277 with `--arp` and `--sniff-only`; tools/cfg.py,
+            tools/ckcon.py, tools/ckyn.py and tools/peek.py drive both consoles;
+            tools/ckreload.py drove the DUT reload; tools/rc2cfg.py saved both .cfg
+            files; tools/qmark.py ran the read-only `?` probes.
+
+  Spanning tree, the state the case ran under. Immediately after the VLAN 23 setup the
+  case's own leg was blocked:
+
+awplus# show spanning-tree brief
+Default: Root Path Cost 20000 - Root Port 5002 -  Bridge Priority 32768
+Default: Root Id 8000:0000cd423029          <-- swi_b is the root bridge
+Default: Bridge Id 8000:e01aead47043
+port1.0.2       8000:0000cd423029    838a   Rootport     Forwarding
+port1.0.4       8000:889d98df2602    838c   Alternate    Discarding
+port1.0.10      8000:e01aead47043    8392   Designated   Forwarding
+port1.0.14      8000:889d98df2602    8396   Alternate    Discarding
+port1.0.16      8000:0000cd423029    8398   Alternate    Discarding   <-- THE CASE'S LINK
+
+  Both units run single-instance `spanning-tree mode rstp`, so a Discarding port is
+  blocked for every VLAN and moving the leg into VLAN 23 cannot unblock it. The DUT's
+  port1.0.2 -- its root port to swi_b -- was therefore shut for the duration of the
+  case, on the DUT side only, leaving port1.0.16 as the single DUT<->swi_b path:
+
+awplus(config)# interface port1.0.2
+awplus(config-if)# shutdown
+awplus# show spanning-tree brief
+Default: Root Path Cost 20000 - Root Port 5016
+port1.0.2       8000:e01aead47043    838a   Disabled     Discarding
+port1.0.4       8000:889d98df2602    838c   Alternate    Discarding
+port1.0.10      8000:e01aead47043    8392   Designated   Forwarding
+port1.0.14      8000:889d98df2602    8396   Alternate    Discarding
+port1.0.16      8000:0000cd423029    8398   Rootport     Forwarding   <-- NOW FORWARDING
+x960-28YSQ# show spanning-tree brief
+sa1             8000:0000cd423029    8195   Disabled     Discarding
+port1.0.16      8000:0000cd423029    8398   Designated   Forwarding   <-- NOW FORWARDING
+
+  That state is in swi_d.cfg, and the STP state was re-read and quoted immediately
+  before EVERY counted leg below -- never only once at setup -- because a Discarding
+  leg would produce zero replies, which is indistinguishable from the feature not
+  working.
+
+  Method: the four targets used by the crafted legs, sender 23.1.1.5 on eth3:
+    23.1.1.3   inside vlan23's OWN subnet -- the case's target, the local-proxy-ARP case
+    23.1.1.1   the DUT's own address -- the INSTRUMENT CONTROL, must be answered always
+    24.1.1.3   no route at all -- must never be answered
+    23.2.2.2   inside BackupSW's /16 but OUTSIDE the DUT's /24 -- the mask boundary
+
+STEP 0 -- "Configure DUT and BackupSW / Connect both SW via VLAN 23", and the baseline with the feature off  done
+--------------------------------------------------------------------------------
+  The authored topology, built as written:
+
+  swi_d: vlan database / vlan 23
+         interface port1.0.10 / switchport access vlan 23      (host eth3)
+         interface port1.0.16 / switchport access vlan 23      (to BackupSW)
+         interface vlan23 / ip address 23.1.1.1/24
+  swi_b: vlan database / vlan 23
+         interface port1.0.16 / switchport access vlan 23
+         interface vlan23 / ip address 23.1.1.2/16             <- /16, as authored
+
+  The DUT's CLI surface for the feature, read-only, with no command executed:
+
+awplus(config-if)# ip local-proxy-arp ?
+  <cr>
+
+awplus# show running-config | include local-proxy
+awplus#                                  <-- no output: OFF by default
+  STP immediately before the leg: Root Port 5016; port1.0.10 Designated Forwarding;
+  port1.0.16 Rootport Forwarding.
+
+  0a. CRAFTED limb (leg `L0a-lpa-off`):
+  sudo python3.8 tools/arpleg.py --tag L0a-lpa-off --out <capture dir> \
+    --iface eth3 --arp 23.1.1.3,23.1.1.1,24.1.1.3 --sender-ip 23.1.1.5 \
+    --sender-mac 00:11:22:33:44:01 --count 3 --wait 5
+cap L0a-lpa-off-eth3.pcap: 12 frame(s)
+  x3  ARP-REQ   who-has 23.1.1.3 tell 23.1.1.5  [00:11:22:33:44:01 -> ff:ff:ff:ff:ff:ff]
+  x3  ARP-REQ   who-has 23.1.1.1 tell 23.1.1.5  [00:11:22:33:44:01 -> ff:ff:ff:ff:ff:ff]
+  x3  ARP-REPLY 23.1.1.1 is-at e0:1a:ea:d4:70:43 [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:01]
+  x3  ARP-REQ   who-has 24.1.1.3 tell 23.1.1.5  [00:11:22:33:44:01 -> ff:ff:ff:ff:ff:ff]
+                                         <-- 23.1.1.3: 0 replies. 24.1.1.3: 0 replies.
+                                             Control 23.1.1.1: 3 -- instrument alive
+
+  0b. THE AUTHORED LIMB with the feature off, on BackupSW:
+x960-28YSQ# clear arp-cache
+x960-28YSQ# ping 23.1.1.3 repeat 3
+PING 23.1.1.3 (23.1.1.3) 56(84) bytes of data.
+From 23.1.1.2 icmp_seq=1 Destination Host Unreachable
+From 23.1.1.2 icmp_seq=2 Destination Host Unreachable
+From 23.1.1.2 icmp_seq=3 Destination Host Unreachable
+--- 23.1.1.3 ping statistics ---
+3 packets transmitted, 0 received, +3 errors, 100% packet loss, time 2037ms
+x960-28YSQ# show arp
+IP Address      LL Address       Interface            Port        Type
+                                         <-- empty
+
+      Note WHO sends the unreachable: 23.1.1.2, BackupSW itself. It could not resolve
+      23.1.1.3 and gave up locally; the packets never left it. That is the discriminator
+      in STEP 2.
+
+  => STEP 0 done: the authored topology is in place and local proxy ARP is off by
+     default -- measured, not assumed -- with the crafted limb at 0 replies for the
+     target on a proven-live instrument, and the authored ping already failing but
+     failing LOCALLY at BackupSW.
+
+STEP 1 -- "Configure DUT as follows: interface VLAN23, iP address 23.1.1.1/24, ip local-proxy-arp"  PASS
+--------------------------------------------------------------------------------
+awplus# configure terminal
+awplus(config)# interface vlan23
+awplus(config-if)# ip local-proxy-arp
+awplus(config-if)# end
+awplus# show running-config interface vlan23
+interface vlan23
+ ip local-proxy-arp
+ ip address 23.1.1.1/24
+  STP immediately before the leg: port1.0.10 Designated Forwarding; port1.0.16 Rootport
+  Forwarding.
+
+  leg `L1a-lpa-on`, identical to STEP 0's crafted leg:
+  sudo python3.8 tools/arpleg.py --tag L1a-lpa-on --out <capture dir> \
+    --iface eth3 --arp 23.1.1.3,23.1.1.1,24.1.1.3 --sender-ip 23.1.1.5 \
+    --sender-mac 00:11:22:33:44:01 --count 3 --wait 5
+cap L1a-lpa-on-eth3.pcap: 15 frame(s)
+  x3  ARP-REQ   who-has 23.1.1.3 tell 23.1.1.5   [00:11:22:33:44:01 -> ff:ff:ff:ff:ff:ff]
+  x3  ARP-REPLY 23.1.1.3 is-at e0:1a:ea:d4:70:43 [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:01]
+  x3  ARP-REQ   who-has 23.1.1.1 tell 23.1.1.5   [00:11:22:33:44:01 -> ff:ff:ff:ff:ff:ff]
+  x3  ARP-REPLY 23.1.1.1 is-at e0:1a:ea:d4:70:43 [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:01]
+  x3  ARP-REQ   who-has 24.1.1.3 tell 23.1.1.5   [00:11:22:33:44:01 -> ff:ff:ff:ff:ff:ff]
+
+  STEP 0a against this leg, identical traffic, one configuration line between them:
+
+    target     nature                                      OFF        ON
+    23.1.1.3   vlan23's OWN subnet, same interface          0 replies  3, is-at e0:1a:ea:d4:70:43
+    24.1.1.3   no route                                     0 replies  0 replies
+    23.1.1.1   the DUT's own address (control)              3 replies  3 replies
+
+  => STEP 1 PASS: the command is accepted, held under `interface vlan23`, and the DUT
+     now answers with ITS OWN MAC for an address on the very interface the request
+     arrived on -- the "one armed router" behaviour the case text describes, measured on
+     the wire rather than inferred from a ping. It still does not answer for an address
+     it cannot route, so the feature is gated and not blanket.
+
+STEP 2 -- "From BackupSW, ping 23.1.1.3 / Expect ping to fail, but with ARP using DUT MAC address ... DUT MAC address will be saved on BackupSW ARP table"  PASS
+--------------------------------------------------------------------------------
+  Method: run exactly as authored, with eth3 sniffing the VLAN 23 broadcast domain at
+  the same time (`arpleg.py --sniff-only`, nothing injected).
+
+x960-28YSQ# clear arp-cache
+x960-28YSQ# ping 23.1.1.3 repeat 3
+PING 23.1.1.3 (23.1.1.3) 56(84) bytes of data.
+From 23.1.1.1 icmp_seq=1 Destination Host Unreachable      <-- 23.1.1.1: the DUT
+From 23.1.1.1 icmp_seq=2 Destination Host Unreachable
+From 23.1.1.1 icmp_seq=3 Destination Host Unreachable
+--- 23.1.1.3 ping statistics ---
+3 packets transmitted, 0 received, +3 errors, 100% packet loss, time 2049ms
+x960-28YSQ# show arp
+IP Address      LL Address       Interface            Port        Type
+23.1.1.3        e01a.ead4.7043   vlan23               port1.0.16  dynamic
+
+  Simultaneous passive capture on eth3 (leg `L1b-swib-ping-on`, --sniff-only --wait 50):
+cap L1b-swib-ping-on-eth3.pcap: 4 frame(s)
+  x1  ARP-REQ who-has 23.1.1.3 tell 23.1.1.2  [eth 00:00:cd:42:30:29 -> ff:ff:ff:ff:ff:ff]
+  x3  ARP-REQ who-has 23.1.1.3 tell 23.1.1.1  [eth e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+
+  The authored expected result, point by point:
+    "Expect ping to fail"              -> 3 transmitted, 0 received, 100% packet loss. MET.
+    "but with ARP using DUT MAC addr"  -> BackupSW broadcast who-has 23.1.1.3, one
+                                          request from 00:00:cd:42:30:29, visible in the
+                                          capture, and was answered by the DUT. MET.
+    "DUT MAC address will be saved on  -> BackupSW's ARP table holds 23.1.1.3 ->
+     BackupSW ARP table"                  e01a.ead4.7043, the DUT's MAC, learned
+                                          dynamically on vlan23 / port1.0.16. MET.
+
+  And the discriminator that makes the ping meaningful: the ping fails in BOTH states,
+  so "the ping failed" proves nothing by itself. What changed is WHO reports the
+  failure.
+    feature OFF (STEP 0b): "From 23.1.1.2" -- BackupSW itself, unable to resolve. The
+                           packets never left BackupSW.
+    feature ON  (here):    "From 23.1.1.1" -- the DUT. BackupSW resolved 23.1.1.3 to the
+                           DUT's MAC and FORWARDED the echo requests to it; the DUT
+                           accepted them, tried to resolve the real 23.1.1.3 on vlan23
+                           (the 3 broadcast requests from 23.1.1.1 in the capture),
+                           found nothing, and returned the unreachable itself.
+
+  => STEP 2 PASS: the authored expected result is met in full on real hardware -- the
+     ping fails, BackupSW's ARP for 23.1.1.3 is answered by the DUT, and the DUT's MAC
+     is in BackupSW's table. The capture and the unreachable's source address show the
+     traffic genuinely reached the DUT, so the PASS rests on the mechanism and not on
+     identical ping text that appears in both states.
+
+STEP 3 -- the mask boundary (supplementary; no authored text for this limb)  PASS
+--------------------------------------------------------------------------------
+  Method: the authored /24-vs-/16 mismatch makes BackupSW treat all of 23.0.0.0/16 as
+  on-link. Does the DUT local-proxy-answer for an address inside BackupSW's /16 but
+  OUTSIDE its own /24? Both targets in the SAME leg.
+
+  sudo python3.8 tools/arpleg.py --tag L2-mask-boundary --out <capture dir> \
+    --iface eth3 --arp 23.2.2.2,23.1.1.3 --sender-ip 23.1.1.5 \
+    --sender-mac 00:11:22:33:44:01 --count 3 --wait 5
+cap L2-mask-boundary-eth3.pcap: 9 frame(s)
+  x3  ARP-REQ   who-has 23.2.2.2 tell 23.1.1.5   [00:11:22:33:44:01 -> ff:ff:ff:ff:ff:ff]
+  x3  ARP-REQ   who-has 23.1.1.3 tell 23.1.1.5   [00:11:22:33:44:01 -> ff:ff:ff:ff:ff:ff]
+  x3  ARP-REPLY 23.1.1.3 is-at e0:1a:ea:d4:70:43 [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:01]
+                                         <-- 23.2.2.2: 0 replies; 23.1.1.3: 3, same leg
+
+  Corroborated from BackupSW: `ping 23.2.2.2` left its ARP table with no entry for it.
+
+  => STEP 3 PASS: `ip local-proxy-arp` is bounded by the DUT INTERFACE's own subnet
+     (23.1.1.0/24), not by the neighbour's idea of on-link. The authored mask mismatch
+     therefore works only for addresses inside the DUT's /24; a BackupSW host that ARPs
+     for 23.2.x.x gets nothing. The behaviour is correct and gated, and the two targets
+     in one leg make that a comparison rather than two separate observations.
+
+STEP 4 -- removal, both limbs (supplementary; no authored text for this limb)  PASS
+--------------------------------------------------------------------------------
+awplus(config-if)# no ip local-proxy-arp
+awplus# show running-config interface vlan23
+interface vlan23
+ ip address 23.1.1.1/24                  <-- the local-proxy-arp line is gone
+
+  4a. CRAFTED (leg `L3a-removed`, --arp 23.1.1.3,23.1.1.1):
+  x3  ARP-REQ   who-has 23.1.1.3 tell 23.1.1.5
+  x3  ARP-REQ   who-has 23.1.1.1 tell 23.1.1.5
+  x3  ARP-REPLY 23.1.1.1 is-at e0:1a:ea:d4:70:43
+                                         => 23.1.1.3: 0 replies (was 3).
+                                            Control 23.1.1.1: still 3.
+
+  4b. AUTHORED LIMB:
+x960-28YSQ# ping 23.1.1.3 repeat 3
+From 23.1.1.2 icmp_seq=1 Destination Host Unreachable
+From 23.1.1.2 icmp_seq=2 Destination Host Unreachable
+From 23.1.1.2 icmp_seq=3 Destination Host Unreachable
+3 packets transmitted, 0 received, +3 errors, 100% packet loss
+x960-28YSQ# show arp
+IP Address      LL Address       Interface            Port        Type
+                                         <-- empty
+
+  => STEP 4 PASS: removal is proven three ways -- in running-config, on the wire with a
+     live control in the same leg, and in the PARTNER's own table. The unreachable's
+     source flipped back from 23.1.1.1 (the DUT) to 23.1.1.2 (BackupSW itself), which is
+     the same discriminator as STEP 2 read in reverse.
+
+STEP 5 -- persistence across a reboot (supplementary; no authored text for this limb)  PASS
+--------------------------------------------------------------------------------
+  Method: the DUT only -- no partner is rebooted. Nothing is written to startup-config;
+  the setting is staged in a NAMED boot config and the pointer is put back afterwards.
+
+awplus(config-if)# ip local-proxy-arp
+awplus# copy running-config flash:/ckT43849.cfg
+Successful operation
+awplus(config)# boot config-file flash:/ckT43849.cfg
+awplus# show boot
+Current boot config: flash:/ckT43849.cfg (file exists)
+
+  Reload driven by tools/ckreload.py on /dev/u2 @115200:
+reboot question: 'reboot system? (y/n):' -> y
+19:19:53 login seen after 60 s
+
+  Reload started 06:18:26 UTC, login 06:19:53 UTC, measurement from 06:21:17 UTC.
+
+awplus# show running-config interface vlan23
+ ip local-proxy-arp
+ ip address 23.1.1.1/24
+  STP immediately before the leg -- the port1.0.2 shutdown was in the staged config, so
+  the topology came back as the case needs it: port1.0.10 Designated Forwarding;
+  port1.0.16 Rootport Forwarding.
+
+  5a. CRAFTED, all four targets (leg `L4a-after-reload`):
+  x3  ARP-REQ   who-has 23.1.1.3 tell 23.1.1.5
+  x3  ARP-REPLY 23.1.1.3 is-at e0:1a:ea:d4:70:43
+  x3  ARP-REQ   who-has 23.1.1.1 tell 23.1.1.5
+  x3  ARP-REPLY 23.1.1.1 is-at e0:1a:ea:d4:70:43
+  x3  ARP-REQ   who-has 24.1.1.3 tell 23.1.1.5     (0 replies)
+  x3  ARP-REQ   who-has 23.2.2.2 tell 23.1.1.5     (0 replies)
+
+  5b. AUTHORED LIMB:
+x960-28YSQ# ping 23.1.1.3 repeat 3
+From 23.1.1.1 icmp_seq=1 Destination Host Unreachable      <-- the DUT again
+3 packets transmitted, 0 received, +3 errors, 100% packet loss
+x960-28YSQ# show arp
+23.1.1.3        e01a.ead4.7043   vlan23               port1.0.16  dynamic
+
+  => STEP 5 PASS: the configuration survived the reboot and so did the behaviour, on
+     both limbs -- all four crafted targets reproduce, the two negatives included, and
+     the authored ping again fails with the DUT as the source of the unreachable and the
+     DUT's MAC again in BackupSW's ARP table.
+================================================================================
