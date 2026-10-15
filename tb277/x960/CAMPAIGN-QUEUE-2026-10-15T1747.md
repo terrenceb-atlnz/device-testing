@@ -136,19 +136,249 @@ re-reading as a top-three cost.
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| A | T33248 Static ARP · T33247 Clear ARP · T33249 ARP Logging · T33246 ARP Polling · T43848 Proxy ARP · T43849 Local Proxy ARP | arp-2026-10-15T1747 | QUEUED | DUT + both host NICs. Two L3 segments (eth3/VLAN 10, eth4/VLAN 48) give proxy ARP its two sides without a partner. Run first: it is the least topology-hungry and it proves the bench before the routing underlay goes in |
-| B | T43855 IPv4 Static · T43861 ECMP Routing · T43862 Secondary IP Address | static-2026-10-15T1747 | QUEUED | Needs the routing underlay (below) and both partners. ECMP uses the DUT's **two** links to one partner, or one link to each — the triangle gives equal-cost paths either way |
-| C | T43857 OSPFv2 · T43856 RIP v1/v2 | igp-2026-10-15T1747 | QUEUED | Same underlay as B. `service ospf` / `service rip` FIRST |
-| D | T43858 BGPv4 · T43859 VRF-Lite | bgp-vrf-2026-10-15T1747 | QUEUED | Same underlay. `service bgp` first. VRF-Lite may need a feature the DUT lacks — that is UNSUPPORTED **with the refused command quoted**, after the service gate has been ruled out |
+| A | T33248 Static ARP · T33247 Clear ARP · T33249 ARP Logging · T33246 ARP Polling · T43848 Proxy ARP · T43849 Local Proxy ARP | arp-2026-10-15T1747 | RUNNABLE (triaged 2026-10-15T1805) | DUT + both host NICs. Two L3 segments (eth3/VLAN 10, eth4/VLAN 48) give proxy ARP its two sides without a partner. Run first: it is the least topology-hungry and it proves the bench before the routing underlay goes in |
+| B | T43855 IPv4 Static · T43861 ECMP Routing · T43862 Secondary IP Address | static-2026-10-15T1747 | RUNNABLE (triaged 2026-10-15T1805) | Needs the routing underlay (below) and both partners. ECMP uses the DUT's **two** links to one partner, or one link to each — the triangle gives equal-cost paths either way |
+| C | T43857 OSPFv2 · T43856 RIP v1/v2 | igp-2026-10-15T1747 | RUNNABLE (triaged 2026-10-15T1805) | Same underlay as B. `service ospf` / `service rip` FIRST |
+| D | T43858 BGPv4 · T43859 VRF-Lite | bgp-vrf-2026-10-15T1747 | RUNNABLE (triaged 2026-10-15T1805) | Same underlay. `service bgp` first. VRF-Lite may need a feature the DUT lacks — that is UNSUPPORTED **with the refused command quoted**, after the service gate has been ruled out |
 
 **Group order is deliberate.** A runs on a bench almost identical to the one just restored. B, C
 and D then share **one L3 underlay** built once (STANDING-ORDERS §6: bench setup is set once per
 TestSet), with each group layering only its own protocol on top and removing it afterwards. That
 keeps three groups from rebuilding the same addressing three times.
 
-**Triage has NOT run yet.** The tester triages all thirteen rows against the bench before
+**Triage ran 2026-10-15 18:05 NZDT — see `## Triage result` below. 13 runnable, 0 blocked.**
+
+~~Triage has NOT run yet.~~ The tester triages all thirteen rows against the bench before
 anything is configured, and the result is recorded here. Under the unattended rule the campaign
 then proceeds with the runnable cases automatically instead of asking.
+
+## Triage result — 2026-10-15 18:05 NZDT, by the bench-runner tester (TRIAGE dispatch)
+
+**13 runnable now · 0 blocked by topology · 0 blocked by anything else.**
+Nothing was changed on the bench: `bench_probe.py run` (exit 0), read-only `qmark.py` help probes
+(no CR — `<cmd> ?` then Ctrl-U; self-test passed every time), and `cfg.py` `show` commands only.
+`show running-config` on swi_d after all of it is **byte-identical** to the probe capture
+(`captures/2026-10-15T045216Z/u2.show_running-config.txt`). All three consoles were left at the
+exec prompt with `terminal no monitor`, verified from the transcripts
+(`/tmp/rt1747/console-u{2,3,5}.log`), not from tool stdout.
+
+### Gate record
+
+| gate | result |
+| --- | --- |
+| 1 occupancy | `precheck` exit 5, **u2/u3/u5 all `free`**; the one FOUND item is `ser2net` pid 744 (root, up 34 d), the box's console-server daemon. Proceeded per dispatch |
+| 2 consoles parked | none. All three logged in cleanly to an exec prompt at the recorded baud |
+| 3 template path | **no `tb277.setup.current` exists** — tb277 has never had a `.setup` applied (`apply` needs `/nfsHome`, which is root ⇒ the Test Engineer's; still open from 10-15) |
+| 4 probe | `python3.8 bench_probe.py --box tb277 run --consoles u2,u3,u5 --no-prompt --pdu 10.36.230.212 --outlet u2=1,u3=7,u5=3@10.36.230.35` → **exit 0**, Advisories: **none**, no USER-CONFLICT. `bench-state.md` regenerated at `2026-10-15T045216Z` |
+| 5 the run's `.setup` | n/a — no template, so **no framework run is possible on tb277**. All 13 cases are manual console + scapy, as the 14:58 campaign was |
+| 6 pt_preflight | n/a (no `.setup`, no generated script) |
+| 7 boot baseline | swi_d `flash:/x960-tb277.rel` + `flash:/default.cfg`, **both exist** — the DUT is safe to reload. swi_b `flash:/backup.rel` exists. swi_a see RISK-1 |
+| 8 Ask-CK server run path | n/a |
+| 9 sentinel | `sentinel: parent`, nothing to arm |
+| 10 CLI surface | every command all 13 cases need was confirmed present by read-only `?` probe — see the table below |
+
+### TPS: all thirteen are priority 1 / Yes
+
+`https://wiki.atlnz.lc/awpwiki/index.php?title=X960_platform_support_TPS&action=raw`, rows
+17–24 (ARP) and 31–38 (Unicast Routing). Verbatim, every one `priority 1`, `Yes`, note column empty:
+
+| TPS row | feature | case |
+| --- | --- | --- |
+| 18 | ARP Polling | T33246 |
+| 19 | Clear ARP | T33247 |
+| 20 | Static ARP | T33248 |
+| 21 | ARP Logging | T33249 |
+| 23 | Proxy-ARP | T43848 |
+| 24 | Local Proxy-ARP | T43849 |
+| 31 | IPv4 Static routing | T43855 |
+| 32 | RIP v1/v2 | T43856 |
+| 33 | OSPFv2 | T43857 |
+| 34 | BGP-4 | T43858 |
+| 35 | VRF-Lite | T43859 |
+| 37 | ECMP (Equal-cost Multi-Path) routing | T43861 |
+| 38 | Secondary IP Address (Multi homing) | T43862 |
+
+⇒ **No case may be graded UNSUPPORTED without DUT evidence**, and none needs to be: every command
+is present (next table).
+
+### CLI surface, measured on swi_d by read-only `?` probe
+
+| case | command(s) | present? |
+| --- | --- | --- |
+| T33248 Static ARP | `arp A.B.C.D` (config) | yes |
+| T33247 Clear ARP | `clear arp-cache [A.B.C.D\|global\|vrf]` (exec) | yes — note it is `clear arp-cache`, **not** `clear arp` (that only takes `security`) |
+| T33249 ARP Logging | `arp log` (config) | yes |
+| T33246 ARP Polling | `auth-web-server ping-poll type arp` + `auth-web enable` (if) + `radius-server local` | yes — **see FINDING-A** |
+| T43848 Proxy ARP | `ip proxy-arp` (if) | yes |
+| T43849 Local Proxy ARP | `ip local-proxy-arp`, also `ip limited-local-proxy-arp` (if) | yes |
+| T43855 IPv4 Static | `ip route A.B.C.D/M` | yes |
+| T43861 ECMP | `maximum-paths <1-8>` (config) | yes |
+| T43862 Secondary IP | `ip address A.B.C.D/M secondary` (if) | yes |
+| T43857 OSPFv2 | `service ospf`, `router ospf`, `ip ospf` (if) | yes |
+| T43856 RIP v1/v2 | `service rip`, `router rip`, `ip rip` (if) | yes |
+| T43858 BGPv4 | `service bgp`, `router bgp` | yes |
+| T43859 VRF-Lite | `ip vrf WORD`, `ip route vrf`, `show ip route vrf`, `arp vrf` | yes |
+
+**The service gate is ruled out before any run:** `service ?` on swi_d lists `bgp`, `ospf`, `rip`
+(and `ospf6`, `ripng`, `pim`, `bfd`, `vrrp`). Both partners list the same. Nothing here can be
+called UNSUPPORTED for want of a `service` command.
+
+### FINDING-A (resolved, record it) — "ARP Polling" is web-auth ARP polling, and the CLI is not what the TFS proposed
+
+TPS row 18 "ARP Polling" is **Project 2561, "ARP-polling for Web Auth"**
+(`https://wiki.atlnz.lc/awpwiki/index.php?title=ARP-polling_for_Web_Auth_TFS&action=raw`): the
+device sends *directed* ARP requests to an authenticated web-auth supplicant and deauthenticates
+it after `failcount` unanswered requests. It is **not** a generic ARP-cache refresh feature, and
+there is no `arp polling` anywhere under `arp ?` (config), `arp ?` (interface) or `ip arp`.
+
+The TFS's MRS text proposes `auth-web-server [arp-poll | ping-poll] enable`. **That syntax does
+not exist on the DUT** — `auth-web-server arp-poll ?` → `% Unrecognized command`. The shipped
+syntax is:
+
+```
+auth-web-server ping-poll type { arp | ping }     # "arp  Enable polling via ARP"
+auth-web-server ping-poll { enable | interval | timeout | failcount | reauth-timer-refresh }
+```
+
+TFS revision 0.3 (28/Apr/2021) is logged as "Change configuration syntax", so the shipped CLI is
+the intended one and **this is not a product defect** — but anyone grading T33246 against the TFS
+text verbatim would wrongly call it absent. Defaults read off the CLI help: interval 30 s,
+timeout 1 s, failcount 5.
+
+### Licences — clear, nothing to request
+
+| unit | licences | consequence |
+| --- | --- | --- |
+| swi_d (DUT) | Base + **`atlnz`** (ATL-NZ internal, Full) | has `VRF-LITE-FULL`, `VRF-LITE-63`, `VRF-LITE-8`, `BGP-FULL`, `OSPF-FULL`, `RIP-256`, `No-Tier-Check`. **Nothing in this campaign is licence-blocked on the DUT** |
+| swi_a (u5) | Base + **`full`** (ATL-NZ internal) | same breadth |
+| swi_b (u3) | **Base License only** | `BGP-64`, `OSPF-64`, `RIP`, `L3-FORWARDING`, **no VRF-Lite**. Fine as an IGP/BGP peer; keep swi_b-facing route counts **≤ 64**, and **do not make swi_b a VRF peer** |
+
+Why this mattered: the TPS feature-licence matrix (§"Feature Licenses", X960-28YSQ) puts
+**VRF-Lite <64 instances under `AT-FL-x960-01`, not under x960 Base** (OSPF/BGP ≤64 routes and
+Static Routing 1024 routes *are* Base). The DUT's `atlnz` licence covers it, so T43859 is runnable
+— but on a Base-only x960 it would not be.
+
+### ck.db — one case has step text, twelve do not
+
+Exact-title lookup against `/home/terrenceb/claude/Test-cases/ask-ck/db/ck.db` (read-only URI,
+`python3.8` on the box; no `sqlite3` binary there) for all 13 queue titles:
+
+- **T43849 "Local Proxy ARP: Functionality" → `AWP-4357` / internal_id 25060, unique, `steps_text`
+  517 chars.** Use it. Quoted in full:
+  > Configure DUT and BackupSW / Connect both SW via VLAN 23 / Configure DUT as follows: interface
+  > VLAN23, iP address 23.1.1.1/24, ip local-proxy-arp / Configure BackupSW as follows: interface
+  > VLAN23, ip address 23.1.1.2/16 / From BackupSW, ping 23.1.1.3 / Expect ping to fail, but with
+  > ARP using DUT MAC address. DUT responds to ARPs on an interface for other IP hosts that would
+  > be on the same interface. This is a "one armed router" situation eg when private vlans are
+  > configured. DUT MAC address will be saved on BackupSW ARP table
+- The other **twelve have no exact title** in ck.db. Ground them in the TPS row + the Feature
+  Overview Guide + the TFS, per the queue's rule.
+- Useful *reference* rows found by LIKE (same feature family, **not** these cases — do not present
+  them as the case's steps): `AWP-4336/4337/4341/4342/4351` Static ARP, `AWP-4339` "ARP Commands:
+  Clear ARP", `AWP-4353/4354/4355` Proxy ARP, `AWP-4356/4358` Local Proxy ARP,
+  `AWP-8284/8285/8286` Secondary IP Address Assignment, `AWP-13667` "ECMP Default Maximum-Path
+  Value", `AWP-22032` "IPv4 ECMP Test".
+
+### Feature Overview Guides present at the repo root
+
+`ip_feature_overview_guide.pdf` (covers static ARP, ARP aging, deleting ARP entries, Proxy ARP
+p6, Local Proxy ARP p9, ARP logging p9, secondary addressing p3), `OSPF_…`, `RIP_…`,
+`Route_Selection_…` (ECMP), `VRF_Lite_…`.
+**There is no BGP Feature Overview Guide** — T43858 must be grounded in the TPS row plus the wiki
+/ TFS instead. Note: the IP guide contains **no** mention of "polling"; T33246's grounding is the
+Project 2561 TFS, not this guide.
+
+### Bench facts the groups must carry
+
+Host NICs (measured): `eth2` 10.38.22.1/27 carrier up, **nothing learned — not usable**;
+`eth3` 10.38.22.33/27 → swi_d `port1.0.10`; `eth4` 10.38.22.65/27 → swi_d `port1.0.48`.
+**Both usable NICs land on the DUT**, so there is no scapy host behind a partner: every far-side
+count is either a hairpin back through the DUT to eth4, or a per-port interface counter on the
+partner.
+
+Clocks read 18:00 NZDT (box 05:00:09 UTC):
+
+| unit | reads | offset |
+| --- | --- | --- |
+| swi_d u2 | 05:00:07 UTC | −2 s |
+| swi_a u5 | 04:58:45 UTC | −1 m 24 s |
+| **swi_b u3** | **17:59:46 "UTC"** | **+12 h 59 m 39 s** — it shows NZDT wall clock while labelled `Timezone: UTC` |
+
+### RISKS — none blocks a case, all must be handled at group setup
+
+- **RISK-1 (OPEN-1) swi_a must not be reloaded or power-cycled.** `Current boot image: Not set`,
+  `Current boot config: flash:/default.cfg (file not found)`, autoboot disabled; it is running
+  `x950GEN2-tb277.rel` from a netboot. **No case in this queue needs a partner reboot** — every
+  reboot-persistence limb runs on the DUT, which flash-boots `flash:/x960-tb277.rel` with
+  `flash:/default.cfg` present. ⇒ Use **swi_b as the primary routing partner**; use swi_a only as
+  the second ECMP/IGP path. If swi_a must be touched, change config only, never power.
+- **RISK-2 swi_b carries pre-existing config on a DUT link.** `vlan 100`, `port1.0.2` and
+  `port1.0.4` in `static-channel-group 1` + `switchport access vlan 100`, `port1.0.8` in vlan 100,
+  `interface sa1` in vlan 100, `eth0 169.254.42.42/16`. **`port1.0.2` is one of the two swi_b↔swi_d
+  links.** ⇒ Prefer **swi_b `port1.0.16`** (clean both ends) for the swi_b leg and leave `sa1`
+  untouched; take the pre-case `show running-config` of swi_b and diff it at teardown either way.
+- **RISK-3 `lacp global-passive-mode enable` is set on all three units.** A port freed from an
+  aggregator can auto-enrol, and the link then forwards where STP cannot block
+  (memory `lacp-passive-hides-links-from-stp`). After any port change check
+  `show static-channel-group` and `show etherchannel summary` on **all three**.
+- **RISK-4 RSTP is on all three with six links in a doubled triangle**, so something is blocked
+  today. Give every routed leg **its own VLAN** so each VLAN carries exactly one link; confirm
+  with `show spanning-tree brief` before measuring, never after.
+- **RISK-5 swi_b's clock is ~13 h ahead while both ends say `UTC`.** Correlating an ARP log,
+  an OSPF adjacency or a BGP timer across swi_b and the DUT silently gives a wrong answer.
+  ⇒ At group setup run `clock set <hh:mm:ss> 15 Oct 2026` on swi_b, record that it was done and
+  the offset it replaced; or quote every swi_b timestamp with the offset applied. **State the
+  offset in every working log.**
+- **RISK-6 no `.setup` on tb277 ⇒ no framework.** All 13 are manual. There is therefore also no
+  framework post-failure PDU cycle; a failed case leaves the bench exactly as the case left it,
+  so each case's own teardown is the only restore.
+- **RISK-7 `tools/tb` does not work on tb277** (box `python3` is 3.6). Every tool runs as
+  `python3.8` over a hand-built ssh — the standing exception already in force on this box since
+  10-08. One driver process per device, never two at once on the same `/dev/uN`: two readers give
+  `device reports readiness to read but returned no data`, which reads exactly like a dead unit.
+
+### Per-case verdict and what each needs
+
+**Group A `arp-2026-10-15T1747` — 6 runnable. DUT + host NICs only; no partner, no reload of anything but the DUT.**
+
+| case | runnable | bench it needs |
+| --- | --- | --- |
+| T33248 Static ARP | yes | VLAN 10 on `port1.0.10`, `interface vlan10 ip address 192.168.10.1/24`, eth3 192.168.10.2. `arp 192.168.10.9 <mac> port1.0.10`; prove the entry is Static in `show arp`, that a crafted frame to it egresses `port1.0.10` with that destination MAC, that `no arp …` removes it from running-config, and that it survives a DUT reload staged on a named boot config |
+| T33247 Clear ARP | yes | same segment. Populate the cache with scapy, then `clear arp-cache`, `clear arp-cache 192.168.10.2`, `clear arp-cache global`. Grade on the cache **and** on the DUT re-ARPing on the wire, with a static entry present as the control that must survive |
+| T33249 ARP Logging | yes | same segment + `arp log`. Grade on log lines produced by *crafted* ARP, with a baseline OFF leg first; `terminal monitor` is exec-only (memory `terminal-monitor-exec-only`) |
+| T33246 ARP Polling | yes — **run it LAST in the group** | heaviest by far: `auth-web enable` on `port1.0.10`, `auth-web-server ipaddress`, a `radius-server local` user, a web-auth login driven from the box with `curl`, then `auth-web-server ping-poll type arp` + `enable` + a short `interval`/`failcount`. Measure the **directed** ARP requests on eth3 with tcpdump (the TFS requires dst-MAC = supplicant's, not broadcast), then stop answering and show the deauth after `failcount`. Control leg: `type ping` must produce ICMP, not ARP |
+| T43848 Proxy ARP | yes | two segments: VLAN 10 (`port1.0.10`/eth3) and VLAN 48 (`port1.0.48`/eth4), DUT routing between them. eth3 given a deliberately wide mask so a VLAN-48 address looks on-link; scapy-craft the ARP request and read **who answers and with which MAC**. Baseline leg with `no ip proxy-arp` (default) must get no answer |
+| T43849 Local Proxy ARP | yes — **has real step text (AWP-4357)** | one segment, two hosts: put **both** `port1.0.10` and `port1.0.48` in VLAN 23, `interface vlan23 ip address 23.1.1.1/24 ip local-proxy-arp`; eth3 `23.1.1.2/16` (wide mask, as the step says), eth4 `23.1.1.4/24`. scapy-ARP from eth3 for `23.1.1.3` → expect the DUT's MAC. Deviation from the step text, deliberate: the host NIC stands in for "BackupSW" so the ARP is crafted and counted rather than inferred from a ping (STANDING-ORDERS §7) |
+
+**Groups B, C, D share ONE L3 underlay, built once (STANDING-ORDERS §6).** Proposed, each leg its own VLAN so RSTP blocks nothing:
+
+```
+DUT  vlan10  port1.0.10   192.168.10.1/24      (host eth3 = source)
+DUT  vlan48  port1.0.48   192.168.48.1/24      (host eth4 = sink)
+DUT  vlan41  port1.0.4    10.0.41.1/30   <-> swi_a port1.0.4   10.0.41.2/30
+DUT  vlan42  port1.0.14   10.0.42.1/30   <-> swi_a port1.0.14  10.0.42.2/30
+DUT  vlan61  port1.0.16   10.0.61.1/30   <-> swi_b port1.0.16  10.0.61.2/30
+(swi_b port1.0.2 left alone — it is in static-channel-group 1, RISK-2)
+```
+Restore: every port back to untagged VLAN 1, every `interface vlanN` address removed **before**
+`no interface vlanN` (`% Removal of interface not allowed` otherwise — 10-15 handover).
+
+| case | runnable | bench it needs |
+| --- | --- | --- |
+| T43855 IPv4 Static | yes | DUT + swi_b over vlan61. Static route on the DUT to a prefix that lives only on swi_b; prove forwarding with crafted frames plus a control flow to an unrouted prefix that must be dropped; prove `no ip route` removes it from both running-config and the FIB; prove persistence across a DUT reload |
+| T43861 ECMP | yes | **use the swi_a pair** (`port1.0.4` + `port1.0.14`, clean at both ends) for the two equal-cost next-hops `10.0.41.2` and `10.0.42.2` to one prefix. `maximum-paths` is `<1-8>`. Grade by **varying the 5-tuple over many flows and counting per egress port** on the DUT's tx counters *and* swi_a's rx counters; hairpin the prefix back through swi_a to the DUT and out vlan48 so eth4 gives a scapy far-side count too. Control: `maximum-paths 1` must collapse everything onto one port. `show ip route` is a read-back, never the evidence |
+| T43862 Secondary IP | yes | DUT + eth3 only. `interface vlan10 ip address 192.168.10.1/24` then `ip address 172.16.10.1/24 secondary`; eth3 given an address in each subnet; prove the DUT answers ARP and routes for **both**, that removing the primary is refused or drops the secondary as documented, and that `no ip address … secondary` removes it |
+| T43857 OSPFv2 | yes | `service ospf` **first** on DUT and swi_b (and swi_a if a second neighbour is wanted). swi_b is `OSPF-64`, so keep advertised routes **≤ 64**. Prove adjacency Full, a route learned via OSPF (not static), forwarding on the wire, then **withdraw** the route and prove the traffic stops. `no service ospf` lingers until reload — do not grade on it |
+| T43856 RIP v1/v2 | yes | `service rip` first. Both v1 and v2 behaviour (`version 1` / `version 2`), swi_b as neighbour. Same evidence shape as OSPF |
+| T43858 BGPv4 | yes | `service bgp` first; `router bgp <asn>` on DUT and swi_b (eBGP across vlan61 is simplest). swi_b is `BGP-64` ⇒ keep ≤ 64 prefixes. **No Feature Overview Guide exists for BGP** — ground the steps in TPS row 34 and the wiki. Prove the session Established, a prefix learned via BGP, forwarding, then withdrawal stopping it |
+| T43859 VRF-Lite | yes | **DUT + both host NICs only — do not make swi_b a VRF peer** (Base licence, no VRF-Lite). `ip vrf red` / `ip vrf blue`, `port1.0.10`/vlan10 into red, `port1.0.48`/vlan48 into blue. Prove isolation first (a crafted frame from eth3 to eth4's address must **not** cross, and `show ip route vrf red` must not hold blue's prefix), then add a route inside one VRF and prove it does forward. The DUT holds `VRF-LITE-FULL`, `VRF-LITE-63`, `VRF-LITE-8` |
+
+### Recommended dispatch order
+
+A → B → C → D, as the queue has it. Within A, run T33246 **last**: it is the only case needing
+web auth + RADIUS + an HTTP login, and a problem there must not delay the five cheap ARP cases.
+Build the B/C/D underlay once at the start of B and leave it up through D, removing only each
+group's own protocol.
 
 ## Results
 
@@ -174,3 +404,10 @@ then proceeds with the runnable cases automatically instead of asking.
   vendor-identifying-specific` on `interface vlan1`. Harmless here, but it means "default config"
   on this unit is not the factory default — diff against the **recorded** pre-case copy, never
   against an assumed default.
+- **NOTICE (campaign) — occupancy check returned FOUND (exit 5) and was not escalated.**
+  `/test-mode` §3 would normally stop and hand the FOUND list to the Test Engineer. The single
+  item is `process 744 (root, up 34-06:35): /usr/sbin/ser2net -c /etc/ser2net.conf` — the box's
+  **console-server daemon**, which is what provides `/dev/uN` in the first place, not a session
+  holding a console. **All three consoles report `free`.** *What was done instead:* proceeded.
+  The same FOUND item was present throughout the 14:58 campaign, which ran three hours against
+  it without contention. No person is being displaced.
