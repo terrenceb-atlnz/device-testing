@@ -501,6 +501,7 @@ and diff `captures/<new>/u2.show_running-config.txt` against
 
 | case | verdict | reason | graded by | working log |
 | --- | --- | --- | --- | --- |
+| T33248 | PASS | static ARP proven **on the wire**: 5/5 routed frames rewritten to the configured MAC and egressed on the configured port, the DUT's own ARP for that address suppressed; control address with no entry still ARPed and forwarded 0/5; removal returns config, table AND dataplane to baseline; survives a real reload. One instrument fault found and fixed first (`tools/arpleg.py` passed `-p` to tcpdump, so a frame carrying a next-hop MAC that was not the NIC's own was invisible and the leg read "0 forwarded") — both legs re-run after the fix | tester | arp-2026-10-15T1747/T33248/work/run1.log |
 
 ## Issues
 
@@ -528,3 +529,12 @@ and diff `captures/<new>/u2.show_running-config.txt` against
   holding a console. **All three consoles report `free`.** *What was done instead:* proceeded.
   The same FOUND item was present throughout the 14:58 campaign, which ran three hours against
   it without contention. No person is being displaced.
+- **🔴 FOR THE TEST ENGINEER (T33248, does not change its PASS) — `arp <ip> <mac> alias` installs but
+  never answers.** The `alias` option is refused with `% Proxy Arp is not enabled in the interface`
+  unless `ip proxy-arp` is on the interface owning that subnet (measured both ways: accepted on
+  vlan10 with proxy-arp on, refused on vlan48 with it off). With the dependency satisfied it appears
+  in running-config and in `show arp` — but produced **no ARP reply in any configuration reachable on
+  this bench**. The instrument control rules out a measurement gap: the DUT answered 3/3 for its own
+  address in the same leg. *What was done instead of asking:* recorded as an observation, the case
+  graded on its own subject. **This wants a developer's answer on the intended semantics of `alias`,
+  not another bench leg.**
