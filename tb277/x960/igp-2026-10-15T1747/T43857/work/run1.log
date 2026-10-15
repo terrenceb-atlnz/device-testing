@@ -682,3 +682,255 @@ STEP 5 -- DEPTH: `passive-interface`, both halves of the guide's claim measured 
       Hellos resume, 9.00 s apart.  Removable, proven on the wire.
 
   STEP 5 VERDICT: PASS.
+
+STEP 6 -- REMOVAL: GONE FROM THE DATAPLANE, NOT MERELY FROM running-config.
+
+  awplus# configure terminal
+  awplus(config)# no router ospf 1
+  awplus(config)# end
+
+  State (21:52:46-21:52:51):
+    awplus# show ip route ospf
+    Gateway of last resort is not set
+    No entries in route table
+    awplus# show running-config | include router ospf
+    awplus#                                     <- EMPTY
+    awplus# show ip ospf neighbor
+    awplus#                                     <- EMPTY: both adjacencies torn down
+    awplus# show running-config | include service ospf
+    service ospf                                <- still present, deliberately; see the note
+    STP (21:52:51): port1.0.4, 1.0.10, 1.0.16 all Designated Forwarding -- unchanged.
+
+  tool: identical to step 2e, --tag L6-no-router-ospf.   cap 27 frame(s)
+    x5  ICMP t8/c0 192.168.10.5 -> 10.70.70.1   [ours]
+    x5  ICMP t8/c0 192.168.10.5 -> 10.90.90.1   [ours]
+    x5  ICMP t8/c0 192.168.10.5 -> 203.0.113.9  [ours]
+    x5  ICMP t8/c0 192.168.10.5 -> 192.168.10.1 [ours]
+    x5  ICMP t0/c0 192.168.10.1  -> 192.168.10.5 [ours]
+    x2  ICMP t3/c0 192.168.10.1  -> 192.168.10.5 [ours]
+    (and NO p89 frame -- the protocol has stopped)
+
+  10.70.70.1   : 5 sent, **0 echo replies**  (5/5 before)
+  10.90.90.1   : 5 sent, **0 echo replies**  (5/5 before)
+  203.0.113.9  : 5 sent, 0 replies
+  192.168.10.1 : 5 sent, 5 replies -- instrument alive
+
+  The capture is now frame-for-frame the step-1 baseline (27 vs 29 frames; the difference is
+  the responder's ARP exchange, which step 1 needed and this leg did not because the DUT's
+  cache was already warm).  **Removal returns the DATAPLANE to baseline, not just the display.**
+
+  NOTE, and it is NOT a defect: `service ospf` was deliberately left in place for this step, so
+  that what was measured is the removal of the ROUTING PROCESS alone.  `no service ospf` is
+  applied at teardown; per memory `awplus-service-gated-routing-daemons` it removes the config
+  line immediately but the daemon itself keeps running until a reload.  **Nothing in this case
+  is graded on `no service ospf`.**
+
+  STEP 6 VERDICT: PASS.
+
+
+STEP 7 -- PERSISTENCE ACROSS A REAL REBOOT.
+
+  Nothing is written to startup-config (campaign rule).  A NAMED boot config is staged and the
+  pointer put back afterwards.
+
+  awplus(config)# router ospf 1                   <- the whole step-2 configuration re-applied
+  awplus(config-router)# ospf router-id 1.1.1.1      verbatim, 21:53:2x
+  awplus(config-router)# network 10.0.61.0/30 area 0
+  awplus(config-router)# network 10.0.41.0/30 area 0
+  awplus(config-router)# network 192.168.10.0/24 area 0
+  awplus(config-router)# network 192.168.48.0/24 area 0
+  awplus# copy running-config flash:/ckT43857.cfg        21:53:41  (no (y/n) prompt -- the file
+  awplus# dir flash:                                               did not already exist)
+        2249 -rw- Oct 15 2026 08:53:32  ckT43857.cfg
+  awplus(config)# boot config-file flash:/ckT43857.cfg
+  awplus# show boot
+    Current boot image : flash:/x960-tb277.rel (file exists)
+    Current boot config: flash:/ckT43857.cfg (file exists)
+  awplus# show file flash:/ckT43857.cfg | include service ospf|router ospf|...
+    service ospf
+    router ospf 1
+     ospf router-id 1.1.1.1
+     network 10.0.61.0/30 area 0        <- the staged file carries the feature AND the group's
+                                           underlay, so the bench returns intact
+
+  THE RELOAD (a real reboot, not a config reload):
+    tool: python3.8 tools/ckreload.py /dev/u2 115200 /tmp/ckC/console-u2-reload.log 300
+    08:54:10 UTC  reload issued
+    21:54:12 >>> reload   ->  reboot question: 'reboot system? (y/n):' -> y
+    21:55:13      login seen after **61 s**   (platforms/x960.md §7.9 records 60-68 s; this is
+                  the fourth sample and it lands inside that band)
+
+  AFTER THE REBOOT, before anything was re-applied (21:55:56-21:56:03):
+    awplus# show boot
+      Current boot image : flash:/x960-tb277.rel (file exists)
+      Current boot config: flash:/ckT43857.cfg (file exists)
+    awplus# show running-config | include service ospf|router ospf|ospf router-id
+      service ospf
+      router ospf 1
+       ospf router-id 1.1.1.1              <- the feature AND its service gate came back
+    awplus# show ip interface brief
+      vlan10 192.168.10.1/24 · vlan41 10.0.41.1/30 · vlan48 192.168.48.1/24 · vlan61 10.0.61.1/30
+                                           <- the whole underlay came back
+    awplus# show ip ospf neighbor          [21:55:58, 43 s after login]
+      3.3.3.3   1  **ExStart/DR**  00:00:39  10.0.41.2  vlan41
+      2.2.2.2   1  **ExStart/DR**  00:00:38  10.0.61.2  vlan61
+    awplus# show ip route ospf
+      No entries in route table            <- caught MID-CONVERGENCE, which is worth recording:
+                                              a persistence limb read at this instant would
+                                              wrongly report the feature lost
+    awplus# show arp
+      10.0.61.2  0000.cd42.3029  vlan61  port1.0.16  dynamic     <- F-3 check: BOTH next hops
+      10.0.41.2  889d.98df.2602  vlan41  port1.0.4   dynamic        already resolved
+    STP (21:56:03): port1.0.4, 1.0.10, 1.0.16 Designated Forwarding; the DUT is still root.
+
+  CONVERGENCE AFTER THE REBOOT, polled every 8 s:
+    21:56:31  both neighbours **Full/DR**;  O 10.70.70.1/32 [110/2] via 10.0.61.2, vlan61, 00:00:23
+                                            O 10.90.90.1/32 [110/2] via 10.0.41.2, vlan41, 00:00:23
+    stable through 21:56:55.  Both routes re-learned **from the protocol** (code O, AD 110),
+    ~78 s after the reload was issued and ~35 s after login.
+
+  THE COUNTED LEG.  /tmp free 110 MB.
+    tool: identical to step 2e, --tag L7-after-reload.   cap 40 frame(s)
+      10.70.70.1   : 5 sent, **5 echo replies sourced by 10.70.70.1**
+      10.90.90.1   : 5 sent, **5 echo replies sourced by 10.90.90.1**
+      203.0.113.9  : 5 sent, 0 replies -- control still dropped after the reboot
+      192.168.10.1 : 5 sent, 5 replies -- instrument alive
+      plus x1 IP p89 192.168.10.1 -> 224.0.0.5 -- the protocol is running again
+
+  STEP 7 VERDICT: PASS.  OSPFv2 survives a real reboot: the configuration, the service gate,
+  the adjacencies, the learned routes and the forwarding all return without intervention.
+
+
+8. TEARDOWN AND RESTORE
+-----------------------
+OSPF is removed from ALL THREE devices before the next case, because RIP (T43856) is the next
+case and OSPF's AD of 110 beats RIP's 120 -- leaving OSPF up would silently keep the RIP route
+out of the FIB and make T43856 unmeasurable (STANDING-ORDERS §1, "one case's leftovers never
+become another case's variable").
+
+  swi_d (pointer restored FIRST, before deleting the file):
+    awplus(config)# boot config-file flash:/default.cfg
+    awplus(config)# no router ospf 1
+    awplus(config)# no service ospf
+    % Save the config and restart for this change to take effect.
+    awplus# delete flash:/ckT43857.cfg   -> Delete flash:/ckT43857.cfg? (y/n)[n]:y
+                                         -> Successful operation          (tools/ckyn.py)
+  swi_b, swi_a:
+    (config)# no router ospf 1
+    (config)# no service ospf
+    % Save the config and restart for this change to take effect.
+
+  INSTRUMENT NOTE (the known cfg.py trap, reproduced): the `% Save the config and restart...`
+  advisory is BENIGN, but `cfg.py` stops at the first `% ` and abandoned the rest of each
+  batch -- here only the trailing `end`.  **cfg.py's cleanup still returned all three consoles
+  to the exec prompt**, verified with `peek.py` immediately afterwards (`awplus#`,
+  `x960-28YSQ#`, `awplus#`), so no console was left in config mode.  Worth knowing: the abort
+  path is safe, it is the UNSENT REMAINDER that costs you.
+
+  VERIFIED AFTER TEARDOWN (21:59:30-22:00:31):
+    swi_d# show boot    -> Current boot config: flash:/default.cfg (file exists)
+    swi_d# dir flash:   -> no ckT43857.cfg remains
+    swi_d# show ip route -> the FOUR CONNECTED routes only, as at group C start
+    swi_b# show ip route -> C 10.0.61.0/30, C 10.70.70.1/32, S 192.168.10.0/24, S 192.168.48.0/24
+    swi_a# show ip route -> C 10.0.41.0/30, C 10.90.90.1/32, S 192.168.10.0/24, S 192.168.48.0/24
+    swi_b# / swi_a# show running-config | include ospf -> EMPTY on both
+
+  TEARDOWN DIFF (STANDING-ORDERS §1), on ALL THREE devices this case touched, against the
+  pre-case captures taken 21:33 NZDT (`python3.8 tools/rcdiff.py <pre> <post>`; rcdiff PRINTS
+  differences but EXITS 0, so the OUTPUT is read, never the exit code):
+    swi_b : NO OUTPUT -- byte-identical to pre-case.
+    swi_a : NO OUTPUT -- byte-identical to pre-case.
+    swi_d : ONE added line --
+        @@ -31,2 +31,4 @@
+         loop-protection loop-detect ldf-interval 1 fast-block
+        +!
+        +no service ospf
+         !
+
+  🔴 DECLARED RESIDUE / FINDING F-5 -- `no service ospf` STICKS IN running-config ON A DEVICE
+  THAT **BOOTED** WITH `service ospf`, AND ONLY ON THAT DEVICE.
+
+  Measured, all three devices, same commands, same minute:
+
+    | device | how ospfd was started          | `show process \| include ospf` after teardown | running-config |
+    | ------ | ------------------------------ | --------------------------------------------- | -------------- |
+    | swi_d  | **at BOOT**, from the staged   | `1701  ospfd ... sleep`  (still running)       | **`no service ospf`** |
+    |        | flash:/ckT43857.cfg (step 7)   |                                                |                |
+    | swi_b  | at RUNTIME, by `service ospf`  | `32355 ospfd ... sleep`  (still running)       | nothing        |
+    | swi_a  | at RUNTIME, by `service ospf`  | (same)                                         | nothing        |
+
+  So it is **not** "the daemon is still running" -- ospfd is still running on all three, which is
+  the documented `no service X` behaviour (memory `awplus-service-gated-routing-daemons`) and is
+  what the `% Save the config and restart` advisory announces.  The distinguishing factor is
+  that swi_d **booted from a config containing `service ospf`**; the negation is then rendered
+  as an explicit running-config line, and no further configuration removes it.
+
+  **Why it matters beyond this case:** every reboot-persistence limb on a service-gated routing
+  protocol (OSPF, RIP, BGP, PIM, VRRP, BFD ...) will leave a `no service <proto>` line behind,
+  and the case's teardown diff will NOT come back clean however carefully the case is written.
+  Any future tester who sees it should recognise it rather than chase it.  It is cosmetic -- the
+  line is semantically identical to the platform default (the service is off, no routing process
+  exists, `show ip ospf` reads "OSPF Routing Process not enabled", and the route table is back
+  to the four connected routes) -- but it IS a running-config difference and it is declared here
+  rather than glossed over.
+
+  **Disposition:** carried into T43856, whose own reboot limb reloads the DUT and will show
+  whether the line clears on the next boot.  Resolved or escalated at group C hand-back; the
+  DUT's boot pointer, flash and route table are already back to the pre-case state, so nothing
+  about the bench is left in an unknown condition.  For platforms/x960.md.
+
+
+9. WHAT THIS CASE DID NOT PROVE
+--------------------------------
+- **Multi-area OSPF.**  Everything here is a single backbone area 0.0.0.0.  Inter-area (IA),
+  ABR/ASBR behaviour, stub/NSSA and route summarisation were NOT exercised.
+- **`redistribute` into OSPF** (connected / static / RIP / BGP) and `default-information
+  originate`, both documented in the guide, were NOT exercised.
+- **OSPF authentication** (`ip ospf authentication [message-digest]`) was NOT exercised.  The
+  wire capture shows `Authentication Type: none (0)`, which is the default.
+- **Route filtering / distribute-list / route-maps** in OSPF were NOT exercised.
+- **Cost changing the PATH.**  `ip ospf cost` was proven to change the metric, but this bench
+  gives each loopback exactly one way in, so cost could not be shown to MOVE traffic.
+  A third routed leg, or a prefix advertised by both partners, would be needed.
+- **OSPF equal-cost multipath.**  Same reason.  (Static ECMP is T43861, already PASS.)
+- **swi_b's OSPF-64 route limit** was nowhere near approached (2 networks advertised).
+
+
+10. FILES
+---------
+  In the repo (committed):
+    tb277/x960/igp-2026-10-15T1747/T43857/swi_d.cfg   (3 header + 140 config lines)
+    tb277/x960/igp-2026-10-15T1747/T43857/swi_b.cfg   (3 header + 125 config lines)
+    tb277/x960/igp-2026-10-15T1747/T43857/swi_a.cfg   (3 header +  88 config lines)
+    tb277/x960/igp-2026-10-15T1747/T43857/work/run1.log  (this file)
+  On the box (NOT committed; /tmp does not survive a reboot):
+    /tmp/ckC/T43857/*.pcap -- L1-ospf-off, L2-ospf-on, L3-withdrawn, L3b-readvertised,
+       L4-static-beats-ospf, L4b-ospf-resumes, L5-passive, L6-no-router-ospf, L7-after-reload
+       (all on eth3; 9 counted legs)
+    /tmp/ckC/T43857/s*.out, td-*.out, {dut,swib,swia}-post.out -- the step outputs
+    /tmp/ckC/{dut,swib,swia}-pre.out -- the pre-case baselines (21:33 NZDT)
+    /tmp/ckC/console-u{2,3,5}.log, /tmp/ckC/console-u2-reload.log
+  Disk: tb277 /tmp stayed at 110-111 MB free throughout (95% used, 1.8 GB of someone else's
+  wireshark captures, not ours, not touched).  This case's nine captures total well under 1 MB.
+
+RUN END: 2026-10-15 22:02 NZDT (2026-10-15 09:02 UTC)
+
+VERDICT: PASS -- OSPFv2 on the x960-56YSQ is gated behind `service ospf` (and the gate is
+real: `router ospf` is rejected ~1 s after it and accepted within 7 s), forms Full adjacencies
+with two neighbours over two interfaces in 17 s, installs routes LEARNED FROM THE PROTOCOL
+(code `O`, AD 110, each carried by the owning partner's Router LSA in the LSDB) for prefixes
+reachable no other way -- no static route exists at any point -- and FORWARDS over them 5/5 and
+5/5 on the wire while a control flow to an unrouted prefix is dropped and the instrument
+control answers in every single leg.  Withdrawal was proven ON THE WIRE in the strongest
+available form: one advertisement removed on the neighbour, with the port, the link and the
+adjacency all still up and the second neighbour's prefix still at 5/5 in the SAME leg, the
+subject fell 5/5 -> 0/5 in under 7 s and swi_b re-originated its Router LSA with one fewer link;
+re-advertising restored 5/5.  The guide's claims were tested, not assumed: AD 110 loses to a
+static at AD 1 **in the dataplane**, attributed by 5 ICMP time-exceeded sourced from the static
+next hop; `ip ospf cost 50` moves the metric 2 -> 51; `passive-interface` stops OSPF packets
+dead (0 in 30 s, against one Hello per 10 s) while the DUT's Router LSA held at the NEIGHBOUR
+still advertises the network, and user traffic is untouched.  `no router ospf 1` returns the
+dataplane to the step-1 baseline, and the whole feature survives a real 61 s reboot.
+One finding recorded (F-5, `no service ospf` sticks in running-config on a device that booted
+with `service ospf`) -- a teardown/display artefact, not a failure of OSPFv2, declared in full
+in section 8 and carried forward.
