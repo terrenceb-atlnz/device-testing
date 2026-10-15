@@ -1,0 +1,678 @@
+================================================================================
+TEST T43856 -- IPv4_UnicastRouting - RIP v1/v2
+================================================================================
+Run:      2026-10-15 22:03-22:35 NZDT. The devices' clocks read UTC, 13 h behind the
+          NZDT wall clock; measured against the box shortly before this run they are
+          swi_d -9 s, swi_b -2 s, swi_a +3 s, so all three agree with the box and with
+          each other to within ~12 s. Device-stamped lines below
+          (flash timestamps, the reload) are therefore UTC; console timings are NZDT.
+Bench:    tb277, consoles u2 = swi_d (DUT), u3 = swi_b, u5 = swi_a;
+          Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     T43856 "IPv4_UnicastRouting - RIP v1/v2". No authored step text and no
+          authored expected result exist for this case. ck.db was queried directly on
+          title (it keys on AWP-nnnn, not on AWPTCM-T<id>): LIKE '%UnicastRouting%'
+          returned 0 rows, LIKE '%RIP v1%' returned 0 rows, LIKE '%RIP%v2%' returned
+          4 rows, none of them this case. The step headings below describe what was
+          exercised; they are not quotations. The case was graded against:
+            - X960 platform support TPS, row 32: RIP v1/v2, priority 1, Yes, note
+              column empty -- so nothing may be graded UNSUPPORTED without DUT evidence;
+            - RIP Feature Overview and Configuration Guide, C613-22055-00 REV C,
+              quoted verbatim where a limb tests one of its claims;
+            - the AW+ CLI pages: no x960 pages exist, the x950 pages are the same
+              generation.
+          6 steps as executed, plus a baseline.
+Build:    swi_d  sin_x96056-20261012-24  (flash:/x960-tb277.rel, build date Mon Oct 12 2026)
+          AT-x960-56YSQ, S/N A2WQS700B, console u2 @115200, licences Base + atlnz
+          => RIP-256
+          swi_b  sin_x96056-20260921-9   AT-x960-28YSQ, S/N A10737A261700021,
+          console u3 @9600, Base licence only => RIP (3 networks advertised here)
+          swi_a  awplus_main-20261008-56  AT-x950 GEN2-52XSTQm, S/N A10713A262600012,
+          console u5 @9600
+Configs:  swi_d.cfg, swi_b.cfg, swi_a.cfg (running-config after setup; saved to
+          startup: no)
+
+VERDICT: PASS -- RIP on the x960-56YSQ is gated behind `service rip`, installs routes
+the protocol itself carried (code R, AD 120, both neighbours named in Routing
+Information Sources with 0 bad packets and 0 bad routes) for three prefixes reachable
+no other way, and forwards over all three on the wire. Both versions were read out of
+the protocol's own packets rather than out of a `show`, and the version change, the
+withdrawal and the removal each had a selective, measured effect on traffic.
+      service gate, before anything ......... `show ip rip` and `show ip rip database`
+                                              refused; no rip line in running-config;
+                                              no RIP route
+      routes learned from the protocol ...... R 10.70.70.1/32 and R 192.168.70.0/24 via
+                                              10.0.61.2, R 10.90.90.1/32 via 10.0.41.2,
+                                              all [120/2]; `show running-config |
+                                              include ip route` empty throughout
+      forwarding over the learned routes .... 5/5, 5/5 and 5/5 echo replies, each
+                                              sourced by the prefix under test
+      control flow, same leg ................ 203.0.113.9 0/5 in all eight legs
+      instrument control, same leg .......... 192.168.10.1 5/5 in all eight legs
+      default is version 2, on the wire ..... RIPv2 Response to 224.0.0.9, UDP 520,
+                                              TTL 1, explicit prefix length, tag and
+                                              next-hop on every entry -- the guide's
+                                              "By default, RIP only sends and receives
+                                              RIPv2 packets", confirmed
+      `version 1` is a different protocol ... RIPv1 Response to 192.168.10.255 at
+                                              ff:ff:ff:ff:ff:ff, TTL 64, no masks, no
+                                              tags, the four 10/8 entries collapsed to
+                                              one classful 10.0.0.0
+      the v1/v2 mismatch costs traffic ...... swi_a, left at v2, timed out after the
+                                              documented 180 s with 0 bad packets and
+                                              went 5/5 -> 0/5 while the two v1 prefixes
+                                              stayed 5/5 in the same leg
+      the change is reversible .............. back to v2, swi_a's prefix re-learned in
+                                              ~6 s and the wire returned to 224.0.0.9
+      withdrawal, proven on the wire ........ 5/5 -> 0/5 while the OTHER prefix FROM THE
+                                              SAME NEIGHBOUR OVER THE SAME PORT stayed
+                                              5/5; re-advertising restored 5/5
+      and the mechanism, not just the loss .. a triggered update at metric 16 took the
+                                              route out of the FIB in 13 s, then the
+                                              documented 120 s garbage-collect ran it
+                                              out of the database
+      removal ............................... `no router rip` returns the dataplane to
+                                              the step-0 baseline, capture for capture
+      persistence across a real reboot ...... 61 s reload; config, service gate, version
+                                              control, both neighbours and all three
+                                              routes return unaided, and the first leg
+                                              ran 15 of 15 against a cold ARP table
+CAVEAT:  RIPv2 authentication -- simple text, single and multiple keys, and MD5 -- was
+         not exercised, and it is the bulk of the RIP Feature Overview Guide (pp.5-13).
+         Route summarization for RIPv2 (`ip rip summary-address`, pp.14-16) was not
+         exercised. Per-interface version control (`ip rip send version 1 2`,
+         `ip rip receive version 1 2`), including the mixed 1 2 mode the guide's own
+         worked example uses, was not exercised; only the global `version 1` /
+         `version 2` under `router rip` was. `redistribute` into RIP,
+         `default-information originate`, offset-lists, `distance`, `passive-interface`
+         for RIP and timer tuning (`timers basic`) were not exercised. Metric 16 was
+         observed as the POISON value, but no topology here is deep enough to reach hop
+         16 naturally, so the 16-hop infinity limit as a reachability limit is not
+         covered. swi_b's RIP Base licence limit was nowhere near approached.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+     tb277 eth3  00:0d:b9:55:77:0e                scapy source 192.168.10.5 /
+     (untagged VLAN 10)                           00:11:22:33:44:01, with a background
+           |                                      ARP responder for that address
+           |  (1) ICMP echo, next hop                              ^
+           |      e0:1a:ea:d4:70:43, to                            |  (4) echo replies,
+           |      10.70.70.1   (subject B, v2 and the /32          |      each sourced by
+           |                    v1 host-route discriminator)       |      the prefix under
+           |      192.168.70.1 (subject B, the class-C prefix      |      test
+           |                    that survives v1)                  |
+           |      10.90.90.1   (subject A, the v2-only neighbour)  |
+           |      203.0.113.9  (control, never routed)             |
+           |      192.168.10.1 (instrument control)                |
+           v                                                       |
+   +---------------------------------------------------------------------------+
+   |  swi_d   AT-x960-56YSQ                D U T                                |
+   |  port1.0.10 -- vlan10  192.168.10.1/24    source side, and the NIC the RIP |
+   |                                           updates were read off            |
+   |  port1.0.16 -- vlan61  10.0.61.1/30       RIP peering + forwarding, swi_b  |
+   |  port1.0.4  -- vlan41  10.0.41.1/30       RIP peering + forwarding, swi_a  |
+   |  router rip; networks 10.0.61.0/30, 10.0.41.0/30, 192.168.10.0/24,         |
+   |  192.168.48.0/24                                                           |
+   |  STP root bridge 0000:e01aead47043; all three ports Designated Forwarding  |
+   +---------------------------------------------------------------------------+
+         |      ^                                  |      ^
+   (2a)  |      |  (3a) echo replies from    (2b)  |      |  (3b) echo reply from
+  routed |      |       10.70.70.1 and      routed |      |       10.90.90.1
+  out    v      |       192.168.70.1        out    v      |
+  vlan61        |                           vlan41        |
+   +-------------------------------+     +---------------------------------+
+   | swi_b  AT-x960-28YSQ          |     | swi_a  AT-x950 GEN2-52XSTQm     |
+   | vlan61 10.0.61.2/30           |     | vlan41 10.0.41.2/30             |
+   | lo 10.70.70.1/32              |     | lo 10.90.90.1/32  SUBJECT A     |
+   | lo 192.168.70.1/24 secondary  |     |                                 |
+   | advertises both + 10.0.61.0/30|     | advertises 10.90.90.1/32 and    |
+   | moved to `version 1` with the |     | 10.0.41.0/30, and is DELIBERATELY|
+   | DUT in STEP 2                 |     | LEFT AT VERSION 2 throughout     |
+   | 192.168.70.0/24 withdrawn in  |     | -- it is the probe for the       |
+   | STEP 4 while 10.70.70.1/32    |     | version-mismatch behaviour and   |
+   | stays advertised              |     | the second positive control      |
+   +-------------------------------+     +---------------------------------+
+
+  DUT      : swi_d (AT-x960-56YSQ) console u2 @115200, S/N A2WQS700B,
+             SVI MAC e0:1a:ea:d4:70:43 -- every SVI shares it; standalone;
+             sin_x96056-20261012-24
+  partner  : swi_b (AT-x960-28YSQ) console u3 @9600, S/N A10737A261700021,
+             bridge/SVI MAC 0000.cd42.3029, sin_x96056-20260921-9
+  partner  : swi_a (AT-x950 GEN2-52XSTQm) console u5 @9600, S/N A10713A262600012,
+             bridge MAC 889d.98df.2602, awplus_main-20261008-56
+  link     : swi_d port1.0.16 (vlan61, 10.0.61.0/30) <-> swi_b vlan61 10.0.61.2/30 --
+             RIP peering with 10.0.61.2 and the forwarding path to both of swi_b's
+             prefixes
+  link     : swi_d port1.0.4  (vlan41, 10.0.41.0/30) <-> swi_a vlan41 10.0.41.2/30 --
+             RIP peering with 10.0.41.2 and the forwarding path to 10.90.90.1
+  host     : tb277 eth3 00:0d:b9:55:77:0e -> swi_d port1.0.10, untagged VLAN 10. Every
+             frame is built at L2 with the DUT's SVI MAC as the next hop, so the host
+             kernel's own addresses and routes are bypassed; no host networking was
+             changed at any point. 192.168.10.5 is the scapy source address.
+  far side : both usable host NICs land on the DUT, so there is no host behind a
+             partner. The far side of each routed flow is the PARTNER ITSELF answering
+             from the prefix under test.
+  setup    : swi_b was given a SECOND prefix for this case, applied at 22:04:35 and
+             present in swi_b.cfg:
+               x960-28YSQ(config)# interface lo
+               x960-28YSQ(config-if)# ip address 192.168.70.1/24 secondary
+               x960-28YSQ# show ip route
+               C       192.168.70.0/24 is directly connected, lo
+               C       10.70.70.1/32 is directly connected, lo
+             (`show ip interface brief` still shows only lo 10.70.70.1/32 -- secondary
+             addresses are invisible there.) It is needed for the version-1 half of the
+             case: RIPv1 carries NO SUBNET MASKS and a receiver applies the classful
+             mask, so swi_b's 10.70.70.1/32 -- a host route inside class A 10.0.0.0/8,
+             which also contains both transit /30s -- cannot cross a v1 advertisement
+             of a different major network intact. 192.168.70.0/24 is class C, whose
+             NATURAL MASK IS /24, so it survives v1 unchanged and the v1 leg measures
+             RIP rather than a mask collision. The control flow 203.0.113.9 is likewise
+             deliberately outside 10/8 for the same reason.
+  tools    : tools/arpleg.py (scapy) on tb277 sends and counts every measured leg;
+             tools/ckcon.py, tools/cfg.py and tools/ckyn.py drive the three consoles,
+             tools/poll.py polls for convergence, tools/ckreload.py drives the reload,
+             tools/rc2cfg.py saved the three .cfg files. Plain tcpdump on eth3 made the
+             two passive protocol-packet observations. python3.8 on tb277.
+             Every counted leg:
+               sudo python3.8 tools/arpleg.py --tag <tag> --out /tmp/ckC/T43856 \
+                 --iface eth3 \
+                 --icmp 10.70.70.1,192.168.70.1,10.90.90.1,203.0.113.9,192.168.10.1 \
+                 --gw-mac e0:1a:ea:d4:70:43 --sender-ip 192.168.10.5 \
+                 --sender-mac 00:11:22:33:44:01 \
+                 --answer 192.168.10.5=00:11:22:33:44:01 --answer-iface eth3 \
+                 --count 5 --wait 6
+             The ARP responder is required because this DUT does not learn a neighbour
+             from a request it merely answers. Every counted frame is matched on BOTH
+             MACs and carries a CKARPLEG-<tag> payload marker, and every negative
+             result is a ZERO, so no other traffic on the segment can manufacture or
+             mask a count. STP was re-read immediately before every counted leg.
+
+STEP 0 -- baseline: RIP off, and the service gate read first                    done
+--------------------------------------------------------------------------------
+  Method: read the DUT's state with no `service rip` and no `router rip` anywhere, then
+  run a full counted leg, so the later steps are interpretable against it.
+
+  State, 22:05:56-22:06:01:
+
+awplus# show ip rip
+  % RIP protocol daemon is not running or feature license is not available
+awplus# show ip rip database
+  % RIP protocol daemon is not running or feature license is not available
+awplus# show ip route rip
+  Gateway of last resort is not set
+  No entries in route table
+awplus# show running-config | include rip
+awplus#                                    <-- EMPTY: no service, no router process, no
+                                               ip rip command
+
+  That refusal message conflates two different causes. This DUT holds RIP-256, so on
+  this unit it can only be the daemon, and STEP 1 settles it constructively.
+
+  STP immediately before the leg (22:06:01): port1.0.4, port1.0.10, port1.0.16 all
+  Designated Forwarding.
+
+  The counted leg, --tag M1-rip-off.  cap M1-rip-off-eth3.pcap: 34 frame(s)
+    10.70.70.1   (SUBJECT-B-v2) : 5 sent, 0 echo replies
+    192.168.70.1 (SUBJECT-B-v1) : 5 sent, 0 echo replies
+    10.90.90.1   (SUBJECT-A)    : 5 sent, 0 echo replies
+    203.0.113.9  (CONTROL)      : 5 sent, 0 echo replies
+    192.168.10.1 (INSTRUMENT)   : 5 sent, 5 echo replies -- instrument alive
+    plus x2 ICMP t3/c0 from the DUT (rate-limited unreachables) and the responder's
+    ARP pair.
+
+  192.168.70.1 reads 0/5 even though swi_b has owned the address since 22:04:35: the
+  prefix exists, and is still unreachable, because nothing advertises it. That is the
+  point of the baseline.
+
+  => STEP 0 done: with RIP off none of the three subject prefixes is reachable -- not
+     even the one that is already configured and connected on the neighbour -- the
+     control is dropped and the instrument answers 5/5.
+
+STEP 1 -- enable RIP at its default version and forward over a protocol-learned route
+                                                                                 PASS
+--------------------------------------------------------------------------------
+  Method: enable the service and the routing process on all three devices with NO
+  `version` command anywhere, so the leg measures the documented default; then count a
+  leg to three prefixes for which no static route exists.
+
+  1a. CONFIGURATION, quoted as sent. `service rip` was sent to all three devices in its
+  own batch FIRST and `router rip` only 10 s later, because the service gate on this
+  platform is asynchronous -- the daemon is not up the instant `service rip` returns --
+  so the two commands cannot share a console batch. No command on any device was
+  rejected.
+
+    all three (22:07:xx)              swi_b (/dev/u3)              swi_a (/dev/u5)
+      configure terminal                router rip                   router rip
+      service rip                       network 10.0.61.0/30         network 10.0.41.0/30
+      end                               network 10.70.70.1/32        network 10.90.90.1/32
+      (then, 10 s later:)               network 192.168.70.0/24      end
+                                        end
+    swi_d, the DUT (/dev/u2)
+      router rip
+      network 10.0.61.0/30        <-- the swi_b leg
+      network 10.0.41.0/30        <-- the swi_a leg
+      network 192.168.10.0/24     <-- vlan10, so RIP also runs out to the host NIC and
+      network 192.168.48.0/24         its packets can be read off the wire
+
+  The guide's syntax (C613-22055-00 REV C pp.3-4: `service rip`, `router rip`,
+  `network <prefix>`) was followed as printed.
+
+  1b. CONVERGENCE, polled on the DUT every 10 s:
+    22:08:32  R 10.70.70.1/32   [120/2] via 10.0.61.2, vlan61, 00:00:15
+              R 10.90.90.1/32   [120/2] via 10.0.41.2, vlan41, 00:00:14
+              R 192.168.70.0/24 [120/2] via 10.0.61.2, vlan61, 00:00:15
+    All three learned within ~15 s of `router rip`, stable through 22:09:28.
+
+  1c. LEARNED FROM THE PROTOCOL, AND FROM WHICH NEIGHBOUR (22:09:51-22:09:57):
+
+awplus# show ip route 10.70.70.1
+  Routing entry for 10.70.70.1/32
+    Known via "rip", distance 120, metric 2, best
+    * via 10.0.61.2, vlan61
+awplus# show running-config | include ip route
+awplus#                                    <-- EMPTY. NO STATIC ROUTE EXISTS.
+awplus# show ip rip database
+     Network            Next Hop     Metric From         If      Time
+  Rc  10.0.41.0/30                        1              vlan41
+  Rc  10.0.61.0/30                        1              vlan61
+  R   10.70.70.1/32     10.0.61.2         2 10.0.61.2    vlan61   02:42
+  R   10.90.90.1/32     10.0.41.2         2 10.0.41.2    vlan41   02:57
+  Rc  192.168.10.0/24                     1              vlan10
+  Rc  192.168.48.0/24                     1              vlan48
+  R   192.168.70.0/24   10.0.61.2         2 10.0.61.2    vlan61   02:42
+awplus# show ip protocols rip
+  Routing Protocol is "rip"
+    Sending updates every 30 seconds with +/-5 seconds, next due in 25 seconds
+    Timeout after 180 seconds, garbage collect after 120 seconds
+    Default version control: send version 2, receive version 2
+      Interface   Send  Recv      vlan10 2 2 · vlan41 2 2 · vlan48 2 2 · vlan61 2 2
+    Routing Information Sources:
+      Gateway       Distance  Last Update  Bad Packets  Bad Routes
+      10.0.41.2        120    00:00:04         0            0
+      10.0.61.2        120    00:00:19         0            0
+    Number of routes (including connected): 7
+    Distance: (default is 120)
+
+  Route code R, `Known via "rip"`, AD 120, and the two gateways named with 0 bad packets
+  and 0 bad routes. The guide's claim "By default, RIP only sends and receives RIPv2
+  packets" is confirmed from the device's own view on EVERY interface; 1e confirms it on
+  the wire. Both update timers the later steps are read against -- `Timeout after 180
+  seconds, garbage collect after 120 seconds` -- are printed here by the DUT itself.
+
+  ARP verified for both next hops before the counted leg:
+    10.0.61.2  0000.cd42.3029  vlan61  port1.0.16  dynamic
+    10.0.41.2  889d.98df.2602  vlan41  port1.0.4   dynamic
+  STP immediately before the leg (22:09:57): port1.0.4, port1.0.10, port1.0.16
+  Designated Forwarding.
+
+  1d. THE COUNTED LEG, --tag M2-ripv2.  cap 47 frame(s)
+    10.70.70.1   : 5 sent, 5 echo replies sourced by 10.70.70.1     (0/5 at baseline)
+    192.168.70.1 : 5 sent, 5 echo replies sourced by 192.168.70.1   (0/5 at baseline)
+    10.90.90.1   : 5 sent, 5 echo replies sourced by 10.90.90.1     (0/5 at baseline)
+    203.0.113.9  : 5 sent, 0 echo replies -- control dropped IN THE SAME LEG
+    192.168.10.1 : 5 sent, 5 replies -- instrument alive
+
+  1e. THE PROTOCOL ON THE WIRE -- it is RIP VERSION 2 (22:10:44, passive capture):
+
+$ sudo timeout 45 tcpdump -i eth3 -n -v -c 1 'udp port 520'
+  22:10:44.908126 IP (tos 0xc0, ttl 1, id 21297, flags [DF], proto UDP (17), length 172)
+      192.168.10.1.520 > 224.0.0.9.520:
+      RIPv2, Response, length: 144, routes: 7 or less
+        AFI IPv4,       10.0.41.0/30, tag 0x0000, metric: 1, next-hop: self
+        AFI IPv4,       10.0.61.0/30, tag 0x0000, metric: 1, next-hop: self
+        AFI IPv4,      10.70.70.1/32, tag 0x0000, metric: 2, next-hop: self
+        AFI IPv4,      10.90.90.1/32, tag 0x0000, metric: 2, next-hop: self
+        AFI IPv4,    192.168.10.0/24, tag 0x0000, metric: 16, next-hop: self
+        AFI IPv4,    192.168.48.0/24, tag 0x0000, metric: 1, next-hop: self
+        AFI IPv4,    192.168.70.0/24, tag 0x0000, metric: 2, next-hop: self
+
+  Version 2, UDP 520, multicast 224.0.0.9, TTL 1, explicit prefix lengths on every entry
+  (the defining v2 feature), route tags and a next-hop field. Seven routes, the two
+  learned /32s re-advertised at metric 2. Also visible, and measured in passing because
+  the capture shows it: 192.168.10.0/24 is advertised back out vlan10 at metric 16 --
+  poison reverse, so split horizon with poisoned reverse is on by default here. Not a
+  graded limb.
+
+  => STEP 1 PASS: the service gate is a real gate and not a platform gap; the DUT
+     installs R / AD 120 routes for three prefixes from two named gateways with 0 bad
+     packets and 0 bad routes, while `show running-config | include ip route` stays
+     empty; and 5/5 three times over, each reply sourced by the prefix under test,
+     proves end-to-end forwarding over routes that exist only because RIP put them
+     there -- with the control dropped and the instrument alive in the same 20-frame
+     leg. The wire capture confirms the guide's default: it is RIPv2.
+
+STEP 2 -- `version 1`: a different protocol on the wire, with a measurable consequence
+                                                                                 PASS
+--------------------------------------------------------------------------------
+  Guide authority, C613-22055-00 REV C p.4, verbatim:
+  "Specifying the RIP Version ... By default, RIP only sends and receives RIPv2
+  packets. If you need to change this, use the commands below."
+
+  Method: move the DUT and swi_b to version 1 and leave swi_a at version 2, so the same
+  change tests both the protocol on the wire and what happens to a neighbour that does
+  not follow.
+
+  2a. APPLY (22:11:0x) -- on the DUT and swi_b ONLY:
+
+x960-28YSQ(config)# router rip / version 1 / end        (swi_b)
+awplus(config)#     router rip / version 1 / end        (swi_d, the DUT)
+
+  2b. THE PROTOCOL ON THE WIRE (22:11:18, same command, same NIC, 34 s after the v2
+  capture):
+
+  22:11:18.909061 IP (tos 0xc0, ttl 64, id 5603, flags [DF], proto UDP (17), length 112)
+      192.168.10.1.520 > 192.168.10.255.520:
+      RIPv1, Response, length: 84, routes: 4
+        10.0.0.0,         metric: 1
+        192.168.10.0,     metric: 16
+        192.168.48.0,     metric: 1
+        192.168.70.0,     metric: 2
+
+    Every documented v1/v2 difference, measured side by side on one wire:
+
+    |                        | version 2 (STEP 1e)       | version 1 (2b)                  |
+    | ---------------------- | ------------------------- | ------------------------------- |
+    | IP destination         | 224.0.0.9 (multicast)     | 192.168.10.255 (broadcast)      |
+    | Ethernet destination   | 01:00:5e:.. (multicast)   | ff:ff:ff:ff:ff:ff               |
+    | TTL                    | 1                         | 64                              |
+    | header                 | RIPv2                     | RIPv1                           |
+    | prefix length / mask   | on every entry            | absent                          |
+    | route tag, next-hop    | present                   | absent                          |
+    | AFI field              | AFI IPv4                  | absent                          |
+    | entries                | 7                         | 4                               |
+    | 10.0.41.0/30, 10.0.61.0/30, 10.70.70.1/32, 10.90.90.1/32 | four separate entries | collapsed to one classful 10.0.0.0, metric 1 |
+    | 192.168.70.0/24        | /24 explicit              | 192.168.70.0, mask implied by class C |
+
+    The classful collapse is RIPv1 behaving exactly as it must: advertised out vlan10
+    (192.168.10.0/24, a different major network), everything inside 10.0.0.0/8 can only
+    be summarised to its classful boundary. It is also precisely why the case needed
+    192.168.70.0/24 -- a class-C prefix whose natural mask IS /24 survives v1 intact, so
+    the v1 leg measures RIP and not a mask collision. The Ethernet broadcast was caught
+    independently by the counted leg below, whose capture holds
+    `UDP 192.168.10.1 -> 192.168.10.255 :520 [eth e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]`
+    where every v2 leg's capture held a multicast one. Two instruments, same answer.
+
+  2c. THE CONSEQUENCE FOR THE v2 NEIGHBOUR, polled every 30 s:
+    22:11:43 .. 22:13:39   R 10.70.70.1/32, R 10.90.90.1/32, R 192.168.70.0/24  (all three)
+    22:14:09               R 10.70.70.1/32, R 192.168.70.0/24 -- 10.90.90.1/32 IS GONE
+    22:14:39, 22:15:09     unchanged (two routes)
+
+    swi_a's prefix was timed out ~180 s after the DUT went to version 1, exactly the
+    `Timeout after 180 seconds` the DUT reports. Confirmed by the DUT's own view
+    (22:15:56):
+
+awplus# show ip protocols rip
+  Default version control: send version 1, receive version 1
+    vlan10 1 1 · vlan41 1 1 · vlan48 1 1 · vlan61 1 1
+  Routing Information Sources:
+    Gateway       Distance  Last Update  Bad Packets  Bad Routes
+    10.0.61.2        120    00:00:27         0            0
+                                           <-- 10.0.41.2 has DROPPED OUT of the sources
+                                               list entirely
+  Number of routes (including connected): 6        (was 7)
+
+    A version-1 receiver does not accept version-2 updates, so the v2-only neighbour
+    ages out. Bad Packets and Bad Routes both stayed 0 -- the v2 updates are not counted
+    as errors, they are simply not accepted.
+
+  2d. WHAT SURVIVED v1, AND WHY IT IS NOT AN INCONSISTENCY. 10.70.70.1/32 -- a /32 -- is
+    STILL learned from swi_b under v1 and is still being refreshed (`show ip rip
+    database` at 22:15:57: `R 10.70.70.1/32  10.0.61.2  2  10.0.61.2  vlan61  02:32`,
+    the timer resetting). That is correct RIPv1: swi_b advertises it on vlan61, whose
+    own address 10.0.61.1/30 is in the SAME major network 10.0.0.0/8, so the entry is
+    not summarised at a class boundary and a RIPv1 receiver reads an address with a
+    non-zero host part as a HOST route. The DUT could only have derived the /32 that
+    way, because v1 carries no mask -- so the /32 in the database IS the evidence of the
+    host-route rule. The classful collapse seen in 2b happens on vlan10, a different
+    major network: the two observations are the same rule applied to two interfaces, not
+    a contradiction.
+
+  2e. THE COUNTED LEG UNDER VERSION 1 (STP re-read 22:16:29, all three ports Designated
+    Forwarding), --tag M3-ripv1.  cap 45 frame(s)
+      10.70.70.1   : 5 sent, 5 echo replies sourced by 10.70.70.1   -- v1 host route works
+      192.168.70.1 : 5 sent, 5 echo replies sourced by 192.168.70.1 -- the class-C prefix
+                                                                       works
+      10.90.90.1   : 5 sent, 0 echo replies  (5/5 under v2)  <-- THE VERSION MISMATCH,
+                     PROVEN IN THE DATAPLANE and not merely as a missing table row
+      203.0.113.9  : 5 sent, 0 replies -- control
+      192.168.10.1 : 5 sent, 5 replies -- instrument alive
+      plus x1 UDP 192.168.10.1 -> 192.168.10.255:520 to ff:ff:ff:ff:ff:ff -- the v1
+      broadcast
+
+  => STEP 2 PASS: `version 1` puts a demonstrably different protocol on the wire --
+     broadcast instead of multicast, Ethernet broadcast instead of multicast, TTL 64
+     instead of 1, no masks, no tags, and the four 10/8 entries collapsed into one
+     classful 10.0.0.0 -- and that difference has a real, selective effect on traffic:
+     the v2-only neighbour's prefix aged out after the documented 180 s with 0 bad
+     packets and went to 0/5, while the two prefixes reachable under v1 stayed at 5/5 in
+     the same leg, with the control dropped and the instrument alive.
+
+STEP 3 -- back to version 2: the change is reversible and the lost neighbour returns
+                                                                                 PASS
+--------------------------------------------------------------------------------
+  swi_b and swi_d: `router rip` / `version 2` (22:18:xx). swi_a was never changed.
+
+  Polled on the DUT every 15 s:
+    22:19:24  R 10.70.70.1/32   [120/2] via 10.0.61.2, vlan61, 00:11:07   <-- never left
+              R 10.90.90.1/32   [120/2] via 10.0.41.2, vlan41, 00:00:06   <-- RE-LEARNED
+              R 192.168.70.0/24 [120/2] via 10.0.61.2, vlan61, 00:11:07
+    stable through 22:19:54. swi_a's prefix came back within ~6 s of the DUT returning
+    to v2 -- one RIP update cycle, against the 180 s it took to disappear. Asymmetric,
+    as RIP is.
+
+    --tag M4-back-to-v2.  cap 48 frame(s)
+      10.70.70.1 : 5/5    192.168.70.1 : 5/5    10.90.90.1 : 5/5
+      203.0.113.9 : 0/5 (control)               192.168.10.1 : 5/5 (instrument)
+      plus x1 UDP 192.168.10.1 -> 224.0.0.9:520 [eth -> 01:00:5e:00:00:09]
+
+  => STEP 3 PASS: the version change is reversible in both the protocol and the
+     dataplane. The wire reverted to v2 multicast, the neighbour lost in STEP 2 was
+     re-learned in ~6 s with its age restarting from zero, and all three prefixes
+     returned to 5/5 while the control stayed at 0/5.
+
+STEP 4 -- withdraw one advertisement, and catch the mechanism, not just the loss
+                                                                                 PASS
+--------------------------------------------------------------------------------
+  Method: withdraw ONE prefix and leave the OTHER prefix from the same neighbour, over
+  the same link, out of the same port, still advertised. A difference between them
+  cannot then be a link, port, neighbour, instrument or bench effect -- only the
+  advertisement differs.
+
+  4a. WITHDRAW (swi_b, 09:20:47 UTC = 22:20:47 NZDT):
+
+x960-28YSQ(config)# router rip
+x960-28YSQ(config-router)# no network 192.168.70.0/24
+
+  swi_b's lo still carries 192.168.70.1/24 and still has it as a connected route; only
+  the RIP advertisement is removed.
+
+  4b. RIP POISONS, IT DOES NOT MERELY TIME OUT. Polled every 15 s, reading BOTH the
+  route table and the RIP database, which is where the mechanism is visible:
+
+    22:21:00 (+13 s)  show ip route rip    -> 192.168.70.0/24 ALREADY GONE from the FIB
+                      show ip rip database -> R 192.168.70.0/24  10.0.61.2  metric 16
+                                                ... vlan61  01:48
+    22:21:13          database: metric 16, 01:36
+    22:21:28          database: metric 16, 01:21
+    22:21:43          database: metric 16, 01:06
+    22:21:58          database: metric 16, 00:51
+    22:22:13          gone from the database entirely
+
+    Throughout, from the SAME neighbour on the SAME interface:
+      R 10.70.70.1/32  10.0.61.2  metric 2  vlan61  02:35-02:53 (timer resetting =
+      still being refreshed)
+
+    swi_b sent a TRIGGERED UPDATE AT METRIC 16 (infinity), so the DUT removed the route
+    from the FIB within 13 s rather than waiting out the 180 s timeout, and then held it
+    in the database for the documented GARBAGE-COLLECT 120 s (01:48 counting down to
+    00:00, measured) before deleting it. Both timers match what the DUT prints in
+    `show ip protocols rip`: "Timeout after 180 seconds, garbage collect after 120
+    seconds". A reading of `show ip route rip` alone would see the route vanish and
+    never learn that it was poisoned rather than aged -- the two look identical in the
+    route table and take 13 s and 180 s respectively. STEP 2c measured the other
+    mechanism on this same bench: swi_a's prefix was NOT poisoned, nobody withdrew it,
+    the DUT simply stopped accepting its v2 updates, and it took the full 180 s timeout.
+
+  4c. STATE AT THE COUNTED LEG (22:23:14-22:23:17):
+
+awplus# show ip route rip
+  R       10.70.70.1/32 [120/2] via 10.0.61.2, vlan61, 00:14:57
+  R       10.90.90.1/32 [120/2] via 10.0.41.2, vlan41, 00:03:56
+awplus# show ip route 192.168.70.1
+  % Network not in table
+awplus# show spanning-tree brief | include port1.0.16
+  port1.0.16  0000:e01aead47043  8398  Designated  Forwarding    <-- the link to swi_b is
+                                                                     UP and FORWARDING
+
+  4d. THE COUNTED LEG, --tag M5-withdrawn.  cap 44 frame(s)
+    192.168.70.1 (withdrawn)                                  : 5 sent, 0 echo replies
+                                                                (5/5 in STEP 3)
+    10.70.70.1   (SAME NEIGHBOUR, SAME PORT, still advertised) : 5 sent, 5 echo replies
+    10.90.90.1   (other neighbour)                             : 5 sent, 5 echo replies
+    203.0.113.9  (CONTROL)                                     : 5 sent, 0 replies
+    192.168.10.1 (INSTRUMENT)                                  : 5 sent, 5 replies
+
+  Two positive controls, one of them on the very link the withdrawn prefix used.
+
+  4e. RE-ADVERTISE, AND IT COMES BACK (22:23:5x):
+
+x960-28YSQ(config-router)# network 192.168.70.0/24
+    22:24:13  R 192.168.70.0/24 [120/2] via 10.0.61.2, vlan61, 00:00:13   <-- re-learned
+
+    --tag M5b-readvertised.  cap 47 frame(s)
+      192.168.70.1 : 5/5 sourced by 192.168.70.1   10.70.70.1 : 5/5   10.90.90.1 : 5/5
+      203.0.113.9 : 0/5   192.168.10.1 : 5/5
+
+  => STEP 4 PASS: withdraw -> 0/5 -> re-advertise -> 5/5, proven on the wire with the
+     tightest control the bench allows -- the other prefix from the same neighbour over
+     the same forwarding port stayed at 5/5 in the same leg, so the zero is attributable
+     to the withdrawal and to nothing else. The database read also shows HOW RIP did it:
+     a triggered update at metric 16 took the route out of the FIB in 13 s, then the
+     documented 120 s garbage-collect timer ran it out of the database -- two mechanisms
+     that `show ip route` alone cannot tell apart.
+
+STEP 5 -- removal: gone from the dataplane, not merely from running-config      PASS
+--------------------------------------------------------------------------------
+awplus(config)# no router rip                                      (22:26:0x)
+
+  State (22:26:10-22:26:15):
+
+awplus# show ip route rip
+  Gateway of last resort is not set
+  No entries in route table
+awplus# show ip rip database
+awplus#                                    <-- EMPTY (no output at all)
+awplus# show running-config | include router rip
+awplus#                                    <-- EMPTY
+awplus# show running-config | include service rip
+  service rip                              <-- left on deliberately, so this step
+                                               measures removal of the ROUTING PROCESS
+                                               alone
+
+  STP (22:26:15): port1.0.4, port1.0.10, port1.0.16 Designated Forwarding -- unchanged.
+
+    --tag M6-no-router-rip.  cap 32 frame(s)
+      10.70.70.1   : 5 sent, 0 echo replies   (5/5 before)
+      192.168.70.1 : 5 sent, 0 echo replies   (5/5 before)
+      10.90.90.1   : 5 sent, 0 echo replies   (5/5 before)
+      203.0.113.9  : 5 sent, 0 replies
+      192.168.10.1 : 5 sent, 5 replies -- instrument alive
+      and NO UDP :520 frame -- the protocol has stopped emitting
+
+  => STEP 5 PASS: the capture is the STEP 0 baseline again (32 against 34 frames; the
+     difference is the responder's ARP pair, which the baseline needed and this leg did
+     not because the cache was warm). The RIP database empties, no update is emitted,
+     and all three prefixes stop forwarding while the instrument still answers --
+     removal returns the DATAPLANE to baseline, not just the display.
+
+STEP 6 -- persistence across a real reboot                                      PASS
+--------------------------------------------------------------------------------
+  Method: re-apply the configuration, stage it into a NAMED boot config (nothing is
+  written to startup-config), reload the DUT for real, and count a leg after it comes
+  back. The boot pointer is put back afterwards.
+
+awplus(config)# router rip / network 10.0.61.0/30 / network 10.0.41.0/30 /
+                network 192.168.10.0/24 / network 192.168.48.0/24       (22:26:5x)
+awplus# copy running-config flash:/ckT43856.cfg    22:27:06 (no (y/n); the file did not
+awplus# dir flash:                                          already exist)
+  2209 -rw- Oct 15 2026 09:26:57  ckT43856.cfg          <-- device clock, UTC
+awplus# show file flash:/ckT43856.cfg | include service rip|router rip|service ospf
+  service rip
+  no service ospf
+  router rip
+awplus(config)# boot config-file flash:/ckT43856.cfg
+awplus# show boot
+  Current boot config: flash:/ckT43856.cfg (file exists)
+
+  (`no service ospf` is a pre-existing line in this DUT's running-config. It disables a
+  different protocol's service, which is off and has no routing process, and it cannot
+  affect RIP. It is reproduced here because it is in the device's own output.)
+
+  THE RELOAD:
+    09:27:36 UTC  reload issued
+    22:27:38 >>> reload  ->  reboot question: 'reboot system? (y/n):' -> y
+    22:28:39      login seen after 61 s
+
+  AFTER THE REBOOT, before anything was re-applied (22:29:18-22:29:25):
+
+awplus# show boot
+  Current boot config: flash:/ckT43856.cfg (file exists)
+awplus# show running-config | include service rip|router rip|service ospf
+  service rip
+  no service ospf
+  router rip                               <-- the feature AND its service gate came back
+awplus# show ip route rip
+  R       10.70.70.1/32   [120/2] via 10.0.61.2, vlan61, 00:00:38
+  R       10.90.90.1/32   [120/2] via 10.0.41.2, vlan41, 00:00:39
+  R       192.168.70.0/24 [120/2] via 10.0.61.2, vlan61, 00:00:38
+awplus# show ip protocols rip
+  Default version control: send version 2, receive version 2    <-- the default is
+                                                                    restored with it
+  Routing Information Sources:  10.0.41.2 (00:00:11) · 10.0.61.2 (00:00:10),
+                                0 bad / 0 bad
+
+  All three prefixes re-learned FROM THE PROTOCOL within ~39 s of login, both neighbours
+  back. STP (22:29:48): port1.0.4, port1.0.10, port1.0.16 Designated Forwarding; the DUT
+  is still the root bridge.
+
+  Also measured on the rebooted unit: `show process | include ospf` returns nothing at
+  all -- no ospfd is running -- while `no service ospf` is still printed in the
+  running-config above, so that line is a configuration line carried in the booted file
+  and not a running-daemon indicator.
+
+  6a. THE COLD ARP TABLE, HIT DELIBERATELY. Immediately after the reboot, read twice
+  (22:29:22 and 22:29:47):
+
+awplus# show arp
+  IP Address      LL Address       Interface            Port        Type
+awplus#                                    <-- COMPLETELY EMPTY
+
+    So all three RIP routes were in the FIB pointing at next hops the DUT had never
+    resolved. RIPv2 talks to 224.0.0.9 and needs no ARP at all, so nothing primes the
+    next hop. Rather than priming it first, the leg was run deliberately against the
+    cold table, --tag M7-after-reload-coldarp.  cap 49 frame(s)
+      10.70.70.1   : 5 sent, 5 echo replies sourced by 10.70.70.1
+      192.168.70.1 : 5 sent, 5 echo replies sourced by 192.168.70.1
+      10.90.90.1   : 5 sent, 5 echo replies sourced by 10.90.90.1
+      203.0.113.9  : 5 sent, 0 replies -- control still dropped after the reboot
+      192.168.10.1 : 5 sent, 5 replies -- instrument alive
+
+awplus# show arp                                              (22:30:28, after the leg)
+  192.168.10.5  0011.2233.4401  vlan10  port1.0.10  dynamic
+  10.0.61.2     0000.cd42.3029  vlan61  port1.0.16  dynamic
+  10.0.41.2     889d.98df.2602  vlan41  port1.0.4   dynamic
+
+    15 of 15, with not one frame lost, and the ARP table filled by the traffic itself:
+    the DUT resolved both next hops on demand fast enough that even the FIRST packet of
+    each flow got through.
+
+  => STEP 6 PASS: RIP survives a real 61 s reboot. The configuration, the service gate,
+     the version control at its default of send 2 / receive 2, both neighbours and all
+     three learned routes return unaided within ~39 s of login, and forwarding is 15 of
+     15 on the first leg -- run deliberately against a completely empty ARP table, so
+     the single-path routes resolved their next hops on demand without losing a packet.
+     The control is still dropped after the reboot and the instrument still answers.
+================================================================================

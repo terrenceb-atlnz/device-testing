@@ -1,0 +1,789 @@
+================================================================================
+TEST T43857 -- IPv4_UnicastRouting - OSPFv2
+================================================================================
+Run:      2026-10-15 21:35-22:02 NZDT. The devices' clocks read UTC, 13 h behind the
+          NZDT wall clock; measured against the box at 21:30-21:32 NZDT they are
+          swi_d -9 s, swi_b -2 s, swi_a +3 s, so all three agree with the box and with
+          each other to within ~12 s. Device-stamped lines below (flash timestamps,
+          the reload) are therefore UTC; console timings are NZDT.
+Bench:    tb277, consoles u2 = swi_d (DUT), u3 = swi_b, u5 = swi_a;
+          Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     T43857 "IPv4_UnicastRouting - OSPFv2". No authored step text and no authored
+          expected result exist for this case. ck.db was queried directly on title
+          (it keys on AWP-nnnn, not on AWPTCM-T<id>): LIKE '%UnicastRouting%' returned
+          0 rows, LIKE '%OSPFv2%' returned 15 rows, none of them this case. The step
+          headings below therefore describe what was exercised; they are not quotations.
+          The case was graded against:
+            - X960 platform support TPS, row 33: OSPFv2, priority 1, Yes, note column
+              empty -- so no limb may be graded UNSUPPORTED without DUT evidence;
+            - OSPF Feature Overview and Configuration Guide, C613-22055-00 REV E,
+              quoted verbatim where a limb tests one of its claims;
+            - the AW+ CLI pages: no x960 pages exist, the x950 pages are the same
+              generation.
+          6 steps as executed, plus a baseline.
+Build:    swi_d  sin_x96056-20261012-24  (flash:/x960-tb277.rel, build date Mon Oct 12 2026)
+          AT-x960-56YSQ, S/N A2WQS700B, console u2 @115200, licences Base + atlnz
+          => OSPF-FULL
+          swi_b  sin_x96056-20260921-9   AT-x960-28YSQ, S/N A10737A261700021,
+          console u3 @9600, Base licence only => OSPF-64 (2 networks advertised here)
+          swi_a  awplus_main-20261008-56  AT-x950 GEN2-52XSTQm, S/N A10713A262600012,
+          console u5 @9600, licences Base + full
+Configs:  swi_d.cfg, swi_b.cfg, swi_a.cfg (running-config after setup; saved to
+          startup: no)
+
+VERDICT: PASS -- OSPFv2 on the x960-56YSQ is gated behind `service ospf`, forms Full
+adjacencies with two neighbours over two interfaces, installs routes the protocol
+itself carried (code O, AD 110, each prefix traced to the owning partner's Router LSA
+in the link-state database) for destinations reachable no other way, and forwards over
+them on the wire; withdrawing one advertisement stops that forwarding while the second
+neighbour keeps forwarding in the same leg.
+      service gate, before anything ......... `show ip ospf` refused; no ospf line in
+                                              running-config; no OSPF route
+      gate is real and asynchronous ......... `router ospf` rejected ~1 s after
+                                              `service ospf`, accepted within 7 s
+      adjacencies ........................... 2.2.2.2 and 3.3.3.3 both Full/DR, 17 s
+                                              after `router ospf 1` completed
+      route learned from the protocol ....... O 10.70.70.1/32 [110/2] via 10.0.61.2,
+                                              O 10.90.90.1/32 [110/2] via 10.0.41.2;
+                                              `show running-config | include ip route`
+                                              empty throughout
+      which neighbour advertised it ......... each loopback carried by the Router LSA
+                                              originated by the partner that owns it
+      forwarding over the learned routes .... 5/5 and 5/5 echo replies, each sourced by
+                                              the loopback under test
+      control flow, same leg ................ 203.0.113.9 0/5 in every single leg
+      instrument control, same leg .......... 192.168.10.1 5/5 in every single leg
+      it is version 2 on the wire ........... OSPFv2 Hello, proto 89, to 224.0.0.5,
+                                              Backbone Area, timers 10/40
+      withdrawal, proven on the wire ........ 5/5 -> 0/5 in under 7 s with the port, the
+                                              link and the adjacency all still up, and
+                                              swi_b's Router LSA re-originated with one
+                                              fewer link; re-advertising restored 5/5
+      AD 110 loses to a static at AD 1 ...... in the DATAPLANE: 5 ICMP time-exceeded
+                                              sourced by the static next hop 10.0.41.2
+      interface cost changes the metric ..... `ip ospf cost 50` moved [110/2] -> [110/51]
+                                              on that route only
+      passive-interface, both claims ........ 0 OSPF packets in 30 s against one Hello
+                                              per 10 s, while the neighbour still holds
+                                              192.168.10.0 as a stub link in the DUT's
+                                              Router LSA; user traffic 5/5 throughout
+      removal ............................... `no router ospf 1` returns the dataplane
+                                              to the step-0 baseline, capture for capture
+      persistence across a real reboot ...... 61 s reload; config, service gate, both
+                                              adjacencies, both routes and forwarding
+                                              all return unaided
+CAVEAT:  Single backbone area 0.0.0.0 only. Inter-area routing, ABR/ASBR behaviour,
+         stub and NSSA areas and route summarisation were not exercised. `redistribute`
+         into OSPF and `default-information originate` were not exercised. OSPF
+         authentication was not exercised -- the wire capture shows Authentication Type:
+         none (0), which is the default. Route filtering, distribute-lists and
+         route-maps in OSPF were not exercised. `ip ospf cost` was proven to change the
+         METRIC, but each loopback has exactly one way in on this bench, so cost was not
+         shown to MOVE traffic, and OSPF equal-cost multipath could not be exercised for
+         the same reason. swi_b's OSPF-64 route limit was nowhere near approached.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+     tb277 eth3  00:0d:b9:55:77:0e                scapy source 192.168.10.5 /
+     (untagged VLAN 10)                           00:11:22:33:44:01, with a background
+           |                                      ARP responder for that address
+           |  (1) ICMP echo, next hop                              ^
+           |      e0:1a:ea:d4:70:43, to                            |  (4) echo replies,
+           |      10.70.70.1  (subject B)                          |      each sourced by
+           |      10.90.90.1  (subject A)                          |      the loopback
+           |      203.0.113.9 (control, never routed)              |      under test
+           |      192.168.10.1 (instrument control)                |
+           v                                                       |
+   +---------------------------------------------------------------------------+
+   |  swi_d   AT-x960-56YSQ                D U T                                |
+   |  port1.0.10 -- vlan10  192.168.10.1/24    source side, and the NIC the     |
+   |                                           OSPF packets were read off       |
+   |  port1.0.16 -- vlan61  10.0.61.1/30       adjacency + forwarding to swi_b  |
+   |  port1.0.4  -- vlan41  10.0.41.1/30       adjacency + forwarding to swi_a  |
+   |  router ospf 1, ospf router-id 1.1.1.1, area 0.0.0.0                       |
+   |  STP root bridge 0000:e01aead47043; all three ports Designated Forwarding  |
+   +---------------------------------------------------------------------------+
+         |      ^                                  |      ^
+   (2a)  |      |  (3a) echo reply           (2b)  |      |  (3b) echo reply
+  routed |      |       from 10.70.70.1     routed |      |       from 10.90.90.1
+  out    v      |                           out    v      |
+  vlan61        |                           vlan41        |
+   +-------------------------------+     +---------------------------------+
+   | swi_b  AT-x960-28YSQ          |     | swi_a  AT-x950 GEN2-52XSTQm     |
+   | vlan61 10.0.61.2/30           |     | vlan41 10.0.41.2/30             |
+   | lo 10.70.70.1/32  SUBJECT B   |     | lo 10.90.90.1/32  SUBJECT A     |
+   | ospf router-id 2.2.2.2, DR    |     | ospf router-id 3.3.3.3, DR      |
+   | the prefix withdrawn in STEP 2|     | the live positive control: it   |
+   |                               |     | must stay 5/5 while B goes to 0 |
+   +-------------------------------+     +---------------------------------+
+
+  DUT      : swi_d (AT-x960-56YSQ) console u2 @115200, S/N A2WQS700B,
+             SVI MAC e0:1a:ea:d4:70:43 -- every SVI shares it; standalone;
+             sin_x96056-20261012-24, boot image flash:/x960-tb277.rel
+  partner  : swi_b (AT-x960-28YSQ) console u3 @9600, S/N A10737A261700021,
+             bridge/SVI MAC 0000.cd42.3029, sin_x96056-20260921-9
+  partner  : swi_a (AT-x950 GEN2-52XSTQm) console u5 @9600, S/N A10713A262600012,
+             bridge MAC 889d.98df.2602, awplus_main-20261008-56
+  link     : swi_d port1.0.16 (vlan61, 10.0.61.0/30) <-> swi_b vlan61 10.0.61.2/30 --
+             the OSPF adjacency to 2.2.2.2 and the forwarding path to 10.70.70.1
+  link     : swi_d port1.0.4  (vlan41, 10.0.41.0/30) <-> swi_a vlan41 10.0.41.2/30 --
+             the OSPF adjacency to 3.3.3.3 and the forwarding path to 10.90.90.1
+  host     : tb277 eth3 00:0d:b9:55:77:0e -> swi_d port1.0.10, untagged VLAN 10. Every
+             frame is built at L2 with the DUT's SVI MAC as the next hop, so the host
+             kernel's own addresses and routes are bypassed; no host networking was
+             changed at any point. 192.168.10.5 is the scapy source address.
+  far side : both usable host NICs land on the DUT, so there is no host behind a
+             partner. The far side of each routed flow is the PARTNER ITSELF answering
+             from its own loopback -- which is the prefix under test.
+  return   : the partners' routes back to 192.168.10.0/24 are STATIC and stay static
+             (S 192.168.10.0/24 [1/0] on both), so the forward path is the only
+             variable and a reply that comes back proves the DUT held a forward route
+             it could only have learned from OSPF. Static AD 1 also beats OSPF AD 110
+             on the partners, so an OSPF copy cannot silently change the return path.
+  tools    : tools/arpleg.py (scapy) on tb277 sends and counts every measured leg;
+             tools/ckcon.py, tools/cfg.py and tools/ckyn.py drive the three consoles,
+             tools/poll.py polls for convergence, tools/ckreload.py drives the reload,
+             tools/rc2cfg.py saved the three .cfg files. Plain tcpdump on eth3 made the
+             two passive protocol-packet observations. python3.8 on tb277.
+             Every counted leg:
+               sudo python3.8 tools/arpleg.py --tag <tag> --out /tmp/ckC/T43857 \
+                 --iface eth3 --icmp 10.70.70.1,10.90.90.1,203.0.113.9,192.168.10.1 \
+                 --gw-mac e0:1a:ea:d4:70:43 --sender-ip 192.168.10.5 \
+                 --sender-mac 00:11:22:33:44:01 \
+                 --answer 192.168.10.5=00:11:22:33:44:01 --answer-iface eth3 \
+                 --count 5 --wait 6
+             The ARP responder is required because this DUT does not learn a neighbour
+             from a request it merely answers. Every counted frame is matched on BOTH
+             MACs and carries a CKARPLEG-<tag> payload marker, and every negative
+             result is a ZERO, so no other traffic on the segment can manufacture or
+             mask a count. STP was re-read immediately before every counted leg.
+
+STEP 0 -- baseline: OSPF off, and the service gate read first                    done
+--------------------------------------------------------------------------------
+  Method: read the DUT's state with no `service ospf` and no `router ospf` anywhere,
+  then run a full counted leg, so the later steps are interpretable against it.
+
+  State, 21:35:46-21:35:52:
+
+awplus# show ip ospf
+  % OSPF protocol daemon is not running or feature license is not available
+awplus# show ip ospf neighbor
+  % OSPF protocol daemon is not running or feature license is not available
+awplus# show ip route ospf
+  Gateway of last resort is not set
+  No entries in route table
+awplus# show running-config | include ospf
+awplus#                                    <-- EMPTY: no service, no router process, no
+                                               interface command
+awplus# show arp
+  IP Address      LL Address       Interface            Port        Type
+awplus#                                    <-- EMPTY
+
+  That refusal message conflates two different causes -- "daemon is not running" OR
+  "feature license is not available". This DUT holds OSPF-FULL, so on this unit it can
+  only be the daemon, and STEP 1 settles it constructively: `service ospf` alone makes
+  the same command answer. No limb of this case is graded UNSUPPORTED on the strength
+  of that message.
+
+  STP immediately before the leg (21:35:51):
+  port1.0.4   0000:e01aead47043  838c  Designated  Forwarding
+  port1.0.10  0000:e01aead47043  8392  Designated  Forwarding
+  port1.0.16  0000:e01aead47043  8398  Designated  Forwarding
+
+  The baseline route table held the FOUR CONNECTED routes only (10.0.41.0/30,
+  10.0.61.0/30, 192.168.10.0/24, 192.168.48.0/24) -- no static, no IGP.
+
+  The counted leg, --tag L1-ospf-off.  sent total: 20 frame(s).
+  cap L1-ospf-off-eth3.pcap: 29 frame(s)
+    x5  ICMP t8/c0 192.168.10.5 -> 10.70.70.1    [ours]  [00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x5  ICMP t8/c0 192.168.10.5 -> 10.90.90.1    [ours]
+    x5  ICMP t8/c0 192.168.10.5 -> 203.0.113.9   [ours]
+    x5  ICMP t8/c0 192.168.10.5 -> 192.168.10.1  [ours]
+    x5  ICMP t0/c0 192.168.10.1  -> 192.168.10.5 [ours]  [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:01]
+    x2  ICMP t3/c0 192.168.10.1  -> 192.168.10.5 [ours]   <-- destination unreachable,
+                                                              FROM THE DUT
+    x1  ARP-REQ who-has 192.168.10.5 tell 192.168.10.1  /  x1 ARP-REPLY (the responder)
+
+    10.70.70.1   (SUBJECT-B)  : 5 sent, 0 echo replies
+    10.90.90.1   (SUBJECT-A)  : 5 sent, 0 echo replies
+    203.0.113.9  (CONTROL)    : 5 sent, 0 echo replies
+    192.168.10.1 (INSTRUMENT) : 5 sent, 5 echo replies (ICMP type 0) -- instrument alive
+
+  The DUT emitted 2 ICMP type 3 destination-unreachables from its own vlan10 address,
+  so it made and reported a routing decision rather than silently blackholing. Only 2
+  for 15 unroutable packets: unreachable generation is rate-limited here, so their
+  SOURCE is attribution and their COUNT is not a measurement. The ABSENCE of echo
+  replies from the two loopbacks is the measurement.
+
+  => STEP 0 done: with OSPF off neither partner loopback is reachable, the control is
+     dropped and the instrument answers 5/5. Everything measured later is against this.
+
+STEP 1 -- enable OSPFv2, form adjacencies, and forward over a protocol-learned route
+                                                                                 PASS
+--------------------------------------------------------------------------------
+  Method: enable the service and the routing process on all three devices, advertise
+  each partner's loopback, then count a leg to prefixes for which no static route
+  exists anywhere.
+
+  1a. THE SERVICE GATE IS REAL, AND IT IS NOT INSTANT. `service ospf` and `router ospf`
+  cannot go in the same console batch. Measured on all three devices:
+
+x960-28YSQ(config)# service ospf                    21:36:59
+x960-28YSQ(config)# router ospf 1                   21:37:00  (+1 s)
+  % OSPF protocol daemon is not running or feature license is not available
+awplus(config)# service ospf                        21:37:08  (swi_a, same at +1 s)
+
+  Re-checked on swi_b at 21:37:23, with nothing else done:
+
+x960-28YSQ# show ip ospf
+  OSPF Routing Process not enabled.        <-- the DAEMON is up; no router process yet
+x960-28YSQ# show running-config | include service ospf
+  service ospf
+
+  Timed on the DUT: `service ospf` at 21:38:16; the first poll at 21:38:23 (+7 s)
+  already read `OSPF Routing Process not enabled.`, i.e. the daemon was up. The window
+  in which `router ospf` is rejected is therefore LONGER THAN 1 s AND SHORTER THAN 7 s
+  after `service ospf`. Both partners took `router ospf 1` without error when it was
+  re-sent at 21:37:42 and 21:37:53. The licence half of the refusal message is ruled
+  out: the DUT holds OSPF-FULL, and the command succeeded seconds later with no licence
+  change.
+
+  1b. CONFIGURATION APPLIED, quoted exactly as sent:
+
+    swi_b (/dev/u3) 21:37:41-21:37:45        swi_a (/dev/u5) 21:37:52-21:37:56
+      configure terminal                       configure terminal
+      service ospf                  [21:36:59] service ospf                  [21:37:08]
+      router ospf 1                            router ospf 1
+      ospf router-id 2.2.2.2                   ospf router-id 3.3.3.3
+      network 10.0.61.0/30 area 0              network 10.0.41.0/30 area 0
+      network 10.70.70.1/32 area 0             network 10.90.90.1/32 area 0
+      end                                      end
+
+    swi_d, the DUT (/dev/u2) 21:38:15-21:39:08
+      configure terminal
+      service ospf
+      end
+      configure terminal
+      router ospf 1
+      ospf router-id 1.1.1.1
+      network 10.0.61.0/30 area 0        <-- the swi_b leg
+      network 10.0.41.0/30 area 0        <-- the swi_a leg
+      network 192.168.10.0/24 area 0     <-- vlan10, so OSPF also runs out to the host
+      network 192.168.48.0/24 area 0         NIC and its packets can be read off the wire
+      end
+
+  No command was rejected. Router-ids are set explicitly (1.1.1.1 DUT, 2.2.2.2 swi_b,
+  3.3.3.3 swi_a) so every later read-back names the neighbour unambiguously instead of
+  inheriting an interface address. The guide's syntax (C613-22055-00 REV E p.3,
+  "To enter OSPF configuration mode, type in:" -- `configure terminal` / `service ospf`
+  / `router ospf 1`, and p.12's prefix form of `network`) was followed as printed.
+
+  1c. ADJACENCY. `show ip ospf neighbor` polled every 6 s for 60 s:
+
+awplus# show ip ospf neighbor                                  [21:39:25, and every poll
+  Neighbor ID     Pri   State      Dead Time   Address      Interface    through 21:40:15]
+  3.3.3.3           1   Full/DR    00:00:35    10.0.41.2    vlan41
+  2.2.2.2           1   Full/DR    00:00:38    10.0.61.2    vlan61
+
+  Both adjacencies reached Full within 17 s of `router ospf 1` completing on the DUT
+  (21:39:08 -> 21:39:25) and stayed Full across all 10 polls, the dead timer resetting
+  each time. Two neighbours, two different interfaces, two different partners.
+
+  1d. THE ROUTE CAME FROM THE PROTOCOL, AND FROM WHICH NEIGHBOUR (21:40:33-21:40:41):
+
+awplus# show ip route ospf
+  O       10.70.70.1/32 [110/2] via 10.0.61.2, vlan61, 00:01:12
+  O       10.90.90.1/32 [110/2] via 10.0.41.2, vlan41, 00:01:12
+awplus# show ip route 10.70.70.1
+  Routing entry for 10.70.70.1/32
+    Known via "ospf", distance 110, metric 2, best
+    Last update 00:01:14 ago
+    * via 10.0.61.2, vlan61
+awplus# show ip route 10.90.90.1
+  Routing entry for 10.90.90.1/32
+    Known via "ospf", distance 110, metric 2, best
+    * via 10.0.41.2, vlan41
+awplus# show running-config | include ip route
+awplus#                                    <-- EMPTY. NO STATIC ROUTE EXISTS. The only
+                                               way the DUT can have a route to either
+                                               loopback is the protocol under test.
+
+  Route code O, `Known via "ospf"`, distance 110 -- exactly the guide's claim
+  (C613-22055-00 REV E p.11): "The [110/2] beside the route in an IP route table means
+  the Administrative Distance (AD) is 110 (OSPF has an AD of 110) and the Metric of the
+  route is 2." Metric 2 = 1 for the /30 transit link + 1 for the stub loopback; the
+  transit cost of 1 is read back directly in STEP 3.
+
+awplus# show ip route database        (legend: > selected route, * FIB route)
+  O    *> 10.70.70.1/32 [110/2] via 10.0.61.2, vlan61
+  O    *> 10.90.90.1/32 [110/2] via 10.0.41.2, vlan41
+  O       10.0.41.0/30 [110/1] is directly connected, vlan41
+  C    *> 10.0.41.0/30 is directly connected, vlan41
+  O       10.0.61.0/30 [110/1] is directly connected, vlan61
+  C    *> 10.0.61.0/30 is directly connected, vlan61
+  O       192.168.10.0/24 [110/1] is directly connected, vlan10
+  C    *> 192.168.10.0/24 is directly connected, vlan10
+  O       192.168.48.0/24 [110/1] is directly connected, vlan48
+  C    *> 192.168.48.0/24 is directly connected, vlan48
+                                           <-- the OSPF copy of each connected route
+                                               loses to the connected route (AD 0),
+                                               correctly, and sits in the RIB without
+                                               the `*>`
+
+awplus# show ip ospf database
+  OSPF Router with ID (1.1.1.1) (Process ID 1)
+                  Router Link States (Area 0.0.0.0)
+  Link ID         ADV Router      Age  Seq#       CkSum  Link count
+  1.1.1.1         1.1.1.1           46 0x80000005 0x907c 4
+  2.2.2.2         2.2.2.2           85 0x80000004 0xfa0a 2     <-- swi_b's own LSA
+  3.3.3.3         3.3.3.3           85 0x80000004 0x2cd0 2     <-- swi_a's own LSA
+                  Net Link States (Area 0.0.0.0)
+  Link ID         ADV Router      Age  Seq#       CkSum
+  10.0.41.2       3.3.3.3           85 0x80000001 0x52b9
+  10.0.61.2       2.2.2.2           85 0x80000001 0x718e
+
+  Each loopback's reachability is carried by a Router LSA ORIGINATED BY THE PARTNER
+  THAT OWNS IT -- read out of the link-state database, not inferred from the next hop.
+
+  ARP verified for BOTH next hops before the counted leg:
+
+awplus# show arp
+  10.0.61.2     0000.cd42.3029   vlan61   port1.0.16   dynamic
+  10.0.41.2     889d.98df.2602   vlan41   port1.0.4    dynamic
+  192.168.10.5  0011.2233.4401   vlan10   port1.0.10   dynamic
+
+  The DUT's ARP table had been EMPTY at 21:35:52; forming the adjacencies resolved both
+  next hops with no other help.
+
+  STP immediately before the leg (21:40:41): port1.0.4, port1.0.10 and port1.0.16 all
+  Designated Forwarding, unchanged from the baseline.
+
+  1e. THE COUNTED LEG, --tag L2-ospf-on.  sent total: 20 frame(s).
+  cap L2-ospf-on-eth3.pcap: 40 frame(s)
+    x5  ICMP t8/c0 192.168.10.5 -> 10.70.70.1     [ours]
+    x5  ICMP t0/c0 10.70.70.1 -> 192.168.10.5     [ours]  [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:01]
+    x5  ICMP t8/c0 192.168.10.5 -> 10.90.90.1     [ours]
+    x5  ICMP t0/c0 10.90.90.1 -> 192.168.10.5     [ours]
+    x5  ICMP t8/c0 192.168.10.5 -> 203.0.113.9    [ours]
+    x5  ICMP t8/c0 192.168.10.5 -> 192.168.10.1   [ours]
+    x5  ICMP t0/c0 192.168.10.1  -> 192.168.10.5  [ours]
+    x2  ICMP t3/c0 192.168.10.1  -> 192.168.10.5  [ours]   <-- still unreachable, for
+                                                               203.0.113.9
+    x1  IP p89 192.168.10.1 -> 224.0.0.5  [e0:1a:ea:d4:70:43 -> 01:00:5e:00:00:05]
+                                                           <-- an OSPF packet, caught in
+                                                               passing
+    x1  ARP-REQ who-has 10.38.22.33 tell 10.38.22.41  [00:0c:25:2a:a5:53 -> ff:ff:ff:ff:ff:ff]
+    x1  ARP-REPLY 10.38.22.33 is-at 00:0d:b9:55:77:0e      <-- another host on the eth3
+                                                               segment; it is in
+                                                               10.38.22.0/27, not
+                                                               192.168.10.0/24, is not
+                                                               [ours], and cannot answer
+                                                               for either loopback
+
+    10.70.70.1   (SUBJECT-B)  : 5 sent, 5 echo replies SOURCED BY 10.70.70.1  (0/5 at baseline)
+    10.90.90.1   (SUBJECT-A)  : 5 sent, 5 echo replies SOURCED BY 10.90.90.1  (0/5 at baseline)
+    203.0.113.9  (CONTROL)    : 5 sent, 0 echo replies -- dropped IN THE SAME LEG
+    192.168.10.1 (INSTRUMENT) : 5 sent, 5 replies -- instrument alive
+
+  The frames were routed out vlan61 and vlan41 to the partners, each partner answered
+  FROM THE LOOPBACK that is the prefix under test, and the replies came back through
+  the DUT and out vlan10.
+
+  1f. THE PROTOCOL ON THE WIRE -- it is OSPF VERSION 2 (21:41:29, passive capture):
+
+$ sudo timeout 25 tcpdump -i eth3 -n -v -c 2 'proto ospf'
+  21:41:29.185373 IP (tos 0xc0, ttl 1, id 10382, offset 0, flags [DF], proto OSPF (89), length 64)
+      192.168.10.1 > 224.0.0.5: OSPFv2, Hello, length 44
+      Router-ID 1.1.1.1, Backbone Area, Authentication Type: none (0)
+      Options [External]
+        Hello Timer 10s, Dead Timer 40s, Mask 255.255.255.0, Priority 1
+        Designated Router 192.168.10.1
+  (second Hello 11.0 s later, 21:41:40.187571 -- the 10 s hello timer, measured)
+
+  => STEP 1 PASS: the service gate is a real, asynchronous gate and not a platform gap;
+     both adjacencies reach Full in 17 s; the DUT installs O / AD 110 routes for two
+     prefixes while `show running-config | include ip route` stays empty, each traced
+     in the LSDB to the Router LSA of the partner that owns it; and 5/5 plus 5/5 echo
+     replies sourced by those loopbacks prove end-to-end forwarding over routes that
+     exist only because OSPF put them there -- with the control dropped and the
+     instrument alive in the same leg. The wire capture ties the case title to what the
+     DUT emits: OSPFv2, protocol 89, to 224.0.0.5, area 0.0.0.0, timers 10/40.
+
+STEP 2 -- withdraw one advertisement on the neighbour, and prove the loss on the wire
+                                                                                 PASS
+--------------------------------------------------------------------------------
+  Method: remove ONE advertisement on swi_b, leaving the port, the link, the adjacency
+  and the second neighbour untouched. Shutting a port or stopping the protocol would
+  also stop the traffic and would prove nothing about OSPF.
+
+  2a. WITHDRAW (swi_b, 21:43:25-21:43:27):
+
+x960-28YSQ# configure terminal
+x960-28YSQ(config)# router ospf 1
+x960-28YSQ(config-router)# no network 10.70.70.1/32 area 0
+x960-28YSQ(config-router)# end
+
+  swi_b's loopback interface itself is untouched and still up with 10.70.70.1/32; only
+  its advertisement into OSPF is removed.
+
+  2b. CONVERGENCE, polled on the DUT every 4 s:
+    21:43:34 (+7 s)  O 10.90.90.1/32 [110/2] via 10.0.41.2, vlan41, 00:04:13
+                     <-- 10.70.70.1/32 ALREADY GONE. Withdrawn in under 7 s.
+    identical at 21:43:35, :39, :43, :47, :51. 10.90.90.1/32's age keeps ticking
+    (00:04:13 -> 00:04:30), so it was never re-learned or disturbed -- only the
+    withdrawn prefix moved.
+
+  2c. WHAT CHANGED, AND WHAT DID NOT (21:44:09-21:44:13):
+
+awplus# show ip route 10.70.70.1
+  % Network not in table                   <-- gone from the FIB, not merely demoted
+awplus# show ip ospf neighbor
+  3.3.3.3   1  Full/DR  00:00:33  10.0.41.2  vlan41
+  2.2.2.2   1  Full/DR  00:00:32  10.0.61.2  vlan61
+                                           <-- the adjacency to swi_b is STILL Full. The
+                                               route went away because the ADVERTISEMENT
+                                               went away, not the neighbour, the link or
+                                               the port
+awplus# show ip ospf database
+  Link ID    ADV Router   Age  Seq#        CkSum   Link count
+  2.2.2.2    2.2.2.2       43  0x80000005  0x5557  1    <-- was Seq 0x80000004, Link count 2
+  3.3.3.3    3.3.3.3      296  0x80000004  0x2cd0  2    <-- untouched, age still climbing
+
+  swi_b RE-ORIGINATED its Router LSA with a higher sequence number and ONE FEWER LINK:
+  the stub link for the loopback is gone from the database. The withdrawal is visible at
+  the protocol level, in the LSDB, and not only as an absent route.
+
+  STP immediately before the leg (21:44:13): port1.0.4, port1.0.10, port1.0.16 all
+  Designated Forwarding -- unchanged, so nothing in this leg is an L2 effect.
+
+  2d. THE COUNTED LEG, --tag L3-withdrawn.  cap L3-withdrawn-eth3.pcap: 35 frame(s)
+    x5  ICMP t8/c0 192.168.10.5 -> 10.70.70.1    [ours]        <-- no reply at all
+    x5  ICMP t8/c0 192.168.10.5 -> 10.90.90.1    [ours]
+    x5  ICMP t0/c0 10.90.90.1 -> 192.168.10.5    [ours]
+    x5  ICMP t8/c0 192.168.10.5 -> 203.0.113.9   [ours]
+    x5  ICMP t8/c0 192.168.10.5 -> 192.168.10.1  [ours]
+    x5  ICMP t0/c0 192.168.10.1  -> 192.168.10.5 [ours]
+    x2  ICMP t3/c0 192.168.10.1  -> 192.168.10.5 [ours]
+    x1  ARP-REQ / x1 ARP-REPLY (the responder) / x1 IP p89 -> 224.0.0.5 (a Hello)
+
+    10.70.70.1   (SUBJECT-B)  : 5 sent, 0 echo replies -- down from 5/5 in STEP 1
+    10.90.90.1   (SUBJECT-A)  : 5 sent, 5 echo replies -- UNCHANGED, IN THE SAME LEG
+    203.0.113.9  (CONTROL)    : 5 sent, 0 replies
+    192.168.10.1 (INSTRUMENT) : 5 sent, 5 replies
+
+  SUBJECT-A at 5/5 in the same leg means the sender, the DUT, the routing, the capture
+  and OSPF itself were all alive at the moment SUBJECT-B read zero. A zero measured
+  alone would be indistinguishable from a dead instrument.
+
+  2e. RE-ADVERTISE, AND IT COMES BACK (21:44:5x):
+
+x960-28YSQ(config-router)# network 10.70.70.1/32 area 0
+
+    DUT, polled every 3 s:
+      21:44:59  O 10.70.70.1/32 [110/2] via 10.0.61.2, vlan61, 00:00:06   <-- re-learned,
+                O 10.90.90.1/32 [110/2] via 10.0.41.2, vlan41, 00:05:38       age restarted
+
+    --tag L3b-readvertised.  cap 41 frame(s)
+      10.70.70.1   : 5 sent, 5 echo replies sourced by 10.70.70.1 -- forwarding restored
+      10.90.90.1   : 5/5      203.0.113.9 : 0/5      192.168.10.1 : 5/5
+
+  => STEP 2 PASS: withdraw -> 0/5 -> re-advertise -> 5/5, each proven on the wire, with
+     the port, the link and the adjacency constant throughout and the second neighbour's
+     prefix at 5/5 in the same leg. The cause is isolated to the advertisement: the
+     adjacency stayed Full and swi_b's Router LSA was re-originated with one fewer link.
+
+STEP 3 -- interface cost changes the metric, and OSPF's AD of 110 loses to a static
+          route in the dataplane                                                 PASS
+--------------------------------------------------------------------------------
+  Guide authority, C613-22055-00 REV E p.11, Table 2 (Administrative Distance):
+  "Administrative Distance is a measure of the trustworthiness of the source of the
+  routing information. The lower the AD value, the more reliable the routing protocol
+  is considered." (Connected 0, Static 1, ... OSPF 110.)
+
+  3a. DEFAULT INTERFACE COST, read before changing it (21:46:26):
+
+awplus# show ip ospf interface vlan61
+  vlan61 is up, line protocol is up
+    Internet Address 10.0.61.1/30, Area 0.0.0.0, MTU 1500
+    Interface state Backup
+    Process ID 1, Router ID 1.1.1.1, Network Type BROADCAST, Cost: 1
+    Designated Router (ID) 2.2.2.2, Interface Address 10.0.61.2
+    Backup Designated Router (ID) 1.1.1.1, Interface Address 10.0.61.1
+    Timer intervals configured, Hello 10, Dead 40, Wait 40, Retransmit 5
+    Neighbor Count is 1, Adjacent neighbor count is 1
+    Hello received 44 sent 45, DD received 3 sent 4
+    LS-Req received 1 sent 1, LS-Upd received 5 sent 5
+
+  Default cost on this 1 G SVI is 1, which is why the learned metric was [110/2]
+  (1 transit + 1 stub). swi_b is the DR on the higher router-id 2.2.2.2, the DUT the BDR.
+
+  3b. `ip ospf cost 50` on the DUT's vlan61 (21:47:07):
+
+awplus(config)# interface vlan61
+awplus(config-if)# ip ospf cost 50
+
+    polled on the DUT:
+      21:46:45  O 10.70.70.1/32 [110/51] via 10.0.61.2, vlan61, 00:00:10   <-- 50 + 1
+                O 10.90.90.1/32 [110/2]  via 10.0.41.2, vlan41, 00:07:24   <-- untouched
+
+  The cost applies to the interface the route is learned THROUGH, and only that route's
+  metric moves. Reverted immediately with `no ip ospf cost` (21:47:08), metric back to 2.
+  This is a read-back limb: each loopback has exactly one way in on this bench, so there
+  is no path for the cost to move.
+
+  3c. A COMPETING STATIC ROUTE, AD 1 vs OSPF's 110 (21:47:10):
+
+awplus(config)# ip route 10.70.70.1/32 10.0.41.2    <-- points at swi_a, which does NOT
+                                                        own the prefix. Deliberate: the
+                                                        wire can then say which route was
+                                                        used
+awplus# show ip route database        (legend: > selected, * FIB)
+  S    *> 10.70.70.1/32 [1/0] via 10.0.41.2, vlan41 weight 1     <-- the static takes the FIB
+  O       10.70.70.1/32 [110/2] via 10.0.61.2, vlan61, 00:00:15  <-- OSPF demoted to RIB only
+  O    *> 10.90.90.1/32 [110/2] via 10.0.41.2, vlan41, 00:08:04
+awplus# show ip route 10.70.70.1
+  Routing entry for 10.70.70.1/32
+    Known via "static", distance 1, metric 0, best
+    * via 10.0.41.2, vlan41 weight 1
+
+  STP immediately before the leg (21:47:28): port1.0.4, port1.0.10, port1.0.16 all
+  Designated Forwarding.
+
+    --tag L4-static-beats-ospf.  cap L4-static-beats-ospf-eth3.pcap: 38 frame(s)
+      x5  ICMP t8/c0 192.168.10.5 -> 10.70.70.1   [ours]
+      x5  ICMP t11/c0 10.0.41.2 -> 192.168.10.5   [ours]   <-- TIME EXCEEDED, SOURCED BY
+                                                               swi_a
+      x5  ICMP t8/c0 192.168.10.5 -> 10.90.90.1   [ours]
+      x5  ICMP t0/c0 10.90.90.1 -> 192.168.10.5   [ours]
+      x5  ICMP t8/c0 192.168.10.5 -> 203.0.113.9  [ours]
+      x5  ICMP t8/c0 / x5 t0/c0 192.168.10.1      [ours]
+      x2  ICMP t3/c0 192.168.10.1 -> 192.168.10.5 [ours]   <-- 203.0.113.9 still dropped
+
+      10.70.70.1   : 5 sent, 0 echo replies, and 5 ICMP TIME-EXCEEDED from 10.0.41.2
+      10.90.90.1   : 5/5      203.0.113.9 : 0/5      192.168.10.1 : 5/5
+
+  The wire names the winner. Those type-11s could only be produced by swi_a, so the DUT
+  handed the frames to 10.0.41.2 -- the STATIC next hop -- and not to 10.0.61.2. swi_a
+  in turn has its own OSPF route for 10.70.70.1/32 pointing back at the DUT, its only
+  OSPF neighbour, so the two bounced the packet until TTL ran out and swi_a reported it.
+  With the OSPF route in use there is no loop at all (STEPs 1 and 2e), so a time-exceeded
+  is positive proof the static displaced OSPF in the DATAPLANE and not merely in the
+  display. These were 5 for 5, not rate-limited, unlike the network-unreachables at 2
+  per 15.
+
+  3d. REMOVE THE STATIC -- OSPF RESUMES (21:48:3x):
+
+awplus(config)# no ip route 10.70.70.1/32 10.0.41.2
+awplus# show ip route database
+  O    *> 10.70.70.1/32 [110/2] via 10.0.61.2, vlan61, 00:01:24   <-- OSPF back in the FIB
+awplus# show running-config | include ip route
+awplus#                                                           <-- EMPTY again
+
+    --tag L4b-ospf-resumes.  cap 38 frame(s)
+      10.70.70.1 : 5 sent, 5 echo replies sourced by 10.70.70.1 -- and ZERO time-exceeded
+      10.90.90.1 : 5/5      203.0.113.9 : 0/5      192.168.10.1 : 5/5
+
+  => STEP 3 PASS: the default interface cost of 1 is read back from the DUT and explains
+     the learned metric of 2; `ip ospf cost 50` moves that one route to [110/51] and
+     nothing else. OSPF's administrative distance of 110 behaves exactly as the guide
+     documents, and the preference was measured where it counts -- the egress the frames
+     actually took, attributed by the next hop's own ICMP -- then reversed, with the
+     echo replies and the absence of time-exceeded proving OSPF took the dataplane back.
+
+STEP 4 -- passive-interface: both halves of the guide's claim, measured on the wire
+                                                                                 PASS
+--------------------------------------------------------------------------------
+  Guide authority, C613-22055-00 REV E p.14 ("Passive-interfaces"), verbatim:
+  "An interface can be configured in OSPF as a passive-interface: passive-interface
+  vlan50 This means that the network associated with this interface can be advertised
+  into OSPF using the network command, but no OSPF protocol packets will be sent out of
+  this interface."
+  Two separate claims, and the host NIC on vlan10 lets both be measured directly.
+
+  4a. BEFORE. OSPF packets on eth3: one Hello every ~11 s (STEP 1f: 21:41:29.185 and
+      21:41:40.188). swi_b's view of the DUT's vlan10 network (21:49:53):
+
+x960-28YSQ# show ip route database
+  O       192.168.10.0/24 [110/2] via 10.0.61.1, vlan61, 00:10:35
+  S    *> 192.168.10.0/24 [1/0] via 10.0.61.1, vlan61 weight 1
+
+      swi_b's own static wins its FIB at AD 1 -- that is the underlay's return route --
+      but the OSPF copy is plainly in its RIB, which is what "advertised" means here.
+
+  4b. APPLY (21:50:00-21:50:03):
+
+awplus(config)# router ospf 1
+awplus(config-router)# passive-interface vlan10
+
+  4c. CLAIM 1 -- "no OSPF protocol packets will be sent out of this interface":
+
+$ sudo timeout 30 tcpdump -i eth3 -n -c 3 'proto ospf'
+  0 packets captured  (0 received by filter, 0 dropped by kernel)
+
+      0 packets over a full 30 s, against an expected ~3 Hellos at the measured 10 s
+      timer. Corroborated independently by the counted leg below: L5-passive-eth3.pcap
+      is the ONLY capture in this case that contains no `IP p89 ... -> 224.0.0.5` frame
+      at all -- every other leg caught one or two in passing. Two instruments, same
+      answer.
+
+  4d. CLAIM 2 -- "the network ... can still be advertised into OSPF". Read from the
+      NEIGHBOUR, so it is the protocol's view and not the DUT's own (21:50:50-21:50:53):
+
+x960-28YSQ# show ip route database
+  O       192.168.10.0/24 [110/2] via 10.0.61.1, vlan61, 00:00:41    <-- still there
+x960-28YSQ# show ip ospf database router 1.1.1.1
+    LS age: 45
+     Number of Links: 4
+      Link connected to: a Transit Network  (Link ID) DR address: 10.0.61.2
+      Link connected to: a Transit Network  (Link ID) DR address: 10.0.41.2
+      Link connected to: Stub Network       (Link ID) Network/subnet number: 192.168.10.0
+      Link connected to: Stub Network       (Link ID) Network/subnet number: 192.168.48.0
+
+      The DUT's Router LSA, as swi_b holds it, STILL carries 192.168.10.0 as a stub
+      link. The LSA was re-originated -- LS age 45 s -- when the interface went passive:
+      it changed from a transit link to a stub, which is right, because the DUT no
+      longer claims an adjacency there.
+
+  4e. DATA FORWARDING IS UNAFFECTED, --tag L5-passive.  cap 39 frame(s)
+      10.70.70.1 : 5/5 sourced by 10.70.70.1      10.90.90.1 : 5/5 sourced by 10.90.90.1
+      203.0.113.9 : 0/5 (control)                 192.168.10.1 : 5/5 (instrument)
+
+  4f. REMOVE IT (21:51:3x):
+
+awplus(config-router)# no passive-interface vlan10
+$ sudo timeout 30 tcpdump -i eth3 -n -c 2 'proto ospf'
+  21:51:41.003901 IP 192.168.10.1 > 224.0.0.5: OSPFv2, Hello, length 44
+  21:51:50.007026 IP 192.168.10.1 > 224.0.0.5: OSPFv2, Hello, length 44
+
+      Hellos resume, 9.00 s apart.
+
+  => STEP 4 PASS: both halves of the documented claim hold and both were measured, not
+     assumed -- the protocol packets stop dead (0 in 30 s against one Hello per 10 s,
+     confirmed by a second instrument) while the neighbour's copy of the DUT's Router
+     LSA still advertises 192.168.10.0 as a stub link, and user traffic is untouched at
+     5/5. The command is removable: Hellos return on the wire 9.00 s apart.
+
+STEP 5 -- removal: gone from the dataplane, not merely from running-config     PASS
+--------------------------------------------------------------------------------
+awplus# configure terminal
+awplus(config)# no router ospf 1
+awplus(config)# end
+
+  State (21:52:46-21:52:51):
+
+awplus# show ip route ospf
+  Gateway of last resort is not set
+  No entries in route table
+awplus# show running-config | include router ospf
+awplus#                                    <-- EMPTY
+awplus# show ip ospf neighbor
+awplus#                                    <-- EMPTY: both adjacencies torn down
+awplus# show running-config | include service ospf
+  service ospf                             <-- deliberately left in place, so what this
+                                               step measures is the removal of the
+                                               ROUTING PROCESS alone
+
+  STP (21:52:51): port1.0.4, port1.0.10, port1.0.16 all Designated Forwarding --
+  unchanged.
+
+    --tag L6-no-router-ospf.  cap 27 frame(s)
+      x5  ICMP t8/c0 192.168.10.5 -> 10.70.70.1   [ours]
+      x5  ICMP t8/c0 192.168.10.5 -> 10.90.90.1   [ours]
+      x5  ICMP t8/c0 192.168.10.5 -> 203.0.113.9  [ours]
+      x5  ICMP t8/c0 192.168.10.5 -> 192.168.10.1 [ours]
+      x5  ICMP t0/c0 192.168.10.1  -> 192.168.10.5 [ours]
+      x2  ICMP t3/c0 192.168.10.1  -> 192.168.10.5 [ours]
+      (and NO p89 frame -- the protocol has stopped)
+
+      10.70.70.1   : 5 sent, 0 echo replies  (5/5 before)
+      10.90.90.1   : 5 sent, 0 echo replies  (5/5 before)
+      203.0.113.9  : 5 sent, 0 replies
+      192.168.10.1 : 5 sent, 5 replies -- instrument alive
+
+  => STEP 5 PASS: the capture is frame-for-frame the STEP 0 baseline (27 against 29
+     frames; the difference is the responder's ARP exchange, which the baseline needed
+     and this leg did not because the DUT's cache was already warm). Both adjacencies
+     are torn down, no OSPF packet is emitted, and both prefixes stop forwarding while
+     the instrument still answers -- removal returns the DATAPLANE to baseline, not just
+     the display.
+
+STEP 6 -- persistence across a real reboot                                      PASS
+--------------------------------------------------------------------------------
+  Method: re-apply the STEP 1 configuration verbatim, stage it into a NAMED boot config
+  (nothing is written to startup-config), reload the DUT for real, and count a leg after
+  it comes back. The boot pointer is put back afterwards.
+
+awplus(config)# router ospf 1                     <-- the STEP 1 configuration re-applied
+awplus(config-router)# ospf router-id 1.1.1.1         verbatim, 21:53:2x
+awplus(config-router)# network 10.0.61.0/30 area 0
+awplus(config-router)# network 10.0.41.0/30 area 0
+awplus(config-router)# network 192.168.10.0/24 area 0
+awplus(config-router)# network 192.168.48.0/24 area 0
+awplus# copy running-config flash:/ckT43857.cfg   21:53:41 (no (y/n) prompt -- the file
+awplus# dir flash:                                         did not already exist)
+  2249 -rw- Oct 15 2026 08:53:32  ckT43857.cfg          <-- device clock, UTC
+awplus(config)# boot config-file flash:/ckT43857.cfg
+awplus# show boot
+  Current boot image : flash:/x960-tb277.rel (file exists)
+  Current boot config: flash:/ckT43857.cfg (file exists)
+awplus# show file flash:/ckT43857.cfg | include service ospf|router ospf|...
+  service ospf
+  router ospf 1
+   ospf router-id 1.1.1.1
+   network 10.0.61.0/30 area 0
+
+  THE RELOAD -- a real reboot, not a config reload:
+    08:54:10 UTC  reload issued
+    21:54:12 >>> reload   ->  reboot question: 'reboot system? (y/n):' -> y
+    21:55:13      login seen after 61 s
+
+  AFTER THE REBOOT, before anything was re-applied (21:55:56-21:56:03):
+
+awplus# show boot
+  Current boot image : flash:/x960-tb277.rel (file exists)
+  Current boot config: flash:/ckT43857.cfg (file exists)
+awplus# show running-config | include service ospf|router ospf|ospf router-id
+  service ospf
+  router ospf 1
+   ospf router-id 1.1.1.1                  <-- the feature AND its service gate came back
+awplus# show ip interface brief
+  vlan10 192.168.10.1/24 · vlan41 10.0.41.1/30 · vlan48 192.168.48.1/24 · vlan61 10.0.61.1/30
+awplus# show ip ospf neighbor             [21:55:58, 43 s after login]
+  3.3.3.3   1  ExStart/DR  00:00:39  10.0.41.2  vlan41
+  2.2.2.2   1  ExStart/DR  00:00:38  10.0.61.2  vlan61
+awplus# show ip route ospf
+  No entries in route table                <-- caught MID-CONVERGENCE: a persistence
+                                               check read at this instant would wrongly
+                                               report the feature lost
+awplus# show arp
+  10.0.61.2  0000.cd42.3029  vlan61  port1.0.16  dynamic   <-- both next hops already
+  10.0.41.2  889d.98df.2602  vlan41  port1.0.4   dynamic       resolved
+
+  STP (21:56:03): port1.0.4, port1.0.10, port1.0.16 Designated Forwarding; the DUT is
+  still the root bridge.
+
+  CONVERGENCE AFTER THE REBOOT, polled every 8 s:
+    21:56:31  both neighbours Full/DR;
+              O 10.70.70.1/32 [110/2] via 10.0.61.2, vlan61, 00:00:23
+              O 10.90.90.1/32 [110/2] via 10.0.41.2, vlan41, 00:00:23
+    stable through 21:56:55. Both routes re-learned FROM THE PROTOCOL (code O, AD 110),
+    ~78 s after the reload was issued and ~35 s after login.
+
+    --tag L7-after-reload.  cap 40 frame(s)
+      10.70.70.1   : 5 sent, 5 echo replies sourced by 10.70.70.1
+      10.90.90.1   : 5 sent, 5 echo replies sourced by 10.90.90.1
+      203.0.113.9  : 5 sent, 0 replies -- control still dropped after the reboot
+      192.168.10.1 : 5 sent, 5 replies -- instrument alive
+      plus x1 IP p89 192.168.10.1 -> 224.0.0.5 -- the protocol is running again
+
+  => STEP 6 PASS: OSPFv2 survives a real 61 s reboot. The configuration and its service
+     gate come back from flash, both adjacencies re-form through ExStart to Full without
+     intervention, both routes are re-learned from the protocol rather than restored
+     from a table, and forwarding returns at 5/5 and 5/5 with the control still dropped.
+     The mid-convergence read at 43 s after login is recorded because it shows a
+     persistence check timed too early would read the opposite.
+================================================================================
