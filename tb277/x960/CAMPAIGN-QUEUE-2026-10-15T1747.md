@@ -137,7 +137,7 @@ re-reading as a top-three cost.
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
 | A | T33248 Static ARP · T33247 Clear ARP · T33249 ARP Logging · T33246 ARP Polling · T43848 Proxy ARP · T43849 Local Proxy ARP | arp-2026-10-15T1747 | **DONE 2026-10-15T2000 — 6 PASS, bench restored and re-probed (exit 0, all three configs identical to the pre-campaign capture)** | DUT + both host NICs. Two L3 segments (eth3/VLAN 10, eth4/VLAN 48) give proxy ARP its two sides without a partner. Run first: it is the least topology-hungry and it proves the bench before the routing underlay goes in |
-| B | T43855 IPv4 Static · T43861 ECMP Routing · T43862 Secondary IP Address | static-2026-10-15T1747 | RUNNABLE (triaged 2026-10-15T1805) | Needs the routing underlay (below) and both partners. ECMP uses the DUT's **two** links to one partner, or one link to each — the triangle gives equal-cost paths either way |
+| B | T43855 IPv4 Static · T43861 ECMP Routing · T43862 Secondary IP Address | static-2026-10-15T1747 | **RUNNING from 2026-10-15T2020 — underlay + restore recipe written below before case 1** | Needs the routing underlay (below) and both partners. ECMP uses the DUT's **two** links to one partner, or one link to each — the triangle gives equal-cost paths either way |
 | C | T43857 OSPFv2 · T43856 RIP v1/v2 | igp-2026-10-15T1747 | RUNNABLE (triaged 2026-10-15T1805) | Same underlay as B. `service ospf` / `service rip` FIRST |
 | D | T43858 BGPv4 · T43859 VRF-Lite | bgp-vrf-2026-10-15T1747 | RUNNABLE (triaged 2026-10-15T1805) | Same underlay. `service bgp` first. VRF-Lite may need a feature the DUT lacks — that is UNSUPPORTED **with the refused command quoted**, after the service gate has been ruled out |
 
@@ -507,6 +507,281 @@ ssh tb277 'cd ~/claude/device-testing/bench-setup && python3.8 bench_probe.py --
 ```
 and diff `captures/<new>/u2.show_running-config.txt` against
 `captures/2026-10-15T051005Z/u2.show_running-config.txt` (the group's pre-run baseline, 70 lines).
+
+
+## Group B/C/D shared L3 underlay and restore — built once at the start of `static-2026-10-15T1747` (written 2026-10-15 20:20 NZDT, before case 1 of group B)
+
+**Per `/test-mode` §2 and STANDING-ORDERS §6: set ONCE before group B, left up through groups C
+and D, restored ONCE after group D (or after any abort).** A fresh tester must be able to
+restore the bench from this section alone.
+
+### 🔴 The triage's RISK-4 remedy was WRONG, and this block replaces it
+
+RISK-4 said "give every routed leg its own VLAN so each VLAN carries exactly one link — nothing
+blocked". **RSTP on this bench is single-instance** (`spanning-tree mode rstp` on all three), so
+it computes one tree over the *physical* topology: a port in Discarding is blocked for **every**
+VLAN, and per-leg VLANs buy nothing. Measured on all three devices 2026-10-15 20:13–20:15 NZDT,
+before anything was changed:
+
+```
+swi_b  Root Id 8000:0000cd423029 = itself.  sa1, port1.0.1, port1.0.11, port1.0.16 all Designated Forwarding
+swi_a  Bridge 8000:889d98df2602.  port1.0.1 Rootport F · port1.0.11 Alternate D · port1.0.4 Designated F · port1.0.14 Designated F
+swi_d  Bridge 8000:e01aead47043.  port1.0.2 Rootport F · port1.0.4 Alternate D · port1.0.14 Alternate D · port1.0.16 Alternate D
+       (port1.0.8 and port1.0.40 are Designated Forwarding with NO LLDP neighbour — far ends unknown, left alone)
+```
+
+⇒ **Every one of the DUT's three candidate routed legs was Discarding.** On each DUT↔swi_a
+segment the two bridges tie on root path cost and swi_a wins the tie on the lower bridge ID, so
+no VLAN scheme can free them.
+
+**The fix used instead — two lines, both on the DUT, both reverted at the end of group D:**
+
+| change | why |
+| --- | --- |
+| `spanning-tree priority 0` on **swi_d** | makes the DUT the root bridge, so **every** DUT port becomes Designated and Forwarding. Blocking moves onto swi_a's and swi_b's spare ports, which no case uses |
+| `interface port1.0.2 / shutdown` on **swi_d** | the second DUT↔swi_b link. swi_b's `sa1` (RISK-2) carries swi_b port1.0.2; with it live, swi_b would root through `sa1` and put **port1.0.16 — the leg group B needs — into Alternate/Discarding**. Shutting the DUT end (never swi_b's, RISK-2) removes the choice. Group A set the precedent |
+| `interface port1.0.14 / shutdown` on **swi_d** | the second DUT↔swi_a link. With the DUT as root, swi_a must block one of its two DUT-facing ports; shutting 1.0.14 makes 1.0.4 swi_a's only DUT link, so the leg is deterministic instead of decided by a port-ID tie-break |
+
+**swi_a and swi_b get no STP change at all, and no port on either is shut.** `sa1`, `vlan 100`,
+swi_b `port1.0.2/1.0.4/1.0.8` are untouched (RISK-2). swi_a is config-only, never reloaded or
+power-cycled (RISK-1).
+
+**⇒ ECMP (T43861) therefore uses ONE link to EACH partner, not the swi_a pair.** The queue's own
+group-B note sanctions this ("ECMP uses the DUT's **two** links to one partner, **or one link to
+each**"). Two parallel links between the same pair of bridges are a loop that single-instance
+RSTP must break at one end whichever bridge is root, so the swi_a pair is not available for ECMP
+on this bench without disabling spanning tree — which is not worth the storm risk unattended,
+with two DUT ports (1.0.8, 1.0.40) up to unknown far ends.
+
+### Addressing — each routed leg its own VLAN (still worth doing: it keeps the L2 domains separate)
+
+```
+tb eth3 00:0d:b9:55:77:0e ── swi_d port1.0.10  vlan10  192.168.10.1/24     (source; scapy fictions only)
+tb eth4 00:0d:b9:55:77:0f ── swi_d port1.0.48  vlan48  192.168.48.1/24     (sink)
+swi_d port1.0.4  vlan41 10.0.41.1/30  ──  swi_a port1.0.4  vlan41 10.0.41.2/30
+swi_d port1.0.16 vlan61 10.0.61.1/30  ──  swi_b port1.0.16 vlan61 10.0.61.2/30
+swi_a interface lo  10.90.90.1/32      (a prefix that exists ONLY behind swi_a)
+swi_b interface lo  10.70.70.1/32      (a prefix that exists ONLY behind swi_b)
+```
+**No host networking is changed at any point.** `192.168.10.x` and `192.168.48.x` are scapy
+fictions; every frame is crafted at L2 with the DUT's SVI MAC as next hop.
+
+### SETUP — apply once before group B case 1
+
+**swi_d (/dev/u2 @115200)**
+```
+configure terminal
+spanning-tree priority 0
+interface port1.0.2
+ shutdown
+ exit
+interface port1.0.14
+ shutdown
+ exit
+vlan database
+ vlan 10,41,48,61
+ exit
+interface port1.0.10
+ switchport access vlan 10
+ exit
+interface port1.0.48
+ switchport access vlan 48
+ exit
+interface port1.0.4
+ switchport access vlan 41
+ exit
+interface port1.0.16
+ switchport access vlan 61
+ exit
+interface vlan10
+ ip address 192.168.10.1/24
+ exit
+interface vlan48
+ ip address 192.168.48.1/24
+ exit
+interface vlan41
+ ip address 10.0.41.1/30
+ exit
+interface vlan61
+ ip address 10.0.61.1/30
+ exit
+end
+```
+
+**swi_a (/dev/u5 @9600) — config only, never reload or power-cycle (RISK-1)**
+```
+configure terminal
+vlan database
+ vlan 41
+ exit
+interface port1.0.4
+ switchport access vlan 41
+ exit
+interface vlan41
+ ip address 10.0.41.2/30
+ exit
+interface lo
+ ip address 10.90.90.1/32
+ exit
+ip route 192.168.10.0/24 10.0.41.1
+ip route 192.168.48.0/24 10.0.41.1
+end
+```
+
+**swi_b (/dev/u3 @9600) — `sa1`, `vlan 100`, port1.0.2/1.0.4/1.0.8 untouched (RISK-2)**
+```
+configure terminal
+vlan database
+ vlan 61
+ exit
+interface port1.0.16
+ switchport access vlan 61
+ exit
+interface vlan61
+ ip address 10.0.61.2/30
+ exit
+interface lo
+ ip address 10.70.70.1/32
+ exit
+ip route 192.168.10.0/24 10.0.61.1
+ip route 192.168.48.0/24 10.0.61.1
+end
+```
+
+### RESTORE — apply once after group D (and after any abort)
+
+**🔴 `no interface vlanN` is REFUSED on this build** (`% Removal of interface not allowed`) even
+with the address removed and every member port moved out. **Ports out of the VLAN → `no ip
+address` → `vlan database` / `no vlan N`** (corrected from T43849, 2026-10-15 19:24).
+**🔴 `cfg.py` stops at the first `% ` line and abandons the rest of its batch** — send the
+restore in small batches and read every batch's output, never `>/dev/null`.
+
+**swi_d**
+```
+configure terminal
+interface port1.0.10
+ switchport access vlan 1
+ exit
+interface port1.0.48
+ switchport access vlan 1
+ exit
+interface port1.0.4
+ switchport access vlan 1
+ exit
+interface port1.0.16
+ switchport access vlan 1
+ exit
+interface vlan10
+ no ip address
+ exit
+interface vlan48
+ no ip address
+ exit
+interface vlan41
+ no ip address
+ exit
+interface vlan61
+ no ip address
+ exit
+vlan database
+ no vlan 10,41,48,61
+ exit
+interface port1.0.2
+ no shutdown
+ exit
+interface port1.0.14
+ no shutdown
+ exit
+no spanning-tree priority            ! back to the default 32768
+end
+show boot                 ! must read Current boot config: flash:/default.cfg (file exists)
+dir flash: | include ck   ! must list NO ck*.cfg -- delete any that a reboot limb staged
+```
+**swi_d `port1.0.10` and `port1.0.48` MUST end as untagged VLAN 1**, or `bench_probe.py`'s
+host-MAC discovery will not reproduce the recorded links.
+
+**swi_a**
+```
+configure terminal
+no ip route 192.168.10.0/24 10.0.41.1
+no ip route 192.168.48.0/24 10.0.41.1
+interface lo
+ no ip address 10.90.90.1/32
+ exit
+interface port1.0.4
+ switchport access vlan 1
+ exit
+interface vlan41
+ no ip address
+ exit
+vlan database
+ no vlan 41
+ exit
+end
+```
+
+**swi_b**
+```
+configure terminal
+no ip route 192.168.10.0/24 10.0.61.1
+no ip route 192.168.48.0/24 10.0.61.1
+interface lo
+ no ip address 10.70.70.1/32
+ exit
+interface port1.0.16
+ switchport access vlan 1
+ exit
+interface vlan61
+ no ip address
+ exit
+vlan database
+ no vlan 61
+ exit
+end
+```
+
+Then re-run the probe and diff every device against its pre-group capture:
+```
+ssh tb277 'cd ~/claude/device-testing/bench-setup && python3.8 bench_probe.py --box tb277 run \
+   --consoles u2,u3,u5 --no-prompt --pdu 10.36.230.212 --outlet u2=1,u3=7,u5=3@10.36.230.35'
+python3.8 tools/rcdiff.py /tmp/ckB/dut-pre.out  <post>     # rcdiff PRINTS diffs but EXITS 0 -- read the output
+python3.8 tools/rcdiff.py /tmp/ckB/swib-pre.out <post>
+python3.8 tools/rcdiff.py /tmp/ckB/swia-pre.out <post>
+```
+Pre-group baselines are on the box at `/tmp/ckB/{dut,swib,swia}-pre.out`, captured
+2026-10-15 20:13–20:15 NZDT, and `bench-setup/tb277/captures/2026-10-15T071248Z/` in the repo.
+
+### Nothing is written to startup-config
+
+The reboot-persistence limbs stage a **named** boot config and put the pointer back:
+```
+copy running-config flash:/ck<ID>.cfg
+configure terminal / boot config-file flash:/ck<ID>.cfg / end
+reload                                        ! answers (y/n) -- send `y\r`
+# ... re-measure on the wire ...
+configure terminal / boot config-file flash:/default.cfg / end
+delete flash:/ck<ID>.cfg
+```
+
+### Clocks at group B start (RISK-5), measured 2026-10-15 20:13–20:18 NZDT
+
+| unit | `show clock` | box at that moment | offset |
+| --- | --- | --- | --- |
+| swi_d | 07:13:27 UTC | 07:13:36 UTC | **−9 s** |
+| swi_b | 07:15:05 UTC | 07:15:07 UTC | **−2 s** (group A's `clock set` holding) |
+| swi_a | 07:13:50 UTC | 07:15:33 UTC | **−1 m 43 s** ⇒ `clock set` applied at group B setup, declared as a retained change |
+
+### Per-case deviations from the underlay, each restored inside its own case
+
+| case | deviation | restored by |
+| --- | --- | --- |
+| T43855 IPv4 Static | `ip route 10.70.70.0/24 10.0.61.2` on swi_d; a staged `flash:/ckT43855.cfg` for the reload limb | its own teardown |
+| T43861 ECMP | `ip route 198.51.100.0/24 10.0.41.2` + `… 10.0.61.2` on swi_d; `maximum-paths 1` for the control leg | its own teardown |
+| T43862 Secondary IP | `ip address 172.16.10.1/24 secondary` on swi_d `interface vlan10`; a staged `flash:/ckT43862.cfg` | its own teardown |
+
+### If the session dies mid-group
+
+Apply the three RESTORE blocks above, then re-probe and diff as above.
 
 
 ## Results
