@@ -604,6 +604,26 @@ setting is changed.
   the forwarding-disabled control; and a two-responder run that identified which upstream server
   the relay preferred.
 
+### `opt82dump.py`
+Dumps the raw DHCP Option 82 (relay agent information) TLVs out of one or more pcap files, one
+line per sub-option with its code, length and bytes. Written for Option 82 cases where the
+question is what the relay actually put on the wire — an `append` that produced two option-82
+blocks, a `replace` that produced one, a circuit-id or remote-id whose bytes must be read
+literally rather than through a decoder's naming.
+- **Run:** `opt82dump.py <pcap> [<pcap> ...]`
+- **Where:** anywhere; **needs:** scapy
+- **Imports:** none
+- **It binds BOOTP on dport 67 AND 68 before reading.** Without that, scapy does not dissect a
+  RELAYED DHCP frame at all, because an AW+ relay forwards from an ephemeral source port and
+  scapy's default binding is on the source port. A tool that skips this reports an empty capture
+  and reads as "the relay dropped everything".
+- **Client-to-server frames only** (`BOOTP.op == 1`), and the FIRST such frame per file: it
+  answers "what did this leg put on the wire", not "summarise the whole capture".
+- **It does not merge options of the same name**, which is the point: a decoder that keeps only
+  the first option 82 reports an appended second block as "append did not append".
+- **Status:** verified 2026-10-15 on tb277, x960-56YSQ (T43850, Option 82): read both TLV blocks
+  of an `append` leg and the single block of `keep` / `replace`.
+
 ### `rs.py`
 Sends ICMPv6 Router Solicitations to ff02::2, 2 s apart.
 - **Run:** `sudo rs.py <iface> <count>`
