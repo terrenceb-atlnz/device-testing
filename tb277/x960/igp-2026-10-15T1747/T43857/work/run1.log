@@ -1,0 +1,459 @@
+T43857  IPv4_UnicastRouting - OSPFv2  --  working log, run 1
+============================================================
+
+RUN START: 2026-10-15 21:35 NZDT (2026-10-15 08:35 UTC)
+RUN END:   (in progress)
+
+Run quality: clean.
+
+
+1. SESSION FACTS
+----------------
+Test Engineer : bidhanc@bidhanc-dl  (AWAY -- unattended campaign, no prompts, no blocking questions)
+Testbox       : tb277
+Consoles      : u2 = swi_d (DUT) @115200, u3 = swi_b (partner) @9600, u5 = swi_a (partner) @9600.
+                All three are in the session's console list; all three are used by this case.
+PDU           : 10.36.230.212 outlets 1 (u2), 7 (u3); 10.36.230.35 outlet 3 (u5).
+                None used in this case -- the only reboot is a CLI `reload` on the DUT.
+                swi_a is NEVER reloaded or power-cycled (queue RISK-1).
+Constraints   : None (full authority within tests; power cycles allowed).
+Campaign      : tb277/x960/CAMPAIGN-QUEUE-2026-10-15T1747.md, group C `igp-2026-10-15T1747`,
+                case 1 of 2.
+Sentinel      : parent session (/test-mode one-session shape).
+Driver        : manual console + scapy.  No `.setup` on tb277 => no framework, so no framework
+                post-failure PDU cycle; this case's own teardown is the only restore.
+
+
+2. DEVICES
+----------
+DUT      swi_d  /dev/u2 @115200  awplus      AT-x960-56YSQ  S/N A2WQS700B
+                software sin_x96056-20261012-24
+                boot image flash:/x960-tb277.rel (exists), boot config flash:/default.cfg (exists)
+                SVI MAC  e0:1a:ea:d4:70:43 -- ALL SVIs share it (platforms/x960.md 6.5)
+                bridge id 0000:e01aead47043 (STP root, `spanning-tree priority 0`, group B)
+                Licences Base + `atlnz` => OSPF-FULL.  Nothing here is licence-blocked.
+partner  swi_b  /dev/u3 @9600    x960-28YSQ  AT-x960-28YSQ  S/N A10737A261700021
+                software sin_x96056-20260921-9, bridge/SVI MAC 0000.cd42.3029
+                **Base licence only: OSPF-64.**  This case advertises 2 networks from swi_b.
+partner  swi_a  /dev/u5 @9600    awplus      AT-x950 GEN2-52XSTQm  S/N A10713A262600012
+                software awplus_main-20261008-56, bridge MAC 889d.98df.2602
+                Licences Base + `full`.  RISK-1: config only, NEVER reloaded or power-cycled.
+
+HOST NICs (measured this group, `ip -br link show`):
+  eth3  00:0d:b9:55:77:0e  10.38.22.33/27  -> swi_d port1.0.10  (the source NIC for this case)
+  eth4  00:0d:b9:55:77:0f  10.38.22.65/27  -> swi_d port1.0.48  (not used by this case)
+  eth2  carrier up, nothing learned -- not usable
+**No host networking was changed at any point.**  192.168.10.5 is a scapy fiction; every frame
+is built at L2 with the DUT's SVI MAC as the next hop, so the kernel's own addresses and routes
+are bypassed entirely.
+
+AN UNRECORDED HOST IS LIVE ON THE eth3 SEGMENT: 10.38.22.41 / 00:0c:25:2a:a5:53 (group A
+finding, raised to the Test Engineer, still open).  Every counted frame in this case is matched
+on BOTH MACs and carries a `CKARPLEG-<tag>` payload marker, and every negative leg is a
+ZERO-frame result, so the stray cannot manufacture or mask a count.
+
+
+3. CLOCKS (measured at group C start, 2026-10-15 21:30-21:32 NZDT; queue RISK-5)
+---------------------------------------------------------------------------------
+  unit   `show clock`          box at that moment   offset
+  swi_d  08:30:43 UTC          08:30:52 UTC         -9 s
+  swi_b  08:31:22 UTC          08:31:24 UTC         -2 s
+  swi_a  08:31:44 UTC          08:31:41 UTC         +3 s
+All three agree with the box and with each other to within ~12 s.  The two retained clock-set
+changes (swi_b at group A, swi_a at group B) are both still holding; neither is reverted,
+because restoring a known clock error would be restoring a fault.  **swi_b no longer carries the
++12h59m offset RISK-5 warned about** -- that was corrected in group A.
+
+
+4. CASE TEXT -- NONE EXISTS (measured, not assumed)
+----------------------------------------------------
+AWPTCM T43857 "IPv4_UnicastRouting - OSPFv2".  Queried directly against ck.db
+(`/home/terrenceb/claude/Test-cases/ask-ck/db/ck.db`, read-only, from tb277, 21:33 NZDT; ck.db
+keys on `AWP-nnnn`, never on `AWPTCM-T<id>` -- memory `ckdb-case-lookup-by-title`, so the join is
+on title):
+
+  SELECT id,title,steps_text,summary FROM testlink_cases WHERE title LIKE '%UnicastRouting%'
+    -> 0 rows.
+  LIKE '%OSPFv2%' -> 15 rows, none of them this case (graceful-restart, OSPFv3 interop,
+    OSPFv2-MIB notifications, policy-based-routing interop ...).
+
+**There is no authored step text and no authored expected result for this case.**  The steps
+below are therefore grounded in, and cited against, the documents the Test Engineer's 2026-10-08
+rule names (memory `review-feature-docs-before-testing`):
+
+  (a) **Software TPS row 33 "OSPFv2" -- priority 1, `Yes`, note column empty**
+      (X960_platform_support_TPS, read at triage).  => no limb here may be graded UNSUPPORTED
+      without DUT evidence.
+  (b) **OSPF Feature Overview and Configuration Guide, C613-22055-00 REV E**
+      (`Feature Overview Guides/OSPF Feature Overview and Configuration Guide -
+      OSPF_Feature_Overview_Guide.pdf`).  Quoted verbatim where a limb tests a claim.
+  (c) The AW+ CLI wiki -- no x960 pages exist; the x950 pages are the same generation.
+  (d) Memory `awplus-service-gated-routing-daemons` (the `service ospf` gate).
+
+Syntax, quoted verbatim from the guide p.3 ("To enter OSPF configuration mode, type in:"):
+  > configure terminal
+  > service ospf
+  > router ospf 1
+and p.12 / the full examples, for the prefix form of the network command:
+  > router ospf
+  > ospf router-id 1.1.1.1
+  > network 192.168.10.0/24 area 0
+and p.11, "Administrative Distance":
+  > "The [110/2] beside the route in an IP route table means the Administrative Distance (AD) is
+  >  110 (OSPF has an AD of 110) and the Metric of the route is 2."
+
+**The objective this case is graded against**, since none is authored: OSPFv2 on the DUT must
+(1) be absent by default and gated behind `service ospf`; (2) form an adjacency with a real
+neighbour; (3) install a route LEARNED FROM THE PROTOCOL (code `O`, from an identified
+neighbour) for a prefix reachable no other way, and FORWARD frames over it, while a control
+flow to an unrouted prefix is dropped in the same leg; (4) stop forwarding when the
+advertisement is WITHDRAWN, proven on the wire and not merely in the table; (5) be removable
+from the dataplane; and (6) survive a reboot.  Depth beyond the floor per the 2026-10-08
+"satisfactory level of testing" rule: two neighbours over two different interfaces so a
+single-prefix withdrawal has a live positive control; the protocol's own packets read off the
+wire; `ip ospf cost` changing the metric; and the OSPF-vs-static administrative-distance rule.
+
+
+5. BENCH -- THE SHARED B/C/D UNDERLAY, VERIFIED INTACT BEFORE ANYTHING WAS CHANGED
+-----------------------------------------------------------------------------------
+Built ONCE at the start of group B (STANDING-ORDERS §6), left up for C and D, restored ONCE
+after D.  Full setup and restore: campaign queue, "## Group B/C/D shared L3 underlay and
+restore" and "## Group C bench setup and restore".  Group C adds NOTHING at the bench level.
+
+VERIFIED 21:30:43-21:31:50 NZDT, before any group-C command (read-only `show` only):
+
+  swi_d# show boot        -> Current boot image : flash:/x960-tb277.rel (file exists)
+                             Current boot config: flash:/default.cfg (file exists)
+  swi_d# show ip interface brief
+     vlan10   192.168.10.1/24   admin up  running
+     vlan41   10.0.41.1/30      admin up  running
+     vlan48   192.168.48.1/24   admin up  running
+     vlan61   10.0.61.1/30      admin up  running
+  swi_d# show spanning-tree brief
+     Default: Root Id   0000:e01aead47043
+     Default: Bridge Id 0000:e01aead47043      <- the DUT IS the root bridge
+     port1.0.4   Designated Forwarding      port1.0.10  Designated Forwarding
+     port1.0.16  Designated Forwarding      port1.0.48  Designated Forwarding
+     port1.0.2   Disabled   Discarding      port1.0.14  Disabled   Discarding   (shut, group B)
+     port1.0.8   Designated Forwarding      port1.0.40  Designated Forwarding   (unknown far ends)
+  swi_d# show ip route    -> the FOUR CONNECTED routes only (10.0.41.0/30, 10.0.61.0/30,
+                             192.168.10.0/24, 192.168.48.0/24).  No static.  No IGP.
+  swi_d# show running-config | include ip route   -> EMPTY
+  swi_d# show running-config | include router     -> EMPTY
+  swi_d# show running-config | include service    -> service ssh / no service telnet /
+                                                     service http / no service dhcp-server
+                                                     (NO `service ospf`, NO `service rip`)
+  swi_d# show arp         -> EMPTY (aged out since group B; see the F-3 note in step 2)
+
+  swi_b# show ip interface brief -> lo 10.70.70.1/32, vlan61 10.0.61.2/30 (+ eth0 169.254.42.42/16
+                                    down, vlan100 down -- RISK-2 pre-existing, untouched)
+  swi_b# show ip route           -> C 10.0.61.0/30, C 10.70.70.1/32,
+                                    S 192.168.10.0/24 [1/0] via 10.0.61.1,
+                                    S 192.168.48.0/24 [1/0] via 10.0.61.1
+  swi_b# show running-config | include router -> EMPTY
+  swi_b# show spanning-tree brief | include Root Id -> Default: Root Id 0000:e01aead47043
+                                                       (the DUT, as group B left it)
+
+  swi_a# show ip interface brief -> lo 10.90.90.1/32, vlan41 10.0.41.2/30
+  swi_a# show ip route           -> C 10.0.41.0/30, C 10.90.90.1/32,
+                                    S 192.168.10.0/24 [1/0] via 10.0.41.1,
+                                    S 192.168.48.0/24 [1/0] via 10.0.41.1
+  swi_a# show running-config | include router -> EMPTY
+  swi_a# show spanning-tree brief | include Root Id -> Default: Root Id 0000:e01aead47043
+
+**The partners' return routes to 192.168.10.0/24 are STATIC and stay static.**  The return path
+is not what this case tests; keeping it static means the forward path is the only variable, so a
+reply that comes back proves the DUT had a FORWARD route for a prefix it can only have learned
+from OSPF.  (Static AD 1 also beats OSPF AD 110 on the partners, so an OSPF-learned copy of the
+same prefix cannot silently change the return path mid-case.)
+
+NOTE on the shape of the test: both usable host NICs land on the DUT, so there is no scapy host
+behind a partner.  The far side of every routed flow is therefore the PARTNER ITSELF answering
+from its own loopback -- which is exactly what is wanted here, because that loopback is the
+prefix under test.
+
+TOOLS: tools/ckcon.py, tools/cfg.py, tools/ckyn.py, tools/ckreload.py, tools/rcdiff.py,
+tools/rc2cfg.py, tools/arpleg.py (--icmp with --gw-mac and --answer), plus plain `tcpdump` for
+the two passive protocol-packet observations.  `python3.8` for every tool on tb277
+(`tools/tb` is broken there -- the box's python3 is 3.6).
+Captures on the box: /tmp/ckC/T43857/ ; console transcripts /tmp/ckC/console-u{2,3,5}.log
+`/tmp` on tb277 was **95% full, 111 MB free** at group start (1.8 GB of someone else's
+`wireshark_eth4*.pcapng`, not ours, not touched).  Free space checked before every capture.
+
+
+6. THE FLOWS USED BY EVERY COUNTED LEG
+---------------------------------------
+Sender is always 192.168.10.5 / 00:11:22:33:44:01 on eth3, next hop e0:1a:ea:d4:70:43.
+A background ARP responder answers the DUT's ARP for 192.168.10.5 (`arpleg.py --answer`),
+because this DUT does NOT learn a neighbour from a request it merely answers (group A finding,
+recorded in tools/README.md).
+
+  10.70.70.1    SUBJECT-B.  swi_b's loopback.  Reachable ONLY if the DUT learned it from OSPF
+                via swi_b.  No static route for it exists at any point in this case except the
+                deliberate administrative-distance limb (step 7), which is removed again.
+  10.90.90.1    SUBJECT-A.  swi_a's loopback, learned from OSPF via swi_a over a DIFFERENT
+                interface.  It is the live positive control for the withdrawal leg: when
+                SUBJECT-B goes to zero, SUBJECT-A staying at 5/5 in the SAME leg proves the
+                bench, the DUT and the instrument are all still working.
+  203.0.113.9   CONTROL.  No route ever exists for it.  It must be dropped in EVERY leg,
+                including the legs where the subjects are forwarded.  Sent in the SAME leg.
+  192.168.10.1  INSTRUMENT CONTROL.  The DUT's own vlan10 address.  It must be answered in
+                EVERY leg, so a zero on the other three is a measurement and not a dead
+                instrument.
+
+
+7. STEPS
+--------
+
+STEP 1 -- BASELINE, OSPF OFF (the feature OFF first; Test Engineer 2026-10-08).
+Objective: with no `service ospf` and no `router ospf`, the DUT holds no OSPF route and
+forwards neither partner loopback.  Also: prove the SERVICE GATE first-hand, so nothing later
+in this case can be mistaken for a platform gap (memory `awplus-service-gated-routing-daemons`).
+
+  State read first (21:35:46-21:35:52, tools/ckcon.py on /dev/u2):
+    awplus# show ip ospf
+    % OSPF protocol daemon is not running or feature license is not available
+    awplus# show ip ospf neighbor
+    % OSPF protocol daemon is not running or feature license is not available
+    awplus# show ip route ospf
+    Gateway of last resort is not set
+    No entries in route table
+    awplus# show running-config | include ospf
+    awplus#                                     <- EMPTY: no service, no router, no interface cmd
+    awplus# show arp
+    IP Address      LL Address       Interface            Port        Type
+    awplus#                                     <- EMPTY (aged out since group B)
+
+  🔴 THE SERVICE GATE, measured.  The message above conflates two quite different causes --
+  "daemon is not running" OR "feature license is not available".  The DUT holds **OSPF-FULL**
+  (triage licence table), so on this unit it can only be the daemon.  Step 2 settles it
+  constructively: `service ospf` alone makes the same command answer.  **This is why no limb of
+  this case may be graded UNSUPPORTED on the strength of that message.**
+
+  STP immediately before the leg (21:35:51) -- re-read before EVERY counted leg, per the
+  dispatch, because RSTP here is single-instance:
+    port1.0.4   0000:e01aead47043  838c  Designated  Forwarding
+    port1.0.10  0000:e01aead47043  8392  Designated  Forwarding
+    port1.0.16  0000:e01aead47043  8398  Designated  Forwarding
+
+  /tmp free space before the capture: 111 MB of 2.0 G (95% used).  Leg capture ~2 KB.
+
+  tool: sudo python3.8 tools/arpleg.py --tag L1-ospf-off --out /tmp/ckC/T43857 --iface eth3 \
+          --icmp 10.70.70.1,10.90.90.1,203.0.113.9,192.168.10.1 --gw-mac e0:1a:ea:d4:70:43 \
+          --sender-ip 192.168.10.5 --sender-mac 00:11:22:33:44:01 \
+          --answer 192.168.10.5=00:11:22:33:44:01 --answer-iface eth3 --count 5 --wait 6
+
+  sent total: 20 frame(s).   cap L1-ospf-off-eth3.pcap: 29 frame(s)
+    x5  ICMP t8/c0 192.168.10.5 -> 10.70.70.1    [ours]  [00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x5  ICMP t8/c0 192.168.10.5 -> 10.90.90.1    [ours]
+    x5  ICMP t8/c0 192.168.10.5 -> 203.0.113.9   [ours]
+    x5  ICMP t8/c0 192.168.10.5 -> 192.168.10.1  [ours]
+    x5  ICMP t0/c0 192.168.10.1  -> 192.168.10.5 [ours]  [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:01]
+    x2  ICMP t3/c0 192.168.10.1  -> 192.168.10.5 [ours]   <- destination unreachable, FROM THE DUT
+    x1  ARP-REQ who-has 192.168.10.5 tell 192.168.10.1  /  x1 ARP-REPLY (the responder)
+
+  10.70.70.1   (SUBJECT-B)  : 5 sent, **0 echo replies**
+  10.90.90.1   (SUBJECT-A)  : 5 sent, **0 echo replies**
+  203.0.113.9  (CONTROL)    : 5 sent, **0 echo replies**
+  192.168.10.1 (INSTRUMENT) : 5 sent, **5 echo replies (ICMP type 0)** -- instrument alive
+  The DUT also emitted 2 ICMP type 3 destination-unreachables from its own vlan10 address, so it
+  made and reported a routing decision rather than silently blackholing.  Only 2 for 15
+  unroutable packets: ICMP unreachable generation is rate-limited on this platform
+  (platforms/x960.md §7.8) -- their SOURCE is attribution, their COUNT is not a measurement.
+  The ABSENCE of echo replies from the two loopbacks is the measurement.
+
+  STEP 1 VERDICT: PASS.  Baseline established: with OSPF off, neither partner loopback is
+  reachable, the control is dropped, and the instrument answers 5/5.
+
+STEP 2 -- ENABLE OSPFv2, FORM ADJACENCIES, AND PROVE FORWARDING OVER A PROTOCOL-LEARNED ROUTE.
+
+  🔴 2a. THE SERVICE GATE IS REAL, AND IT IS NOT INSTANT -- `service ospf` and `router ospf`
+  CANNOT GO IN THE SAME CONSOLE BATCH.  Measured on all three devices:
+
+    x960-28YSQ(config)# service ospf          21:36:59
+    x960-28YSQ(config)# router ospf 1         21:37:00   (+1 s)
+    % OSPF protocol daemon is not running or feature license is not available
+       -> cfg.py stopped at the `% ` and abandoned the rest of the batch (the known tool trap;
+          `service ospf` itself HAD been applied).
+    awplus(config)#     service ospf          21:37:08   on swi_a, same result at +1 s.
+
+    Re-checked on swi_b at 21:37:23, with nothing else done:
+      x960-28YSQ# show ip ospf
+      OSPF Routing Process not enabled.       <- the DAEMON is now up; no router process yet
+      x960-28YSQ# show running-config | include service ospf
+      service ospf
+
+    Timed on the DUT:  `service ospf` at 21:38:16; first poll at 21:38:23 (+7 s) already read
+    `OSPF Routing Process not enabled.`, i.e. the daemon was up.  So the window in which
+    `router ospf` is rejected is **longer than 1 s and shorter than 7 s** after `service ospf`.
+    Both partners then took `router ospf 1` without error when it was re-sent at 21:37:42 /
+    21:37:53.
+    **This is the practical form of memory `awplus-service-gated-routing-daemons` and it is not
+    in the guide**: the guide (p.3) prints `service ospf` and `router ospf 1` as consecutive
+    lines to type, which a human does slowly enough and a script does not.  Recorded for
+    platforms/x960.md.  NOT a defect and NOT a reason to grade anything UNSUPPORTED -- the
+    licence half of the message is ruled out by the DUT's OSPF-FULL licence and, constructively,
+    by the command succeeding seconds later with no licence change.
+
+  2b. CONFIGURATION APPLIED (quoted exactly as sent; tools/cfg.py).
+
+    swi_b (/dev/u3) 21:37:41-21:37:45        swi_a (/dev/u5) 21:37:52-21:37:56
+      configure terminal                       configure terminal
+      service ospf                  [21:36:59] service ospf                  [21:37:08]
+      router ospf 1                            router ospf 1
+      ospf router-id 2.2.2.2                   ospf router-id 3.3.3.3
+      network 10.0.61.0/30 area 0              network 10.0.41.0/30 area 0
+      network 10.70.70.1/32 area 0             network 10.90.90.1/32 area 0
+      end                                      end
+
+    swi_d, the DUT (/dev/u2) 21:38:15-21:39:08
+      configure terminal
+      service ospf
+      end
+      configure terminal
+      router ospf 1
+      ospf router-id 1.1.1.1
+      network 10.0.61.0/30 area 0        <- the swi_b leg
+      network 10.0.41.0/30 area 0        <- the swi_a leg
+      network 192.168.10.0/24 area 0     <- vlan10, so OSPF also runs out to the host NIC and
+      network 192.168.48.0/24 area 0        its packets can be read off the wire (step 2e)
+      end
+
+    No command was rejected.  Router-ids are set explicitly (1.1.1.1 DUT / 2.2.2.2 swi_b /
+    3.3.3.3 swi_a) so every later read-back names the neighbour unambiguously instead of
+    inheriting an interface address.  swi_b is OSPF-64 and advertises 2 networks -- far under.
+
+  2c. ADJACENCY.  `show ip ospf neighbor` polled every 6 s for 60 s (tools/poll.py):
+
+    awplus# show ip ospf neighbor                                        [21:39:25, and every
+    Neighbor ID     Pri   State      Dead Time   Address      Interface   poll to 21:40:15]
+    3.3.3.3           1   Full/DR    00:00:35    10.0.41.2    vlan41
+    2.2.2.2           1   Full/DR    00:00:38    10.0.61.2    vlan61
+
+    Both adjacencies reached **Full** within **17 s** of `router ospf 1` completing on the DUT
+    (21:39:08 -> 21:39:25) and stayed Full across all 10 polls, dead timer resetting each time.
+    Two neighbours, two different interfaces, two different partners.
+    (Supporting evidence, per the dispatch -- NOT sufficient on its own.)
+
+  2d. THE ROUTE WAS LEARNED FROM THE PROTOCOL, AND FROM WHICH NEIGHBOUR (21:40:33-21:40:41).
+
+    awplus# show ip route ospf
+    O       10.70.70.1/32 [110/2] via 10.0.61.2, vlan61, 00:01:12
+    O       10.90.90.1/32 [110/2] via 10.0.41.2, vlan41, 00:01:12
+
+    awplus# show ip route 10.70.70.1
+    Routing entry for 10.70.70.1/32
+      Known via "ospf", distance 110, metric 2, best
+      Last update 00:01:14 ago
+      * via 10.0.61.2, vlan61
+    awplus# show ip route 10.90.90.1
+    Routing entry for 10.90.90.1/32
+      Known via "ospf", distance 110, metric 2, best
+      * via 10.0.41.2, vlan41
+
+    awplus# show running-config | include ip route
+    awplus#                                 <- **EMPTY.  No static route exists.**  The ONLY way
+                                               the DUT can have a route to either loopback is
+                                               the protocol under test.
+
+    Route code `O`, `Known via "ospf"`, **distance 110** -- exactly the guide's claim
+    (OSPF FOG C613-22055-00 REV E p.11: *"The [110/2] beside the route in an IP route table
+    means the Administrative Distance (AD) is 110 (OSPF has an AD of 110) and the Metric of the
+    route is 2."*).  Metric 2 = 1 (the /30 transit link, cost 1 at 1 Gbps... see the cost limb,
+    step 6) + 1 (the stub loopback).
+
+    awplus# show ip route database        (legend: > selected route, * FIB route)
+    O    *> 10.70.70.1/32 [110/2] via 10.0.61.2, vlan61
+    O    *> 10.90.90.1/32 [110/2] via 10.0.41.2, vlan41
+    O       10.0.41.0/30 [110/1] is directly connected, vlan41     <- the OSPF copy of each
+    C    *> 10.0.41.0/30 is directly connected, vlan41                connected route loses to
+    O       10.0.61.0/30 [110/1] is directly connected, vlan61        the connected route (AD 0),
+    C    *> 10.0.61.0/30 is directly connected, vlan61                correctly, and is in the
+    O       192.168.10.0/24 [110/1] is directly connected, vlan10     RIB without the `*>`.
+    C    *> 192.168.10.0/24 is directly connected, vlan10
+    O       192.168.48.0/24 [110/1] is directly connected, vlan48
+    C    *> 192.168.48.0/24 is directly connected, vlan48
+
+    awplus# show ip ospf database
+    OSPF Router with ID (1.1.1.1) (Process ID 1)
+                    Router Link States (Area 0.0.0.0)
+    Link ID         ADV Router      Age  Seq#       CkSum  Link count
+    1.1.1.1         1.1.1.1           46 0x80000005 0x907c 4
+    2.2.2.2         2.2.2.2           85 0x80000004 0xfa0a 2     <- swi_b's own LSA
+    3.3.3.3         3.3.3.3           85 0x80000004 0x2cd0 2     <- swi_a's own LSA
+                    Net Link States (Area 0.0.0.0)
+    Link ID         ADV Router      Age  Seq#       CkSum
+    10.0.41.2       3.3.3.3           85 0x80000001 0x52b9
+    10.0.61.2       2.2.2.2           85 0x80000001 0x718e
+
+    => each loopback's reachability is carried by a Router LSA ORIGINATED BY THE PARTNER that
+    owns it.  That is the "which neighbour did it come from" the dispatch asks for, read out of
+    the link-state database rather than inferred.
+
+    🔴 F-3 CHECK (platforms/x960.md §7.3 -- an unresolved next hop is silently absent from the
+    dataplane while the table still reads `*>`).  ARP verified for BOTH next hops BEFORE the
+    counted leg:
+      awplus# show arp
+      10.0.61.2     0000.cd42.3029   vlan61   port1.0.16   dynamic
+      10.0.41.2     889d.98df.2602   vlan41   port1.0.4    dynamic
+      192.168.10.5  0011.2233.4401   vlan10   port1.0.10   dynamic
+    (The DUT's ARP table had been EMPTY at 21:35:52; forming the adjacencies resolved both
+    next hops without any help, which is itself worth knowing.)
+
+    STP immediately before the leg (21:40:41):
+      port1.0.4   0000:e01aead47043  838c  Designated  Forwarding
+      port1.0.10  0000:e01aead47043  8392  Designated  Forwarding
+      port1.0.16  0000:e01aead47043  8398  Designated  Forwarding
+
+  2e. THE COUNTED LEG.  /tmp free before the capture: 110 MB.  Capture ~3 KB.
+
+    tool: sudo python3.8 tools/arpleg.py --tag L2-ospf-on --out /tmp/ckC/T43857 --iface eth3 \
+            --icmp 10.70.70.1,10.90.90.1,203.0.113.9,192.168.10.1 --gw-mac e0:1a:ea:d4:70:43 \
+            --sender-ip 192.168.10.5 --sender-mac 00:11:22:33:44:01 \
+            --answer 192.168.10.5=00:11:22:33:44:01 --answer-iface eth3 --count 5 --wait 6
+
+    sent total: 20 frame(s).   cap L2-ospf-on-eth3.pcap: 40 frame(s)
+      x5  ICMP t8/c0 192.168.10.5 -> 10.70.70.1     [ours]
+      x5  ICMP t0/c0 **10.70.70.1 -> 192.168.10.5** [ours]  [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:01]
+      x5  ICMP t8/c0 192.168.10.5 -> 10.90.90.1     [ours]
+      x5  ICMP t0/c0 **10.90.90.1 -> 192.168.10.5** [ours]
+      x5  ICMP t8/c0 192.168.10.5 -> 203.0.113.9    [ours]
+      x5  ICMP t8/c0 192.168.10.5 -> 192.168.10.1   [ours]
+      x5  ICMP t0/c0 192.168.10.1  -> 192.168.10.5  [ours]
+      x2  ICMP t3/c0 192.168.10.1  -> 192.168.10.5  [ours]   <- still unreachable, for 203.0.113.9
+      x1  IP p89 192.168.10.1 -> 224.0.0.5  [e0:1a:ea:d4:70:43 -> 01:00:5e:00:00:05]  <- an OSPF
+                                                                 packet, caught in passing
+      x1  ARP-REQ who-has 10.38.22.33 tell 10.38.22.41  [00:0c:25:2a:a5:53 -> ff:ff:ff:ff:ff:ff]
+      x1  ARP-REPLY 10.38.22.33 is-at 00:0d:b9:55:77:0e     <- THE UNRECORDED HOST again (group A
+                                                 finding, open with the Test Engineer).  It is in
+                                                 10.38.22.0/27, not 192.168.10.0/24, it is not
+                                                 `[ours]`, and it cannot answer for either
+                                                 loopback.  Not confounding; recorded.
+
+    10.70.70.1   (SUBJECT-B)  : 5 sent, **5 echo replies SOURCED BY 10.70.70.1** (0/5 in step 1)
+    10.90.90.1   (SUBJECT-A)  : 5 sent, **5 echo replies SOURCED BY 10.90.90.1** (0/5 in step 1)
+    203.0.113.9  (CONTROL)    : 5 sent, **0 echo replies** -- dropped IN THE SAME LEG
+    192.168.10.1 (INSTRUMENT) : 5 sent, 5 replies -- instrument alive
+
+    The frames were routed out vlan61 / vlan41 to the partners, each partner answered FROM THE
+    LOOPBACK that is the prefix under test, and the replies came back through the DUT and out
+    vlan10.  End-to-end forwarding over a route that exists ONLY because OSPF put it there,
+    counted on the wire, with a control flow dropped and the instrument alive in the same leg.
+
+  2f. THE PROTOCOL ON THE WIRE -- it really is OSPF **version 2** (21:41:29, passive capture):
+
+    $ sudo timeout 25 tcpdump -i eth3 -n -v -c 2 'proto ospf'
+    21:41:29.185373 IP (tos 0xc0, ttl 1, id 10382, offset 0, flags [DF], proto OSPF (89), length 64)
+        192.168.10.1 > 224.0.0.5: **OSPFv2, Hello**, length 44
+        Router-ID 1.1.1.1, Backbone Area, Authentication Type: none (0)
+        Options [External]
+          Hello Timer 10s, Dead Timer 40s, Mask 255.255.255.0, Priority 1
+          Designated Router 192.168.10.1
+    (second Hello 11.0 s later, 21:41:40.187571 -- the 10 s hello timer, measured)
+
+    Version 2, protocol number 89, multicast 224.0.0.5, area 0.0.0.0 ("Backbone Area"),
+    router-id as configured, default timers 10/40, no authentication.  **This is the one piece
+    of evidence that ties the case's title (OSPFv2) to what the DUT actually emits**; a route
+    table cannot do that.
+
+  STEP 2 VERDICT: PASS.
