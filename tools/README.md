@@ -500,6 +500,41 @@ unique fake MAC (`02:87:70:xx:xx:xx`), so the DUT fills its ND table and FDB.
 - **Limits:** /64 only; the NIC is in promiscuous mode while it runs
 - **Status:** generalised 2026-10-02, not re-verified on hardware
 
+### `dhcp4.py`
+IPv4 DHCP/BOOTP test tool: a crafted client, a minimal pool server, and a pcap decoder. The
+IPv4 counterpart to `dhc6.py`. Built for DHCP server, relay and client cases where the verdict
+needs the exact bytes on the wire — option 51 lease time, option 61 client identifier, option 12
+hostname, option 82 relay agent information, giaddr rewriting, and the ARP/ICMP probes a server
+emits before it offers an address. It installs nothing on the host and changes no host IP, route
+or interface: every frame is crafted and read at layer 2, so it needs only a raw socket.
+- **Run:**
+  - `sudo dhcp4.py client <iface> [--mac M] [--xid X] [--count N] [--client-id ID] [--hostname H] [--prl 1,3,6,51] [--option82 'circuit:<s>,remote:<s>'|hex:<b>] [--giaddr IP] [--hops N] [--server-ip IP] [--broadcast] [--arp-answer IP,...] [--icmp-answer IP,...] [--arp-watch CIDR] [--discover-only] [--wait S] [--pcap F] [--json F]`
+  - `sudo dhcp4.py server <iface> --server-ip IP --pool-start IP --pool-end IP [--mask M] [--router IP] [--dns IP] [--lease S] [--arp-for IP,...] [--echo-option82] [--duration S] [--pcap F] [--json F]`
+  - `dhcp4.py decode <pcap> [...] [--chaddr MAC] [--arp]`
+- **Where:** testbox (root for client/server; decode anywhere); **needs:** scapy
+- **Imports:** none
+- **Limits:**
+  - IPv4 only, IA_NA-style single address per client; the server is a test fixture, not a real
+    server (it holds leases in memory for the life of the process and never writes a leases file).
+  - `client` exits 2 when no OFFER arrives — which is a legitimate RESULT for a conflict test,
+    not only an error.
+  - `--arp-answer` / `--icmp-answer` simulate "this address is already in use", which is what a
+    DHCP server's probe is looking for.
+- **🔴 scapy option 82 trap (measured on tb277, scapy 2.4.4):** building option 82 by its
+  INTEGER key is **silently dropped** — the frame serialises without the option and nothing is
+  raised:
+  ```python
+  DHCP(options=[(82, raw)])                        # option ABSENT, no error
+  DHCP(options=[("relay_agent_information", raw)]) # correct
+  ```
+  A test that used the integer key would read "the relay did not insert option 82" and grade a
+  working device defective. The tool exports the correct spelling as `dhcp4.OPT82`; use it.
+- **Status:** written and used 2026-10-15 on tb277, x960-56YSQ (T43851, DHCP ARP Probe):
+  `client` mode verified against a live AW+ DHCP server — counted a 3-packet ARP probe burst at
+  1000 ms spacing, drove an address conflict via `--arp-answer`, and drove the ping-probe
+  escalation path via `--icmp-answer`. `server` and `decode` modes are written but NOT yet
+  exercised on hardware (group B/C will).
+
 ### `dhc6.py`
 Minimal DHCPv6 client (SOLICIT/ADVERTISE/REQUEST/REPLY) that installs nothing on the host. Use it
 for DHCPv6 server and relay cases.
