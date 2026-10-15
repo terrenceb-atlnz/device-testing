@@ -14,10 +14,15 @@ that you do. Another thing that might help you is the test strategy and Software
 
 Three documents, read BEFORE drafting steps or grading anything:
 
-1. **Feature Overview and Configuration Guide** — public, on alliedtelesis.com. The AW+ CLI wiki's
-   `introductions/*.md` pages carry the exact link for each feature (e.g. mirroring →
+1. **Feature Overview and Configuration Guide** — **from 2026-10-15 the Test Engineer keeps these
+   on the lab home, at the repo root: `claude/device-testing/Feature Overview Guides/`** (DHCP,
+   ACL and Mirroring on day one; one per feature going forward). Read from there FIRST — the
+   agent on a testbox can reach it, and it is NOT in git (several MB of PDF each, gitignored, so
+   the pointer is versioned and the files are not). Repo root, not a product directory, so it
+   survives the archive of `<TB>/<FAMILY>/` ([[product-dirs-archive-to-old-test-runs]]).
+   Anything not yet downloaded is public on alliedtelesis.com, and the AW+ CLI wiki's
+   `introductions/*.md` pages carry the exact link per feature (e.g. mirroring →
    `alliedtelesis.com/documents/remote-mirroring-feature-overview-and-configuration-guide`).
-   The guides themselves are NOT on the share — only the links.
 2. **Software TPS** (Target Platform Specification) — the per-product feature support matrix:
    every feature with Yes/No and the reason for a No. This is where an expected UNSUPPORTED is
    read off, instead of inferred from the DUT.
