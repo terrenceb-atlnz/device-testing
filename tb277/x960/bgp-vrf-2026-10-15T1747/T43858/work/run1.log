@@ -413,3 +413,279 @@ read Enabled while the dataplane copied nothing).
   STEP 4 VERDICT: PASS -- 0/5 -> 5/5 on both BGP-learned prefixes, measured in the dataplane,
   with an unrouted control at 0/5 and the instrument control at 5/5 in the same capture, and
   with no static route anywhere on the DUT.
+
+
+STEP 5 -- ADMINISTRATIVE DISTANCE: A STATIC ROUTE DISPLACES THE eBGP ROUTE **IN THE DATAPLANE**
+------------------------------------------------------------
+Objective: prove the route really is being chosen as a BGP route at AD 20, by displacing it
+with a static route at AD 1 and showing the EGRESS MOVE on the wire -- not by reading a number
+out of `show ip route`.  Group B measured the same rule for floating statics
+(platforms/x960.md 7.4); group C measured it for OSPF at AD 110.
+
+  Applied 22:57:5x (tools/cfg.py on /dev/u2), deliberately pointing at the WRONG partner:
+    awplus(config)# ip route 10.70.70.1/32 10.0.41.2        <- 10.0.41.2 is swi_a, which does
+                                                               NOT own 10.70.70.1
+
+  Read back (22:57:57-22:57:59):
+    awplus# show ip route 10.70.70.1
+    Routing entry for 10.70.70.1/32
+      Known via "static", distance 1, metric 0, best
+      * via 10.0.41.2, vlan41 weight 1          <- the FIB route is now the static, via vlan41
+
+    awplus# show ip bgp 10.70.70.1/32
+    BGP routing table entry for 10.70.70.1/32
+    Paths: (1 available, best #1, table Default-IP-Routing-Table)
+      Advertised to non peer-group peers:
+      10.0.41.2
+      65002
+        10.0.61.2 from 10.0.61.2 (2.2.2.2)
+          Origin IGP metric 0, localpref 100, valid, external, best
+          Last update: Thu Oct 15 09:52:52 2026
+
+  ⚠️ NOTE FOR THE NEXT TESTER: the BGP path is STILL marked `best` inside `show ip bgp` while
+  the FIB is using the static.  Those are two different "best": BGP's own path selection picks
+  the best BGP path, and the RIB then compares that path's AD (20) with every other protocol's.
+  A tester reading `show ip bgp` alone would conclude BGP is still forwarding.  It is not.
+  (Also note `Advertised to non peer-group peers: 10.0.41.2` -- the DUT re-advertises what it
+  learned from swi_b onward to swi_a.  That is normal eBGP transit and it matters below.)
+
+  TRAP AVOIDED: `show ip route database 10.70.70.1` is **`% Invalid input detected`** on this
+  build -- `show ip route database` takes no address argument here, unlike `show ip route <a>`.
+
+  Dataplane leg (tools/arpleg.py, same four flows, same arguments as step 4 except --tag
+  L3-static-over-bgp).  cap L3-static-over-bgp-eth3.pcap: 39 frames
+
+    x5  ICMP t8/c0  192.168.10.5 -> 10.70.70.1
+    x5  ICMP **t11/c0  10.0.41.2 -> 192.168.10.5**          <- TIME EXCEEDED, source = swi_a
+    x5  ICMP t8/c0  192.168.10.5 -> 10.90.90.1
+    x5  ICMP t0/c0  10.90.90.1   -> 192.168.10.5            <- SUBJECT-A still 5/5
+    x5  ICMP t8/c0  192.168.10.5 -> 203.0.113.9   (0 replies)
+    x5  ICMP t8/c0  192.168.10.5 -> 192.168.10.1
+    x5  ICMP t0/c0  192.168.10.1 -> 192.168.10.5            <- instrument 5/5
+    x2  ICMP t3/c0  192.168.10.1 -> 192.168.10.5            <- the control's unreachables, from the DUT
+
+    10.70.70.1   (SUBJECT-B)  : 5 sent, **0 echo replies, and 5 ICMP TIME-EXCEEDED from 10.0.41.2**
+    10.90.90.1   (SUBJECT-A)  : 5 sent, 5 echo replies
+    203.0.113.9  (CONTROL)    : 5 sent, 0 echo replies
+    192.168.10.1 (INSTRUMENT) : 5 sent, 5 echo replies
+
+  🔴 THE ATTRIBUTION, and it is strong.  Every one of the five frames came back as ICMP type 11
+  **sourced from 10.0.41.2, which is swi_a's vlan41 address**.  Before the static route they
+  came back as echo replies from 10.70.70.1 (swi_b).  So the traffic demonstrably left by a
+  DIFFERENT PORT, to a DIFFERENT DEVICE.  Type 11 (TTL exceeded) rather than type 3 because the
+  DUT re-advertises 10.70.70.1/32 to swi_a over eBGP, so swi_a's own best route for it points
+  back at the DUT: the frames loop DUT->swi_a->DUT until the TTL runs out, and swi_a is the hop
+  that zeroes it.  A transient micro-loop caused by a deliberately bogus static is the expected
+  consequence, not a defect -- and it is excellent evidence, because only swi_a can source it.
+  5 of 5, not rate-limited (host/TTL responses are not, unlike net-unreachables -- 7.8).
+
+  Static removed again (22:58:51) and the BGP route returned, proven on the wire:
+    awplus(config)# no ip route 10.70.70.1/32 10.0.41.2
+    awplus# show ip route 10.70.70.1
+    Routing entry for 10.70.70.1/32
+      Known via "bgp", distance 20, metric 0, best
+      * via 10.0.61.2, vlan61
+    awplus# show running-config | include ip route   ->  (EMPTY again)
+
+    leg L4-static-removed, cap 37 frames:
+    10.70.70.1   (SUBJECT-B)  : 5 sent, **5 echo replies** (back from swi_b)
+    10.90.90.1   (SUBJECT-A)  : 5 sent, 5 echo replies
+    203.0.113.9  (CONTROL)    : 5 sent, 0 echo replies
+    192.168.10.1 (INSTRUMENT) : 5 sent, 5 echo replies
+
+  STEP 5 VERDICT: PASS -- eBGP administrative distance 20 behaves as documented: a static at
+  AD 1 takes the prefix out of the FIB (egress port MOVES, attributed on the wire by ICMP
+  sourced from the other partner), and removing the static hands it straight back to BGP.
+
+
+STEP 6 -- THE PROTOCOL ITSELF, DECODED ON THE WIRE
+------------------------------------------------------------
+Objective: prove that what carried these prefixes was **BGP-4**, and not something else that
+happens to produce a route with the letter B beside it.  No `show` command can do this (group C
+technique note).  Two instruments were tried.
+
+6a. 🔴 PORT MIRROR -- TRIED, PRODUCED NOTHING, AND IS A FOURTH INSTANCE OF THE platforms/x960.md
+    SECTION 5 MIRRORING DEFECT CLASS.  **No verdict in this case rests on it.**
+    Section 5 was read BEFORE the mirror was applied, so `direction both` (defect M3) was
+    avoided and the destination port was bounced after applying (the documented working method).
+      awplus(config)# interface port1.0.48
+      awplus(config-if)# mirror interface port1.0.16 direction receive
+      awplus(config-if)# shutdown / no shutdown
+      awplus# show mirror
+      Mirror Test Port Name: port1.0.48
+      Mirror option: Enabled
+      Mirror direction: receive
+      Monitored Port Name: port1.0.16
+      awplus# show interface port1.0.48 status  ->  port1.0.48 connected vlan 48 a-full a-1000
+    `tcpdump -i eth4 "tcp port 179 or icmp"` ran across a window in which leg
+    L5-mirror-instrument demonstrably pushed traffic through the monitored port -- 5 echo
+    requests to 10.70.70.1 and **5 echo replies back, which INGRESS port1.0.16** and are exactly
+    what `direction receive` must copy.  Result: **the mirror capture was 0 bytes.  Not one
+    frame.**  The instrument-control flow in the same leg (192.168.10.1, 5/5) and the subject
+    flow (10.70.70.1, 5/5) both prove the traffic existed.
+    ⇒ `show mirror` read Enabled, with the right direction, source and destination, while the
+    dataplane copied nothing -- the signature of M1/M2/M3 in platforms/x960.md 5, here on
+    `direction receive` on a freshly applied, freshly bounced mirror.  Recorded as an
+    OBSERVATION extending section 5; this is NOT a BGP finding and NOT part of T43858's verdict.
+    The limb that depended on it is UNMEASURED by that instrument, and was then measured by 6b.
+
+    🔴 AND IT COST SOMETHING -- A TOOL/PLATFORM TRAP WORTH CARRYING FORWARD (two parts):
+      (i) `interface <mirror-destination-port>` emits the advisory
+          `% port1.0.48 is currently configured as a mirror-port. Use caution when altering its
+          config`.  console.ADVISORY does not know that string, so cfg.py treats it as an error;
+          worse, the following `shutdown` produced interleaved asynchronous console lines
+          (`switch: port 48(port1.0.48) entered disabled state`) that broke prompt detection, and
+          cfg.py stopped after 90 s **WITH THE PORT STILL SHUT** -- `no shutdown` never ran.
+          Caught immediately by reading the batch output rather than the exit code.  Recovered
+          with ckcon.py (which does not stop on `%`) and CKTO=120.
+      (ii) After `no mirror interface port1.0.16`, `show interface port1.0.48 status` read
+          **Vlan 1**, not Vlan 48.  Configuring the port as a mirror destination took it out of
+          its access VLAN and removing the mirror did not put it back.  Restored explicitly with
+          `switchport access vlan 48`, verified `connected / vlan 48 / Designated Forwarding`,
+          and `show running-config interface port1.0.48` is back to
+          `switchport / switchport mode access / switchport access vlan 48` with no mirror and
+          no shutdown.  **The underlay was fully restored before any further measurement.**
+
+6b. ✅ THE DUT'S OWN `tcpdump` -- THIS IS THE INSTRUMENT TO USE ON THIS PLATFORM.
+    AW+ has `tcpdump` at privileged exec (`tcpdump ?` -> `LINE  tcpdump options`, `vrf`, `<cr>`),
+    so BGP, which is unicast TCP between two router addresses and therefore invisible to a host
+    NIC on another segment, can be captured where it actually runs.  The session reset was
+    triggered from **swi_b's** console while the DUT's console ran the capture -- two different
+    devices, one driver each, never two drivers on one /dev/uN.
+
+    (1) THE OPEN EXCHANGE (`clear ip bgp 10.0.61.1` on swi_b; DUT:
+        `tcpdump -i vlan61 -c 14 -nn -v tcp port 179`):
+          10.0.61.2.59396 > 10.0.61.1.179: Flags [S] ...
+          10.0.61.1.179 > 10.0.61.2.59396: Flags [S.] ...
+          10.0.61.1.50428 > 10.0.61.2.179: Flags [S] ...        <- BOTH ends initiate: a textbook
+                                                                   BGP connection collision
+          10.0.61.2.59396 > 10.0.61.1.179: length 53: BGP
+            Open Message (1), length: 53
+              Version 4, my AS 65002, Holdtime 90s, ID 2.2.2.2
+              Optional parameters, length: 24
+                Option Capabilities Advertisement (2), length: 6
+                  Multiprotocol Extensions (1), length: 4
+                    AFI IPv4 (1), SAFI Unicast (1)
+                ...
+                  32-Bit AS Number (65), length: 4
+                     4 Byte AS 65002
+          10.0.61.1.179 > 10.0.61.2.59396: length 72: BGP
+            Open Message (1), length: 53
+              Version 4, my AS 65001, Holdtime 90s, ID 1.1.1.1
+              ... AFI IPv4 (1), SAFI Unicast (1) ... 4 Byte AS 65001
+            Keepalive Message (4), length: 19
+        ⇒ **Version 4** -- this is BGP-4, which is what the case is named for -- the DUT's own
+        AS 65001 and router-id 1.1.1.1 on the wire, the default **Holdtime 90 s**, the IPv4
+        Unicast AFI/SAFI capability and the 4-byte-AS capability.  TCP port 179, TTL 1 (direct
+        eBGP peering), TOS 0xc0 (CS6 internetwork control).
+
+    (2) THE RESET ITSELF, in protocol terms:
+          10.0.61.2.179 > 10.0.61.1.49698: length 21: BGP
+            Notification Message (3), length: 21, Cease (6), subcode Other Configuration Change (6)
+          ... then FIN, then a fresh TCP SYN.
+        ⇒ `clear ip bgp <neighbor>` is a **hard reset**: an explicit NOTIFICATION with cease
+        subcode "Other Configuration Change", the TCP connection closed, and a new one opened.
+        Not a silent drop.  Measured recovery, from `show ip bgp summary` either side of it:
+        session Established again in **~6 s**, prefix re-received and back in the FIB within
+        **~24 s**, while the OTHER neighbour's session showed Up/Down 00:11:29 straight through
+        -- an untouched live control for the reset.
+
+    (3) THE UPDATE THAT CARRIES THE PREFIX (captured during step 7's re-advertisement; DUT
+        `tcpdump -i vlan61 -c 1 -nn -v tcp port 179 and greater 90`):
+          10:11:39.461215  10.0.61.2.50078 > 10.0.61.1.179 ... length 48: BGP
+            Update Message (2), length: 48
+              Origin (1), length: 1, Flags [T]: IGP
+              AS Path (2), length: 6, Flags [T]: 65002
+              Next Hop (3), length: 4, Flags [T]: 10.0.61.2
+              Updated routes:
+                10.70.70.1/32
+        ⇒ **This is the single most direct piece of evidence in the case.**  10.70.70.1/32
+        reached the DUT inside a BGP UPDATE message, with ORIGIN=IGP, AS_PATH={65002} and
+        NEXT_HOP=10.0.61.2.  No `show` command can produce that, and no other protocol was
+        running that could have carried it.
+
+    (4) THE WITHDRAW (captured during step 7's withdrawal, same filter):
+          10:13:05.464158  10.0.61.2.50078 > 10.0.61.1.179 ... length 28: BGP
+            Update Message (2), length: 28
+              Withdrawn routes:
+                10.70.70.1/32
+              End-of-Rib Marker (empty NLRI)
+        ⇒ BGP WITHDRAWS EXPLICITLY.  Quoted verbatim; the "End-of-Rib Marker" line is tcpdump's
+        label for an UPDATE carrying no NLRI and no path attributes and should not be read as a
+        separate message.  🔴 Contrast with RIP on this same bench (platforms/x960.md 7A.5),
+        where a withdrawal is a POISON at metric 16 followed by a 120 s garbage-collect timer.
+        BGP needs neither: one UPDATE and the prefix is gone.
+
+    BPF NOTE for the next run: on this tcpdump, `greater N` counts the 14-byte Ethernet header,
+    so a 19-byte BGP Keepalive is an 85-byte frame.  `greater 75` still matches keepalives;
+    **`greater 90`** is the threshold that isolates UPDATEs (announce 114 B, withdraw 94 B)
+    from keepalives and bare ACKs.  That one number turns a noisy capture into a one-packet one.
+
+  STEP 6 VERDICT: PASS -- BGP-4 proven as the protocol on the wire (Version 4 OPEN, the UPDATE
+  carrying the subject prefix with its AS_PATH, the explicit withdraw, and the NOTIFICATION on
+  reset), using the DUT's own tcpdump.  The port-mirror sub-limb is UNMEASURED and is recorded
+  as a platform observation, not as part of this verdict.
+
+
+STEP 7 -- WITHDRAWAL: THE TIGHTEST CONTROL THE BENCH ALLOWS
+------------------------------------------------------------
+Objective: withdraw ONE prefix and prove the traffic stops -- with the link, the port, the TCP
+session and the BGP adjacency all demonstrably still up, and a second BGP prefix from a second
+neighbour still forwarding in the SAME capture.
+
+  Withdrawn on swi_b at 10:10:05-10:10:14 UTC (tools/cfg.py on /dev/u3):
+    x960-28YSQ(config)# router bgp 65002
+    x960-28YSQ(config-router)# no network 10.70.70.1/32
+
+  Control plane on the DUT at 10:10:48-10:10:51:
+    awplus# show ip bgp summary
+    Neighbor        V         AS   MsgRc  MsgSnt TblVer InOutQ Up/Down State/PfxRcd
+    10.0.41.2       4      65003      44      46      9 0/0    00:17:36        1
+    10.0.61.2       4      65002      55      53      9 0/0    **00:01:01        0**
+      -> the swi_b session is STILL ESTABLISHED (Up/Down counting up, not reset), it is simply
+         receiving 0 prefixes.  The withdrawal did not drop the session.
+    awplus# show ip bgp
+       Network          Next Hop            Metric LocPrf Weight Path
+    *> 10.90.90.1/32    10.0.41.2                0             0 65003 i
+    Number of prefixes 1
+      -> 10.70.70.1/32 is GONE FROM THE BGP TABLE ENTIRELY.  (Contrast RIP, where the withdrawn
+         prefix sits in `show ip rip database` at metric 16 for 120 s.)
+    awplus# show ip route bgp   ->  only B 10.90.90.1/32
+    awplus# show spanning-tree brief | include port1.0.16
+      port1.0.16  0000:e01aead47043  8398  Designated  Forwarding    <- port still forwarding
+
+  Dataplane leg L6-withdrawn (same four flows, same arguments).  cap: 34 frames
+    10.70.70.1   (SUBJECT-B)  : 5 sent, **0 echo replies**   (5/5 in step 4)
+    10.90.90.1   (SUBJECT-A)  : 5 sent, **5 echo replies**   <- LIVE POSITIVE CONTROL, same capture
+    203.0.113.9  (CONTROL)    : 5 sent, 0 echo replies
+    192.168.10.1 (INSTRUMENT) : 5 sent, 5 echo replies
+  Note there is NOT ONE frame of 10.70.70.1 traffic in the capture other than our five requests
+  -- no replies, and no ICMP from swi_b.  The DUT dropped them itself.
+
+  🔴 WHY THIS LEG IS TRUSTWORTHY.  The zero on SUBJECT-B is measured against three positives in
+  the same 20-frame capture: a second BGP prefix from a different neighbour over a different
+  port (5/5), the DUT's own address (5/5), and an unrouted control that is zero in every leg.
+  Link, port, STP state, TCP session and BGP adjacency were all read as up immediately before.
+  The only thing that changed was one `network` statement on the far end.
+
+  RE-ADVERTISED at 10:13:25 UTC.  Measured recovery (10:13:41):
+    awplus# show ip route bgp
+    B       10.70.70.1/32 [20/0] via 10.0.61.2, vlan61, **00:00:04**
+    B       10.90.90.1/32 [20/0] via 10.0.41.2, vlan41, 00:20:28
+    awplus# show ip bgp summary  ->  10.0.61.2 ... 00:03:56  1     (session never reset)
+  i.e. the route was back in the FIB within ~12 s of the command being typed on a 9600-baud
+  console, and the UPDATE that did it is decoded in step 6b(3).
+
+  Dataplane leg L7-readvertised.  cap: 37 frames
+    10.70.70.1   (SUBJECT-B)  : 5 sent, **5 echo replies**
+    10.90.90.1   (SUBJECT-A)  : 5 sent, 5 echo replies
+    203.0.113.9  (CONTROL)    : 5 sent, 0 echo replies
+    192.168.10.1 (INSTRUMENT) : 5 sent, 5 echo replies
+
+  (The withdraw/re-advertise cycle was run three times in all, to capture the announce UPDATE
+  and then the withdraw UPDATE with the corrected BPF threshold.  Every cycle behaved
+  identically; the counted legs above are the first withdrawal and the final re-advertisement.)
+
+  STEP 7 VERDICT: PASS -- one prefix withdrawn, 5/5 -> 0/5 on the wire, with a second BGP prefix
+  from a second neighbour at 5/5 in the same capture and the session still Established; and the
+  prefix restored to 5/5 within ~12 s of being re-advertised.
