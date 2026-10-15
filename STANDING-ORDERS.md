@@ -127,3 +127,33 @@ mind that restart."*
 - **Bench setup (cabling, aggregators, VLAN isolation, boot pointers) is set ONCE before the
   TestSet and restored ONCE after it.** Between cases only the case's own steps and its
   `tear_down()` run. A case needing a different physical setup is a different TestSet (§3).
+
+## 7. Traffic tests use scapy, not ping (Test Engineer, 2026-10-15)
+
+The order, as given: *"you will need to use lots and lots of scapy for traffic test. A simple
+ping won't sometimes be sufficient."* It applies to **every case, now and in future, whoever
+runs it**.
+
+- **A `ping` is a reachability check, not a traffic test.** It proves a path exists; it cannot
+  select a protocol, a port, a MAC, a VLAN tag, a TTL, a DSCP value or a frame size, it cannot
+  send what a filter is supposed to drop, and it gives no per-frame record. Any case whose
+  subject is *which* frames the DUT forwards, copies, drops, tags, rate-limits or redirects
+  needs crafted frames.
+- **Craft, send and count with scapy.** Build the exact frame the case's rule matches, send a
+  known count, and count what arrives — plus a **control** flow that the rule must NOT match,
+  sent in the same run. A verdict rests on the pair, never on one flow.
+- **Use the tools that exist before writing one** (`tools/README.md`): `vsend.py` / `vcount.py`
+  (marked bursts, VLAN tags, EtherType, IPv4/IPv6/IPX/ARP), `linerate.py` (UDP at a set rate up
+  to 1G, counted both ends), `mkpcap.py` / `mkmc.py` (routed and multicast pcaps), `igmp.py`,
+  `dhc6.py`, `rs.py`, `ra_decode.py`, `lldpmed_phone.py`. Extend one rather than add a ninth
+  near-duplicate; a new helper is generic and goes in `tools/` with its README entry
+  (logged-output.md §2). scapy 2.4.4 is on tb277; check the box before assuming.
+- **`ping` is still the right tool** for proving a link is up, for an ARP exchange, and for
+  ping-poll's own subject. Say which you used and why in the working log.
+- A pass that rests only on "ping worked" is the absence-of-evidence trap (`/orient-dt` §4) and
+  the `show`-command trap that cost the x960 mirroring cases: `show mirror` reported Enabled
+  while the dataplane copied nothing (`platforms/x960.md` §5). **Frame-level evidence or it did
+  not happen.**
+
+Related: [[campaign-measurement-discipline]] (baseline OFF first, traffic must TRANSIT the DUT,
+split PROVEN from NOT MEASURABLE), [[satisfactory-level-of-testing]].
