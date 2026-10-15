@@ -532,6 +532,51 @@ campaign's single largest avoidable cost.
   DUT's dynamic cache and told the three `clear arp-cache` forms apart on the wire. Used for
   every leg of the `arp-2026-10-15T1747` group.
 
+### `ecmpflows.py`
+Sends **many flows with different 5-tuples** through a router and reports what came back, for
+load-sharing tests: ECMP, and equally a LAG or any "does it spread, and across which ports?"
+question. A single flow can legitimately sit on one path, so one flow proves nothing; this is the
+stimulus that makes the question answerable. It builds N flows differing in source IP,
+destination IP, source port and destination port (**any subset, chosen with `--vary`** -- that
+option is the whole point, see the trap below), sends M frames of each from one host NIC at L2
+with an explicit next-hop MAC, and unless `--no-capture` runs tcpdump on the sending NIC and
+groups what it caught.
+- **Run:** `sudo ecmpflows.py --tag NAME --out DIR --iface eth3 --gw-mac MAC [--flows 64] [--per-flow 10] [--proto udp|tcp|icmp] [--vary src,dst,sport,dport] [--src-base IP] [--dst-base IP] [--src-span N] [--dst-span N] [--sport-base N] [--dport-base N] [--ttl N] [--size N] [--gap S] [--settle S] [--wait S] [--filter BPF] [--no-capture] [--top N]`
+- **Where:** testbox (root -- raw sockets + tcpdump); **needs:** scapy, tcpdump
+- **Imports:** none
+- **It is the stimulus, NOT the counter.** The verdict comes from per-egress-port counters read
+  on the devices (`show interface <port>` before and after, differenced). Measure the idle drift
+  first -- on tb277 it was ~1.6 packets/s per port of STP/LLDP, symmetric across ports, which is
+  2-3% of a 1280-frame leg and cannot manufacture a split.
+- **`--vary` and the correlation trap (measured 2026-10-15, and it cost a leg).** Flows are built
+  from one index `i`, so `--vary src,dst` moves BOTH addresses together. If the device hashes on
+  the two addresses, lockstep inputs largely cancel and an even hash reads as a lopsided one --
+  an x960-56YSQ gave 81/19 that way and 50/50 once the addresses were decorrelated with
+  `--src-span 64 --dst-span 7`. **Vary one field per leg to characterise the hash; decorrelate
+  the spans for a realistic mixed leg.**
+- **Far-side attribution with no host behind the router:** point the flows at a prefix that is
+  unrouted ON the far-side routers. Each router that receives a flow answers with an ICMP
+  destination-unreachable **from its own address**, and the tool prints "ICMP unreachables by
+  SOURCE", so the wire says which next hop got traffic. ICMP unreachable generation is
+  rate-limited (2 per router per leg on an x960), so this is qualitative -- which routers --
+  while the counters carry the quantity. The source address needs to be resolvable by the
+  router, so prime its ARP first (`arpleg.py --answer`).
+- **Two independent counters:** it prints what it sent beside what the capture holds, marks every
+  payload `CKECMP-<tag>`, and exits **7** when the sending NIC's capture holds fewer marked
+  frames than it sent, so a dead instrument can never be read as a result.
+- **Limits:**
+  - `--out` must be a **local `/tmp` path on the box**: tcpdump runs as root and cannot write the
+    root-squashed NFS lab home (memory `tcpdump-nfs-root-squash-capture`).
+  - IPv4 only.
+  - It does not read device counters and does not answer anything.
+  - It refuses to start if the chosen `--vary` fields cannot make `--flows` distinct flows.
+  - scapy on tb277 (2.4.4) imports matplotlib, which prints a `SyntaxWarning` on stderr. Harmless.
+- **Status:** verified 2026-10-15 on tb277, host `eth3` -> x960-56YSQ `port1.0.10`, in T43861.
+  Self-test: 4 distinct flows x 2, 8 sent, 8 in the capture. In use: proved ECMP over two
+  equal-cost static next hops (1920 frames 100% on one port with one route, split with two,
+  collapsed back to 1280/0 by `maximum-paths 1`), and characterised the hash -- per-flow not
+  per-packet, source and destination IPv4 addresses only, L4 ports not hash inputs.
+
 ### `nsresp.py`
 IPv6 Neighbor Solicitation responder. It answers every NS for a target in a /64 with an NA from a
 unique fake MAC (`02:87:70:xx:xx:xx`), so the DUT fills its ND table and FDB.

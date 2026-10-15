@@ -306,3 +306,158 @@ STEP 7 -- REMOVAL: DELETING ONE NEXT HOP MUST RETURN TRAFFIC TO A SINGLE PORT.
   **All traffic back on port1.0.16, zero on port1.0.4** -- the mirror image of step 1, and removal
   proven in the dataplane rather than in running-config.
   STEP 7 VERDICT: PASS.
+
+STEP 8 -- PERSISTENCE ACROSS A REBOOT.  (And the most important finding of the case.)
+
+  Nothing written to startup-config; a NAMED boot config is staged and the pointer put back.
+  awplus(config)# ip route 198.51.100.0/24 10.0.41.2       (the second next hop back)
+  awplus# show ip route database
+  S    *> 198.51.100.0/24 [1/0] via 10.0.41.2, vlan41 weight 1
+       *>                 [1/0] via 10.0.61.2, vlan61 weight 1
+  awplus# copy running-config flash:/ckT43861.cfg          -> Successful operation
+  awplus(config)# boot config-file flash:/ckT43861.cfg
+  awplus# show boot -> Current boot config: flash:/ckT43861.cfg (file exists)
+
+  THE RELOAD: python3.8 tools/ckreload.py /dev/u2 115200 … 600
+    21:00:47 >>> reload   ->  'reboot system? (y/n):' -> y
+    21:01:47 login seen after **60 s**
+
+  AFTER THE REBOOT, before anything was re-applied (21:02:08-21:02:11):
+    awplus# show boot -> Current boot config: flash:/ckT43861.cfg (file exists)
+    awplus# show running-config | include ip route|maximum-paths
+    ip route 198.51.100.0/24 10.0.41.2
+    ip route 198.51.100.0/24 10.0.61.2                     <- BOTH routes came back
+    awplus# show ip route database
+    S    *> 198.51.100.0/24 [1/0] via 10.0.41.2, vlan41 weight 1
+         *>                 [1/0] via 10.0.61.2, vlan61 weight 1   <- BOTH selected AND in FIB
+    awplus# show spanning-tree brief | include port1.0.4 |port1.0.16
+    port1.0.4   0000:e01aead47043  838c  Designated  Forwarding
+    port1.0.16  0000:e01aead47043  8398  Designated  Forwarding    <- both legs forwarding
+
+  8a. THE LEG, run on that state -- and it did NOT split.
+      leg: --tag L10-after-reload --flows 64 --per-flow 20 --vary dst  (the SAME flow set that
+           split 50/50 in L4-vary-dst and L8)
+      counter        before    after    delta   minus drift  => TEST
+      swi_d p1.0.4   70        1414     +1344   ~-64         **~1280**
+      swi_d p1.0.16  70        134      +64     ~-64         **~0**
+      swi_a p1.0.4   350851    352194   +1343                **~1280**
+      swi_b p1.0.16  45913     45972    +59                  **~0**
+
+      **Every frame went to swi_a.  Zero to swi_b** -- while `show ip route database` showed
+      both next hops `*>` (selected AND in the FIB) and both ports Forwarding.
+
+  8b. WHY -- diagnosed, not guessed (21:03:48):
+      awplus# show arp
+      10.0.41.2       889d.98df.2602   vlan41   port1.0.4   dynamic
+      (**no entry for 10.0.61.2**)
+
+      🔎 **FINDING F-3 -- an ECMP next hop whose ARP is unresolved is silently dropped from the
+      dataplane while `show ip route database` still shows it as `*>` (selected, FIB route).**
+      After a reboot the DUT had resolved only 10.0.41.2, so the hardware had one usable next
+      hop and sent 100% of the traffic there.  Nothing in any route read-back says so: the table
+      reads exactly as it does when both paths are live.  This is the single clearest
+      demonstration in this case of why `show ip route` is a read-back and not evidence -- a
+      tester grading reboot persistence on the table alone would have recorded a PASS for a
+      dataplane that was using half the configured capacity.
+
+  8c. RESOLVE THE SECOND NEXT HOP AND RE-MEASURE.
+      awplus# ping 10.0.61.2 repeat 2
+      2 packets transmitted, 2 received, 0% packet loss
+      awplus# show arp
+      10.0.61.2       0000.cd42.3029   vlan61   port1.0.16  dynamic
+      10.0.41.2       889d.98df.2602   vlan41   port1.0.4   dynamic      <- both resolved now
+
+      leg: --tag L11-after-reload-arp-resolved, same flow set again
+      counter        before    after    delta   minus drift  => TEST
+      swi_d p1.0.4   1526      2226     +700    ~-38         **~662**
+      swi_d p1.0.16  248       950      +702    ~-38         **~664**
+      swi_a p1.0.4   352307    353006   +699                 **~661**
+      swi_b p1.0.16  46089     46788    +699                 **~661**
+      **~50 / 50 restored**, with both partners' ingress counters independently agreeing with
+      the DUT's egress counters to within a packet or two.
+
+  STEP 8 VERDICT: PASS, with F-3 recorded.  The CONFIGURATION persisted across a real reboot
+  (both routes, the ECMP group, the whole underlay), and ECMP forwarding resumed as soon as the
+  second next hop was resolved.  The gap between "the table says two paths" and "the dataplane
+  uses two paths" is the finding, not a failure of the feature: nothing was lost, traffic kept
+  flowing on the resolved path throughout.
+
+
+6. TEARDOWN AND RESTORE
+-----------------------
+  awplus(config)# boot config-file flash:/default.cfg        (pointer restored FIRST)
+  awplus(config)# no ip route 198.51.100.0/24 10.0.41.2
+  awplus(config)# no ip route 198.51.100.0/24 10.0.61.2
+  awplus# delete flash:/ckT43861.cfg    -> (y/n)[n]: y -> Successful operation   (ckyn.py)
+  awplus# show boot  -> Current boot config: flash:/default.cfg (file exists)
+  awplus# dir flash: -> **0** files matching ck*.cfg
+  awplus# show running-config | include ip route|maximum-paths  -> EMPTY
+  `maximum-paths` was already returned to the default in step 6 and is absent from the config.
+
+  TEARDOWN DIFF (STANDING-ORDERS §1) on ALL THREE devices this case touched, against the
+  captures taken after group setup and before step 1:
+    python3 tools/rcdiff.py 61-dut-pre.out  61-dut-post.out   -> NO OUTPUT (identical)
+    python3 tools/rcdiff.py 61-swib-pre.out 61-swib-post.out  -> NO OUTPUT (identical)
+    python3 tools/rcdiff.py 61-swia-pre.out 61-swia-post.out  -> NO OUTPUT (identical)
+  (`rcdiff.py` PRINTS differences but EXITS 0; the empty output is the proof, never the exit code.)
+
+  The shared B/C/D underlay is deliberately LEFT UP for groups C and D (STANDING-ORDERS §6).
+  swi_a was never reloaded or power-cycled (RISK-1); it was read and configured over its console
+  only, and its config is byte-identical to the start of this case.
+
+
+7. WHAT THIS CASE DID NOT PROVE
+--------------------------------
+- **More than two paths.**  The bench has exactly two usable routed legs from the DUT under
+  single-instance RSTP, so group sizes of 3-8 (`maximum-paths <1-8>`) were NOT exercised, and
+  neither was the guide's claim that the DEFAULT group size is 4.  A third path needs either a
+  third partner or spanning tree disabled on a parallel pair -- a bench change, not a test
+  change.  **NOT MEASURED**, not assumed.
+- **`weight <1-255>`** (weighted lottery mode).  `show ip route` prints `weight 1` on every
+  static route on this switch, but the guide scopes the feature to firewalls and VPN routers.
+  Whether the parameter is accepted and whether it biases the split on an x960 is **NOT
+  MEASURED**; it would be the natural next experiment.
+- **ECMP for dynamically learnt routes** (OSPF/RIP/BGP equal-cost paths) -- this case covers
+  static routes only.  Groups C and D could extend it.
+- **Hash inputs beyond the IPv4 5-tuple**: IPv6, MAC addresses, VLAN id, ingress port and
+  protocol number were not varied.  F-2 states what WAS measured (source and destination IPv4
+  addresses are inputs; L4 source and destination ports are not), and claims nothing more.
+- **Re-hash on path change**: whether existing flows are redistributed when a path is added or
+  removed was not measured as a continuity question (no loss measurement across the change).
+
+
+8. FILES
+--------
+  In the repo (committed):
+    tb277/x960/static-2026-10-15T1747/T43861/swi_d.cfg  (3 header + 140 config lines)
+    tb277/x960/static-2026-10-15T1747/T43861/swi_b.cfg  (3 header + 125 config lines)
+    tb277/x960/static-2026-10-15T1747/T43861/swi_a.cfg  (3 header + 88 config lines)
+    tb277/x960/static-2026-10-15T1747/T43861/work/run1.log  (this file)
+    tools/ecmpflows.py + its tools/README.md entry  (new, generic, hardware-verified here)
+  On the box (NOT committed; /tmp does not survive a reboot):
+    /tmp/ckB/T43861/*.pcap -- SELFTEST, L1-single-path, L2-ecmp-on, L3-single-flow,
+      L4-vary-{dst,src,sport,dport}, L5-decorrelated, prime, L6-attribution, L7-maxpaths-1,
+      L8-maxpaths-restored, L9-route-removed, L10-after-reload, L11-after-reload-arp-resolved
+    /tmp/ckB/T43861/{dut,swib,swia}-{pre,post}-rc.out, td.out
+    /tmp/ckB/ctrs.sh, /tmp/ckB/ctrd.sh  -- the counter readers
+    /tmp/ckB/console-u{2,3,5}.log, /tmp/ckB/console-u2-reload.log
+
+RUN END: 2026-10-15 21:06 NZDT (2026-10-15 08:06 UTC)
+
+VERDICT: PASS -- ECMP on the x960-56YSQ distributes traffic over two equal-cost static next hops
+in the DATAPLANE, counted per egress port on four independent counters across three devices: one
+route puts 1920/1920 frames on one port, adding the second splits them, and `maximum-paths 1`
+collapses the identical flow set back onto a single port (1280/0) as the guide says it must.
+Removing a next hop returns all traffic to the survivor, and the configuration survives a real
+reboot.  Three findings recorded, none a failure of the feature:
+  F-1  ECMP here is PER-FLOW, not per-packet -- 400 packets of one flow all took one path.  The
+       Route Selection guide states the opposite for AlliedWare Plus switches.
+  F-2  the hash uses the IPv4 source and destination ADDRESSES only; 64 distinct source ports,
+       or 64 distinct destination ports, produce NO spread at all.
+  F-3  an ECMP next hop whose ARP is unresolved is silently absent from the dataplane while
+       `show ip route database` still marks it `*>` -- seen after the reboot, where 100% of
+       traffic took the one resolved path until the other next hop was pinged.
+One instrument artefact was found and corrected inside the case: the first ECMP leg varied all
+four 5-tuple fields by the same index, which correlates the two addresses the hash actually uses
+and gave a misleading 81/19 split; decorrelating them restored 50/50.  The verdict rests on the
+corrected legs.
