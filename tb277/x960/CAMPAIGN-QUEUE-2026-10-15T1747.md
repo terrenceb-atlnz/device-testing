@@ -794,6 +794,7 @@ Apply the three RESTORE blocks above, then re-probe and diff as above.
 | T43848 | PASS | with `ip proxy-arp` on vlan10 the DUT answers ARP for a vlan48 address with its **own** MAC, where the identical request drew **nothing** with the feature off; silent for an unroutable address and for the ingress interface's own subnet; the proxied address is genuinely reachable; removal and reboot persistence both proven on the wire. One four-target ARP leg replayed OFF / ON / after reload, with the DUT's own address as an instrument control in **every** leg so each zero is a measurement, not a dead instrument. **No ping anywhere** — a ping crosses vlan10→vlan48 identically with proxy ARP on or off and would have proved nothing | tester | arp-2026-10-15T1747/T43848/work/run1.log |
 | T43849 | PASS | the authored expected result of ck.db **AWP-4357** met in full on hardware: swi_b's `ping 23.1.1.3` fails 100% **and its ARP table holds `23.1.1.3 → e01a.ead4.7043`, the DUT's MAC**; underneath, the crafted ARP drew **0** replies with the feature off and **3** carrying the DUT's MAC with it on. **The ping fails in BOTH states and carries no verdict on its own** — what separates them is the SOURCE of the unreachable: `From 23.1.1.2` (swi_b itself, packets never left) vs `From 23.1.1.1` (the DUT, which resolved, forwarded, then ARPed for the target itself). Also measured: local proxy ARP is bounded by the DUT interface's own /24, not the neighbour's /16 idea of on-link. Removal and reboot persistence both proven | tester | arp-2026-10-15T1747/T43849/work/run1.log |
 | T33246 | PASS | "ARP Polling" on this platform is **web-auth** ping-polling (Project 2561), not a generic ARP feature. Measured: **directed (unicast)** ARP polls to the supplicant's own MAC at the configured interval; **ICMP instead** under `type ping`; deauthentication after **exactly failcount** unanswered polls (3 directed ARPs, 0 replies, then polling stops — against 5 polls / 5 replies in the answering leg); removable; survives a reboot. The deauth is attributed by the DUT's own log naming the supplicant and MAC, **not** by `authorizedSupplicantNum`, which is quoted as context only. Stimulus was `ip link set eth3 arp off` on the box — link and port stay up, which is the condition the feature exists to detect | tester | arp-2026-10-15T1747/T33246/work/run1.log |
+| T43855 | PASS | static route proven **on the wire**: 5/5 forwarded against **0/5** in the baseline and **0/5** after `no ip route`, with a control flow to an unrouted prefix dropped in every leg. Removal proven in the **FIB** (`% Network not in table`), not just running-config. Three syntax forms measured (next-hop, next-hop + distance, interface form); the floating-static egress move is attributed by **swi_a's own ICMP unreachables**, and the distance-255 RIB-not-FIB rule is confirmed. Survives a real reload; teardown diffed clean on swi_d and swi_b | tester | static-2026-10-15T1747/T43855/work/run1.log |
 
 ## Issues
 
@@ -892,3 +893,15 @@ Apply the three RESTORE blocks above, then re-probe and diff as above.
   letting it pass. Every other `.cfg` in group A was saved after setup and before step 1 as
   logged-output.md §2 requires. `/create-logs` should carry the caveat into T33246's final log
   rather than presenting the file as the state the case ran under.
+- **🔴 TRIAGE CORRECTION (group B, measured) — RISK-4's remedy was WRONG.** Triage said "give every
+  routed leg its own VLAN — one link per VLAN, nothing blocked". **RSTP on this bench is
+  single-instance**, so a port in Discarding is blocked for *every* VLAN and a new VLAN frees
+  nothing. All three of the DUT's routed legs were Discarding at group B's start. Resolved with two
+  **DUT-only, reversible** changes: `spanning-tree priority 0` (DUT becomes root, its ports go
+  Designated/Forwarding) plus `shutdown` on `port1.0.2` and `port1.0.14`.
+  **Consequence for T43861 ECMP:** the two equal-cost next-hops are now **one link to EACH partner**
+  (swi_a via vlan41, swi_b via vlan61) rather than the swi_a pair triage proposed. The queue's own
+  group-B note sanctions either shape. Carry this into groups C and D — they share this underlay.
+- **TRAP (T43855) — `dir flash: | include <x>` is `% Invalid input`**; `dir` takes no output
+  modifiers on this build. Also: a `delete` whose `(y/n)` prompt is not answered returns
+  `Deletion aborted` / `% Failed to delete`, which is easy to skim past — re-`dir` to confirm.
