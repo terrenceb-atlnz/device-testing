@@ -432,3 +432,115 @@ STEP 6 -- PERSISTENCE ACROSS A REBOOT.
   the copy itself had succeeded -- the file was on flash with the right timestamp.  `cfg.py` has
   no "may prompt" form (`YN?:` is `ckyn.py` only and is rejected by cfg.py as a command).  Use a
   plain command for this copy.
+
+  THE RELOAD (a real reboot, not a config reload):
+    tool: python3.8 tools/ckreload.py /dev/u2 115200 /tmp/ckB/console-u2-reload.log 600
+    20:36:57 >>> reload
+    reboot question: 'reboot system? (y/n):' -> y
+    20:38:05 login seen after **68 s**
+    (68 s to `login:` on this x960-56YSQ flash boot -- recorded so the next run does not
+     over-wait; the IE520-derived 720 s default is far too long for this platform.)
+
+  AFTER THE REBOOT (20:38:20-20:38:25), before any command was re-applied:
+    awplus# show boot
+    Current boot image : flash:/x960-tb277.rel (file exists)
+    Current boot config: flash:/ckT43855.cfg (file exists)
+    awplus# show running-config | include ip route
+    ip route 10.70.70.0/24 10.0.61.2                     <- the static route came back
+    awplus# show ip route database
+    S    *> 10.70.70.0/24 [1/0] via 10.0.61.2, vlan61 weight 1   <- selected AND in the FIB
+    awplus# show ip interface brief
+    vlan10  192.168.10.1/24  admin up  running
+    vlan41  10.0.41.1/30     admin up  running
+    vlan48  192.168.48.1/24  admin up  running
+    vlan61  10.0.61.1/30     admin up  running           <- the whole underlay came back
+    awplus# show spanning-tree brief | include port1.0.10|port1.0.16
+    port1.0.10  0000:e01aead47043  8392  Designated  Forwarding
+    port1.0.16  0000:e01aead47043  8398  Designated  Forwarding    <- still root, still forwarding
+
+  tool: identical to step 1, --tag L6-after-reload
+  cap L6-after-reload-eth3.pcap: 31 frame(s)
+    x5  ICMP t8/c0 192.168.10.5 -> 10.70.70.1     [ours]
+    x5  ICMP t0/c0 **10.70.70.1 -> 192.168.10.5** [ours]   <- forwarding restored by the reboot
+    x5  ICMP t8/c0 192.168.10.5 -> 10.80.80.1     [ours]
+    x5  ICMP t8/c0 192.168.10.5 -> 192.168.10.1   [ours]
+    x5  ICMP t0/c0 192.168.10.1  -> 192.168.10.5  [ours]
+    x2  ICMP t3/c0 192.168.10.1  -> 192.168.10.5  [ours]   <- 10.80.80.1 still dropped
+    x2  ARP-REQ who-has 192.168.10.1 tell 192.168.10.1     <- the DUT's own post-boot duplicate
+                                                              address detection, not ours
+    x1  ARP-REQ who-has 192.168.10.5 tell 192.168.10.1 / x1 ARP-REPLY (the responder)
+
+  10.70.70.1   : 5 sent, **5 echo replies** -- the route survived a real reboot and forwards.
+  10.80.80.1   : 5 sent, 0 replies -- control still dropped after the reboot.
+  192.168.10.1 : 5/5 -- instrument alive.
+  STEP 6 VERDICT: PASS.
+
+
+8. TEARDOWN AND RESTORE
+-----------------------
+  awplus(config)# boot config-file flash:/default.cfg        (pointer restored FIRST)
+  awplus(config)# no ip route 10.70.70.0/24 10.0.61.2
+  awplus# delete flash:/ckT43855.cfg                          -> (y/n)[n]: y -> Successful operation
+  awplus# show boot
+  Current boot config: flash:/default.cfg (file exists)
+  awplus# dir flash:                 -> NO ck*.cfg remains (0 matches for "ckT43855")
+  awplus# show running-config | include ip route   -> EMPTY
+
+  INSTRUMENT NOTE: `cfg.py`'s `YN:` form timed out (exit 6) on `delete flash:/…` even though the
+  device DID print `Delete flash:/ckT43855.cfg?  (y/n)[n]:`.  `ckyn.py` answered it correctly
+  (`y` -> "Deleting... Successful operation", exit 0).  Use `ckyn.py` for `delete`.
+
+  TEARDOWN DIFF (STANDING-ORDERS §1), on BOTH devices this case touched, against the captures
+  taken after group setup and before step 1:
+    python3 tools/rcdiff.py dut-pre-rc.out  dut-post-rc.out    -> NO OUTPUT (identical)
+    python3 tools/rcdiff.py swib-pre-rc.out swib-post-rc.out   -> NO OUTPUT (identical)
+  (`rcdiff.py` PRINTS differences but EXITS 0, so the exit code is never read -- the empty
+   output is the proof.)
+
+  The shared B/C/D underlay is deliberately LEFT UP for groups C and D (STANDING-ORDERS §6);
+  its own restore block is in the campaign queue.  swi_a was not touched by this case beyond the
+  group underlay and the declared clock set.
+
+
+9. WHAT THIS CASE DID NOT PROVE
+--------------------------------
+- **`weight <1-255>`** (weighted lottery mode) was not exercised.  The Route Selection guide
+  scopes it to "some AlliedWare Plus firewalls and VPN routers", not switches, yet
+  `show ip route` on this x960 prints `weight 1` on every static route.  Whether the parameter is
+  accepted and whether it has any effect on a switch is **NOT MEASURED** here; it belongs with
+  T43861 (ECMP) if anywhere.
+- **`description`** on a static route was not exercised.
+- **VRF-scoped static routes** (`ip route vrf …`) were not exercised -- that is T43859.
+- The ICMP destination-unreachable **rate limit** (2 per 10 packets for network-unreachable,
+  5 per 5 for host-unreachable) was observed but not characterised; it is context, not a limb.
+
+
+10. FILES
+---------
+  In the repo (committed):
+    tb277/x960/static-2026-10-15T1747/T43855/swi_d.cfg   (3 header + 140 config lines)
+    tb277/x960/static-2026-10-15T1747/T43855/swi_b.cfg   (3 header + 125 config lines)
+    tb277/x960/static-2026-10-15T1747/T43855/work/run1.log  (this file)
+  On the box (NOT committed, /tmp does not survive a reboot):
+    /tmp/ckB/T43855/*.pcap   -- L1-noroute, L2-route-on, L3-route-removed, L4a-floating-backup,
+                                L4b-floating-active, L4c-distance-255, L5-interface-form,
+                                L6-after-reload  (all on eth3)
+    /tmp/ckB/T43855/{dut,swib}-{pre,post}-rc.out and the s1..s7 step outputs
+    /tmp/ckB/console-u2.log, console-u3.log, console-u5.log, console-u2-reload.log
+    /tmp/ckB/{dut,swib,swia}-pre.out  -- the GROUP's pre-underlay baselines
+  Disk note: tb277 `/tmp` was 95% full at group start (1.8 GB of someone else's
+  `wireshark_eth4*.pcapng` files, not this campaign's; left alone).  This case's captures total
+  well under 1 MB.
+
+RUN END: 2026-10-15 20:41 NZDT (2026-10-15 07:41 UTC)
+
+VERDICT: PASS -- a static route on the x960-56YSQ is absent by default, forwards its prefix to
+the configured next hop with the far end's reply returning (5/5 on the wire) while a control
+flow to an unrouted prefix is dropped in the same leg, is removed from the DATAPLANE and not
+merely from running-config by `no ip route`, selects correctly by administrative distance in
+both directions (the floating backup inert at distance 250, then carrying traffic with the
+egress port move proven by swi_a's own ICMP unreachables), honours the documented
+distance-255 RIB-not-FIB rule, accepts the interface form with on-link ARP semantics, and
+survives a real reboot.  Two observations recorded, neither a failure: `show ip route <address>`
+displays the NON-selected route when two exist (O-1), and the interface form answers host- not
+network-unreachable because it makes the prefix on-link (O-2).
