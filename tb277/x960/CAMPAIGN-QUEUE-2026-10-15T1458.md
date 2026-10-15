@@ -160,6 +160,23 @@ route or mount change is made — every flow is crafted at layer 2, so `sudo` is
 raw sockets.
 
 ### RESTORE (run this to put the bench back)
+**Boot pointer FIRST** — added 2026-10-15 15:38, after T43853's persistence check set
+`boot config-file flash:/ckdhcp.cfg`. A tester that dies mid-group and is restored only by the
+config block below would otherwise leave the DUT booting a TEST config (/orient-dt §7).
+The pre-existing baseline is `flash:/default.cfg`.
+```
+configure terminal
+ boot config-file flash:/default.cfg
+ end
+show boot                 # must read: Current boot config: flash:/default.cfg (file exists)
+delete flash:/ckdhcp.cfg  # decided: DELETE it (it is a copy of a test config, not a baseline,
+                          # so unlike the 2026-10-12 OPEN-6 precampaign.cfg it is worth nothing)
+```
+A direct copy back onto `default.cfg` may be refused with
+`% Cannot overwrite flash:/default.cfg as it is the default config file` (seen on the previous
+DUT, handover OPEN-6). That is expected, not a failure: `default.cfg` is never written here, only
+re-pointed to, so the refusal should not arise at all.
+
 ```
 configure terminal
  no ip dhcp pool CKPOOL
