@@ -1,0 +1,282 @@
+T43862  IPv4_UnicastRouting - Secondary IP Address (Multi homing)  --  working log, run 1
+===========================================================================================
+
+RUN START: 2026-10-15 21:09 NZDT (2026-10-15 08:09 UTC)
+RUN END:   (in progress)
+
+Run quality: clean.  The baseline-OFF leg invalidated one of my own planned discriminators
+before it could produce a false PASS (section 5, step 1c) and the test was redesigned around the
+direction that actually discriminates.  That is recorded rather than quietly dropped.
+
+
+1. SESSION FACTS
+----------------
+Identical to T43855 run1 §1.  In short: tb277, consoles u2 = swi_d (DUT) @115200 (u3 and u5 were
+opened for the shared group underlay but this case touches NEITHER partner); PDU 10.36.230.212
+outlet 1 for the DUT; constraints None; unattended, no blocking prompts; sentinel = parent
+session; manual console + scapy, no framework.  Campaign
+tb277/x960/CAMPAIGN-QUEUE-2026-10-15T1747.md, group B `static-2026-10-15T1747`, case 3 of 3.
+
+**This case uses the DUT and BOTH host NICs only.**  swi_a and swi_b are untouched -- their
+configs are part of the shared B/C/D underlay and are not read or written here.
+
+
+2. DEVICES, LINKS AND CLOCKS
+-----------------------------
+Recorded once for the group in T43855/work/run1.log §2 and §3.  What this case depends on:
+
+  swi_d  DUT, AT-x960-56YSQ S/N A2WQS700B, sin_x96056-20261012-24, /dev/u2 @115200
+         boot image flash:/x960-tb277.rel (exists), boot config flash:/default.cfg (exists)
+         **SVI MAC e0:1a:ea:d4:70:43 -- ALL SVIs share one MAC** (platforms/x960.md §6.5), which
+         matters here: the primary and the secondary answer ARP with the SAME MAC, so the MAC
+         can never distinguish them -- only the ARP target address can.
+  host   eth3 00:0d:b9:55:77:0e -> swi_d port1.0.10, VLAN 10 (the secondary subnet's segment)
+         eth4 00:0d:b9:55:77:0f -> swi_d port1.0.48, VLAN 48 (the "elsewhere" that routes in)
+  Clocks: swi_d = box - 9 s (group measurement; swi_b -2 s, swi_a +4 s after correction).
+
+**No host networking was changed at any point.**  172.16.10.5, 192.168.10.5, 192.168.10.9,
+192.168.48.9 and 172.17.10.5 are all scapy fictions, crafted at L2 with the DUT's SVI MAC as the
+next hop, so the kernel's own addresses and routes are bypassed entirely.
+
+STP, read immediately before every counted leg:
+  port1.0.10  0000:e01aead47043  8392  Designated  Forwarding
+  port1.0.48  0000:e01aead47043  83b8  Designated  Forwarding
+
+Underlay at the start of this case (shared B/C/D, see the queue):
+  vlan10  192.168.10.1/24 on port1.0.10   vlan48  192.168.48.1/24 on port1.0.48
+  vlan41  10.0.41.1/30    vlan61  10.0.61.1/30   (present, unused by this case)
+
+
+3. CASE TEXT -- NONE EXISTS
+----------------------------
+No authored step text or expected result for T43862 in AWPTCM or ck.db (campaign triage).
+Grounded in and cited against:
+  (a) **TPS row 38 "Secondary IP Address (Multi homing)" -- priority 1, `Yes`, note empty.**
+  (b) **Internet Protocol (IP) Addressing and Protocols Feature Overview and Configuration
+      Guide** (`Feature Overview Guides/` at the repo root), "Static IP addresses".  The whole
+      paragraph, quoted verbatim, because every sentence in it is a testable claim:
+      > "The secondary parameter allows you to add multiple IP addresses to an interface using
+      >  this command. Each interface must have a primary IP address before you can add a
+      >  secondary address. Your device treats secondary addresses the same as primary addresses
+      >  in most respects, such as responding for ARP requests for the IP address. However, the
+      >  only packets generated that have a secondary address as source address are routing
+      >  updates. You can define up to 32 secondary addresses on a single interface."
+      Syntax: `awplus(config-if)# ip address <ip-addr/prefix-length> [secondary] [label <label>]`
+
+**The objective this case is graded against**, per the dispatch: *the subject is a secondary
+address actually SERVING TRAFFIC, not merely appearing in `show ip interface`.*  So every limb
+below is measured on the wire -- who answers ARP, and what crosses the DUT -- with the feature
+baselined OFF first, removal proven, and reboot persistence proven.
+
+
+4. THE INSTRUMENT, AND THE FLOWS
+---------------------------------
+`tools/arpleg.py` runs every leg: it starts tcpdump on each NIC named, sends a known count of
+crafted frames from one of them, stops, and prints a grouped count with the Ethernet src/dst of
+every flow.  `--answer IP=MAC --answer-iface <nic>` runs a background ARP responder so the DUT
+can resolve the fictional hosts (this DUT does not learn a neighbour from a request it merely
+answers -- group A's finding, recorded in tools/README.md).
+
+Two kinds of leg, each with its own controls:
+
+  **ARP legs** (eth3 only).  Three targets in every leg:
+    172.16.10.1   THE SUBJECT -- the secondary address.
+    192.168.10.1  THE PRIMARY -- instrument control; it must be answered whenever the sender is
+                  in ITS subnet, so a zero on the subject is a measurement.
+    172.17.10.1   NEVER CONFIGURED -- negative control; must never be answered.
+
+  **Forwarding legs** (eth4 -> eth3, i.e. traffic arriving from elsewhere and destined INTO the
+  secondary subnet).  Three destinations in every leg:
+    172.16.10.5   THE SUBJECT -- a host inside the secondary subnet.
+    192.168.10.9  THE PRIMARY SUBNET -- instrument control; must always cross.
+    172.17.10.5   NEVER CONFIGURED -- negative control; must never cross.
+
+TOOLS: tools/arpleg.py, tools/cfg.py, tools/ckcon.py, tools/ckyn.py, tools/ckreload.py,
+tools/rc2cfg.py, tools/rcdiff.py.  `python3.8` for every tool on tb277.
+Captures: /tmp/ckB/T43862/ ; console transcript /tmp/ckB/console-u2.log
+
+
+5. STEPS
+--------
+
+STEP 1 -- BASELINE, NO SECONDARY ADDRESS.
+
+  awplus# show running-config interface vlan10
+  interface vlan10
+   ip address 192.168.10.1/24                        <- primary only
+  awplus# show ip route
+  C       192.168.10.0/24 is directly connected, vlan10
+  C       192.168.48.0/24 is directly connected, vlan48
+  (no 172.16.10.0/24 anywhere)
+
+  1a. ARP, feature OFF.  --tag L1a-arp-off, sender 192.168.10.5 / 00:11:22:33:44:01, count 4
+      x4  ARP-REQ  who-has 172.16.10.1  tell 192.168.10.5      -> **0 replies**
+      x4  ARP-REQ  who-has 192.168.10.1 tell 192.168.10.5
+      x4  ARP-REPLY 192.168.10.1 is-at e0:1a:ea:d4:70:43       -> 4 replies, instrument alive
+      x4  ARP-REQ  who-has 172.17.10.1  tell 192.168.10.5      -> **0 replies**, control holds
+
+  1b. 🔎 **A DISCRIMINATOR THAT TURNED OUT NOT TO BE ONE -- recorded because it would have
+      produced a false PASS.**  My first design tested "the secondary serves traffic" by sending
+      a frame SOURCED in the secondary subnet (172.16.10.5 -> 192.168.48.9, eth3 -> eth4) and
+      counting it at eth4.  Run as the baseline with the secondary NOT configured
+      (--tag L1b-route-off):
+        cap L1b-route-off-eth4.pcap:
+          x5  ICMP t8/c0 172.16.10.5 -> 192.168.48.9  [eth e0:1a:ea:d4:70:43 -> 00:11:22:33:44:09]
+      **All five frames crossed anyway.**  Of course they did: IP forwarding is DESTINATION
+      based, the destination 192.168.48.9 is a connected subnet, and there is no uRPF here -- the
+      source address is not consulted at all.  A leg that gives the same answer with the feature
+      on and off measures nothing.  **The baseline-OFF rule caught this before it became a
+      verdict.**  The test was redesigned around the direction that does discriminate (1c), and
+      the discarded leg is kept here as evidence of what the device does NOT check.
+
+  1c. THE REAL DISCRIMINATOR, feature OFF: traffic from elsewhere INTO the secondary subnet.
+      --tag L1c-to-secondary-off, eth4 -> watch eth3, sender 192.168.48.9 / 00:11:22:33:44:09
+      cap on eth4 (the sending side):
+        x5  ICMP t8/c0 192.168.48.9 -> 172.16.10.5    [ours]
+        x5  ICMP t8/c0 192.168.48.9 -> 192.168.10.9   [ours]
+        x2  ICMP t3/c0 **192.168.48.1** -> 192.168.48.9   <- the DUT's own unreachable
+      cap on eth3 (the far side):
+        x5  ICMP t8/c0 192.168.48.9 -> **192.168.10.9**  [eth e0:1a:ea:d4:70:43 -> 00:11:22:33:44:0a]
+        x1  ARP-REQ who-has 192.168.10.9 tell 192.168.10.1 / x1 ARP-REPLY
+      172.16.10.5  : 5 sent, **0 arrived on eth3** -- dropped, with the DUT reporting network
+                     unreachable from its ingress address.
+      192.168.10.9 : 5 sent, **5 arrived** -- instrument alive, the path itself works.
+  STEP 1 VERDICT: PASS (baseline established on both discriminators that survive scrutiny).
+
+STEP 2 -- CONFIGURE THE SECONDARY ADDRESS.
+
+  awplus(config)# interface vlan10
+  awplus(config-if)# ip address 172.16.10.1/24 secondary
+  awplus# show running-config interface vlan10
+  interface vlan10
+   ip address 192.168.10.1/24
+   ip address 172.16.10.1/24 secondary
+  awplus# show interface vlan10
+    IPv4 address 172.16.10.1/24 broadcast 172.16.10.255 **secondary**
+    IPv4 address 192.168.10.1/24 broadcast 192.168.10.255
+  awplus# show ip route
+  C       **172.16.10.0/24 is directly connected, vlan10**        <- a connected route appeared
+  C       192.168.10.0/24 is directly connected, vlan10
+
+  🔎 **OBSERVATION O-3 (display): `show ip interface brief` shows ONLY the primary.**
+    awplus# show ip interface brief
+    vlan10                192.168.10.1/24    admin up        running
+  The secondary is invisible there, while `show interface vlan10`, `show running-config` and
+  `show ip route` all show it.  Harmless, but `show ip interface brief` cannot be used to check
+  whether a secondary exists -- which is precisely the read-back the dispatch warned against
+  relying on.
+
+  2a. ARP with the feature ON -- and a result that looked like a failure until the sender was
+      put in the right subnet.  --tag L2a-arp-on, sender **192.168.10.5** (the PRIMARY subnet):
+        x4  ARP-REQ  who-has 172.16.10.1  tell 192.168.10.5   -> **still 0 replies**
+        x4  ARP-REPLY 192.168.10.1 is-at e0:1a:ea:d4:70:43    -> 4 replies
+      Taken alone that reads as "the DUT does not answer ARP for its secondary", contradicting
+      the guide.  It is not: the SENDER was in the wrong subnet.
+
+  2b. THE SAME LEG WITH THE SENDER INSIDE THE SECONDARY SUBNET.  --tag L2b-arp-on-insubnet,
+      sender **172.16.10.5** / 00:11:22:33:44:05:
+        x4  ARP-REQ  who-has 172.16.10.1  tell 172.16.10.5
+        x4  **ARP-REPLY 172.16.10.1 is-at e0:1a:ea:d4:70:43**   -> **4 replies** [-> 00:11:22:33:44:05]
+        x4  ARP-REQ  who-has 192.168.10.1 tell 172.16.10.5      -> **0 replies**
+        x4  ARP-REQ  who-has 172.17.10.1  tell 172.16.10.5      -> **0 replies**, control holds
+
+      🔎 **FINDING F-4 -- the DUT answers ARP for an address on vlan10 only when the ARP
+      SENDER's protocol address lies inside that address's own subnet, and this applies to the
+      primary exactly as it does to the secondary.**  Measured symmetrically, which is what
+      makes it a finding rather than a guess:
+        sender 192.168.10.5 (primary subnet)   -> 192.168.10.1 answered, 172.16.10.1 silent
+        sender 172.16.10.5  (secondary subnet) -> 172.16.10.1 answered, 192.168.10.1 silent
+      So the guide's claim -- "treats secondary addresses the same as primary addresses ... such
+      as responding for ARP requests for the IP address" -- **HOLDS exactly**: both are answered
+      under the same rule, and both are silent under the same rule.  The practical note is that
+      a tester ARPing for a secondary from a host in the primary subnet will measure silence and
+      wrongly record a defect.  Both SVIs answer with the same MAC (e0:1a:ea:d4:70:43), so only
+      the target address distinguishes them (platforms/x960.md §6.5).
+
+  2c. FORWARDING INTO THE SECONDARY SUBNET, feature ON.  --tag L2c-to-secondary-on, eth4 ->
+      watch eth3, sender 192.168.48.9, three destinations:
+      cap on eth3 (the far side):
+        x5  ICMP t8/c0 192.168.48.9 -> **172.16.10.5**  [eth e0:1a:ea:d4:70:43 -> 00:11:22:33:44:05]
+        x5  ICMP t8/c0 192.168.48.9 -> 192.168.10.9     [eth e0:1a:ea:d4:70:43 -> 00:11:22:33:44:0a]
+        x1  **ARP-REQ who-has 172.16.10.5 tell 172.16.10.1**   <- the DUT ARPs AS the secondary
+        x1  ARP-REPLY 172.16.10.5 is-at 00:11:22:33:44:05
+      cap on eth4 (the sending side):
+        x2  ICMP t3/c0 192.168.48.1 -> 192.168.48.9     <- for the unconfigured control only
+
+      172.16.10.5  : 5 sent, **5 arrived on eth3** -- where the identical leg delivered 0 at
+                     baseline.  The secondary address is genuinely serving traffic: the DUT
+                     accepted a packet from another subnet, resolved the destination on vlan10
+                     and delivered it.
+      192.168.10.9 : 5/5 -- instrument alive.
+      172.17.10.5  : 5 sent, **0 arrived** -- the negative control is dropped IN THE SAME LEG,
+                     so "the DUT now forwards into 172.16.10.0/24" is not "the DUT now forwards
+                     anything".
+      **The DUT's own ARP request is sourced `tell 172.16.10.1`** -- the secondary address -- so
+      the device uses the secondary as its interface identity on that subnet, exactly as a
+      primary would.  (The guide's sentence "the only packets generated that have a secondary
+      address as source address are routing updates" concerns IP source addresses; this is an
+      ARP sender protocol address.  Recorded as measured, with no claim either way about the
+      IP-source sentence, which this case did not test.)
+  STEP 2 VERDICT: PASS.
+
+STEP 3 -- THE GUIDE'S PRECONDITION: "Each interface must have a primary IP address before you
+          can add a secondary address."
+
+  Tested on a scratch SVI with no address at all, so no live segment was disturbed:
+  awplus(config)# vlan database / vlan 99
+  awplus(config)# interface vlan99
+  awplus(config-if)# ip address 10.99.99.1/24 secondary
+  **% Configure primary first vlan99**
+  awplus# show running-config interface vlan99      -> empty, nothing was configured
+  (vlan 99 removed again immediately, `vlan database / no vlan 99`.)
+  STEP 3 VERDICT: PASS -- the documented precondition is enforced, with a clear message.
+
+STEP 4 -- MULTIPLE SECONDARIES, AND WHAT HAPPENS TO THE PRIMARY.
+
+  awplus(config-if)# ip address 172.16.20.1/24 secondary          <- a SECOND secondary
+  awplus# show running-config interface vlan10
+  interface vlan10
+   ip address 192.168.10.1/24
+   ip address 172.16.10.1/24 secondary
+   ip address 172.16.20.1/24 secondary                            <- both accepted
+  awplus# show ip route
+  C       172.16.10.0/24 is directly connected, vlan10
+  C       172.16.20.0/24 is directly connected, vlan10            <- a connected route each
+  C       192.168.10.0/24 is directly connected, vlan10
+
+  Then the dispatch's question -- is removing the primary refused, or does it drop the secondary?
+  awplus(config-if)# no ip address 192.168.10.1/24
+  **% Must delete secondary before deleting primary**
+  awplus# show running-config interface vlan10
+   ip address 192.168.10.1/24
+   ip address 172.16.10.1/24 secondary
+   ip address 172.16.20.1/24 secondary                            <- UNCHANGED, nothing lost
+
+  **ANSWER: it is REFUSED, not cascaded.**  The primary cannot be removed while any secondary
+  exists, the refusal names the reason, and the configuration is left exactly as it was.
+  The guide's "up to 32 secondary addresses" limit was **NOT exercised** -- two were enough to
+  settle the ordering rule, and 32 is a scale test, not a function test (see §7).
+  STEP 4 VERDICT: PASS.
+
+STEP 5 -- REMOVAL, PROVEN IN ARP *AND* IN THE DATAPLANE.
+
+  awplus(config-if)# no ip address 172.16.20.1/24 secondary
+  awplus(config-if)# no ip address 172.16.10.1/24 secondary
+  awplus# show running-config interface vlan10
+   ip address 192.168.10.1/24                                     <- primary only again
+  awplus# show ip route
+  C       192.168.10.0/24 is directly connected, vlan10
+  C       192.168.48.0/24 is directly connected, vlan48
+  (both 172.16.x connected routes gone)
+
+  5a. ARP.  --tag L5a-arp-removed, sender **172.16.10.5** -- the sender that DID get an answer
+      in step 2b, so this is the same question under the same conditions:
+        x4  ARP-REQ who-has 172.16.10.1 tell 172.16.10.5   -> **0 replies** (was 4)
+
+  5b. FORWARDING.  --tag L5b-route-removed, eth4 -> watch eth3:
+      cap on eth3: x5  ICMP 192.168.48.9 -> 192.168.10.9 only, plus the DUT's ARP for it
+      cap on eth4: x2  ICMP t3/c0 192.168.48.1 -> 192.168.48.9
+      172.16.10.5  : 5 sent, **0 arrived** (was 5) -- gone from the DATAPLANE, not just from
+                     running-config.
+      192.168.10.9 : 5/5 -- instrument alive, so the zero is a measurement.
+  STEP 5 VERDICT: PASS.
