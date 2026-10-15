@@ -1041,3 +1041,15 @@ Captures and step outputs on the box in `/tmp/ckC/`; console transcripts `/tmp/c
   alongside `port1.0.8` already recorded. Two unknown far ends, which is why group B did **not**
   disable spanning tree globally and instead made the DUT root. Both belong in `bench-state.md`'s
   link table once identified.
+- **🔴 PLATFORM FACT (T43857, measured 21:37) — `service ospf` starts the daemon ASYNCHRONOUSLY,
+  and `router ospf <n>` issued immediately after is REFUSED.** Observed on both partners:
+  `service ospf` accepted, then `router ospf 1` → `% OSPF protocol daemon is not running or
+  feature license is not available`. Seconds later `show ip ospf` had changed to
+  `OSPF Routing Process not enabled.` — i.e. the daemon **had** started; the first attempt lost a
+  race. **The discriminator is the message itself:**
+  - `% OSPF protocol daemon is not running or feature license is not available` = daemon not up yet
+  - `OSPF Routing Process not enabled.` = daemon up, no `router ospf` configured — proceed
+  **Gate on the second message, not on a timer.** The refusal text conflates "daemon not running"
+  with "no licence", so a tester that takes it at face value would grade a licensed, supported
+  feature UNSUPPORTED. Expect the same for `service rip` and `service bgp` in groups C and D.
+  Same shape as the DNS-relay settle in `platforms/x960.md` §6.8.
