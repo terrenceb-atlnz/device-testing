@@ -259,3 +259,22 @@ review), NOTED (no decision needed now), CLOSED (decided or answered).
   `unattended-session-stalls-on-permission-prompt` records this repo losing 11 hours to exactly
   that `rm`. Tester asked to chown existing captures and to use `tcpdump -Z $(whoami)` from here
   on. NOTED — worth making a standing rule if it recurs.
+
+## Carried from Group A into Groups B and C (measured 2026-10-15)
+
+- **🔥 `no interface vlan10` is REFUSED on AW+** — `% Removal of interface not allowed`. In Group A
+  this stopped `cfg.py` mid-batch and left the bench **half-restored** until the remainder was
+  re-sent. A VLAN interface goes when the VLAN is deleted from the vlan database, not by removing
+  the interface. **Fix this in Groups B and C restore recipes BEFORE they run.**
+- **Reload is fast on this x960: login after ~60 s**, against `ckreload.py`'s IE520-derived 720 s
+  default. Budget accordingly rather than waiting out the default.
+- **The DUT clock survives a reload** — the year-2000 reading at probe time was stale RTC state,
+  not a per-boot reset. No need to re-repair after each reboot.
+- **For T35370 "Extended ID" (Group C):** the DUT's default config already carries
+  `interface vlan1 / ip address dhcp` with **`ip dhcp-client vendor-identifying-class`** and
+  **`ip dhcp-client request vendor-identifying-specific`** — DHCP **options 124/125**. That is a
+  stronger candidate for what "Extended ID" means than the triage reading of
+  `client-id <interface>`, and it is already on the box to probe.
+- **Root-owned files were 15, not just the pcaps** — `dhcp4.py --json` also ran under sudo. All
+  chowned, scratch swept, zero remain. Keep using `tcpdump -Z $(whoami)` and chown after any
+  sudo-run tool (I-4).
