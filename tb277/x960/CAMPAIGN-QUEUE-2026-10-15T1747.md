@@ -139,7 +139,7 @@ re-reading as a top-three cost.
 | A | T33248 Static ARP · T33247 Clear ARP · T33249 ARP Logging · T33246 ARP Polling · T43848 Proxy ARP · T43849 Local Proxy ARP | arp-2026-10-15T1747 | **DONE 2026-10-15T2000 — 6 PASS, bench restored and re-probed (exit 0, all three configs identical to the pre-campaign capture)** | DUT + both host NICs. Two L3 segments (eth3/VLAN 10, eth4/VLAN 48) give proxy ARP its two sides without a partner. Run first: it is the least topology-hungry and it proves the bench before the routing underlay goes in |
 | B | T43855 IPv4 Static · T43861 ECMP Routing · T43862 Secondary IP Address | static-2026-10-15T1747 | **DONE** 21:21 — 3 PASS (underlay + restore recipe below; underlay stays up for C and D) | Needs the routing underlay (below) and both partners. ECMP uses the DUT's **two** links to one partner, or one link to each — the triangle gives equal-cost paths either way |
 | C | T43857 OSPFv2 · T43856 RIP v1/v2 | igp-2026-10-15T1747 | **DONE** 22:35 -- 2 PASS (11 of 13 overall). Underlay left UP and verified intact for group D. Two `no service <proto>` lines left on swi_d -- see the restore note below | Same underlay as B. `service ospf` / `service rip` FIRST |
-| D | T43858 BGPv4 · T43859 VRF-Lite | bgp-vrf-2026-10-15T1747 | **RUNNING** from 2026-10-15T2245 | Same underlay. `service bgp` first. VRF-Lite may need a feature the DUT lacks — that is UNSUPPORTED **with the refused command quoted**, after the service gate has been ruled out |
+| D | T43858 BGPv4 · T43859 VRF-Lite | bgp-vrf-2026-10-15T1747 | **DONE 2026-10-15T2342 — 2 of 2 PASS** | Ran on the same underlay, which was left intact and then restored. **The note that stood here was wrong and is corrected by measurement: BGPv4 is NOT service-gated on this build (F-6) — `service bgp` takes only `evpn` and the bare form is `% Incomplete command.`, which would have aborted the whole configuration batch.** VRF-Lite needed no feature the DUT lacks; nothing was graded UNSUPPORTED |
 
 **Group order is deliberate.** A runs on a bench almost identical to the one just restored. B, C
 and D then share **one L3 underlay** built once (STANDING-ORDERS §6: bench setup is set once per
@@ -1350,3 +1350,116 @@ D** block, then the **single reload of swi_d from `flash:/default.cfg`**, then r
   `clear arp-cache vrf` form as **NOT EXERCISED** because no VRF existed on the DUT at the time.
   T43859 exercised it against a real VRF and it works (it also stops F-9's stale forwarding).
   T33247's verdict and its log stand as written; this note is the cross-reference.
+
+- **GROUP D COMPLETE -- 2 of 2 PASS** (T43858 BGPv4, T43859 VRF-Lite). **THE CAMPAIGN IS
+  COMPLETE: 13 of 13 attempted, 13 PASS.** The shared B/C/D underlay has been taken down with
+  the RESTORE block, swi_d has been reloaded once from `flash:/default.cfg` to clear group C's
+  two sticky `no service` lines, and **all three devices are byte-identical to the
+  pre-campaign capture** `/tmp/ckB/{dut,swib,swia}-pre.out` of 2026-10-15 20:13-20:15.
+  Post-run probe: **exit 0**.
+- **🔴 F-6 (T43858) -- BGPv4 IS NOT SERVICE-GATED ON THIS BUILD, the opposite of OSPFv2 and
+  RIP.** `bgpd` is running from boot on both the atlnz-licensed x960-56 and the Base-licensed
+  x960-28 with no `service bgp` in either running-config; `show ip bgp` answers with empty
+  output instead of the `% … daemon is not running` message; `router bgp 65001` is accepted
+  0.8 s after entering config mode; and `service bgp` is a **different command** whose only
+  completion is `evpn` (`service bgp` alone -> `% Incomplete command.`). ⇒ The dispatch's
+  carried-forward instruction "`service bgp` first, and ALONE" would have produced a `% ` line
+  that makes `cfg.py` **abandon the whole BGP configuration** -- the F-5/7A.1 trap with the
+  sign reversed. ⇒ Also: group D added **no** third `no service bgp` sticky line, because
+  there is nothing to negate; the queue's prediction at line ~786 is wrong. For
+  `platforms/x960.md` (now §7B.1).
+- **🔴 F-7 (T43858) -- `show running-config` and `copy running-config` DISAGREE about
+  `bgp graceful-restart`, and the wire agrees with the file.** A freshly created `router bgp`
+  renders ` bgp graceful-restart` in `show running-config`, while `copy running-config
+  flash:/ckT43858.cfg` writes ` no bgp graceful-restart`, the DUT's own BGP OPEN advertises
+  **no** Graceful Restart capability (only Multiprotocol, Route Refresh ×2 and 32-bit AS), and
+  after booting from that file running-config reads `no bgp graceful-restart`. **The display is
+  the thing that is wrong.** Cosmetic for T43858 -- nothing in it depends on graceful restart --
+  but it is the `show mirror` class of defect again, and a user who enables graceful restart and
+  verifies it with `show running-config` would be misled in the other direction.
+  **FOR THE TEST ENGINEER / a developer: which of the two is intended?**
+- **O-6 (T43858, platform) -- A FOURTH INSTANCE OF THE `platforms/x960.md` §5 MIRRORING DEFECT
+  CLASS, this time on `direction receive`.** `show mirror` read `Enabled / direction receive /
+  Monitored Port port1.0.16 / Test Port port1.0.48` with the destination `connected`, freshly
+  applied and freshly bounced (the documented working method, and `both` was deliberately
+  avoided), and the capture was **0 bytes** across a window in which an instrumented leg
+  demonstrably pushed 5 echo replies INTO the monitored port. No verdict rests on it; the limb
+  was then measured with the DUT's own `tcpdump`. Also measured: **configuring a port as a
+  mirror destination silently removes it from its access VLAN**, and `no mirror interface` does
+  not put it back.
+- **O-7 (T43858, tool) -- the mirror-port advisory stops a `cfg.py` batch and can leave a port
+  SHUT.** `interface port1.0.48` emitted `% port1.0.48 is currently configured as a mirror-port.
+  Use caution when altering its config`; combined with the asynchronous `switch: port 48 …
+  entered disabled state` lines from the following `shutdown`, prompt detection broke and the
+  batch stopped after 90 s **before `no shutdown` ran**. Caught by reading the batch output
+  rather than the exit code; recovered with `ckcon.py` and `CKTO=120`, the VLAN re-applied, and
+  the underlay verified before any further measurement. No counted leg ran in that window.
+  Candidate for `console.ADVISORY` -- but only with a transcript showing the following command
+  took effect, per the rule in `tools/README.md`.
+- **TECHNIQUE (T43858) -- the DUT's OWN `tcpdump` is the instrument for a unicast control-plane
+  protocol on this platform.** AW+ has `tcpdump` at privileged exec. BGP is TCP between two
+  router addresses, so it never reaches a host NIC on another segment, and the port mirror
+  cannot be trusted (O-6). Run the capture on the DUT's console and trigger the event from the
+  **partner's** console, so only one driver touches one `/dev/uN`. **BPF note that turns a noisy
+  capture into a one-packet one:** `greater N` counts the 14-byte Ethernet header, so a 19-byte
+  BGP Keepalive is an 85-byte frame -- `greater 75` still matches keepalives and **`greater 90`**
+  isolates UPDATEs (announce 114 B, withdraw 94 B). Reusable for any TCP-based protocol.
+- **🔴 F-8 (T43859) -- a DIRECT VRF-to-VRF move of a Layer 3 interface is REFUSED.**
+  `interface vlan48` (in blue) / `ip vrf forwarding red` -> `% vlan48: VRF is already
+  associated`. The VRF-lite guide (C613-22142-00 REV B p.7) describes moving an interface "from
+  one VRF instance to another via command" as supported with the ifindex preserved. The working
+  sequence is `no ip vrf forwarding <old>` -> `ip vrf forwarding <new>` -> **re-apply the
+  address** (it is unset on every move, in both directions). Low severity, but it stops a
+  migration script dead and a stop-on-error driver abandons the rest of the batch.
+- **🔴🔴 F-9 (T43859) -- REMOVING A STATIC INTER-VRF ROUTE LEAVES THE DATAPLANE FORWARDING
+  ACROSS THE VRF BOUNDARY. Security-relevant; wants a developer.** After
+  `no ip route vrf red 192.168.48.0/24 vlan48`, with the line gone from running-config and
+  `show ip route vrf red 192.168.48.2` answering **`% Network not in table`**, 5 of 5 crafted
+  frames still crossed from VRF red and arrived on VRF blue's segment -- reproduced in three
+  successive legs over ~2 minutes. **Mechanism, measured:** a second host on the same /24 that
+  had never been forwarded to was correctly blocked 0/5, so the route really is gone and what
+  survives is a **stale ARP-derived per-host forwarding entry** programmed while the route
+  existed. **Remedy, measured:** `clear arp-cache vrf blue` stops it at once (0/5 for both
+  hosts). VRF-Lite is documented as providing "securely isolated" routing domains and "security
+  domains", so an operator who removes an inter-VRF route to close a path sees the configuration
+  **and** the route table agree it is closed while traffic keeps flowing. How long the entry
+  survives unaided was not measured. **This is a property of inter-VRF route REMOVAL, not of
+  VRF-Lite isolation** -- cold-start isolation was complete and immediate in every leg -- so
+  T43859 is a PASS with the finding recorded.
+- **O-8 (T43859, documentation)** -- the VRF-lite guide p.17 prose "These static routes must
+  specify both the egress VLAN and next hop IP address" overstates the requirement: the
+  VLAN-only form `ip route vrf red 192.168.48.0/24 vlan48` is accepted and works, and the
+  guide's own worked example on the same page uses exactly that form.
+- **CLOSED (T43859, from T33247)** -- T33247 had to record the `vrf` form of `clear arp-cache`
+  as NOT EXERCISED because the DUT had no VRF at the time. It is exercised in T43859:
+  `clear arp-cache vrf blue` empties that VRF's table and leaves the others alone, and
+  `show arp` / `show arp vrf <name>` are both VRF aware.
+- **TECHNIQUE (group D) -- re-read STP AFTER a reboot, before measuring.** On both of group D's
+  reloads `port1.0.48` read `Designated Discarding` 17-21 s after `login:` and `Designated
+  Forwarding` ~15 s later. A leg measured in that window reads as a feature failure. And a
+  "zero" leg's stray frame must be IDENTIFIED, not dismissed: one post-reboot isolation leg had
+  exactly one frame on the far NIC, `ARP-REQ who-has 192.168.48.1 tell 192.168.48.1` -- the
+  DUT's own gratuitous ARP as the SVI came up.
+- **BENCH AT CAMPAIGN END (group D hand-back).** The three RESTORE blocks were applied, then
+  swi_d was reloaded once from `flash:/default.cfg`. `show running-config | include service` on
+  swi_d is now `service ssh / no service telnet / service http / no service dhcp-server` --
+  **the two F-5 sticky lines are gone.** `tools/rcdiff.py` against the pre-campaign captures
+  `/tmp/ckB/{dut,swib,swia}-pre.out` prints **nothing for any of the three devices**. (One
+  transient difference was observed and resolved: the reload from `default.cfg` dropped
+  `lldp run`, which had been enabled at runtime by an earlier `bench_probe.py` and is not in
+  `default.cfg`; the post-run probe turned it back on itself -- "lldp run was OFF -> switched
+  on, and left on" -- and the diff is clean.) `show boot` on swi_d reads
+  `Current boot config: flash:/default.cfg (file exists)` and `dir flash:` lists **no `ck*.cfg`**.
+  Post-run probe `python3.8 bench_probe.py --box tb277 run --consoles u2,u3,u5`: **exit 0**,
+  all three consoles opened at their recorded bauds, LLDP neighbours complete, capture written
+  to `bench-setup/tb277/captures/2026-10-15T105050Z/` and `bench-setup/tb277/bench-state.md`
+  regenerated. **`no template at bench-setup/tb277/tb277.setup.current -- diff skipped`**: tb277
+  still has no `.setup` (RISK-6), so the generated `bench-state.md` is the only description of
+  the box and there is no MATCH/MISMATCH verdict to report. `apply` was NOT run -- that is the
+  Test Engineer's.
+- **🔴 STILL OPEN FOR THE TEST ENGINEER, carried out of this campaign** (none blocked any case):
+  the unrecorded device `10.38.22.41 / 00:0c:25:2a:a5:53` on the box's eth3 segment (seen again
+  in T43859's baseline capture, still not confounding); swi_d `port1.0.8` and `port1.0.40` up
+  and Forwarding with no LLDP neighbour and absent from `bench-state.md`'s link table; tb277
+  `/tmp` at 95% full with 1.8 GB of someone else's `wireshark_eth4*.pcapng`; `arp <ip> <mac>
+  alias` installing but never answering (T33248); and now F-7 and F-9 above.
