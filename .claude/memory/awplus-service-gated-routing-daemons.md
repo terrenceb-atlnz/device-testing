@@ -66,6 +66,24 @@ view") was built on never running it, and on `show bfd session`, which is not an
 all, and the x230 has neither BFD nor BGP, so the gating set really does differ per
 platform. `no service bfd` drops the console out of config mode.
 
+
+**2026-10-15/16, x960-56YSQ on tb277 — the gating set differs again, and BGP is the exception
+that bites.** On `sin_x96056-20261012-24`:
+- **OSPF and RIP are gated as described**, and the start is **asynchronous**: `router ospf` is
+  rejected ~1 s after `service ospf` and accepted within ~7 s, so **`service <proto>` and
+  `router <proto>` must not share a console batch** — the rejection makes a stop-on-error driver
+  abandon the rest. Send the service line alone and wait ~10 s. The instrument for real daemon
+  state is **`show process | include <daemon>`**, not the protocol's own `show`.
+- **BGP is NOT gated at all.** `bgpd` runs from boot on both the licensed x960-56 and the
+  Base-licensed x960-28; `router bgp <asn>` is accepted immediately; and **`service bgp` is a
+  different command whose only completion is `evpn`** (bare form: `% Incomplete command.`). A
+  dispatch that said "`service bgp` first" would have emitted a `% ` line and aborted the whole
+  BGP batch. Same shape as the AR4050S note above — **probe `service ?` before assuming the gate
+  exists on a new platform.**
+- **`no service <proto>` writes a sticky config line** on a unit that booted with the service, and
+  configuration cannot remove it; both partners given identical commands have no such line. Only a
+  reload onto a config that never contained it clears the line. Verified on tb277 2026-10-15.
+
 **How to apply:** when an AW+ protocol command says "daemon is not running", check
 `show running-config | include service` and the corpus for `service <daemon>` BEFORE concluding
 anything about licences or the image; verify with one accept/reject probe. Never build a triage

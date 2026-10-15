@@ -43,7 +43,7 @@
 - [tb470 bench structural limits](tb470-bench-structural-limits.md) — CORRECTED 09-23 (ports) + 09-24: tcpreplay gives LINE RATE (~983 Mbps/NIC); left: no MRP, TACACS+, SFP+ link faulty
 - [Campaign measurement discipline](campaign-measurement-discipline.md) — baseline the feature OFF first, make traffic TRANSIT the DUT, split PROVEN from NOT MEASURABLE
 - [Traffic tests use scapy, not ping](scapy-for-traffic-tests.md) — Test Engineer 2026-10-15, ALL cases: craft the exact frame + a control flow that must NOT match, count both; ping proves reachability only. STANDING-ORDERS §7; tools/ already has 10 scapy helpers
-- [tcpdump -Z breaks NFS captures](tcpdump-nfs-root-squash-capture.md) — dropping privilege can't write the root-squashed lab home: header-only pcaps read as NO TRAFFIC. Capture to the box's local /tmp as root, then copy + chown
+- [Two ways a tcpdump capture lies](tcpdump-nfs-root-squash-capture.md) — `-Z` to the root-squashed lab home gives header-only pcaps; a file SIZE read before the writer exited reads 0 unflushed (nearly a false finding, tb277 10-15). A zero is a measurement only once the same instrument gave a non-zero
 - [STP mode change re-enables spanning tree](stp-mode-change-reenables-spanning-tree.md) — a `spanning-tree mode` change silently drops `no spanning-tree <mode> enable`
 - [LACP passive hides links from STP](lacp-passive-hides-links-from-stp.md) — auto-enrols freed ports; STP runs on the AGGREGATOR so a live link forwards where STP cannot block. Hit all 3 devices
 - [Sentinel session keeps long runs moving](sentinel-session-keeps-long-runs-moving.md) — MANDATORY for test sessions (Terrence 2026-09-28): rescues the tester + is his channel to it; the CAMPAIGN is the unit of work
@@ -52,6 +52,7 @@
 - [Sentinel first arm replays shared NFS logs](sentinel-replays-shared-nfs-logs.md) — sentinel.sh tails /home/st-art/pytest-create on the SHARED home, so arm 1 delivers every box's history (11 MB, tb470's included); let one pass baseline at EOF, re-arm
 - [IE520 AWPTCM campaign 2026-09-22](ie520-awptcm-campaign-2026-09-22.md) — 72-case run + 09-23/24 re-runs: now 52 PASS / 3 FAIL / 3 UNSUPP / 7 UNMEASURED / 5 SKIPPED (+2 STP 3-of-4)
 - [tb277 x960 DHCP campaign 2026-10-15](tb277-x960-dhcp-campaign-2026-10-15.md) — 6 cases, 6 PASS; 5 had NO step text so each was designed from TFS+TPS+the DUT's CLI surface; product facts in platforms/x960.md §6; the DNS cache limb needs a developer
+- [tb277 x960 routing+ARP campaign 2026-10-15](tb277-x960-routing-arp-campaign-2026-10-15.md) — 13 cases, 13 PASS, unattended overnight; keeper is F-9: a REMOVED inter-VRF route keeps forwarding (stale ARP-derived entry) while config+RIB say it's gone — wants a developer
 - [Act on Terrence-stated live faults](act-on-terrence-stated-live-faults.md) — "there is a loop, just fix it": shut a leg and configure, verify AFTER; run literal commands literally
 - [Bench cannot open TCP to office PCs](bench-cannot-open-tcp-to-office-pcs.md) — lab→10.33.22.x TCP is dropped (ping passes); servers the bench connects TO go on tb470, never the dev PC; test the transport first
 - [IE520 master ignores remote backup server](ie520-master-ignores-remote-backup-server.md) — accepts `atmf backup server`, never mounts it; use the AR4050S as master (x230 lacks AMF-MASTER-X)

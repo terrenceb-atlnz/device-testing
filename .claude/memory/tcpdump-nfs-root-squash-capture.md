@@ -1,6 +1,6 @@
 ---
 name: tcpdump-nfs-root-squash-capture
-description: "tcpdump -Z <user> writing to the root-squashed NFS lab home produces header-only pcaps that read as NO TRAFFIC; capture to the box's local /tmp as root, then copy and chown"
+description: "Two ways a tcpdump capture lies that it saw NO TRAFFIC: -Z <user> to the root-squashed NFS home gives header-only pcaps; and a file SIZE read before the writer has exited reads 0 while the buffer is unflushed. Capture to local /tmp as root, and confirm the process exited before believing a zero"
 metadata:
   node_type: memory
   type: reference
@@ -35,6 +35,35 @@ or `tcpdump -r` before grading anything on the result.
 `*.pcap` is gitignored repo-wide, so a capture left in a case's `work/` has **no git history** —
 `/create-logs` deleting `work/` removes the tracked files but leaves the pcaps on disk, and
 deleting those is irreversible. Decide deliberately.
+
+
+## The second way a capture lies: reading its SIZE before the writer has exited
+
+Measured on tb277, 2026-10-15, during the x960 BGP case — and it **nearly produced a false
+product finding**.
+
+A port mirror was being validated. The check ran `ls -la` on the capture **in the same command
+line** as a `sudo kill -INT $TD` that never reached tcpdump, because `$!` had captured the
+wrapper, not tcpdump itself. The capture was therefore still running with its buffer unflushed,
+the file read **0 bytes**, and that was written up as "the mirror copied zero frames — a fourth
+instance of the platforms/x960.md §5 read-back-vs-dataplane defect class".
+
+**It was false.** Finding the stray process with `ps` at group hand-back, stopping it by PID and
+reading **the same file** gave 14 mirrored TCP/179 frames plus mirrored ICMP, every timestamp
+inside the mirror's own window. The mirror had worked the whole time. The claim was retracted in
+the working log, the queue and the platform file before anything rested on it.
+
+**The rule:** a `tcpdump -w` file's size is not a measurement until its writer has exited.
+Confirm with `ps`, or read tcpdump's own `N packets captured` line, before concluding that
+nothing arrived.
+
+**Why this one matters beyond its own case:** `platforms/x960.md` §5's evidence for three *real*
+mirroring/read-back defects is itself built on capture sizes (1 byte = nothing arrived). The
+caution belongs beside them, or the same mistake gets made in the other direction.
+
+**The general form, which both halves of this memory share:** a zero from an instrument is only a
+measurement once that same instrument has produced a non-zero in the same run. Every counted leg
+of the 2026-10-15 routing campaign carried an instrument control for exactly this reason.
 
 Related: [[scapy-for-traffic-tests]], [[campaign-measurement-discipline]],
 [[tb277-x960-dhcp-campaign-2026-10-15]].
