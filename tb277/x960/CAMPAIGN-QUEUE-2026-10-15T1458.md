@@ -92,11 +92,29 @@ the wiki and neither can WebFetch.
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | T43850 Option 82 · T43851 ARP Probe · T43852 DHCP Relay · T43853 120-day lease | dhcp-server-2026-10-15T1458 | PENDING TRIAGE | DUT as DHCP server/relay; needs a crafted-DHCP client and a capture point |
-| 2 | T43854 DNS Relay · T35370 DHCP Extended ID | dhcp-client-2026-10-15T1458 | PENDING TRIAGE | DUT as DHCP client; needs a server to answer it |
+| A | T43851 ARP Probe · T43853 120-day lease | dhcp-server-2026-10-15T1458 | RUNNING (dispatched 15:15) | DUT = DHCP server, VLAN 10, host eth3 as client + ARP responder |
+| B | T43852 DHCP Relay · T43850 Option 82 | dhcp-relay-2026-10-15T1458 | RUNNABLE — awaiting dispatch | DUT = relay; eth3 client side, eth4 scapy DHCP server. Option 82 is a RELAY feature (TFS S1566.100), not a server one |
+| C | T35370 Extended ID · T43854 DNS Relay | dhcp-client-2026-10-15T1458 | RUNNABLE — awaiting dispatch | DUT = DHCP client on VLAN 48; eth4 scapy server, eth3 the querying host for DNS |
 
-Grouping is provisional — triage may re-cut it (T43852 and T43850 are relay-shaped, which is a
-different setup from a server pool).
+**Triage 2026-10-15 15:10 — 6 runnable, 0 blocked by topology, 0 blocked otherwise.** No
+recabling, no partner switch, no licence. swi_b and swi_a are not needed by any of the six, which
+sidesteps OPEN-1. Re-cut from 2 groups to 3 because the DUT cannot be server, relay and client at
+once and STANDING-ORDERS §6 sets bench setup once per TestSet.
+
+**TPS rows, verbatim — all six priority 1 / Yes**, so none may be graded UNSUPPORTED without DUT
+evidence, and a Yes whose command is absent on the DUT is a FINDING:
+row 25 DHCP 120-day lease → T43853 · row 26 Option 82 → T43850 · row 27 DHCP ARP Probe → T43851 ·
+row 28 DHCP Relay → T43852 · row 29 DNS Relay → T43854 · row 30 Extended ID → T35370.
+
+**Steps are grounded in functional specs**, not reconstructed: `DHCP ARP Probe TFS` (S1566.1.x),
+`DHCP Option 82 Remote ID TFS` (S1566.100.x), `DNS Relay TFS` (S1570.1.x), the `DHCP` feature page
+and the AW+ CLI command pages. Cached on the box at `/tmp/dhcp-2026-10-15T1458/`.
+Feature Overview Guides (PDF) are at the repo root in `Feature Overview Guides/`.
+
+Common setup for all three groups: `tb eth3 → swi_d port1.0.10` = VLAN 10, SVI 192.168.10.1/24;
+`tb eth4 → swi_d port1.0.48` = VLAN 48, SVI 192.168.48.1/24. Both links measured present.
+**Restore both ports to untagged VLAN 1** or the post-run probe will not MATCH — its host-MAC
+discovery depends on exactly those ports.
 
 ## Known bench notes
 
