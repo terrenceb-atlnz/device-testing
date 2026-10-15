@@ -912,6 +912,130 @@ ARP for the sender, because this DUT does not learn a neighbour from a request i
 Captures and step outputs on the box in `/tmp/ckC/`; console transcripts `/tmp/ckC/console-u{2,3,5}.log`.
 `/tmp` was **95% full (111 MB free)** at group start — checked before every capture, all kept small.
 
+## Group D bench setup and restore — `bgp-vrf-2026-10-15T1747` (written 2026-10-15 22:50 NZDT, before case 1 of group D)
+
+**Group D adds NOTHING at the bench level.** It runs on the **same shared B/C/D L3 underlay**
+built at the start of group B. The group-D tester verified it on the hardware at
+22:44–22:45 NZDT (09:44–09:45 UTC), before any group-D command, and it is intact:
+
+```
+swi_d  boot config flash:/default.cfg (file exists);  Root Id = Bridge Id = 0000:e01aead47043 (DUT is root)
+       port1.0.4, 1.0.10, 1.0.16, 1.0.48 Designated Forwarding;  port1.0.2, 1.0.14 Disabled Discarding (shut)
+       vlan10 192.168.10.1/24 · vlan41 10.0.41.1/30 · vlan48 192.168.48.1/24 · vlan61 10.0.61.1/30
+       `show ip route` = the four connected routes ONLY; no static, no `router`
+       `show running-config | include service` = service ssh / no service telnet / service http /
+         no service rip / no service ospf / no service dhcp-server   <- the two F-5 sticky lines
+       `show arp` = 10.0.61.2 and 10.0.41.2, both resolved
+swi_b  lo 10.70.70.1/32 · vlan61 10.0.61.2/30 · ip route 192.168.10.0/24 + 192.168.48.0/24 via 10.0.61.1
+       no `no service` lines at all (F-5: swi_b never booted with the service)
+swi_a  lo 10.90.90.1/32 · vlan41 10.0.41.2/30 · ip route 192.168.10.0/24 + 192.168.48.0/24 via 10.0.41.1
+all three clocks agree with the box to within a few seconds (RISK-5 closed; no `clock set` needed)
+```
+
+Pre-group captures on the box: `/tmp/ckD/{dut,swib,swia}-pre.out` (ckcon stdout, so `rcdiff.py`
+can read them). Console transcripts `/tmp/ckD/console-u{2,3,5}.log`. Leg captures
+`/tmp/ckD/T43858/`, `/tmp/ckD/T43859/`. `/tmp` free space **110 MB of 2.0 G (95% used)** at group
+start — checked before every capture, all captures kept small.
+
+### 🔴 Measured at group-D start, and it changes what T43858 must prove
+
+**`bgpd` is ALREADY RUNNING on swi_d (pid 1721) and on swi_b (pid 2281) with no `service bgp`
+anywhere in either running-config**, and `show ip bgp` / `show ip bgp summary` answer with empty
+output rather than the `% ... daemon is not running` message that `show ip ospf` gave at group
+C's start. `ripd` is also still running on swi_d (pid 1744) — group C's `no service rip` cannot
+stop a daemon without a reload. So **the group-C service gate (7A.1) must be re-measured for
+BGP, not assumed**; T43858 does that constructively in its step 2 and records the answer either
+way. `service bgp` **does** exist in the parser (`service ?` → `bgp  Enable BGP service modes`).
+
+### What each case layers on top, and removes again in its own teardown
+
+| case | adds | removed by |
+| --- | --- | --- |
+| T43858 BGPv4 | `router bgp 65001` on **swi_d** (router-id 1.1.1.1, neighbors 10.0.61.2 AS 65002 and 10.0.41.2 AS 65003); `router bgp 65002` + `network 10.70.70.1/32` on **swi_b**; `router bgp 65003` + `network 10.90.90.1/32` on **swi_a**; a transient static route and a transient port-mirror on swi_d for two attribution limbs; a staged `flash:/ckT43858.cfg` for the reload limb | its own teardown |
+| T43859 VRF-Lite | `ip vrf red` / `ip vrf blue` on **swi_d** only, with `ip vrf forwarding` on `vlan10` and `vlan48` and their addresses re-applied; transient static inter-VRF routes; a transient overlapping address; a staged `flash:/ckT43859.cfg` | its own teardown |
+
+**swi_a and swi_b are touched by T43858 only, and only with `router bgp` / `network`.** T43859 is
+**DUT + the two host NICs only** — swi_b is Base-licence and has no VRF-Lite (do not make it a
+VRF peer). swi_a is never reloaded or power-cycled (RISK-1).
+
+### Per-case RESTORE recipe (either case, if the session dies mid-case)
+
+Nothing here is needed if the shared underlay RESTORE is run — but to return to the group-D
+start state. Send in SMALL batches; `cfg.py` abandons a batch at the first `% ` line.
+
+**T43858, swi_d (/dev/u2 @115200)**
+```
+configure terminal
+ no router bgp 65001
+ no ip route 10.70.70.1/32 10.0.41.2      ! only if the AD limb was in flight
+ no mirror interface port1.0.48            ! only if the BGP-packet capture limb was in flight
+ interface port1.0.48
+  switchport access vlan 48
+  exit
+ end
+boot config-file flash:/default.cfg        ! config mode; pointer FIRST, before deleting
+delete flash:/ckT43858.cfg                 ! answers (y/n)[n] -- ckyn.py, NOT cfg.py
+show boot                                  ! Current boot config: flash:/default.cfg (file exists)
+```
+**T43858, swi_b (/dev/u3 @9600) and swi_a (/dev/u5 @9600)** — config only on swi_a (RISK-1)
+```
+configure terminal
+ no router bgp 65002        ! swi_b   (swi_a: no router bgp 65003)
+ end
+```
+**T43859, swi_d only (/dev/u2 @115200)** — the VRFs own the SVIs' addresses, so the order matters
+```
+configure terminal
+ no ip route vrf red 192.168.48.0/24 vlan48      ! transient inter-VRF routes, if in flight
+ no ip route vrf blue 192.168.10.0/24 vlan10
+ interface vlan10
+  no ip vrf forwarding red                        ! this CLEARS the interface's IP -- re-apply next
+  ip address 192.168.10.1/24
+  exit
+ interface vlan48
+  no ip vrf forwarding blue
+  ip address 192.168.48.1/24
+  exit
+ no ip vrf red
+ no ip vrf blue
+ end
+boot config-file flash:/default.cfg
+delete flash:/ckT43859.cfg
+```
+Then on each device `python3.8 tools/rcdiff.py /tmp/ckD/<dev>-pre.out <post>` must print nothing
+(**it exits 0 even when it prints differences — read the output**).
+
+### The flows every counted leg of group D uses
+
+Same instrument as group C (`tools/arpleg.py --icmp`), same sender: `192.168.10.5` /
+`00:11:22:33:44:01` on host `eth3`, next hop `e0:1a:ea:d4:70:43` (the DUT's SVI MAC — all SVIs
+share it, `platforms/x960.md` §6.5), with `--answer 192.168.10.5=00:11:22:33:44:01` keeping the
+DUT's ARP for the sender alive.
+
+**T43858** (far side = the partner answering from its own loopback):
+
+| flow | role |
+| --- | --- |
+| `10.70.70.1` | **SUBJECT-B** — swi_b's loopback, reachable only if the DUT learned it over the eBGP session with swi_b |
+| `10.90.90.1` | **SUBJECT-A** — swi_a's loopback, the live positive control for the withdrawal leg |
+| `203.0.113.9` | **CONTROL** — no route ever exists; must be dropped in every leg |
+| `192.168.10.1` | **INSTRUMENT CONTROL** — the DUT's own vlan10 address; must be answered in every leg |
+
+**T43859** (far side = host `eth4`, with `--watch eth4` and an ARP responder on eth4 so the DUT
+can resolve the destination):
+
+| flow | role |
+| --- | --- |
+| `192.168.48.2` | **SUBJECT** — a fictitious host on the vlan48 segment. Counted **as it arrives on eth4**, so the count is a real far-side dataplane count, not a reply |
+| `203.0.113.9` | **CONTROL** — no route ever exists |
+| `192.168.10.1` | **INSTRUMENT CONTROL** — the DUT's own vlan10 address (and, once vlan10 is in VRF red, proof the SVI is still alive inside the VRF) |
+
+### If the session dies mid-group
+
+Apply the per-case restore above, then the shared underlay's **RESTORE — apply once after group
+D** block, then the **single reload of swi_d from `flash:/default.cfg`**, then re-probe.
+
+
 ## Results
 
 | case | verdict | reason | graded by | working log |
