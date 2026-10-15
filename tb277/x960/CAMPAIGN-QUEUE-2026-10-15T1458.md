@@ -92,8 +92,8 @@ the wiki and neither can WebFetch.
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| A | T43851 ARP Probe · T43853 120-day lease | dhcp-server-2026-10-15T1458 | RUNNING (dispatched 15:15) | DUT = DHCP server, VLAN 10, host eth3 as client + ARP responder |
-| B | T43852 DHCP Relay · T43850 Option 82 | dhcp-relay-2026-10-15T1458 | RUNNABLE — awaiting dispatch | DUT = relay; eth3 client side, eth4 scapy DHCP server. Option 82 is a RELAY feature (TFS S1566.100), not a server one |
+| A | T43851 ARP Probe · T43853 120-day lease | dhcp-server-2026-10-15T1458 | **DONE** 15:42 — 2 PASS | DUT = DHCP server, VLAN 10, host eth3 as client + ARP responder |
+| B | T43852 DHCP Relay · T43850 Option 82 | dhcp-relay-2026-10-15T1458 | RUNNING (dispatched 15:44) | DUT = relay; eth3 client side, eth4 scapy DHCP server. Option 82 is a RELAY feature (TFS S1566.100), not a server one |
 | C | T35370 Extended ID · T43854 DNS Relay | dhcp-client-2026-10-15T1458 | RUNNABLE — awaiting dispatch | DUT = DHCP client on VLAN 48; eth4 scapy server, eth3 the querying host for DNS |
 
 **Triage 2026-10-15 15:10 — 6 runnable, 0 blocked by topology, 0 blocked otherwise.** No
@@ -220,6 +220,7 @@ Nothing is written to startup-config at any point, so a power-cycle of outlet 1 
 | case | verdict | reason | graded by | working log |
 | --- | --- | --- | --- | --- |
 | T43851 | PASS | ARP probing honoured on the wire: 3 probes at the configured 1000 ms spacing; **0** probes when disabled and when `probe packets 0`; an answered probe withholds the address and records a conflict binding (empty ClientId); `no` forms restore the TFS defaults. Frame-level evidence in 7 pcaps, not a `show` read-back. Two TFS-wording observations (O-1, O-2), neither a functional failure | tester | dhcp-server-2026-10-15T1458/T43851/work/run1.log |
+| T43853 | PASS | opt51 = **10,368,000 s** in both OFFER and ACK; binding expiry exactly 120 days out (15 Oct 2026 → 12 Feb 2027); parser **accepts 120, refuses 121 and 999** — that boundary IS the 30→120 day feature; 1-day (86,400) and 1-hour (3,600) controls measured in the same run as in-place overwrites; `no lease` restores the 1-day default; settings survive a reboot, re-proven on the wire (3-probe ARP burst at 0.995/1.001 s). **No M2-shaped silent discard for `lease`** — the pool read agreed with the wire at every point | tester | dhcp-server-2026-10-15T1458/T43853/work/run1.log |
 
 ## Issues
 
