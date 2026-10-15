@@ -1052,6 +1052,7 @@ D** block, then the **single reload of swi_d from `flash:/default.cfg`**, then r
 | T43857 | PASS | OSPFv2 proven **on the wire across 9 counted legs**: the service gate measured, Full adjacency to **two** neighbours, routes learned from the protocol (code `O`, AD 110, partner Router LSAs, **no static route anywhere**) forwarding 5/5 + 5/5 against a control dropped in every leg. **The sharpest limb:** withdrawing ONE advertisement — link, port and adjacency all left up — dropped the subject to **0/5 in under 7 s** while the second neighbour stayed **5/5 in the SAME leg**. Static AD 1 displaces OSPF AD 110 **in the dataplane**, attributed by ICMP time-exceeded from the static next hop. `passive-interface` gives **0 OSPF packets in 30 s** while the Router LSA held at the neighbour still carries the network. Survives a real 61 s reboot | tester | igp-2026-10-15T1747/T43857/work/run1.log |
 | T43856 | PASS | RIP proven on the wire across 8 counted legs, **both versions read out of the protocol's own packets rather than a `show`**: the default is RIPv2 to multicast 224.0.0.9, TTL 1, explicit prefix length + route tag + next-hop on every entry (confirming the guide's "by default, RIP only sends and receives RIPv2 packets"); `version 1` on the same wire 34 s later is RIPv1 to broadcast 192.168.10.255 at ff:ff:ff:ff:ff:ff, TTL 64, no masks, no tags, and the four 10/8 entries collapsed into one classful `10.0.0.0`. The version change had a **selective, measured effect on traffic**: swi_a, left at v2, timed out after exactly the documented 180 s, dropped out of `Routing Information Sources` with 0 bad packets, and went 5/5 -> 0/5 while the two v1 prefixes stayed 5/5 in the same leg; returning to v2 recovered it in ~6 s. Withdrawal used the tightest control the bench allows -- one prefix withdrawn while the other prefix **from the same neighbour over the same port** kept forwarding -- and caught the mechanism: a triggered update at metric 16 took the route out of the FIB in 13 s, then the documented 120 s garbage-collect timer ran it out of the database, which `show ip route` alone cannot distinguish from a 180 s timeout. Removal returns the dataplane to baseline; survives a real 61 s reboot | tester | igp-2026-10-15T1747/T43856/work/run1.log |
 | T43858 | PASS | BGPv4 proven across **9 counted dataplane legs plus 4 protocol captures**, never from `show ip bgp`: two eBGP sessions Established to two different AS over two different links, and the prefixes carried in **real BGP-4 UPDATEs read off the wire** (Version 4 OPEN, ORIGIN IGP, AS_PATH {65002}, NEXT_HOP 10.0.61.2) -- the AS_PATH is what proves the route arrived by eBGP and no `show` can establish it. Forwarding 0/5 -> 5/5 with a control flow at 0/5 and an instrument control at 5/5 in **every** leg. A static at AD 1 displaces eBGP AD 20 with the **egress move attributed on the wire**. Withdrawal in its strongest form: one prefix withdrawn to 0/5 while the second neighbour held 5/5 **in the same capture**, and the WITHDRAW itself captured as an UPDATE carrying `Withdrawn routes: 10.70.70.1/32` + End-of-Rib. Removal proven in the **FIB** (`% Network not in table`), persistence across a real 60 s reboot. Teardown diffed CLEAN on all three devices | tester | bgp-vrf-2026-10-15T1747/T43858/work/run1.log |
+| T43859 | PASS | VRF-Lite proven across **14 counted legs**, every cross-VRF result a real far-side frame count on the second host NIC rather than a `show ip vrf` read-back: **5/5** crossing in the global table, **0/5** once vlan10 is in `red` and vlan48 in `blue` (including to the DUT's own interface in the other VRF), **5/5 again with BOTH SVIs in `red` and nothing else changed** -- which is what makes the zero attributable to VRF membership and not to addressing, STP or ARP. One **overlapping address** answered 5/5 on two ports in two VRFs with each opposite capture empty; static inter-VRF routing opened exactly the two prefixes named; removal returned the dataplane frame-for-frame to baseline; survives a real 60 s reboot and is still functional after it. Per-VRF ARP tables measured. Teardown diffed CLEAN on all three devices | tester | bgp-vrf-2026-10-15T1747/T43859/work/run1.log |
 
 ## Issues
 
@@ -1317,3 +1318,35 @@ D** block, then the **single reload of swi_d from `flash:/default.cfg`**, then r
   the batch output** rather than trusting the exit code, restored the port and verified it
   Forwarding in vlan 48 before any further measurement; **no counted leg ran in that window.** This
   is the third recorded consequence of the `cfg.py` stop-at-first-`%` trap in this campaign.
+
+- **🔴🔴 F-9 (T43859) -- FOR A DEVELOPER, AND SECURITY-RELEVANT. A removed inter-VRF route keeps
+  forwarding.** `no ip route vrf red 192.168.48.0/24 vlan48` removes the line from running-config
+  **and** the route from the RIB (`show ip route vrf red 192.168.48.2` -> `% Network not in
+  table`), and the DUT **keeps forwarding 5/5 across the VRF boundary**. Reproduced in three
+  successive legs over about two minutes. The mechanism is pinned down rather than guessed: a
+  second host on the same /24 that had never been forwarded to is correctly blocked **0/5**, so
+  the route really is gone and what survives is a **stale ARP-derived per-host forwarding entry**;
+  `clear arp-cache vrf blue` stops it at once.
+  **Why it matters:** VRF-Lite is documented as providing *securely isolated* routing domains, so
+  an operator closing a path would see running-config and the route table agree that it is closed
+  **while traffic still flows**. Cold-start isolation is complete and immediate, so this is **not**
+  a failure of VRF-Lite and the case is a PASS -- but the gap between "the route is gone" and "the
+  traffic has stopped" is the kind of thing a security reader will care about.
+- **🔴 F-10 (T43859; the tester numbered this F-8, renumbered here -- F-8 was already taken by the
+  mirror defect) -- a direct VRF-to-VRF interface move is REFUSED.** `ip vrf forwarding red` on an
+  interface already in `blue` gives `% vlan48: VRF is already associated`, although the Feature
+  Overview guide describes the move as supported. The working sequence is
+  `no ip vrf forwarding <old>` then `ip vrf forwarding <new>`, re-applying the address afterwards.
+- **F-11 (T43859; the tester numbered this O-8, renumbered into the single F series) -- the guide
+  overstates the inter-VRF static syntax.** It says the route "must specify both the egress VLAN
+  and next hop IP address"; the **VLAN-only** form is what works on this build.
+- **PLATFORM FACT (T43859) -- a VRF change STRIPS the interface's addressing, in both directions
+  and on VRF deletion.** `ip vrf forwarding`, `no ip vrf forwarding` and `no ip vrf <name>` each
+  emit `% All IP addresses configured on interface <x> have been removed`. Any teardown that moves
+  an SVI out of a VRF **must re-apply the address before deleting the VRF**, or the shared underlay
+  comes back an address short. The group-D teardown did this in the right order and the four
+  connected routes were verified present afterwards.
+- **GAP CLOSED (T33247, recorded here, verdict unchanged).** T33247 Clear ARP recorded the
+  `clear arp-cache vrf` form as **NOT EXERCISED** because no VRF existed on the DUT at the time.
+  T43859 exercised it against a real VRF and it works (it also stops F-9's stale forwarding).
+  T33247's verdict and its log stand as written; this note is the cross-reference.
