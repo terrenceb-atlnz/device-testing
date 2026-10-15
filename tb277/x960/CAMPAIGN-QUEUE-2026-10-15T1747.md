@@ -503,6 +503,7 @@ and diff `captures/<new>/u2.show_running-config.txt` against
 | --- | --- | --- | --- | --- |
 | T33248 | PASS | static ARP proven **on the wire**: 5/5 routed frames rewritten to the configured MAC and egressed on the configured port, the DUT's own ARP for that address suppressed; control address with no entry still ARPed and forwarded 0/5; removal returns config, table AND dataplane to baseline; survives a real reload. One instrument fault found and fixed first (`tools/arpleg.py` passed `-p` to tcpdump, so a frame carrying a next-hop MAC that was not the NIC's own was invisible and the leg read "0 forwarded") — both legs re-run after the fix | tester | arp-2026-10-15T1747/T33248/work/run1.log |
 | T33247 | PASS | all three implemented `clear arp-cache` forms (single address, unqualified, global) proven **in the dataplane**, not in the table: a cleared address draws broadcast ARPs and forwards 0/5 while a surviving entry forwards 5/5 with no ARP; the static entry is explicitly protected and still forwarding after every clear. Single-address and unqualified clears are distinguishable **on the wire** — after the targeted clear the DUT sent 5 ICMP host-unreachables unicast to the OTHER dynamic entry's MAC, which it could only do because that entry survived. `vrf` form recorded NOT EXERCISED (no VRF on the DUT yet; that is T43859) rather than claimed | tester | arp-2026-10-15T1747/T33247/work/run1.log |
+| T33249 | PASS | `arp log` emits one line per ARP cache event for crafted traffic that produces **zero** lines with the feature off; port, VLAN, MAC and IP in each line matched against the frames in the capture, and both directions appear (`del` from the clear, `add` from the re-learn). `mac-address-format ieee` changes only the MAC rendering (`0011.2233.4402` → `00-11-22-33-44-02`) and is held as its own running-config line. Both forms removable, each proven in running-config AND in the log output after it; survives a reboot and still logs | tester | arp-2026-10-15T1747/T33249/work/run1.log |
 
 ## Issues
 
@@ -548,3 +549,10 @@ and diff `captures/<new>/u2.show_running-config.txt` against
   will measure an empty table and read it as a failure. `tools/arpleg.py` gained a background ARP
   responder (`--answer IP=MAC --answer-iface eth3,eth4`) to populate the table properly; the same
   responder drives T33246's web-auth poll timeout. For `platforms/x960.md` at wrap.
+- **TRAP (T33249) — grep `ARP_LOG`, never `arp`, over `show log`.** An "arp" grep matches the IMISH
+  command-audit echo of your own `clear arp-cache`, so the feature-OFF baseline reads non-zero and
+  the feature looks already enabled. The log line is
+  `HSL[936]: ARP_LOG port1.0.48 vlan48 add 0011.2233.4402 (192.168.48.2)`.
+- **TECHNIQUE (T33249) — the emitting process id is a cheap reboot witness.** `HSL[936]` became
+  `HSL[944]` across the reload, which is independent proof the reboot was real rather than a stale
+  log buffer being re-read. Reusable in any persistence limb that reads a log.
