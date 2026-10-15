@@ -504,10 +504,11 @@ Objective: prove that what carried these prefixes was **BGP-4**, and not somethi
 happens to produce a route with the letter B beside it.  No `show` command can do this (group C
 technique note).  Two instruments were tried.
 
-6a. 🔴 PORT MIRROR -- TRIED, PRODUCED NOTHING, AND IS A FOURTH INSTANCE OF THE platforms/x960.md
-    SECTION 5 MIRRORING DEFECT CLASS.  **No verdict in this case rests on it.**
-    Section 5 was read BEFORE the mirror was applied, so `direction both` (defect M3) was
-    avoided and the destination port was bounced after applying (the documented working method).
+6a. PORT MIRROR -- IT WORKED.  🔴 **THIS SUBSECTION WAS WRITTEN WRONG FIRST AND IS CORRECTED
+    HERE, BECAUSE THE CORRECTION MATTERS MORE THAN THE ORIGINAL CLAIM.**
+    platforms/x960.md section 5 was read BEFORE the mirror was applied, so `direction both`
+    (defect M3) was avoided and the destination port was bounced after applying (the documented
+    working method):
       awplus(config)# interface port1.0.48
       awplus(config-if)# mirror interface port1.0.16 direction receive
       awplus(config-if)# shutdown / no shutdown
@@ -517,19 +518,49 @@ technique note).  Two instruments were tried.
       Mirror direction: receive
       Monitored Port Name: port1.0.16
       awplus# show interface port1.0.48 status  ->  port1.0.48 connected vlan 48 a-full a-1000
-    `tcpdump -i eth4 "tcp port 179 or icmp"` ran across a window in which leg
-    L5-mirror-instrument demonstrably pushed traffic through the monitored port -- 5 echo
-    requests to 10.70.70.1 and **5 echo replies back, which INGRESS port1.0.16** and are exactly
-    what `direction receive` must copy.  Result: **the mirror capture was 0 bytes.  Not one
-    frame.**  The instrument-control flow in the same leg (192.168.10.1, 5/5) and the subject
-    flow (10.70.70.1, 5/5) both prove the traffic existed.
-    ⇒ `show mirror` read Enabled, with the right direction, source and destination, while the
-    dataplane copied nothing -- the signature of M1/M2/M3 in platforms/x960.md 5, here on
-    `direction receive` on a freshly applied, freshly bounced mirror.  Recorded as an
-    OBSERVATION extending section 5; this is NOT a BGP finding and NOT part of T43858's verdict.
-    The limb that depended on it is UNMEASURED by that instrument, and was then measured by 6b.
+    `tcpdump -i eth4 -w /tmp/ckD/T43858/mirror179.pcap "tcp port 179 or icmp"` ran across a
+    window in which leg L5-mirror-instrument pushed 5 echo requests to 10.70.70.1 and got 5
+    replies back, which INGRESS port1.0.16 and are exactly what `direction receive` must copy.
 
-    🔴 AND IT COST SOMETHING -- A TOOL/PLATFORM TRAP WORTH CARRYING FORWARD (two parts):
+    🔴 WHAT THIS TESTER FIRST RECORDED, AND WHY IT WAS WRONG.  `ls -la` on the capture file,
+    run in the same shell immediately after the leg, reported **0 bytes**, and that was written
+    up as "the mirror copied nothing" and as a fourth instance of the section 5 defect class.
+    **IT IS NOT.  The mirror worked.**  The `sudo kill -INT $TD` in that same command line had
+    not reached the tcpdump process at all -- `$!` was the wrapper, not tcpdump -- so the
+    process was still running and **nothing had been flushed to disk when the size was read**.
+    The leftover process was found at group hand-back (`ps -eo pid,user,args`), stopped by PID,
+    and the very same file then read:
+      $ sudo tcpdump -r /tmp/ckD/T43858/mirror179.pcap -nn -q | head -3
+      23:03:43.814073 IP 10.70.70.1 > 192.168.10.5: ICMP echo reply, id 0, seq 0, length 37
+      23:03:44.113084 IP 10.70.70.1 > 192.168.10.5: ICMP echo reply, id 0, seq 0, length 37
+      23:03:44.408002 IP 10.70.70.1 > 192.168.10.5: ICMP echo reply, id 0, seq 0, length 37
+      $ sudo tcpdump -r ... -nn -q "tcp port 179"
+      23:03:56.104152 IP 10.0.61.2.33334 > 10.0.61.1.179: tcp 0
+      23:03:56.104187 IP 10.0.61.2.179  > 10.0.61.1.49698: tcp 0
+      23:03:56.104222 IP 10.0.61.2.52924 > 10.0.61.1.179: tcp 0
+      23:03:56.104665 IP 10.0.61.2.179  > 10.0.61.1.49698: tcp 72      <- the OPEN exchange
+      23:04:19.105599 IP 10.0.61.2.179  > 10.0.61.1.49698: tcp 48      <- an UPDATE
+      23:04:46.105942 IP 10.0.61.2.179  > 10.0.61.1.49698: tcp 19      <- a KEEPALIVE
+      (14 TCP/179 packets in all)
+    Every one of those timestamps is INSIDE the mirror's own window (the mirror was applied
+    23:00:33 and removed 23:06:54), and every one is a frame **ingressing port1.0.16** -- the
+    mirrored ICMP echo replies from swi_b, then the whole mirrored BGP teardown and
+    re-establishment caused by `clear ip bgp 10.0.61.2`.  So `direction receive`, freshly
+    applied and freshly bounced, copied exactly what it was asked to copy.
+    (Packets in that file after 23:06:54 are NOT mirrored: the stray tcpdump kept running on
+    eth4 as an ordinary NIC capture and picked up T43859's own eth4 legs.  The file is
+    therefore not a clean artefact of this leg, and nothing in this case is graded on it.)
+
+    🔴 THE REUSABLE LESSON, and it is the one worth carrying forward: **a `tcpdump -w` FILE
+    SIZE read straight after an unverified kill is not a measurement.**  Confirm the capture
+    process has actually exited (`ps`), or read tcpdump's own `N packets captured` line, before
+    concluding that nothing arrived.  platforms/x960.md section 5's own evidence for the
+    mirroring defects is built on capture sizes (1 byte = nothing arrived), so this caution
+    belongs beside it.  Section 5's three defects -- M1 re-application, M2 in-place direction
+    change, M3 `direction both` -- are UNCHALLENGED by this case; `direction receive` is simply
+    not one of them, and this tester very nearly filed a false product finding against it.
+
+    🔴 WHAT **IS** REAL FROM THIS LIMB, AND IT COST SOMETHING (two separate things):
       (i) `interface <mirror-destination-port>` emits the advisory
           `% port1.0.48 is currently configured as a mirror-port. Use caution when altering its
           config`.  console.ADVISORY does not know that string, so cfg.py treats it as an error;
@@ -545,6 +576,8 @@ technique note).  Two instruments were tried.
           and `show running-config interface port1.0.48` is back to
           `switchport / switchport mode access / switchport access vlan 48` with no mirror and
           no shutdown.  **The underlay was fully restored before any further measurement.**
+    Even so, 6b below is the better instrument and is what the case's protocol evidence rests
+    on: it needs no mirror, no second NIC and no VLAN change, and it decodes BGP in full.
 
 6b. ✅ THE DUT'S OWN `tcpdump` -- THIS IS THE INSTRUMENT TO USE ON THIS PLATFORM.
     AW+ has `tcpdump` at privileged exec (`tcpdump ?` -> `LINE  tcpdump options`, `vrf`, `<cr>`),
@@ -623,8 +656,9 @@ technique note).  Two instruments were tried.
 
   STEP 6 VERDICT: PASS -- BGP-4 proven as the protocol on the wire (Version 4 OPEN, the UPDATE
   carrying the subject prefix with its AS_PATH, the explicit withdraw, and the NOTIFICATION on
-  reset), using the DUT's own tcpdump.  The port-mirror sub-limb is UNMEASURED and is recorded
-  as a platform observation, not as part of this verdict.
+  reset), using the DUT's own tcpdump.  The port-mirror sub-limb ALSO worked, contrary to this
+  tester's first write-up; see the correction in 6a.  No verdict in this case rests on the
+  mirror either way.
 
 
 STEP 7 -- WITHDRAWAL: THE TIGHTEST CONTROL THE BENCH ALLOWS
@@ -875,11 +909,20 @@ STEP 10 -- TEARDOWN, AND THE DIFF
   its subject(s), an unrouted control that was 0/5 in all nine, and the DUT's own address as an
   instrument control that was 5/5 in all nine.  Four protocol-packet captures on the DUT itself.
   No step was skipped.
-  Two instrument/driver incidents, both detected immediately by reading output rather than exit
-  codes, both repaired and verified before any further measurement, both written up in step 6a:
-  the port-mirror produced nothing (platforms/x960.md 5 defect class, no verdict rests on it),
-  and the cfg.py batch it broke left port1.0.48 shut and out of its VLAN for ~2 minutes.  No
-  counted leg ran during that window.
+  🔴 ONE TESTER ERROR, CORRECTED BEFORE HAND-BACK AND LEFT IN THE RECORD RATHER THAN QUIETLY
+  FIXED: step 6a was first written up as "the port mirror copied nothing", a fourth instance of
+  the platforms/x960.md section 5 defect class.  **That was false.**  The 0-byte file size came
+  from an unverified kill leaving tcpdump running with its buffer unflushed; the same file,
+  once the process was really stopped at hand-back, holds the mirrored frames with timestamps
+  inside the leg's own window.  The claim is retracted in 6a, in the findings below, in the
+  campaign queue and in platforms/x960.md.  No counted leg and no verdict ever depended on it.
+  The lesson that replaces it -- a capture file's SIZE read after an unverified kill is not a
+  measurement -- is more useful than the finding would have been.
+  Two driver incidents, both detected immediately by reading output rather than exit codes,
+  both repaired and verified before any further measurement, both in step 6a: the cfg.py batch
+  broken by the mirror-port advisory left port1.0.48 shut and out of its VLAN for ~2 minutes,
+  and the stray tcpdump ran on eth4 until hand-back, when it was found by `ps` and stopped by
+  PID.  No counted leg ran during the port-shut window.
   Nothing was asked of the Test Engineer; nothing in this case needed them.
 
 
@@ -908,11 +951,18 @@ STEP 10 -- TEARDOWN, AND THE DIFF
        BGP OPEN advertises no Graceful Restart capability.  Display disagrees with both the
        saved file and the wire.  Cosmetic here; wants a developer's answer on which is intended.
        For platforms/x960.md and FOR THE TEST ENGINEER.
-  O-6  (observation, platform) The port mirror copied ZERO frames with `show mirror` reading
-       Enabled / direction receive / correct source and destination, on a freshly applied and
-       freshly bounced mirror, while traffic demonstrably ingressed the monitored port in the
-       same window.  A fourth instance of the platforms/x960.md 5 defect class, this time on
-       `direction receive`.  Also: configuring a port as a mirror destination silently removes
+  O-6  🔴 **RETRACTED BY THIS TESTER BEFORE HAND-BACK.**  O-6 was first raised as "the port
+       mirror copied zero frames on `direction receive`, a fourth instance of the
+       platforms/x960.md 5 defect class".  **It is withdrawn: the mirror worked.**  The 0-byte
+       file was an unflushed buffer behind a `kill -INT` that never reached the tcpdump
+       process; the same capture, read once the process was really stopped, holds the mirrored
+       echo replies and 14 mirrored TCP/179 packets, all timestamped inside the mirror's own
+       window.  **Section 5's M1/M2/M3 are unaffected and still stand.**
+       What replaces O-6 is a measurement-method caution, which is worth more:
+       **a `tcpdump -w` file SIZE read after an unverified kill is not a measurement** --
+       confirm the process has exited, or read tcpdump's own `N packets captured` line.
+       Section 5's own evidence is built on capture sizes, so this belongs beside it.
+       Still true and separately recorded: configuring a port as a mirror destination removes
        it from its access VLAN, and `no mirror interface` does not put it back.
   O-7  (tool) `interface <mirror-destination-port>` emits `% ... is currently configured as a
        mirror-port. Use caution when altering its config`, which cfg.py treats as an error.
@@ -938,6 +988,9 @@ prefix stayed 5/5 in the same capture and the session stayed Established, remova
 config, FIB (`% Network not in table`) and dataplane to baseline, and persistence across a real
 60 s reboot with both sessions up and both prefixes forwarding 12 s after the interfaces came
 up.  Teardown diffed CLEAN on all three devices.  Two findings recorded (F-6 the absent BGP
-service gate, F-7 the graceful-restart display/save disagreement) and two observations (O-6,
-O-7); none is a failure of BGPv4.
+service gate, F-7 the graceful-restart display/save disagreement) and one observation (O-7);
+neither finding is a failure of BGPv4.  **O-6, a claimed port-mirror defect, was RETRACTED by
+this tester before hand-back after the instrument was re-checked -- the mirror had worked and
+the 0-byte capture was an unflushed buffer behind a kill that never landed.  The retraction and
+the measurement-method lesson that replaces it are recorded in step 6a and in section 9.**
 ================================================================================

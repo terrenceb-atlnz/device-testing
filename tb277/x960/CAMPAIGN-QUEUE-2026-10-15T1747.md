@@ -1378,15 +1378,30 @@ D** block, then the **single reload of swi_d from `flash:/default.cfg`**, then r
   but it is the `show mirror` class of defect again, and a user who enables graceful restart and
   verifies it with `show running-config` would be misled in the other direction.
   **FOR THE TEST ENGINEER / a developer: which of the two is intended?**
-- **O-6 (T43858, platform) -- A FOURTH INSTANCE OF THE `platforms/x960.md` §5 MIRRORING DEFECT
-  CLASS, this time on `direction receive`.** `show mirror` read `Enabled / direction receive /
-  Monitored Port port1.0.16 / Test Port port1.0.48` with the destination `connected`, freshly
-  applied and freshly bounced (the documented working method, and `both` was deliberately
-  avoided), and the capture was **0 bytes** across a window in which an instrumented leg
-  demonstrably pushed 5 echo replies INTO the monitored port. No verdict rests on it; the limb
-  was then measured with the DUT's own `tcpdump`. Also measured: **configuring a port as a
-  mirror destination silently removes it from its access VLAN**, and `no mirror interface` does
-  not put it back.
+- **🔴 O-6 (T43858) -- RAISED AND THEN **RETRACTED BY THE TESTER** BEFORE HAND-BACK. THE PORT
+  MIRROR WORKED.** O-6 was first written up as "the mirror copied ZERO frames on
+  `direction receive`, a fourth instance of the `platforms/x960.md` §5 defect class". **That
+  was false and it is withdrawn.** The `ls -la` that reported 0 bytes ran in the same command
+  line as a `sudo kill -INT $TD` that never reached the tcpdump process (`$!` was the wrapper),
+  so the capture was still running with its buffer unflushed. The stray process was found at
+  group hand-back with `ps -eo pid,user,args`, stopped by PID, and the SAME file then read:
+  mirrored ICMP echo replies from `10.70.70.1` at **23:03:43** and **14 mirrored TCP/179
+  packets** from 23:03:56 to 23:04:46 -- the OPEN exchange (72 B), an UPDATE (48 B) and a
+  KEEPALIVE (19 B) -- every timestamp **inside the mirror's own window** (applied 23:00:33,
+  removed 23:06:54), every frame one **ingressing the monitored port**. `direction receive`,
+  freshly applied and freshly bounced, copied exactly what it was asked to.
+  **§5's M1, M2 and M3 are unaffected and still stand**; `direction receive` is simply not one
+  of them, and this tester came close to filing a false product finding against it.
+  **What replaces O-6 is a measurement-method caution, which is worth more than the finding
+  would have been: a `tcpdump -w` FILE SIZE read after an unverified kill is not a
+  measurement.** Confirm the capture process has exited (`ps`), or read tcpdump's own
+  `N packets captured` line, before concluding that nothing arrived. §5's own evidence for the
+  mirroring defects is built on capture sizes (1 byte = nothing arrived), so the caution
+  belongs beside it. Corrected in the T43858 working log step 6a and section 9, and in
+  `platforms/x960.md` §7B.2.
+  Separately and still true: **configuring a port as a mirror destination removes it from its
+  access VLAN**, and `no mirror interface` does not put it back -- `port1.0.48` read `Vlan 1`
+  afterwards and `switchport access vlan 48` had to be re-applied explicitly.
 - **O-7 (T43858, tool) -- the mirror-port advisory stops a `cfg.py` batch and can leave a port
   SHUT.** `interface port1.0.48` emitted `% port1.0.48 is currently configured as a mirror-port.
   Use caution when altering its config`; combined with the asynchronous `switch: port 48 …
