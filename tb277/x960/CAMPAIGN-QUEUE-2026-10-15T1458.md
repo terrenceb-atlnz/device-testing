@@ -202,6 +202,7 @@ Nothing is written to startup-config at any point, so a power-cycle of outlet 1 
 
 | case | verdict | reason | graded by | working log |
 | --- | --- | --- | --- | --- |
+| T43851 | PASS | ARP probing honoured on the wire: 3 probes at the configured 1000 ms spacing; **0** probes when disabled and when `probe packets 0`; an answered probe withholds the address and records a conflict binding (empty ClientId); `no` forms restore the TFS defaults. Frame-level evidence in 7 pcaps, not a `show` read-back. Two TFS-wording observations (O-1, O-2), neither a functional failure | tester | dhcp-server-2026-10-15T1458/T43851/work/run1.log |
 
 ## Issues
 
@@ -222,3 +223,21 @@ review), NOTED (no decision needed now), CLOSED (decided or answered).
   this session by stopping the watch, letting the pass baseline 415 remote offsets at EOF, and
   re-arming. **The kit should scope the remote glob to this box's own runs, or baseline silently
   on a first arm.** NOTED — worth fixing in `.claude/skills/orient-dt/sentinel/sentinel.sh`.
+- **O-1 (T43851) Conflict recovery is per-DISCOVER, not automatic.** S1566.1.04 says the server
+  "will repeat this whole process for the next available address" after a probe conflict.
+  Measured: it abandons the address (binding with an EMPTY ClientId), sends nothing further for
+  that DISCOVER, and serves the next address only when the client re-DISCOVERs. Stock ISC
+  behaviour, harmless with any RFC 2131 client. **Candidate spec clarification, not a defect** —
+  the Test Engineer's call.
+- **O-2 (T43851) `probe type ping` ARPs first and escalates.** S1566.1.01 says the server waits
+  for a response "to the ARP Request or ICMP Echo Request". Measured under `probe type ping`: an
+  ARP response alone did NOT stop the offer — the DUT escalated to ICMP, got no echo reply, and
+  offered the address. Only the ICMP echo reply withheld it. **Consequence for any future
+  campaign: "ping probing produces no ARP" is NOT a valid discriminator between the two probe
+  types.** The real pair is ARP-answered + ICMP-unanswered (offered) vs ICMP-answered (withheld).
+  Belongs in `platforms/x960.md` at wrap. Candidate spec clarification, not a defect.
+- **I-4 Root-owned capture files in case folders.** tcpdump under `sudo` wrote T43851's pcaps as
+  `root:root` inside `work/`. `/create-logs` finishes by `git rm -r`-ing `work/`, and memory
+  `unattended-session-stalls-on-permission-prompt` records this repo losing 11 hours to exactly
+  that `rm`. Tester asked to chown existing captures and to use `tcpdump -Z $(whoami)` from here
+  on. NOTED — worth making a standing rule if it recurs.
