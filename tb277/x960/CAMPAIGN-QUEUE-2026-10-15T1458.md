@@ -93,8 +93,8 @@ the wiki and neither can WebFetch.
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
 | A | T43851 ARP Probe · T43853 120-day lease | dhcp-server-2026-10-15T1458 | **DONE** 15:42 — 2 PASS | DUT = DHCP server, VLAN 10, host eth3 as client + ARP responder |
-| B | T43852 DHCP Relay · T43850 Option 82 | dhcp-relay-2026-10-15T1458 | RUNNING (dispatched 15:44) | DUT = relay; eth3 client side, eth4 scapy DHCP server. Option 82 is a RELAY feature (TFS S1566.100), not a server one |
-| C | T35370 Extended ID · T43854 DNS Relay | dhcp-client-2026-10-15T1458 | RUNNABLE — awaiting dispatch | DUT = DHCP client on VLAN 48; eth4 scapy server, eth3 the querying host for DNS |
+| B | T43852 DHCP Relay · T43850 Option 82 | dhcp-relay-2026-10-15T1458 | **DONE** 16:38 — 2 PASS | DUT = relay; eth3 client side, eth4 scapy DHCP server. Option 82 is a RELAY feature (TFS S1566.100), not a server one |
+| C | T35370 Extended ID · T43854 DNS Relay | dhcp-client-2026-10-15T1458 | RUNNING (dispatched 16:40) | DUT = DHCP client on VLAN 48; eth4 scapy server, eth3 the querying host for DNS |
 
 **Triage 2026-10-15 15:10 — 6 runnable, 0 blocked by topology, 0 blocked otherwise.** No
 recabling, no partner switch, no licence. swi_b and swi_a are not needed by any of the six, which
@@ -317,6 +317,7 @@ valid last-resort restore.
 | T43851 | PASS | ARP probing honoured on the wire: 3 probes at the configured 1000 ms spacing; **0** probes when disabled and when `probe packets 0`; an answered probe withholds the address and records a conflict binding (empty ClientId); `no` forms restore the TFS defaults. Frame-level evidence in 7 pcaps, not a `show` read-back. Two TFS-wording observations (O-1, O-2), neither a functional failure | tester | dhcp-server-2026-10-15T1458/T43851/work/run1.log |
 | T43853 | PASS | opt51 = **10,368,000 s** in both OFFER and ACK; binding expiry exactly 120 days out (15 Oct 2026 → 12 Feb 2027); parser **accepts 120, refuses 121 and 999** — that boundary IS the 30→120 day feature; 1-day (86,400) and 1-hour (3,600) controls measured in the same run as in-place overwrites; `no lease` restores the 1-day default; settings survive a reboot, re-proven on the wire (3-probe ARP burst at 0.995/1.001 s). **No M2-shaped silent discard for `lease`** — the pool read agreed with the wire at every point | tester | dhcp-server-2026-10-15T1458/T43853/work/run1.log |
 | T43852 | PASS | 5/5 crafted DISCOVERs and REQUESTs relayed **1:1 in 0.76 ms**, giaddr rewritten to 192.168.10.1 and hops incremented; all 5 OFFERs/ACKs returned to the right clients on the far side; **both** zero-relay controls clean (`no service dhcp-relay`, and relay on with no `server-address`); hop threshold enforced at the default 10 (hops 2 relayed as 3, hops 10 dropped). Four harness faults found and fixed first, all recorded in the log under HARNESS FAULTS; no measurement in the verdict predates the fixes | tester | dhcp-relay-2026-10-15T1458/T43852/work/run1.log |
+| T43850 | PASS | insertion off/on matched pair; circuit-id `vlan10` and remote-id = switch MAC on the wire (S1566.100.01/.06); ASCII override `CK-REMOTE-82` and its revert to the MAC proven in captured frames; remote-id correctly **refused** while agent-option is disabled (S1566.100.07); **all four** information-policy actions (replace/keep/drop/append) correct; option 82 **stripped** from replies per RFC 3046; survives reboot | tester | dhcp-relay-2026-10-15T1458/T43850/work/run1.log |
 
 ## Issues
 
@@ -396,3 +397,22 @@ review), NOTED (no decision needed now), CLOSED (decided or answered).
   written as root. **Correct method: capture to local `/tmp` as root, then copy and chown into the
   case folder.** That satisfies both constraints — real captures, and no root-owned file left for
   `/create-logs` to trip on.
+- **F-2 (T43850) `ip dhcp-relay agent-option checking` is a RESPONSE-side check, not an
+  untrusted-ingress drop.** The triage plan had it wrong. The command reference says it checks
+  option 82 *"in response packets returned from DHCP servers"* and drops responses whose
+  information does not match the relay's own downstream interface. **Client-originated option 82
+  is governed by `ip dhcp-relay information policy` instead** (replace / keep / drop / append).
+  Caught from the docs before any verdict was written; both the wrong-direction leg and the
+  corrected pair are in the log. For `platforms/x960.md` at wrap.
+- **F-3 (T43850) THREE tool-side near-misses in one group, all the same shape: the instrument
+  quietly loses data and the DUT takes the blame.** (a) scapy does not dissect a relayed frame at
+  all (F-1); (b) `dhcp4.py` kept only the FIRST option of a given name, so an **appended** option
+  82 — a second TLV with the same name — read as "append did not append", a false defect until
+  the raw frame showed both the client's and the DUT's; (c) a `NameError` introduced mid-leg made
+  the post-reboot run report "server received 0" while tcpdump showed 3 relayed. All fixed,
+  `option82_count` / `option82_all` added, README updated. **Standing lesson: when tcpdump and the
+  scapy tool disagree, suspect the tool.**
+- **O-4 (T43850) The TPS files Option 82 under "DHCP server", but the TFS states the DHCP server
+  is unaffected** and the feature is relay/snooping. The triage re-cut that moved T43850 into the
+  relay group was therefore right, and for the documented reason. Minor TPS categorisation
+  observation, not a defect.
