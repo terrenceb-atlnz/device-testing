@@ -1,0 +1,434 @@
+T43855  IPv4_UnicastRouting - IPv4 Static  --  working log, run 1
+==================================================================
+
+RUN START: 2026-10-15 20:25 NZDT (2026-10-15 07:25 UTC)
+RUN END:   (in progress)
+
+Run quality: clean.
+
+
+1. SESSION FACTS
+----------------
+Test Engineer : bidhanc@bidhanc-dl  (AWAY -- unattended campaign, no prompts, no blocking questions)
+Testbox       : tb277
+Consoles      : u2 = swi_d (DUT) @115200, u3 = swi_b (partner) @9600, u5 = swi_a (partner) @9600.
+                All three are in the session's console list and all three were opened this group.
+PDU           : 10.36.230.212 outlets 1 (u2), 7 (u3); 10.36.230.35 outlet 3 (u5).
+                None used in this case -- the only reboot is a CLI `reload` on the DUT.
+                swi_a is NEVER reloaded or power-cycled (queue RISK-1).
+Constraints   : None (full authority within tests; power cycles allowed).
+Campaign      : tb277/x960/CAMPAIGN-QUEUE-2026-10-15T1747.md, group B `static-2026-10-15T1747`,
+                case 1 of 3.
+Sentinel      : parent session (/test-mode one-session shape).
+Driver        : manual console + scapy.  No `.setup` on tb277 => no framework, so no framework
+                post-failure PDU cycle; this case's own teardown is the only restore.
+
+
+2. DEVICES
+----------
+DUT      swi_d  /dev/u2 @115200  awplus      AT-x960-56YSQ  S/N A2WQS700B
+                software sin_x96056-20261012-24
+                boot image flash:/x960-tb277.rel (exists), boot config flash:/default.cfg (exists)
+                SVI MAC  e0:1a:ea:d4:70:43  -- ALL SVIs share it (platforms/x960.md 6.5); read off
+                `show interface vlan10`: "Hardware is VLAN, address is e01a.ead4.7043"
+                bridge id 0000:e01aead47043 after `spanning-tree priority 0`
+partner  swi_b  /dev/u3 @9600    x960-28YSQ  AT-x960-28YSQ  S/N A10737A261700021
+                software sin_x96056-20260921-9, bridge/SVI MAC 0000.cd42.3029
+                Base licence only -- irrelevant here (static routing is Base)
+partner  swi_a  /dev/u5 @9600    awplus      AT-x950 GEN2-52XSTQm  S/N A10713A262600012
+                software awplus_main-20261008-56, bridge MAC 889d.98df.2602
+                NOT used by this case's measured legs; it is part of the shared B/C/D underlay
+                and is listed because the underlay touches it.
+
+HOST NICs (measured this group, `ip -br link show`):
+  eth3  00:0d:b9:55:77:0e  10.38.22.33/27  -> swi_d port1.0.10  (the source NIC for this case)
+  eth4  00:0d:b9:55:77:0f  10.38.22.65/27  -> swi_d port1.0.48  (not used by this case)
+  eth2  carrier up, nothing learned -- not usable
+**No host networking was changed at any point.**  192.168.10.5 is a scapy fiction; every frame
+is built at L2 with the DUT's SVI MAC as the next hop, so the kernel's own addresses and routes
+are bypassed entirely.
+
+
+3. CLOCKS (group B measurement, RISK-5) -- quoted by every case in this group
+-----------------------------------------------------------------------------
+Measured 2026-10-15 20:13-20:22 NZDT:
+
+  unit   `show clock`     box at that moment   offset
+  swi_d  07:13:27 UTC     07:13:36 UTC         -9 s
+  swi_b  07:15:05 UTC     07:15:07 UTC         -2 s   (group A's `clock set` still holding)
+  swi_a  07:13:50 UTC     07:15:33 UTC         -1 m 43 s   <-- corrected at group B setup
+
+**RETAINED CHANGE, declared:** swi_a's clock was SET at group B setup
+(`clock set <hh:mm:ss> 15 Oct 2026`, applied 20:21:40 NZDT) because a 1 m 43 s offset silently
+corrupts any cross-device correlation (queue RISK-5).  After the set, swi_a read 07:21:52 UTC
+with the box at ~07:21:48 UTC => **swi_a = box + 4 s**.  It is NOT put back: restoring a known
+clock error would be restoring a fault.  Group A made the same declaration for swi_b.
+All three devices now agree with the box and with each other to within ~10 s.
+
+
+4. CASE TEXT -- NONE EXISTS
+----------------------------
+AWPTCM T43855 "IPv4_UnicastRouting - IPv4 Static".  Per the campaign triage (queue
+"### ck.db -- one case has step text, twelve do not"), only T43849 of the thirteen has authored
+steps; ck.db keys on `AWP-nnnn`, not `AWPTCM-T<id>` (memory `ckdb-case-lookup-by-title`).
+**There is no authored step text or expected result for this case.**  The steps below are
+therefore grounded in, and cited against, the documents the Test Engineer's 2026-10-08 rule
+names (memory `review-feature-docs-before-testing`):
+
+  (a) **Software TPS row 31 "IPv4 Static routing" -- priority 1, `Yes`, note column empty**
+      (X960_platform_support_TPS).  => no limb here may be graded UNSUPPORTED without DUT
+      evidence.
+  (b) **Route Selection Feature Overview and Configuration Guide**, C613-22029-00 REV G
+      (`Feature Overview Guides/` at the repo root), "Static routes" p.3, "Administrative
+      distance" p.7.  Quoted where a limb tests a claim.
+  (c) The AW+ CLI wiki -- no x960 pages exist; the x950 pages are the same generation.
+
+Syntax, quoted verbatim from the guide, p.3:
+  > awplus(config)# ip route [vrf <vrf-name>] <subnet&mask> {<gateway-ip>|<interface>}
+  >                 [<distance>] [weight <1-255>] [description <description>]
+
+**The objective this case is graded against**, since none is authored: a static route configured
+on the DUT must (1) be absent by default, (2) when configured, cause frames for its prefix to be
+FORWARDED to its next hop and the far end's reply to return, while a frame for a prefix with no
+route is DROPPED in the same leg, (3) be removable from the FIB and not merely from
+running-config, and (4) survive a reboot.  Depth beyond the floor per the Test Engineer's
+2026-10-08 "satisfactory level of testing" rule: administrative distance / floating-static route
+selection, the distance-255 RIB-not-FIB rule, and the interface form of the command.
+
+
+5. BENCH, AND THE SHARED B/C/D UNDERLAY
+----------------------------------------
+Built ONCE at the start of group B (STANDING-ORDERS §6) and left up for groups C and D.  The
+full setup, the restore recipe and the reasoning are in the campaign queue, section
+"## Group B/C/D shared L3 underlay and restore".  Summary of what this case runs on:
+
+  tb eth3 ── swi_d port1.0.10  vlan10  192.168.10.1/24
+  swi_d port1.0.16 vlan61 10.0.61.1/30 ── swi_b port1.0.16 vlan61 10.0.61.2/30
+  swi_b interface lo 10.70.70.1/32      <- the prefix that exists ONLY behind swi_b
+  swi_b ip route 192.168.10.0/24 10.0.61.1   <- so swi_b's reply can get home
+  (swi_d port1.0.4 vlan41 10.0.41.1/30 ── swi_a port1.0.4 vlan41 10.0.41.2/30, and
+   swi_a interface lo 10.90.90.1/32, exist but are used only by T43861 and by this case's
+   floating-static limb)
+
+**🔴 THE STP PROBLEM, AND WHY THE TRIAGE'S REMEDY WAS WRONG.**  The triage's RISK-4 said to give
+every routed leg its own VLAN so nothing is blocked.  **RSTP here is single-instance**
+(`spanning-tree mode rstp` on all three), so it computes ONE tree over the PHYSICAL topology and
+a Discarding port is blocked for every VLAN.  Measured on all three devices before any change
+(20:13-20:15 NZDT), with swi_b root:
+
+  swi_d  port1.0.2  Rootport   Forwarding
+         port1.0.4  Alternate  Discarding   <- every candidate routed leg was blocked
+         port1.0.14 Alternate  Discarding
+         port1.0.16 Alternate  Discarding
+  swi_a  port1.0.1  Rootport F · port1.0.11 Alternate D · port1.0.4 and port1.0.14 Designated F
+  swi_b  Root Id = its own 8000:0000cd423029; sa1, 1.0.1, 1.0.11, 1.0.16 all Designated F
+
+On each swi_d<->swi_a segment the two bridges TIE on root path cost and swi_a wins on the lower
+bridge ID (889d... < e01a...), so no VLAN scheme can free swi_d's legs.
+
+**Resolved with two DUT-only, fully reversible changes**, both reverted at the end of group D:
+  awplus(config)# spanning-tree priority 0          <- DUT becomes root => every DUT port
+                                                       Designated/Forwarding
+  awplus(config)# interface port1.0.2 / shutdown    <- else swi_b roots through sa1 (RISK-2)
+                                                       and puts port1.0.16 into Alternate
+  awplus(config)# interface port1.0.14 / shutdown   <- makes swi_a's DUT link deterministic
+                                                       instead of a port-ID tie-break
+swi_a and swi_b took NO spanning-tree change and NO port shutdown.  sa1 / vlan 100 /
+swi_b port1.0.2,1.0.4,1.0.8 untouched (RISK-2); swi_a config-only, never powered (RISK-1).
+
+STP verified after the change (20:23 NZDT), and **re-read immediately before every counted leg**:
+  swi_d  Root Id 0000:e01aead47043 = itself.  port1.0.4, 1.0.10, 1.0.16, 1.0.48 Designated Forwarding
+         port1.0.2, port1.0.14 Disabled Discarding (shut, as intended)
+  swi_b  Root Port 1.0.16 Forwarding; sa1 Disabled Discarding
+  swi_a  Root Port 1.0.4 Forwarding; port1.0.1 and port1.0.11 Alternate Discarding (no loop)
+
+Bench liveness before step 1 (instrument check, NOT case evidence):
+  awplus# ping 10.0.41.2 repeat 2  -> 2 received, 0% loss
+  awplus# ping 10.0.61.2 repeat 2  -> 2 received, 0% loss
+  awplus# show arp
+    10.0.61.2  0000.cd42.3029  vlan61  port1.0.16  dynamic
+    10.0.41.2  889d.98df.2602  vlan41  port1.0.4   dynamic
+
+TOOLS: tools/arpleg.py (--icmp with --gw-mac and --answer), tools/cfg.py, tools/ckcon.py,
+tools/qmark.py, tools/peek.py, tools/rc2cfg.py, tools/rcdiff.py, tools/ckreload.py.
+`python3.8` for every tool on tb277 (`tools/tb` is broken there, box python3 is 3.6).
+Captures on the box: /tmp/ckB/T43855/ ; console transcripts /tmp/ckB/console-u{2,3,5}.log
+
+
+6. THE THREE FLOWS USED BY EVERY COUNTED LEG
+---------------------------------------------
+Sender is always 192.168.10.5 / 00:11:22:33:44:01 on eth3, next hop e0:1a:ea:d4:70:43.
+A background ARP responder answers the DUT's ARP for 192.168.10.5 (`--answer`), because this DUT
+does NOT learn a neighbour from a request it merely answers -- measured in group A and recorded
+in `tools/README.md`.
+
+  10.70.70.1      THE SUBJECT.  Reachable only via the static route under test (swi_b's loopback).
+  10.80.80.1      THE CONTROL.  No route ever exists for it.  It must be dropped in EVERY leg,
+                  including the legs where the subject is forwarded.  Sent in the SAME leg.
+  192.168.10.1    THE INSTRUMENT CONTROL.  The DUT's own vlan10 address.  It must be answered in
+                  EVERY leg, so that a zero on the other two is a measurement and not a dead
+                  instrument.
+
+
+7. STEPS
+--------
+
+STEP 1 -- BASELINE, NO STATIC ROUTE (the feature OFF).
+
+  State read first (20:25:29-20:25:32):
+    awplus# show ip route static
+    awplus#                                     <- EMPTY: no static route exists
+    awplus# show ip route 10.70.70.1
+    % Network not in table
+    awplus# show running-config | include ip route
+    awplus#                                     <- EMPTY
+  STP immediately before the leg (20:25:28):
+    port1.0.4   0000:e01aead47043  838c  Designated  Forwarding
+    port1.0.10  0000:e01aead47043  8392  Designated  Forwarding
+    port1.0.16  0000:e01aead47043  8398  Designated  Forwarding
+
+  tool: sudo python3.8 tools/arpleg.py --tag L1-noroute --out /tmp/ckB/T43855 --iface eth3 \
+          --icmp 10.70.70.1,10.80.80.1,192.168.10.1 --gw-mac e0:1a:ea:d4:70:43 \
+          --sender-ip 192.168.10.5 --sender-mac 00:11:22:33:44:01 \
+          --answer 192.168.10.5=00:11:22:33:44:01 --answer-iface eth3 --count 5 --wait 5
+
+  sent total: 15 frame(s).   cap L1-noroute-eth3.pcap: 24 frame(s)
+    x5  ICMP t8/c0 192.168.10.5 -> 10.70.70.1     [ours]  [00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x5  ICMP t8/c0 192.168.10.5 -> 10.80.80.1     [ours]
+    x5  ICMP t8/c0 192.168.10.5 -> 192.168.10.1   [ours]
+    x5  ICMP t0/c0 192.168.10.1  -> 192.168.10.5  [ours]  [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:01]
+    x2  ICMP t3/c0 192.168.10.1  -> 192.168.10.5  [ours]   <- destination unreachable, FROM THE DUT
+    x1  ARP-REQ who-has 192.168.10.5 tell 192.168.10.1   [e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+    x1  ARP-REPLY 192.168.10.5 is-at 00:11:22:33:44:01   (the responder)
+
+  10.70.70.1   : 5 sent, **0 echo replies**
+  10.80.80.1   : 5 sent, **0 echo replies**
+  192.168.10.1 : 5 sent, **5 echo replies (ICMP type 0)** -- instrument alive
+  Plus 2 ICMP type 3 (destination unreachable) sourced by the DUT itself (192.168.10.1): the DUT
+  did not silently blackhole, it made and reported a routing decision.  Only 2 for 10 unroutable
+  packets => ICMP unreachable generation is rate-limited on this platform; recorded as an
+  observation, not graded.  The ABSENCE of echo replies is the measurement.
+  STEP 1 VERDICT: PASS (baseline established: with no static route, the prefix is not forwarded).
+
+STEP 2 -- CONFIGURE THE STATIC ROUTE AND PROVE FORWARDING ON THE WIRE.
+
+  awplus# configure terminal
+  awplus(config)# ip route 10.70.70.0/24 10.0.61.2
+  awplus(config)# end
+  awplus# show running-config | include ip route
+  ip route 10.70.70.0/24 10.0.61.2
+  awplus# show ip route static
+  S       10.70.70.0/24 [1/0] via 10.0.61.2, vlan61 weight 1
+  Gateway of last resort is not set
+  awplus# show ip route 10.70.70.1
+  Routing entry for 10.70.70.0/24
+    Known via "static", distance 1, metric 0, best
+    * via 10.0.61.2, vlan61 weight 1
+
+  (Read-back only.  Per STANDING-ORDERS §7 and the campaign rules, `show ip route` is NOT the
+   evidence -- the wire is.  The `*` and "best" are quoted as context for the FIB limb.)
+
+  STP immediately before the leg (20:26:27):
+    port1.0.16  0000:e01aead47043  8398  Designated  Forwarding
+
+  tool: identical to step 1, --tag L2-route-on
+  sent total: 15 frame(s).   cap L2-route-on-eth3.pcap: 27 frame(s)
+    x5  ICMP t8/c0 192.168.10.5 -> 10.70.70.1     [ours]
+    x5  ICMP t0/c0 **10.70.70.1  -> 192.168.10.5**  [ours]  [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:01]
+    x5  ICMP t8/c0 192.168.10.5 -> 10.80.80.1     [ours]
+    x5  ICMP t8/c0 192.168.10.5 -> 192.168.10.1   [ours]
+    x5  ICMP t0/c0 192.168.10.1  -> 192.168.10.5  [ours]
+    x2  ICMP t3/c0 192.168.10.1  -> 192.168.10.5  [ours]   <- still unreachable, for 10.80.80.1
+
+  10.70.70.1   : 5 sent, **5 echo replies, SOURCED BY 10.70.70.1** -- the frames were routed out
+                 vlan61 to swi_b, swi_b answered from its loopback, and the reply came back
+                 through the DUT and out vlan10.  End-to-end forwarding over the static route,
+                 counted on the wire at both ends of the flow.
+  10.80.80.1   : 5 sent, **0 echo replies** -- the control flow is still dropped IN THE SAME LEG,
+                 with the DUT's own unreachables proving the drop was a routing decision.
+  192.168.10.1 : 5 sent, 5 replies -- instrument alive.
+  STEP 2 VERDICT: PASS.  The pair (subject forwarded / control dropped, same leg, same instrument)
+  is what carries the verdict; neither flow alone would.
+
+STEP 3 -- REMOVAL: GONE FROM THE FIB, NOT MERELY FROM running-config.
+
+  awplus# configure terminal
+  awplus(config)# no ip route 10.70.70.0/24 10.0.61.2
+  awplus(config)# end
+  awplus# show running-config | include ip route
+  awplus#                                        <- EMPTY
+  awplus# show ip route static
+  Gateway of last resort is not set
+  No entries in route table
+  awplus# show ip route 10.70.70.1
+  % Network not in table
+
+  NOTE on the instrument, recorded because it cost a round trip: `% Network not in table` is a
+  legitimate answer, but `cfg.py` stops at the FIRST `% ` line and abandons the rest of its
+  batch, so this show ABORTED the batch it was in.  Shows that may legitimately answer `% ` are
+  run with `ckcon.py` from here on, never inside a `cfg.py` batch whose later lines matter.
+  (Carried warning from the dispatch; reproduced here first hand.)
+
+  STP immediately before the leg (20:29:06):
+    port1.0.16  0000:e01aead47043  8398  Designated  Forwarding    <- the link is still up and
+                                                                      forwarding; nothing about
+                                                                      this leg is an L2 effect
+  tool: identical to step 1, --tag L3-route-removed
+  sent total: 15 frame(s).   cap L3-route-removed-eth3.pcap: 22 frame(s)
+    x5  ICMP t8/c0 192.168.10.5 -> 10.70.70.1     [ours]
+    x5  ICMP t8/c0 192.168.10.5 -> 10.80.80.1     [ours]
+    x5  ICMP t8/c0 192.168.10.5 -> 192.168.10.1   [ours]
+    x5  ICMP t0/c0 192.168.10.1  -> 192.168.10.5  [ours]
+    x2  ICMP t3/c0 192.168.10.1  -> 192.168.10.5  [ours]
+
+  10.70.70.1   : 5 sent, **0 echo replies** -- down from 5/5 in step 2, with the port still
+                 Forwarding and the instrument control still answering.  The route is gone from
+                 the DATAPLANE, which is the limb `show running-config` cannot prove.
+  192.168.10.1 : 5/5 -- instrument alive.
+  STEP 3 VERDICT: PASS.
+
+STEP 4 -- ADMINISTRATIVE DISTANCE AND FLOATING STATIC ROUTES (depth beyond the step floor).
+
+  Guide authority, Route Selection FOG C613-22029-00 REV G p.7:
+  > "the routes with the lowest administrative distance to the FIB ... The lower the
+  >  administrative distance, the higher the route preference."
+  and p.8:
+  > "Note: AlliedWare Plus does not populate routes with an administrative distance of 255 in
+  >  the FIB ... it only adds a route with an administrative distance of 255 in the RIB"
+
+  4a. PRIMARY (distance 1, via swi_b) + FLOATING BACKUP (distance 250, via swi_a).
+      awplus(config)# ip route 10.70.70.0/24 10.0.61.2
+      awplus(config)# ip route 10.70.70.0/24 10.0.41.2 250
+      awplus# show running-config | include ip route
+      ip route 10.70.70.0/24 10.0.41.2 250
+      ip route 10.70.70.0/24 10.0.61.2
+      awplus# show ip route database
+      S       10.70.70.0/24 [250/0] via 10.0.41.2, vlan41 weight 1
+      S    *> 10.70.70.0/24 [1/0] via 10.0.61.2, vlan61 weight 1
+      awplus# show ip route
+      S       10.70.70.0/24 [1/0] via 10.0.61.2, vlan61 weight 1      <- FIB holds ONLY distance 1
+
+      (`show ip route database` legend: "> - selected route, * - FIB route".)
+
+      tool: identical to step 1, --tag L4a-floating-backup
+      10.70.70.1   : 5 sent, **5 echo replies sourced by 10.70.70.1** -- still forwarded via
+                     swi_b.  The backup is inert while the primary is up, proven in the
+                     dataplane and not only by the `*>` marker.
+      10.80.80.1   : 5 sent, 0 replies.   192.168.10.1 : 5/5 -- instrument alive.
+
+      🔎 **OBSERVATION O-1 (display, not forwarding): `show ip route <address>` reports the
+      NON-SELECTED route when more than one exists for the prefix.**  Reproduced twice
+      (20:29:58 and 20:30:37) while `show ip route database` and `show ip route` both correctly
+      showed the distance-1 route as the FIB route:
+        awplus# show ip route 10.70.70.1
+        Routing entry for 10.70.70.0/24
+          Known via "static", distance 250, metric 0
+            via 10.0.41.2, vlan41 weight 1
+      With a single route present (step 2) the same command correctly printed
+      `distance 1, metric 0, best` and `* via 10.0.61.2, vlan61`.  So with two routes it prints
+      the higher-distance entry AND drops the "best"/`*` markers.  **Forwarding was correct
+      throughout** -- the frames went via 10.0.61.2 -- so this is a display issue only, but a
+      tester grading a floating static on `show ip route <address>` alone would read it exactly
+      backwards.  Recorded as an observation for `platforms/x960.md`; `show ip route database`
+      is the trustworthy read-back.
+
+  4b. WITHDRAW THE PRIMARY -- the floating route must take over, and the EGRESS PORT must move.
+      awplus(config)# no ip route 10.70.70.0/24 10.0.61.2
+      awplus# show ip route database
+      S    *> 10.70.70.0/24 [250/0] via 10.0.41.2, vlan41 weight 1    <- now selected + FIB
+      STP immediately before the leg (20:31:20):
+        port1.0.4   0000:e01aead47043  838c  Designated  Forwarding
+
+      tool: identical to step 1, --tag L4b-floating-active
+      cap L4b-floating-active-eth3.pcap: 24 frame(s)
+        x5  ICMP t8/c0 192.168.10.5 -> 10.70.70.1     [ours]
+        x5  ICMP t8/c0 192.168.10.5 -> 10.80.80.1     [ours]
+        x5  ICMP t8/c0 192.168.10.5 -> 192.168.10.1   [ours]
+        x5  ICMP t0/c0 192.168.10.1  -> 192.168.10.5  [ours]
+        x2  ICMP t3/c0 **10.0.41.2** -> 192.168.10.5  [ours]   <- swi_a, NOT the DUT
+        x2  ICMP t3/c0 192.168.10.1  -> 192.168.10.5  [ours]   <- the DUT, for 10.80.80.1
+
+      10.70.70.1 : 5 sent, 0 echo replies -- expected, because 10.70.70.1 is swi_b's loopback and
+                   swi_a has no route to it.  **The evidence is not the zero: it is the two ICMP
+                   destination-unreachables SOURCED BY 10.0.41.2, which is swi_a's vlan41
+                   address.**  Those frames could only exist if the DUT physically forwarded the
+                   echo requests out vlan41 / port1.0.4 to swi_a.  In step 4a the same flow drew
+                   replies from swi_b; here it draws unreachables from swi_a.  The egress port
+                   moved because the FIB changed, and the far side says so on the wire.
+      STEP 4a/4b VERDICT: PASS.  Route selection by administrative distance is correct in the
+      dataplane, in both directions (backup inert, then backup active).
+
+  4c. DISTANCE 255 MUST REACH THE RIB AND NOT THE FIB.
+      awplus(config)# no ip route 10.70.70.0/24 10.0.41.2 250
+      awplus(config)# ip route 10.70.70.0/24 10.0.61.2 255
+      awplus# show running-config | include ip route
+      ip route 10.70.70.0/24 10.0.61.2 255                    <- accepted, in the config
+      awplus# show ip route database
+      S       10.70.70.0/24 [255/0] via 10.0.61.2, vlan61 weight 1    <- NO `*>` : RIB only
+      awplus# show ip route
+      (no 10.70.70.0/24 line at all)                                  <- NOT in the FIB
+
+      tool: --tag L4c-distance-255 (subject + instrument control only)
+      10.70.70.1   : 5 sent, **0 echo replies**, 2 ICMP t3/c0 from the DUT
+      192.168.10.1 : 5/5 -- instrument alive
+      STEP 4c VERDICT: PASS.  The guide's documented distance-255 rule holds on this hardware in
+      the config, in the RIB, in the FIB and on the wire.
+
+STEP 5 -- THE INTERFACE FORM OF THE COMMAND (`{<gateway-ip>|<interface>}`).
+
+      awplus(config)# no ip route 10.70.70.0/24 10.0.61.2 255
+      awplus(config)# ip route 10.70.70.0/24 vlan61
+      awplus# show running-config | include ip route
+      ip route 10.70.70.0/24 vlan61
+      awplus# show ip route database
+      S    *> 10.70.70.0/24 [1/0] is directly connected, vlan61   <- installed, selected, in FIB
+
+      tool: --tag L5-interface-form (subject + instrument control)
+      cap L5-interface-form-eth3.pcap: 20 frame(s)
+        x5  ICMP t8/c0 192.168.10.5 -> 10.70.70.1     [ours]
+        x5  ICMP t8/c0 192.168.10.5 -> 192.168.10.1   [ours]
+        x5  ICMP t0/c0 192.168.10.1  -> 192.168.10.5  [ours]        <- instrument alive
+        x5  ICMP **t3/c1** 192.168.10.1 -> 192.168.10.5  [ours]
+
+      10.70.70.1 : 5 sent, 0 echo replies, and **five ICMP type 3 CODE 1 (host unreachable)**,
+      one per packet -- against type 3 **code 0** (network unreachable) in every earlier
+      no-route leg.  The code change is the whole finding:
+
+      🔎 **OBSERVATION O-2 (correct behaviour, worth recording): the interface form makes the
+      prefix ON-LINK, so the DUT ARPs for the destination instead of using a next hop.**
+      `is directly connected, vlan61` in the FIB means the DUT tried to resolve 10.70.70.1 by
+      ARP on vlan61.  swi_b does not answer ARP for its own loopback address on that subnet, so
+      resolution failed and the DUT answered **host** unreachable rather than **network**
+      unreachable -- i.e. it had a route and could not reach the host, which is exactly the
+      opposite failure from "no route".  The interface form is therefore for point-to-point
+      links; on a VLAN/broadcast interface it is not a substitute for the next-hop form.  Not a
+      defect: it matches the guide's `{<gateway-ip>|<interface>}` semantics.  The rate limit
+      seen on the network-unreachable legs (2 per 10) did not apply here (5 per 5), another
+      difference between the two paths.
+      STEP 5 VERDICT: PASS (the form is accepted, installed and behaves as documented).
+
+STEP 6 -- PERSISTENCE ACROSS A REBOOT.
+
+  Nothing is written to startup-config.  A NAMED boot config is staged and the pointer put back
+  afterwards (campaign rule).
+
+  awplus(config)# no ip route 10.70.70.0/24 vlan61
+  awplus(config)# ip route 10.70.70.0/24 10.0.61.2          <- back to the canonical form
+  awplus# copy running-config flash:/ckT43855.cfg
+  awplus# dir flash:
+       2107 -rw- Oct 15 2026 07:33:35  ckT43855.cfg
+  awplus# configure terminal
+  awplus(config)# boot config-file flash:/ckT43855.cfg
+  awplus# show boot
+  Current boot config: flash:/ckT43855.cfg (file exists)
+  awplus# show file flash:/ckT43855.cfg | include ip route|spanning-tree priority|vlan61
+  spanning-tree priority 0
+  interface vlan61
+  ip route 10.70.70.0/24 10.0.61.2            <- the staged file carries the route AND the
+                                                 group's STP change, so the bench returns intact
+
+  INSTRUMENT NOTE: `copy running-config flash:/<file>` did NOT prompt (y/n) on this build when
+  the destination did not already exist, so `cfg.py`'s `YN:` form timed out (exit 6) even though
+  the copy itself had succeeded -- the file was on flash with the right timestamp.  `cfg.py` has
+  no "may prompt" form (`YN?:` is `ckyn.py` only and is rejected by cfg.py as a command).  Use a
+  plain command for this copy.
