@@ -611,3 +611,9 @@ and diff `captures/<new>/u2.show_running-config.txt` against
 - **🔴 NEEDS TEST ENGINEER (T33246) — swi_d `port1.0.8` is connected at 1000BASE-T and
   STP-Forwarding, and is ABSENT from `bench-state.md`'s link table.** The probe does not know what
   is on the other end. Worth identifying before any case assumes the bench's link list is complete.
+- **DELIVERABLE CAVEAT (T33246) — `swi_d.cfg` is NOT a true in-run capture.** The tester missed the
+  in-run save, so the identical setup was re-applied afterwards, captured, and torn down again
+  (bench re-verified after). The file's own header says so, and the tester declared it rather than
+  letting it pass. Every other `.cfg` in group A was saved after setup and before step 1 as
+  logged-output.md §2 requires. `/create-logs` should carry the caveat into T33246's final log
+  rather than presenting the file as the state the case ran under.
