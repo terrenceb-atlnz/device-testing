@@ -199,6 +199,101 @@ post-run `bench_probe.py` will not exit 0 MATCH — its host-MAC discovery uses 
 Nothing is written to startup-config at any point, so a power-cycle of outlet 1 on
 10.36.230.212 is also a valid last-resort restore.
 
+## Group B bench setup and restore recipe (written before the first case, 2026-10-15)
+
+**If this tester dies mid-group, a fresh tester restores the DUT with the RESTORE block below.**
+Only swi_d (/dev/u2 @115200) is touched. swi_b and swi_a are not used.
+Scratch on the box: `/tmp/dhcp-2026-10-15T1458/`.
+
+### Pre-existing baseline (what "restored" means)
+Identical to Group A's: DUT at default config **plus `lldp run`** (bench_probe's by-design
+addition — baseline, not drift). Boot config `flash:/default.cfg`, boots
+`flash:/x960-tb277.rel`. Group A's teardown was verified CLEAN against it and the post-run probe
+exited 0. Byte-exact copy: `dhcp-server-2026-10-15T1458/T43851/work/rc-before.log` (still the
+reference for this group — the baseline has not moved).
+
+### Roles
+DUT swi_d = **DHCP relay**. tb eth3 (00:0d:b9:55:77:0e) → port1.0.10 = the **client** side.
+tb eth4 (00:0d:b9:55:77:0f) → port1.0.48 = the **server** side, running `tools/dhcp4.py server`.
+Both host NICs are driven at layer 2 only; no host IP, route or mount change is made.
+
+### SETUP (applied once for the whole group, STANDING-ORDERS §6)
+```
+configure terminal
+ vlan database
+  vlan 10 name CKCLIENT
+  vlan 48 name CKSERVER
+  exit
+ interface port1.0.10
+  switchport access vlan 10
+  exit
+ interface port1.0.48
+  switchport access vlan 48
+  exit
+ interface vlan10
+  ip address 192.168.10.1/24
+  ip dhcp-relay server-address 192.168.48.2
+  exit
+ interface vlan48
+  ip address 192.168.48.1/24
+  exit
+ service dhcp-relay          # enabled by default; stated so the control can turn it OFF
+ end
+```
+`ip dhcp-relay agent-option` is **disabled by default**, so T43850's baseline-OFF control is
+free and must be measured BEFORE anything is enabled.
+The scapy server answers ARP for 192.168.48.2 itself (`dhcp4.py server --arp-for`), so no static
+`arp` entry is configured on the DUT. If the relay ever fails to resolve the server, add
+`arp 192.168.48.2 000d.b955.770f port1.0.48` on the DUT and record it.
+
+### RESTORE (run this to put the bench back) — boot pointer FIRST
+A persistence reload, if one is done, is staged on a SEPARATE boot file exactly as Group A did;
+`flash:/default.cfg` is never written to. Restore the pointer before removing any config:
+```
+configure terminal
+ boot config-file flash:/default.cfg
+ end
+show boot                  # must read: Current boot config: flash:/default.cfg (file exists)
+delete flash:/ckrelay.cfg  # only if the persistence reload was staged; it is a test config,
+                           # worth nothing, so it is deleted rather than left undocumented
+```
+Then the config:
+```
+configure terminal
+ interface vlan10
+  no ip dhcp-relay server-address 192.168.48.2
+  no ip dhcp-relay agent-option checking
+  no ip dhcp-relay agent-option remote-id
+  no ip dhcp-relay agent-option
+  no ip address
+  exit
+ interface vlan48
+  no ip address
+  exit
+ interface port1.0.10
+  switchport access vlan 1
+  exit
+ interface port1.0.48
+  switchport access vlan 1
+  exit
+ vlan database
+  no vlan 10
+  no vlan 48
+  exit
+ end
+```
+**Do NOT use `no interface vlan10` / `no interface vlan48`** — AW+ refuses it
+(`% Removal of interface not allowed`, measured in Group A). A VLAN interface disappears when
+the VLAN is deleted from the vlan database, which the block above does. A stop-on-error driver
+that hits the refusal **skips every command after it** and leaves the bench half-restored.
+
+Verify: `show running-config` must diff CLEAN against the baseline (tools/rcdiff.py), and
+**BOTH port1.0.10 and port1.0.48 must be back in untagged VLAN 1** — the post-run
+`bench_probe.py` discovers `tb eth3 → swi_d port1.0.10` and `tb eth4 → swi_d port1.0.48` by
+host-MAC learning on exactly those two ports, so it cannot exit 0 otherwise.
+Nothing is written to startup-config, so a power-cycle of outlet 1 on 10.36.230.212 is also a
+valid last-resort restore.
+
 ## Known bench notes
 
 - **The DUT is at default config**, so every group builds its own setup from scratch.
