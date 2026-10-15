@@ -1,0 +1,282 @@
+T43853 — IPv4_DHCPServer - DHCP 120-day lease
+run 1, 2026-10-15, tb277 / x960-56YSQ
+run quality: CLEAN
+
+================================================================================
+SESSION FACTS
+================================================================================
+Test Engineer : bidhanc@bidhanc-dl
+Testbox       : tb277
+Consoles      : u2 = swi_d (DUT), u3 = swi_b, u5 = swi_a  — only u2 was opened by this case
+PDU           : 10.36.230.212 outlet 1 (swi_d); not used (the reload was a CLI `reload`)
+Constraints   : None (full authority within tests)
+Group         : dhcp-server-2026-10-15T1458   (case 2 of 2)
+Dispatch      : RUN, sentinel = parent session (armed)
+Scratch       : tb277:/tmp/dhcp-2026-10-15T1458/
+Transcript    : tb277:/tmp/dhcp-2026-10-15T1458/console-u2.log
+
+Devices, links, host-NIC MACs and the box-vs-DUT clock comparison are recorded once for the
+group in T43851/work/run1.log, section "DEVICES, LINKS, CLOCKS". Unchanged for this case.
+Host NIC used: tb277 eth3 (00:0d:b9:55:77:0e) -> swi_d port1.0.10.
+
+================================================================================
+CASE SOURCE — no steps exist in AWPTCM or ck.db (queue issue I-2)
+================================================================================
+No ck.db case was mapped onto this one; that would fabricate a source. Graded against:
+
+1. Software TPS — wiki "X960_platform_support_TPS" (fetched from tb277, 70,440 B).
+   Row 25, group "DHCP server": feature "DHCP 120-day lease", priority 1, supported = **Yes**.
+   ⇒ UNSUPPORTED is not available without DUT evidence.
+2. Wiki "DHCP" feature page, section "120 Lease", verbatim:
+   "Simple enhancement feature which allows a user to configure lease times up to 120 days.
+    The maximum used to be 30 days (set by IP Infusion)."
+   ⇒ The feature IS the raised ceiling. The boundary is therefore the heart of the case, not
+     an extra: 120 must be accepted and 121 must be refused.
+3. AW+ CLI command page `lease.md`: `lease <days> <hours> <minutes> [<seconds>]`,
+   "<days> The number of days, from 0 to 120 ... Default: 1", plus `lease infinite` / `no lease`.
+   Mode: DHCP Configuration (the pool's `awplus(dhcp-config)#`).
+4. DHCP Feature Overview and Configuration Guide (C613-22102-00 REV G) p13, "Set the lease".
+
+120 days = 120 x 86400 = **10,368,000 s**, the value DHCP option 51 must carry.
+
+================================================================================
+TOOLS USED
+================================================================================
+tools/cfg.py, tools/ckcon.py, tools/ckyn.py, tools/rc2cfg.py, tools/rcdiff.py,
+tools/ckreload.py (reload, answering `y` to reboot and `n` to any save-config question),
+tools/dhcp4.py (new this group; see T43851's log and tools/README.md).
+All run on the box with python3.8 (tb277's python3 is 3.6 — queue issue I-1).
+
+================================================================================
+BENCH SETUP — unchanged from the group setup (STANDING-ORDERS §6)
+================================================================================
+This is case 2 of the same TestSet, so the bench was NOT re-set between cases: VLAN 10,
+port1.0.10, the vlan10 SVI 192.168.10.1/24, `service dhcp-server` and pool CKPOOL all carried
+over from T43851. The only changes here are this case's own steps (the `lease` value).
+
+Housekeeping before step 1, recorded for completeness:
+    awplus# clear ip dhcp binding all      -> `show ip dhcp binding` then listed no entries
+  (clears T43851's seven leases and its conflicted .102 entry, so every lease measured below is
+   a fresh allocation. It changes no configuration.)
+
+    awplus(config)# ip dhcp pool CKPOOL
+    awplus(dhcp-config)# lease 120 0 0     (cfg.py exit 0, no "% " lines)
+    show ip dhcp pool -> lease <days:hours:minutes:seconds> <120:0:0:0>
+
+Config saved: T43853/swi_d.cfg (3 header + 91 config lines), after setup, before step 1.
+Its pool stanza: `ip dhcp pool CKPOOL / network 192.168.10.0 255.255.255.0 /
+range 192.168.10.100 192.168.10.110 / lease 120 0 0`.
+
+================================================================================
+METHOD — STANDING-ORDERS §7 (scapy, not ping)
+================================================================================
+A ping cannot read a lease time. Every leg sends a crafted DHCPDISCOVER with a unique chaddr
+and an explicit option 55 parameter request list that ASKS for option 51 (and 58/59), then
+reads option 51 out of the captured OFFER and the captured ACK. The verdict rests on those
+frames; `show ip dhcp pool` and `show ip dhcp binding` are corroboration only, read after the
+wire, never instead of it.
+
+================================================================================
+STEP 1 — a 120-day lease is delivered as option 51 = 10,368,000 in OFFER and ACK
+================================================================================
+  sudo -n python3.8 dhcp4.py client eth3 --mac 02:c4:00:00:01:01 --prl 1,3,6,51,58,59 \
+      --arp-watch 192.168.10.0/24 --wait 20 --pcap leg1-120d.pcap --json leg1-120d.json
+
+  Every DHCP frame of the transaction, as decoded from the capture:
+      DISCOVER  yiaddr=0.0.0.0          opt51=None       opt58=None  opt59=None
+      OFFER     yiaddr=192.168.10.100   opt51=10368000   opt58=None  opt59=None
+      REQUEST   yiaddr=0.0.0.0          opt51=None       opt58=None  opt59=None
+      ACK       yiaddr=192.168.10.100   opt51=10368000   opt58=None  opt59=None
+
+  opt51 = 10,368,000 s = 120 d 0 h 0 m 0 s, in BOTH the OFFER and the ACK. STEP 1 PASS.
+
+  Options 58 (renewal/T1) and 59 (rebinding/T2) are ABSENT even though the client explicitly
+  requested them in option 55. Recorded, not required — ISC dhcpd does not emit T1/T2 unless
+  configured, so requiring them would be a false FAIL. (Independently confirmed in T43851
+  step 1, where a 1-day lease likewise carried neither.)
+
+  Corroboration, `show ip dhcp binding` (work/binding-120d.log), read AFTER the frames:
+      show clock      -> UTC Time: Thu, 15 Oct 2026 02:33:57 +0000
+      IP Address      ClientId          Type    Expiry
+      192.168.10.100  02c4.0000.0101    Dynamic 12 Feb 2027 02:33:39
+  Granted 15 Oct 2026 02:33:39 UTC, expiring 12 Feb 2027 02:33:39 UTC — 16+30+31+31+12 = exactly
+  120 days, to the second. This evidence is only readable because the DUT's year-2000 RTC was
+  repaired with `clock set` at group setup (see T43851's log).
+
+================================================================================
+STEP 2 — THE BOUNDARY: 120 accepted, 121 refused. This IS the 30->120 day feature.
+================================================================================
+Sent through ckcon.py (NOT the stop-on-error driver) so the rejections are captured rather
+than aborting the batch — the refusals are the expected result here, work/boundary.log:
+
+  awplus(dhcp-config)# lease 121 0 0
+                                  ^
+  % Invalid input detected at '^' marker.
+
+  awplus(dhcp-config)# lease 120 0 0
+  awplus(dhcp-config)#                     <- accepted silently, no "% " line
+
+  awplus(dhcp-config)# lease 999 0 0
+                                  ^
+  % Invalid input detected at '^' marker.
+
+The parser accepts exactly up to 120 days and refuses 121 and 999 — the documented range
+(`lease.md`, "<days> ... from 0 to 120") holds on sin_x96056-20261012-24, and the old 30-day
+IP Infusion ceiling is gone. STEP 2 PASS.
+
+================================================================================
+STEP 3 — THE PAIR: other lease values must yield their own option 51, same run
+================================================================================
+Three successive IN-PLACE changes (no `no lease` between them, so each overwrites a live
+value), each followed by a fresh client and graded on the captured OFFER/ACK:
+
+  | configured      | expected opt51 | measured OFFER | measured ACK | chaddr            |
+  | --------------- | -------------- | -------------- | ------------ | ----------------- |
+  | lease 1 0 0     |         86,400 |         86,400 |       86,400 | 02:c4:00:00:01:02 |
+  | lease 0 1 0     |          3,600 |          3,600 |        3,600 | 02:c4:00:00:01:03 |
+  | lease 120 0 0   |     10,368,000 |     10,368,000 |   10,368,000 | 02:c4:00:00:01:04 |
+
+Every value matched exactly, in both messages. The 1-day row is the control the 120-day claim
+rests on: identical crafted DISCOVER, identical pool, only the configured lease differs, and
+option 51 moves with it. The 1-hour row adds a third point so the result is a curve rather
+than a two-point coincidence, and proves sub-day granularity.
+
+This also answers a question raised from the console feed mid-run (silent-discard concern, the
+shape of this platform's mirroring defect M2, `platforms/x960.md` §5): every change above was an
+in-place overwrite of a LIVE value and every one took effect on the wire immediately. There is
+no M2-shaped silent discard for `lease`, and `show ip dhcp pool` agreed with the wire at every
+point. The pool read of `<1:0:0:0>` that prompted the question was taken after STEP 4's
+`no lease`, where 1 day is the correct default.
+
+================================================================================
+STEP 4 — REMOVAL: `no lease` restores the 1-day default and clears the config
+================================================================================
+  awplus(dhcp-config)# no lease            (cfg.py exit 0, no "% " lines)
+  show ip dhcp pool -> lease <days:hours:minutes:seconds> <1:0:0:0>     (the documented default)
+
+  Proven on the wire, not just in the show — fresh client 02:c4:00:00:01:05:
+      OFFER 192.168.10.104   opt51 = 86400
+      ACK                    opt51 = 86400, renewal None, rebinding None
+
+  show running-config, pool stanza after removal — the lease line is GONE:
+      ip dhcp pool CKPOOL
+       network 192.168.10.0 255.255.255.0
+       range 192.168.10.100 192.168.10.110
+      !
+STEP 4 PASS.
+
+================================================================================
+GROUP REBOOT PERSISTENCE CHECK (covers T43851 and T43853 — both cases' settings)
+================================================================================
+Run once for the group because both cases configure the same pool. T43851's log points here.
+
+Staging — `flash:/default.cfg` was NEVER written to. Both cases' settings were re-applied,
+saved to a SEPARATE file, and the boot pointer aimed at that file:
+    awplus(dhcp-config)# lease 120 0 0 / probe enable / probe type arp
+                         probe packets 3 / probe timeout 1000      (cfg.py exit 0)
+    awplus# copy running-config flash:/ckdhcp.cfg
+            Copying...
+            Successful operation
+    awplus# dir flash:/ckdhcp.cfg
+            1383 -rw- Oct 15 2026 02:36:40  flash:/ckdhcp.cfg
+    awplus(config)# boot config-file flash:/ckdhcp.cfg
+    show boot -> Default boot config: flash:/default.cfg
+                 Current boot config: flash:/ckdhcp.cfg (file exists)
+
+Reload — tools/ckreload.py (answers `y` to reboot, `n` to any save-config question):
+    awplus# reload
+    reboot question: 'reboot system? (y/n):' -> y
+    login seen after 60 s        (x960-56YSQ flash boot; much faster than the IE520 720 s default)
+
+After the reload, `show ip dhcp pool` (work/post-reboot.log):
+      network: 192.168.10.0/24
+        addr: 192.168.10.100 to 192.168.10.110
+      lease <days:hours:minutes:seconds> <120:0:0:0>        <- T43853's setting survived
+      Probe:                       Default Values
+        Status:       Enabled      [Enabled]
+        Type:         ARP          [Ping]                   <- T43851's settings survived
+        Packets:      3            [5]
+        Timeout:      1000 msecs   [200]
+    DHCP Server service is enabled / DHCP Server is running
+
+Proven on the wire after the reload, not only in the show — fresh client 02:c4:00:00:02:01:
+      ARP probes seen = 3   gaps = [0.995 s, 1.001 s]   all for 192.168.10.105
+      OFFER 192.168.10.105   opt51 = 10368000
+      ACK   192.168.10.105   opt51 = 10368000
+Both features still behave exactly as configured after a reboot. PERSISTENCE PASS for both cases.
+
+INCIDENTAL, worth carrying forward: the DUT clock SURVIVED the reload
+(`show clock` -> Thu, 15 Oct 2026 02:38:52 +0000). So the year-2000 reading seen at probe time
+was a stale RTC state, not a reset-on-every-boot trait of this model. A future campaign on this
+unit does not need to re-repair the clock after each reboot — only once, if it has sat unpowered.
+
+================================================================================
+TEARDOWN AND BENCH VERIFICATION
+================================================================================
+1. Boot pointer restored FIRST, before any config removal:
+     awplus(config)# boot config-file flash:/default.cfg        (cfg.py exit 0)
+2. Test boot file deleted:
+     awplus# delete flash:/ckdhcp.cfg                           (ckyn.py exit 0)
+   Deliberate decision, recorded in the queue's RESTORE block: ckdhcp.cfg was a copy of a TEST
+   config, not a baseline, so unlike the 2026-10-12 handover's `precampaign.cfg` (OPEN-6) it is
+   worth nothing and was removed rather than left as an undocumented leftover.
+   `flash:/default.cfg` was never written, so the `% Cannot overwrite flash:/default.cfg as it
+   is the default config file` refusal seen on the previous DUT could not arise.
+   Verified: show boot -> Default boot config: flash:/default.cfg
+                          Current boot config: flash:/default.cfg (file exists)
+             dir flash:/ckdhcp.cfg -> % No such file or directory
+
+3. Group bench teardown. The first attempt stopped partway — recorded because it is exactly the
+   trap memory `bench-scripts-stop-on-cli-errors` describes, and cfg.py behaved correctly:
+     awplus(config)# no interface vlan10
+     % Removal of interface not allowed
+   cfg.py exited 2 at that line and SKIPPED every command after it, leaving port1.0.10 still in
+   VLAN 10. The `no interface vlan<N>` form is not supported on AW+; a VLAN interface is removed
+   by deleting the VLAN from the vlan database. Had the driver hidden the "% " line or carried
+   on, the bench would have been left half-restored and the post-run probe would have been the
+   first thing to notice. Completed with:
+     interface port1.0.10 / switchport access vlan 1
+     vlan database / no vlan 10                                 (cfg.py exit 0, no "% " lines)
+
+4. Teardown diff, tools/rcdiff.py against T43851/work/rc-before.log (the pre-case baseline):
+     CLEAN — running-config byte-identical to the pre-case baseline, including the baseline's
+     own `lldp run` (bench_probe's by-design addition, part of the baseline, not drift).
+
+5. Post-run bench probe, same session facts:
+     python3.8 bench_probe.py --box tb277 run --consoles u2,u3,u5 --no-prompt \
+       --pdu 10.36.230.212 --outlet u2=1 --outlet u3=7 --outlet u5=3@10.36.230.35
+     EXIT 0. Advisories: none. All nine link rows identical to the pre-run state, including
+     `tb eth3 -> swi_d port1.0.10  MAC learned on a physical port` — which independently proves
+     port1.0.10 is back in untagged VLAN 1, since that discovery depends on exactly that port.
+     (No `.setup` template exists on tb277, so the probe reports "diff skipped" rather than
+     MATCH — pre-existing, reported at triage, not caused by this group.)
+
+Nothing was written to startup-config. No PDU power cycle. No licence change. swi_b and swi_a
+were never opened. The DUT console was left logged in at `awplus#` (cfg.py ends every batch with
+`end` + `terminal no monitor`), which is the state bench_probe's own close() leaves.
+All sudo-written captures were chowned back to the running user, so nothing under the case
+folders is root-owned (a `/create-logs` `git rm -r work/` would otherwise stall on a prompt —
+memory `unattended-session-stalls-on-permission-prompt`).
+
+Files saved by this case:
+  T43853/swi_d.cfg                  (deliverable, after setup, before step 1)
+  T43853/work/run1.log              (this file)
+  T43853/work/clear.log             binding clear before step 1
+  T43853/work/setup.log             lease 120 0 0 applied + show ip dhcp pool
+  T43853/work/rc-after-setup.log    source of swi_d.cfg
+  T43853/work/leg1-120d.{pcap,json,out,err}   STEP 1 frames
+  T43853/work/binding-120d.log      STEP 1 binding expiry corroboration
+  T43853/work/boundary.log          STEP 2 lease 121 / 120 / 999
+  T43853/work/lease{1d,1h,120}.{json,out,err,-cfg.log}   STEP 3 pair + third point
+  T43853/work/removal{,-cfg}.{log,json,out,err}          STEP 4
+  T43853/work/reboot-*.log, reload.log, post-reboot.{log,pcap,json,out,err}  persistence check
+  T43853/work/restore-boot.log, restore-del.log, teardown.log, teardown2.log,
+  T43853/work/rc-after.log, rc-after2.log, teardown-diff.txt                 teardown proof
+
+================================================================================
+VERDICT: PASS -- a 120-day lease is configurable and is delivered as DHCP option 51 =
+10,368,000 s in both the OFFER and the ACK, with a binding expiry exactly 120 days out; the
+parser accepts 120 and refuses 121 and 999, which is the 30->120 day enhancement itself; other
+lease values (1 day, 1 hour) deliver their own option 51 in the same run; `no lease` restores
+the 1-day default on the wire and clears the running-config; and the setting survives a reboot.
+Options 58/59 are not emitted by this server and were recorded, not required.
