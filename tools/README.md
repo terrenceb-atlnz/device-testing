@@ -529,11 +529,28 @@ or interface: every frame is crafted and read at layer 2, so it needs only a raw
   ```
   A test that used the integer key would read "the relay did not insert option 82" and grade a
   working device defective. The tool exports the correct spelling as `dhcp4.OPT82`; use it.
-- **Status:** written and used 2026-10-15 on tb277, x960-56YSQ (T43851, DHCP ARP Probe):
-  `client` mode verified against a live AW+ DHCP server — counted a 3-packet ARP probe burst at
-  1000 ms spacing, drove an address conflict via `--arp-answer`, and drove the ping-probe
-  escalation path via `--icmp-answer`. `server` and `decode` modes are written but NOT yet
-  exercised on hardware (group B/C will).
+- **🔴 A relayed DHCP frame is INVISIBLE to scapy unless you bind on dport (measured on
+  tb277, 2026-10-15):** scapy binds BOOTP to UDP only for the exact pairs (sport 68, dport 67)
+  and (sport 67, dport 68). An AW+ DHCP relay forwards to the server from an **ephemeral source
+  port** (`192.168.48.1.57304 > 192.168.48.2.67`), so the relayed frame is not dissected as
+  BOOTP at all: it reads as `Raw`, `BOOTP in pkt` is False, and a scapy server or sniffer
+  reports "nothing arrived" while tcpdump on the same NIC prints the packet plainly. That reads
+  as a broken relay. This tool fixes it at import with `bind_layers(UDP, BOOTP, dport=67)` and
+  `dport=68`; any other scapy tool that must see relayed DHCP needs the same two lines.
+- **Counting discipline:** use `--clients N`, not a shell loop of one-client runs. Each fresh
+  process pays several seconds of scapy import, so a loop meant to send N clients a few seconds
+  apart actually spreads them much further and silently under-fills a capture window, which
+  looks exactly like packet loss.
+- **Capture discipline (not this tool, but it bit the same case):** write tcpdump `-w` files to
+  the box's LOCAL /tmp as root, then copy and chown. `-Z <user>` drops privilege before writing
+  and cannot write to the root-squashed NFS lab home, leaving a header-only pcap that reads as
+  "no traffic". And always `wait` for tcpdump to exit before reading its file.
+- **Status:** verified 2026-10-15 on tb277, x960-56YSQ. `client` mode in T43851 (counted a
+  3-packet ARP probe burst at 1000 ms spacing; drove an address conflict with `--arp-answer`
+  and the ping-probe escalation with `--icmp-answer`) and T43853 (option 51 at 120 d / 1 d /
+  1 h). `client` + `server` together in T43852 DHCP Relay: 5 distinct clients relayed end to
+  end, giaddr rewrite and hops increment read off the server's own per-frame record, plus two
+  zero-relay controls. `decode` mode is written but not yet exercised on hardware.
 
 ### `dhc6.py`
 Minimal DHCPv6 client (SOLICIT/ADVERTISE/REQUEST/REPLY) that installs nothing on the host. Use it
