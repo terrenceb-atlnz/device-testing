@@ -1,0 +1,330 @@
+================================================================================
+TEST T43852 -- IPv4_DHCPServer - DHCP Relay
+================================================================================
+Run:      2026-10-15 15:45-16:14 NZDT
+Bench:    tb277, consoles u2 = swi_d (DUT); Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     T43852 "IPv4_DHCPServer - DHCP Relay". No step text exists for this case in
+          AWPTCM or ck.db, so it was graded against:
+            - X960 platform support TPS, row 28: DHCP Relay, priority 1, Yes;
+            - DHCP Feature Overview and Configuration Guide C613-22102-00 REV G;
+            - AW+ CLI pages service-dhcp-relay (enabled by default),
+              ip-dhcp-relay-server-address (interface mode),
+              ip-dhcp-relay-maxhops (<1-255>, default 10).
+          4 steps as executed, plus a baseline.
+Build:    swi_d  sin_x96056-20261012-24  (flash:/x960-tb277.rel, build date Mon Oct 12 2026)
+          AT-x960-56YSQ, S/N A2WQS700B, standalone Active Master, console u2 @115200
+Configs:  swi_d.cfg (running-config after setup; saved to startup: no)
+
+VERDICT: PASS -- the DUT relays DHCP in both directions, rewriting giaddr to the
+client-side SVI and incrementing hops; both negative controls relayed exactly zero on
+identical cabling and traffic, and the hop-count threshold is enforced at its
+documented default of 10.
+      client frames relayed to the server .... 10 of 10   (5 DISCOVER + 5 REQUEST, eth4 capture)
+      giaddr rewritten ...................... 0.0.0.0 -> 192.168.10.1   (all 5 clients)
+      hops incremented ...................... 0 -> 1              (all 5 clients)
+      relayed source / destination .......... 192.168.48.1 -> 192.168.48.2, unicast
+      client chaddr preserved ............... 5 distinct chaddrs, 5 distinct leases
+      replies delivered back to the client .. offers 5/5, acks 5/5
+      forwarding latency .................... 0.76 ms (eth3 -> eth4, same frame)
+      control, no service dhcp-relay ........ 0 relayed, offers 0/5
+      control, no server address ............ 0 relayed, offers 0/5
+      hops=2 (below threshold) .............. relayed, arrives at the server with hops=3
+      hops=10 (at threshold) ................ dropped, 0 relayed, offers 0/5
+CAVEAT:  The hop-count threshold was exercised only at its default of 10; `ip dhcp-relay
+         maxhops` was never set to another value, so a configured threshold is not
+         covered. One relay hop and one configured server address only; IPv4 only. The
+         relay's ARP for the server was pre-resolved with a static entry (see TOPOLOGY),
+         so the first-DISCOVER-consumed-by-ARP behaviour is not part of the counts.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+    tb277 eth3  00:0d:b9:55:77:0e            5 crafted DHCP clients (scapy)
+    (no IP; VLAN 10 access)                  + tcpdump, counts what was really sent
+          |                                            ^
+          |  (1) DHCPDISCOVER / DHCPREQUEST            |  (4) OFFER / ACK, option 82 stripped
+          |      broadcast, giaddr 0.0.0.0, hops 0     |      delivered to each client
+          v                                            |
+    +------------------------------------------------------------+
+    |  swi_d   AT-x960-56YSQ        D U T                         |
+    |  port1.0.10 -- vlan10  192.168.10.1/24   (relay in)         |
+    |  port1.0.48 -- vlan48  192.168.48.1/24   (relay out)        |
+    |  service dhcp-relay; ip dhcp-relay server-address 192.168.48.2 on vlan10 |
+    +------------------------------------------------------------+
+          |                                            ^
+          |  (2) relayed: src 192.168.48.1 ->          |  (3) OFFER / ACK from the server
+          |      dst 192.168.48.2, unicast,            |      unicast back to 192.168.48.1
+          |      giaddr 192.168.10.1, hops+1           |
+          v                                            |
+    tb277 eth4  00:0d:b9:55:77:0f            scapy DHCP server 192.168.48.2
+    (VLAN 48 access)                         + tcpdump, counts what the DUT relayed
+
+  DUT     : swi_d (AT-x960-56YSQ) console u2, S/N A2WQS700B, relay MAC e01a.ead4.7043,
+            standalone Active Master, sin_x96056-20261012-24
+  client  : tb277 eth3 00:0d:b9:55:77:0e -> swi_d port1.0.10  (1000BASE-T, untagged VLAN 10)
+  server  : tb277 eth4 00:0d:b9:55:77:0f -> swi_d port1.0.48  (1000BASE-T, untagged VLAN 48)
+  SVIs    : vlan10 192.168.10.1/24 (client side), vlan48 192.168.48.1/24 (server side)
+  static  : arp 192.168.48.2 000d.b955.770f port1.0.48 -- pre-resolves the relay's ARP for
+            the scapy server, so no measured DISCOVER is consumed triggering it
+  tools   : tools/dhcp4.py (client and server, scapy) on tb277;
+            tcpdump on BOTH eth3 and eth4 for every leg, so each leg counts what was sent
+            and what was relayed independently of the tool's own tally;
+            tools/cfg.py and tools/ckcon.py drive the DUT console; tools/rc2cfg.py saved
+            swi_d.cfg.
+            Client, every leg:
+              dhcp4.py client eth3 --mac <base> --clients 5 --gap 1 --broadcast
+                       --prl 1,3,6,51 --wait 3
+            Server, every leg:
+              dhcp4.py server eth4 --server-ip 192.168.48.2 --pool-start 192.168.10.100
+                       --pool-end 192.168.10.110 --mask 255.255.255.0
+                       --router 192.168.10.1 --lease 3600 --echo-option82
+
+  Method: a ping cannot show a relay rewriting giaddr, so every leg sends crafted
+  DHCPDISCOVERs with a distinct chaddr and xid per client (BOOTP broadcast flag set) and
+  is counted three independent ways: the eth3 capture (what went on the wire), the eth4
+  capture (what the DUT relayed) and the scapy server's own per-frame record (giaddr,
+  hops, source, chaddr). Every positive leg is paired with a control in the same
+  configuration that must produce zero on eth4.
+
+STEP 0 -- baseline: relay state before the first measured leg                  done
+--------------------------------------------------------------------------------
+15:45:46 >>> show ip dhcp-relay
+DHCP Relay Service is enabled
+Use of client side address as source address is disabled
+Use DHCP Relay agent's IP address in Server Identification field is disabled
+
+vlan10 is up, line protocol is up
+Maximum hop count is 10
+Maximum DHCP message length is 1400
+DHCP Relay short lease time for IPv4 is disabled
+DHCP Relay short lease time for IPv6 is disabled
+Insertion of Relay Agent Option is disabled
+Checking of Relay Agent Option is disabled
+Insertion of Subscriber-ID auto-MAC is disabled
+The Remote Id string for Relay Agent Option is e01a.ead4.7043
+Relay Information policy is to replace existing relay agent information
+List of servers :   192.168.48.2
+15:45:47 >>> show ip interface brief
+Interface             IP-Address         Status          Protocol
+eth0                  unassigned         admin up        running
+lo                    unassigned         admin up        running
+vlan1                 unassigned         admin up        running
+vlan10                192.168.10.1/24    admin up        running
+vlan48                192.168.48.1/24    admin up        running
+
+15:52:55 >>> show vlan brief
+10      CKCLIENT         STATIC  ACTIVE  port1.0.10(u)
+48      CKSERVER         STATIC  ACTIVE  port1.0.48(u)
+15:52:56 >>> show interface port1.0.10 status
+Port        Name               Status      Vlan      Duplex Speed   Type
+--------------------------------------------------------------------------------
+port1.0.10  -                  connected          10 a-full a-1000  1000BASE-T
+15:52:57 >>> show interface port1.0.48 status
+Port        Name               Status      Vlan      Duplex Speed   Type
+--------------------------------------------------------------------------------
+port1.0.48  -                  connected          48 a-full a-1000  1000BASE-T
+
+  Relay service enabled with one server (192.168.48.2), maximum hop count 10, both
+  access ports up at 1000BASE-T full duplex in their VLANs. Option-82 insertion and
+  checking are off, so nothing in this case's measurements is affected by them.
+
+  The static ARP entry for the server, applied before the measured legs:
+15:54:04 >>> arp 192.168.48.2 000d.b955.770f port1.0.48
+awplus(config)#
+15:54:06 >>> show arp
+IP Address      LL Address       Interface            Port        Type
+192.168.48.2    000d.b955.770f   vlan48               port1.0.48  static
+
+  => STEP 0 done: the bench is in the state the measured legs assume -- relay service
+     enabled with one server, hop count 10, both access ports up in their VLANs, and the
+     server's ARP entry resolved.
+
+STEP 1 -- the relay forwards client DHCP to the configured server, rewriting
+          giaddr and incrementing hops  (leg `relay-on`)                       PASS
+--------------------------------------------------------------------------------
+  Method: 5 crafted clients from eth3, scapy DHCP server on eth4, both NICs captured.
+
+  COUNTED, three ways:
+    eth3, what we put on the wire   : 10   (5 DISCOVER + 5 REQUEST)
+    eth4, what the DUT relayed      : 10   (5 DISCOVER + 5 REQUEST)   <-- 1:1, no loss
+    eth3, replies back to the client: 10   (5 OFFER + 5 ACK)
+
+  Client tool summary (leg `relay-on`, client side):
+--- summary ---
+chaddr 02:d4:00:00:50:01 xid 0x3f5087d7
+sent: 5 DISCOVER, 5 REQUEST  (clients=5)
+offers received: 5/5   acks received: 5/5
+   02:d4:00:00:50:01 -> offer 192.168.10.100 ack ACK 192.168.10.100
+   02:d4:00:00:50:02 -> offer 192.168.10.101 ack ACK 192.168.10.101
+   02:d4:00:00:50:03 -> offer 192.168.10.102 ack ACK 192.168.10.102
+   02:d4:00:00:50:04 -> offer 192.168.10.103 ack ACK 192.168.10.103
+   02:d4:00:00:50:05 -> offer 192.168.10.104 ack ACK 192.168.10.104
+
+  The relayed DISCOVERs as the server recorded them on eth4
+  (leg `relay-on`, server side), every field that matters:
+    giaddr=192.168.10.1   hops=1  src=192.168.48.1  chaddr=02:d4:00:00:50:01
+    giaddr=192.168.10.1   hops=1  src=192.168.48.1  chaddr=02:d4:00:00:50:02
+    giaddr=192.168.10.1   hops=1  src=192.168.48.1  chaddr=02:d4:00:00:50:03
+    giaddr=192.168.10.1   hops=1  src=192.168.48.1  chaddr=02:d4:00:00:50:04
+    giaddr=192.168.10.1   hops=1  src=192.168.48.1  chaddr=02:d4:00:00:50:05
+    leased: .100 .101 .102 .103 .104 to the five chaddrs respectively
+  One frame in full, as the server saw it:
+      "type": "DISCOVER",
+      "xid": "0x3f5087d7",
+      "chaddr": "02:d4:00:00:50:01",
+      "giaddr": "192.168.10.1",
+      "hops": 1,
+      "eth_src": "e0:1a:ea:d4:70:43",        <-- the DUT's own relay MAC
+      "eth_dst": "00:0d:b9:55:77:0f",
+      "ip_src": "192.168.48.1",              <-- the server-side SVI
+      "ip_dst": "192.168.48.2",              <-- unicast to the configured server
+
+  Forwarding latency, from an isolated capture of both NICs, the same frame:
+    16:04:26.118818 eth3 ... Request from 02:d4:00:00:20:01
+    16:04:26.119574 eth4 ... Request from 02:d4:00:00:20:01       -> 0.76 ms
+
+  => STEP 1 PASS: every client frame was relayed, with giaddr rewritten from 0.0.0.0 to
+     the client-side SVI 192.168.10.1 (which is what lets the server pick the client's
+     subnet), hops incremented 0 -> 1, sourced from the server-side SVI and unicast to
+     the configured server address. Each client's chaddr was preserved and each received
+     its own distinct lease, and every OFFER and ACK was delivered back to the right
+     client. Nothing here could be seen unless the relay were working.
+
+STEP 2 -- CONTROL A: with `no service dhcp-relay`, nothing is relayed
+          (leg `ctl-relay-off`)                                                PASS
+--------------------------------------------------------------------------------
+  Same bench, same cabling, same crafted flow as STEP 1; only the service disabled.
+16:09:55 >>> configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+awplus(config)#
+16:09:56 >>> no service dhcp-relay
+awplus(config)#
+16:09:57 >>> end
+awplus#
+
+  COUNTED:
+    eth3, DISCOVERs captured        : 4      (client tool: "sent: 5 DISCOVER")
+    eth4, relayed by the DUT        : 0      <-- nothing left the DUT
+    eth3, replies back to the client: 0
+  Client tool summary (leg `ctl-relay-off`, client side):
+sent: 5 DISCOVER, 0 REQUEST  (clients=5)
+offers received: 0/5   acks received: 0/5
+   02:d4:00:00:60:01 -> offer None ack None
+   02:d4:00:00:60:02 -> offer None ack None
+   02:d4:00:00:60:03 -> offer None ack None
+   02:d4:00:00:60:04 -> offer None ack None
+   02:d4:00:00:60:05 -> offer None ack None
+  Server record (leg `ctl-relay-off`): no frames at all --
+    {
+      "leased": {},
+      "events": []
+    }
+
+  => STEP 2 PASS: disabling the relay service stops relaying completely. This is both the
+     control for STEP 1 -- the forwarding there was the relay, not some other path across
+     the box -- and the proof that the no-form of `service dhcp-relay` takes effect.
+
+STEP 3 -- CONTROL B: relay enabled but no server address, nothing is relayed
+          (leg `ctl-no-server`)                                                PASS
+--------------------------------------------------------------------------------
+16:11:04 >>> configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+awplus(config)#
+16:11:04 >>> service dhcp-relay
+awplus(config)#
+16:11:05 >>> interface vlan10
+awplus(config-if)#
+16:11:06 >>> no ip dhcp-relay server-address 192.168.48.2
+awplus(config-if)#
+16:11:07 >>> end
+awplus#
+16:11:08 >>> show ip dhcp-relay
+
+DHCP Relay Service is enabled                      <-- the service is RUNNING
+Use of client side address as source address is disabled
+Use DHCP Relay agent's IP address in Server Identification field is disabled
+
+vlan10 is up, line protocol is up
+Maximum hop count is 10
+Maximum DHCP message length is 1400
+DHCP Relay short lease time for IPv4 is disabled
+DHCP Relay short lease time for IPv6 is disabled
+Insertion of Relay Agent Option is disabled
+Checking of Relay Agent Option is disabled
+Insertion of Subscriber-ID auto-MAC is disabled
+The Remote Id string for Relay Agent Option is e01a.ead4.7043
+Relay Information policy is to replace existing relay agent information
+List of servers :   no servers configured          <-- the no-form removed the server
+
+  COUNTED:
+    eth3, DISCOVERs captured        : 4      (client tool: "sent: 5 DISCOVER")
+    eth4, relayed by the DUT        : 0
+    eth3, replies back to the client: 0
+  Client tool summary (leg `ctl-no-server`, client side):
+sent: 5 DISCOVER, 0 REQUEST  (clients=5)
+offers received: 0/5   acks received: 0/5
+  Server record (leg `ctl-no-server`): "leased": {}, "events": []
+
+  => STEP 3 PASS: the sharper of the two controls -- the relay service is running and the
+     client traffic is identical to STEP 1, so the only thing withholding the frames is
+     the absent server address. It also proves the no-form of
+     `ip dhcp-relay server-address`: the server is gone from `show ip dhcp-relay` and
+     gone from the behaviour.
+
+STEP 4 -- the hop-count threshold is enforced at its documented default of 10
+          (matched pair, legs `hops2` and `hops10`)                            PASS
+--------------------------------------------------------------------------------
+  The server address was restored, and `ip dhcp-relay maxhops` left at its default;
+  `show ip dhcp-relay` reports "Maximum hop count is 10" throughout.
+16:12:16 >>> interface vlan10
+awplus(config-if)#
+16:12:17 >>> ip dhcp-relay server-address 192.168.48.2
+awplus(config-if)#
+16:12:17 >>> end
+awplus#
+
+  A matched pair on the same bench, differing only in the hops field of the crafted
+  DISCOVER:
+
+  | leg    | crafted hops | eth3 sent | eth4 relayed | offers | hops at the server |
+  | ------ | ------------ | --------- | ------------ | ------ | ------------------ |
+  | hops2  |      2       |    10     |      10      |  5/5   |  3 (incremented)   |
+  | hops10 |     10       |     4     |       0      |  0/5   |  -- (dropped)      |
+
+  Leg `hops2`, as the server recorded every relayed frame
+  (leg `hops2`, server side):
+    DISCOVER 02:d4:00:00:80:01 giaddr=192.168.10.1 hops=3 src=192.168.48.1
+    REQUEST  02:d4:00:00:80:01 giaddr=192.168.10.1 hops=3 src=192.168.48.1
+    DISCOVER 02:d4:00:00:80:02 giaddr=192.168.10.1 hops=3 src=192.168.48.1
+    REQUEST  02:d4:00:00:80:02 giaddr=192.168.10.1 hops=3 src=192.168.48.1
+    DISCOVER 02:d4:00:00:80:03 giaddr=192.168.10.1 hops=3 src=192.168.48.1
+    REQUEST  02:d4:00:00:80:03 giaddr=192.168.10.1 hops=3 src=192.168.48.1
+    DISCOVER 02:d4:00:00:80:04 giaddr=192.168.10.1 hops=3 src=192.168.48.1
+    REQUEST  02:d4:00:00:80:04 giaddr=192.168.10.1 hops=3 src=192.168.48.1
+    DISCOVER 02:d4:00:00:80:05 giaddr=192.168.10.1 hops=3 src=192.168.48.1
+    REQUEST  02:d4:00:00:80:05 giaddr=192.168.10.1 hops=3 src=192.168.48.1
+    offers received: 5/5   acks received: 5/5
+  Leg `hops10` (client and server side):
+sent: 5 DISCOVER, 0 REQUEST  (clients=5)
+offers received: 0/5   acks received: 0/5
+    server record: "leased": {}, "events": []
+
+  => STEP 4 PASS: a request two hops out is relayed and its hop count incremented to 3; a
+     request already at the threshold of 10 is dropped and never reaches the server. The
+     threshold is therefore enforced, at the default the CLI reference documents, and the
+     pair rules out any other cause -- the two legs differ in one byte of the request.
+
+--------------------------------------------------------------------------------
+REMOVAL
+--------------------------------------------------------------------------------
+Removal was exercised by the two controls, which are the no-forms themselves:
+  `no service dhcp-relay`                        -> relaying stops entirely (STEP 2)
+  `no ip dhcp-relay server-address 192.168.48.2` -> `show ip dhcp-relay` reports
+                                                    "List of servers :   no servers
+                                                    configured" (STEP 3)
+Both were re-applied afterwards and STEP 4 measured full relay function again, so neither
+no-form left residue that blocked the feature from being restored.
+================================================================================

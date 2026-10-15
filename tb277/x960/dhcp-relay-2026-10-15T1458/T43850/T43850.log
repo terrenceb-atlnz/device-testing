@@ -1,0 +1,474 @@
+================================================================================
+TEST T43850 -- IPv4_DHCPServer - Option 82
+================================================================================
+Run:      2026-10-15 16:19-16:36 NZDT (the DUT's flash timestamps are UTC: a file
+          written at 16:31 NZDT is dated 03:31:05 on flash)
+Bench:    tb277, consoles u2 = swi_d (DUT); Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     T43850 "IPv4_DHCPServer - Option 82". No step text exists for this case in
+          AWPTCM or ck.db, so it was graded against:
+            - X960 platform support TPS, row 26: Option 82, priority 1, Yes;
+            - functional spec "DHCP Option 82 Remote ID TFS", requirements
+              S1566.100.01 / .02 / .06 / .07 / .08, quoted at the steps that test them;
+            - DHCP Feature Overview and Configuration Guide C613-22102-00 REV G,
+              "Configuring DHCP relay agent information option (Option 82)", pp20-22;
+            - AW+ CLI pages ip-dhcp-relay-agent-option, -remote-id, -checking and
+              ip-dhcp-relay-information-policy.
+          Option 82 is inserted by the DHCP RELAY, so the DUT was tested as a relay.
+          8 steps as executed, plus a baseline.
+Build:    swi_d  sin_x96056-20261012-24  (flash:/x960-tb277.rel, build date Mon Oct 12 2026)
+          AT-x960-56YSQ, S/N A2WQS700B, standalone Active Master, console u2 @115200
+Configs:  swi_d.cfg (running-config after setup; saved to startup: no)
+
+VERDICT: PASS -- the relay's Option 82 handling is correct on every graded limb:
+insertion, the two sub-option contents, the configurable remote-id and its revert, all
+four information-policy actions, response-path checking, the strip on the way back to
+the client, and survival of a reboot.
+      baseline, insertion disabled ......... option 82 ABSENT in all 3 relayed DISCOVERs
+      insertion enabled .................... circuit-id "vlan10", remote-id = switch MAC
+      circuit-id ........................... "vlan10", the ISC default, no CLI to change it
+      remote-id default .................... 00 06 e0 1a ea d4 70 43 (type 0, the switch MAC)
+      remote-id configured ................. 01 0c "CK-REMOTE-82" (type 1, ASCII, len 12)
+      remote-id no-form .................... back to the switch MAC, proven on the wire
+      remote-id refused while agent-option off  "% Can not configure DHCP Relay agent
+                                                option remote-id unless agent option is set"
+      information policy replace (default) . 1 TLV, the DUT's own
+      information policy keep .............. 1 TLV, the client's, untouched
+      information policy append ............ 2 TLVs, the client's first then the DUT's
+      information policy drop .............. 0 relayed, offers 0/3
+      agent-option checking, matched reply . 3 of 3 OFFERs delivered to the client
+      agent-option checking, bogus reply ... 0 of 3 OFFERs delivered to the client
+      option 82 in the reply to the client . stripped in every leg (RFC 3046)
+      reboot ............................... insertion, remote-id, policy and server all survive
+CAVEAT:  The circuit-id has no CLI on this platform, so only its default ("vlan10") is
+         covered. The remote-id was exercised with one ASCII string. Response-path
+         checking was exercised with BOTH sub-options wrong at once, so per-sub-option
+         matching is not separated. One relay interface on an untagged access VLAN,
+         one configured server, IPv4 only.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+    tb277 eth3  00:0d:b9:55:77:0e           3 crafted DHCP clients (scapy)
+    (no IP; VLAN 10 access)                 some legs inject their OWN option 82
+          |                                 (circuit-id "CKCKT99", remote-id "CKREM99")
+          |                                            ^
+          |  (1) DHCPDISCOVER / DHCPREQUEST            |  (4) OFFER / ACK -- checked here
+          |      broadcast, giaddr 0.0.0.0             |      for option 82: always ABSENT
+          v                                            |
+    +---------------------------------------------------------------------+
+    |  swi_d   AT-x960-56YSQ        D U T                                 |
+    |  port1.0.10 -- vlan10  192.168.10.1/24   (relay in)                 |
+    |     ip dhcp-relay agent-option         <- option 82 inserted here   |
+    |     ... remote-id / checking / information policy, all on vlan10    |
+    |  port1.0.48 -- vlan48  192.168.48.1/24   (relay out)                |
+    +---------------------------------------------------------------------+
+          |                                            ^
+          |  (2) relayed, giaddr 192.168.10.1,         |  (3) OFFER / ACK from the server,
+          |      carrying option 82 -- read here       |      echoing or faking option 82
+          v                                            |
+    tb277 eth4  00:0d:b9:55:77:0f           scapy DHCP server 192.168.48.2
+    (VLAN 48 access)                        + tcpdump: decodes the option 82 the DUT
+                                            inserted, sub-option by sub-option
+
+  DUT     : swi_d (AT-x960-56YSQ) console u2, S/N A2WQS700B, standalone Active Master,
+            sin_x96056-20261012-24. Relay MAC / default option-82 remote-id: e01a.ead4.7043
+  client  : tb277 eth3 00:0d:b9:55:77:0e -> swi_d port1.0.10  (untagged VLAN 10)
+  server  : tb277 eth4 00:0d:b9:55:77:0f -> swi_d port1.0.48  (untagged VLAN 48)
+  SVIs    : vlan10 192.168.10.1/24 (client side), vlan48 192.168.48.1/24 (server side)
+  relay   : service dhcp-relay; ip dhcp-relay server-address 192.168.48.2 on vlan10;
+            static entry arp 192.168.48.2 000d.b955.770f port1.0.48 so the relay's ARP
+            for the server is already resolved
+  tools   : tools/dhcp4.py (scapy client and server) on tb277, tcpdump on eth4 every leg;
+            tools/cfg.py, tools/ckcon.py, tools/ckyn.py, tools/ckreload.py drive the
+            console; tools/rc2cfg.py saved swi_d.cfg.
+            tools/opt82dump.py dumps the raw option-82 TLVs out of a capture.
+            Client, every leg:
+              dhcp4.py client eth3 --mac <base> --clients 3 --gap 1 --broadcast
+                       --prl 1,3,6,51 --wait 3 [--option82 circuit:CKCKT99,remote:CKREM99]
+            Server, every leg:
+              dhcp4.py server eth4 --server-ip 192.168.48.2 --pool-start 192.168.10.100
+                       --pool-end 192.168.10.110 --mask 255.255.255.0 --router 192.168.10.1
+                       --lease 3600 --echo-option82 [--option82-override
+                       circuit:WRONGVLAN,remote:WRONGREMOTE]
+
+  Method: every leg sends 3 crafted DHCPDISCOVERs from eth3 and reads option 82 out of
+  the frames three ways -- the eth4 capture (how many the DUT relayed), the scapy
+  server's per-frame record on eth4 (what option 82 the DUT inserted, decoded sub-option
+  by sub-option) and the client's own received OFFER on eth3 (what came back). Every
+  positive leg is paired with a leg in the same configuration that must not produce it.
+  Nothing rests on `show ip dhcp-relay`; the show output is corroboration read after the
+  frames. The server is run with --echo-option82 throughout, so each reply arriving at
+  the relay really does carry option 82 -- which is what makes the strip test (STEP 6)
+  a measurement rather than an absence.
+
+STEP 0 -- baseline (feature OFF): insertion disabled, no option 82 relayed       done
+--------------------------------------------------------------------------------
+  Insertion is disabled by default, so this control costs nothing and comes first. It is
+  what every later leg's insertion is measured against.
+
+  State before any option-82 command (`show ip dhcp-relay`, group setup):
+DHCP Relay Service is enabled
+vlan10 is up, line protocol is up
+Maximum hop count is 10
+Maximum DHCP message length is 1400
+Insertion of Relay Agent Option is disabled
+Checking of Relay Agent Option is disabled
+Insertion of Subscriber-ID auto-MAC is disabled
+The Remote Id string for Relay Agent Option is e01a.ead4.7043
+Relay Information policy is to replace existing relay agent information
+List of servers :   192.168.48.2
+
+  leg `baseline-off`, 3 clients, no option 82 sent by the client:
+sent: 3 DISCOVER, 3 REQUEST  (clients=3)
+offers received: 3/3   acks received: 3/3
+    eth4 frames relayed by the DUT: 6   (3 DISCOVER + 3 REQUEST)
+  SERVER side -- every relayed DISCOVER (leg `baseline-off`):
+   chaddr=02:e8:00:00:10:01 giaddr=192.168.10.1  option82: ABSENT
+   chaddr=02:e8:00:00:10:02 giaddr=192.168.10.1  option82: ABSENT
+   chaddr=02:e8:00:00:10:03 giaddr=192.168.10.1  option82: ABSENT
+
+  => STEP 0 done: relaying works perfectly and carries NO option 82 while insertion is
+     disabled. This is the control every later leg's insertion is measured against.
+
+STEP 1 -- remote-id is refused while agent-option is disabled  (S1566.100.07)    PASS
+--------------------------------------------------------------------------------
+  S1566.100.07: the remote-id CLI "will only be allow when the agent-option command is
+  enabled". Run while insertion was still disabled, before enabling it:
+16:19:27 >>> configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+16:19:28 >>> interface vlan10
+16:19:29 >>> ip dhcp-relay agent-option remote-id CK-REMOTE-82
+% Can not configure DHCP Relay agent option remote-id unless agent option is set
+16:19:30 >>> end
+
+  => STEP 1 PASS: the command is refused, with a specific and accurate message naming
+     the precondition, exactly as S1566.100.07 requires -- not silently accepted and not
+     refused with a generic parse error.
+
+STEP 2 -- insertion ON: circuit-id is "vlan10", remote-id is the switch MAC
+          (S1566.100.01, .06)   (leg `agent-option-on`)                          PASS
+--------------------------------------------------------------------------------
+16:19:38 >>> interface vlan10
+awplus(config-if)#
+16:19:38 >>> ip dhcp-relay agent-option
+awplus(config-if)#
+16:19:39 >>> end
+awplus#
+16:19:40 >>> show ip dhcp-relay
+
+DHCP Relay Service is enabled
+vlan10 is up, line protocol is up
+Maximum hop count is 10
+Insertion of Relay Agent Option is enabled          <-- was "disabled" at STEP 0
+Checking of Relay Agent Option is disabled
+Insertion of Subscriber-ID auto-MAC is disabled
+The Remote Id string for Relay Agent Option is e01a.ead4.7043
+Relay Information policy is to replace existing relay agent information
+List of servers :   192.168.48.2
+
+  leg `agent-option-on`, 3 clients, otherwise identical to STEP 0:
+sent: 3 DISCOVER, 3 REQUEST  (clients=3)
+offers received: 3/3   acks received: 3/3
+    eth4 frames relayed by the DUT: 6
+  SERVER side -- option 82 as the DUT built it, identical on all three
+  (leg `agent-option-on`, server side):
+   chaddr=02:e8:00:00:20:01 giaddr=192.168.10.1
+      circuit_id=vlan10  remote_id=0006e01aead47043
+      raw=0106766c616e313002080006e01aead47043
+   chaddr=02:e8:00:00:20:02 giaddr=192.168.10.1
+      circuit_id=vlan10  remote_id=0006e01aead47043
+      raw=0106766c616e313002080006e01aead47043
+   chaddr=02:e8:00:00:20:03 giaddr=192.168.10.1
+      circuit_id=vlan10  remote_id=0006e01aead47043
+      raw=0106766c616e313002080006e01aead47043
+  Decoded: sub-option 1 (circuit-id) len 6 = "vlan10"
+           sub-option 2 (remote-id)  len 8 = 00 06 e0 1a ea d4 70 43
+
+  => STEP 2 PASS, as the matched pair with STEP 0 -- same bench, same crafted flow, the
+     single command `ip dhcp-relay agent-option` turning option 82 from ABSENT into a
+     well-formed TLV. The circuit-id is the ISC default string naming the client-side
+     VLAN interface, "vlan10", which S1566.100.06 says is what it must be and which no
+     CLI exists to change. The remote-id is the switch MAC e0:1a:ea:d4:70:43 per
+     S1566.100.01, carried with the inner type/length prefix 00 06 (type 0 = binary,
+     length 6), and it matches what `show ip dhcp-relay` reports as the Remote Id string.
+
+STEP 3 -- the remote-id is configurable, and reverts to the MAC on its no-form
+          (S1566.100.02, .07, .08)   (leg `remote-id-ascii`)                     PASS
+--------------------------------------------------------------------------------
+16:20:53 >>> interface vlan10
+awplus(config-if)#
+16:20:54 >>> ip dhcp-relay agent-option remote-id CK-REMOTE-82     <-- accepted now
+awplus(config-if)#
+16:20:55 >>> end
+awplus#
+16:20:55 >>> show ip dhcp-relay
+Insertion of Relay Agent Option is enabled
+Checking of Relay Agent Option is disabled
+The Remote Id string for Relay Agent Option is CK-REMOTE-82
+
+  leg `remote-id-ascii`, 3 clients:
+sent: 3 DISCOVER, 3 REQUEST  (clients=3)
+offers received: 3/3   acks received: 3/3
+    eth4 frames relayed by the DUT: 6
+  SERVER side, identical on all three (leg `remote-id-ascii`):
+   chaddr=02:e8:00:00:30:01 giaddr=192.168.10.1
+      circuit_id=vlan10  remote_id=010c434b2d52454d4f54452d3832
+      raw=0106766c616e3130020e010c434b2d52454d4f54452d3832
+  Decoded: sub-option 1 (circuit-id) = "vlan10"        <-- UNCHANGED, as .06 requires
+           sub-option 2 (remote-id)  = 01 0c "CK-REMOTE-82"  (type 1 = ASCII, length 12)
+
+  The revert (S1566.100.08):
+16:22:07 >>> interface vlan10
+awplus(config-if)#
+16:22:08 >>> no ip dhcp-relay agent-option remote-id
+awplus(config-if)#
+16:22:09 >>> end
+awplus#
+16:22:09 >>> show ip dhcp-relay
+Insertion of Relay Agent Option is enabled
+The Remote Id string for Relay Agent Option is e01a.ead4.7043
+  and the next leg's relayed frames carried 02 08 0006e01aead47043 again (leg
+  `checking-off-with-opt82`, 16:22, raw=0106766c616e313002080006e01aead47043) -- back to
+  the switch MAC ON THE WIRE, not merely in the show output.
+
+  => STEP 3 PASS: the remote-id content is configurable per S1566.100.02, the configured
+     string reaches the server in the frame, the circuit-id is untouched by it, and the
+     no-form restores the switch-MAC default per S1566.100.08. Note the inner encoding
+     follows the content: type 0x00 + 6-byte MAC for the default, type 0x01 + length for
+     an ASCII string.
+
+STEP 4 -- `agent-option checking` validates SERVER RESPONSES
+          (legs `checking-on-no-opt82`, `chk-on-bogus-resp`, `checking-on-with-opt82`)  PASS
+--------------------------------------------------------------------------------
+  The AW+ command reference defines the direction: the command "enables the DHCP Relay
+  Agent to check DHCP Relay Agent Information Option (Option 82) information in RESPONSE
+  PACKETS RETURNED FROM DHCP SERVERS. If the information does not match the information
+  it has for its own client (downstream) interface then the DHCP Relay Agent drops the
+  packet." Client-originated option 82 is governed by `ip dhcp-relay information policy`
+  instead, and is STEP 5.
+
+16:23:18 >>> interface vlan10
+awplus(config-if)#
+16:23:18 >>> ip dhcp-relay agent-option checking
+awplus(config-if)#
+16:23:19 >>> end
+awplus#
+16:23:20 >>> show ip dhcp-relay
+Insertion of Relay Agent Option is enabled
+Checking of Relay Agent Option is enabled           <-- was "disabled"
+The Remote Id string for Relay Agent Option is e01a.ead4.7043
+Relay Information policy is to replace existing relay agent information
+
+  The matched pair, both with checking ENABLED, differing only in what the SERVER returns:
+
+  | leg                  | server's option 82 in the reply      | OFFERs reaching client |
+  | -------------------- | ------------------------------------ | ---------------------- |
+  | checking-on-no-opt82 | echoes the relay's own  (match)      |        3 of 3          |
+  | chk-on-bogus-resp    | "WRONGVLAN" / "WRONGREMOTE" (bogus)  |        0 of 3          |
+
+  (a) leg `checking-on-no-opt82`, server with --echo-option82:
+sent: 3 DISCOVER, 3 REQUEST  (clients=3)
+offers received: 3/3   acks received: 3/3
+      relayed DISCOVERs reached the server carrying circuit_id=vlan10
+      remote_id=0006e01aead47043, so there was something to match against.
+  (b) leg `chk-on-bogus-resp`, server with
+      --option82-override circuit:WRONGVLAN,remote:WRONGREMOTE:
+sent: 3 DISCOVER, 0 REQUEST  (clients=3)
+offers received: 0/3   acks received: 0/3
+      SERVER side -- the DUT DID relay all 3 DISCOVERs up (so the drop is on the way
+      back, not on the way out):
+   chaddr=02:e8:00:00:70:01 giaddr=192.168.10.1  circuit_id=vlan10  remote_id=0006e01aead47043
+   chaddr=02:e8:00:00:70:02 giaddr=192.168.10.1  circuit_id=vlan10  remote_id=0006e01aead47043
+   chaddr=02:e8:00:00:70:03 giaddr=192.168.10.1  circuit_id=vlan10  remote_id=0006e01aead47043
+      CLIENT side -- every reply withheld:
+   02:e8:00:00:70:01 -> no OFFER
+   02:e8:00:00:70:02 -> no OFFER
+   02:e8:00:00:70:03 -> no OFFER
+
+  The ingress direction, measured to show checking does not police it -- leg
+  `checking-on-with-opt82`, checking ENABLED and the client injecting its own option 82:
+sent: 3 DISCOVER, 3 REQUEST  (clients=3)
+offers received: 3/3   acks received: 3/3
+      relayed, not dropped; the DUT replaced the client's field with its own
+      (circuit_id=vlan10, remote_id=0006e01aead47043), which is the `replace` policy.
+
+  => STEP 4 PASS: with checking enabled the relay dropped every server response whose
+     option 82 did not match what it holds for its own downstream interface (0 of 3
+     delivered) and passed every response that matched (3 of 3), while identical client
+     traffic carrying its own option 82 was still relayed -- the feature acts on the
+     response path, as documented.
+
+STEP 5 -- `ip dhcp-relay information policy`: all four actions on client option 82
+          (legs `checking-off-with-opt82`, `policy-keep`, `policy-append`,
+           `policy-drop`)                                                        PASS
+--------------------------------------------------------------------------------
+  The guide, pp21-22: the policy "sets the action that the DHCP relay should take when a
+  received DHCP client request contains Option 82 information". Each leg sends the SAME
+  crafted DISCOVER carrying option 82 (circuit-id "CKCKT99", remote-id "CKREM99"); only
+  the policy differs. `agent-option checking` was disabled for these legs so the response
+  path could not confound the ingress measurement, e.g.:
+16:26:54 >>> interface vlan10
+awplus(config-if)#
+16:26:55 >>> no ip dhcp-relay agent-option checking
+awplus(config-if)#
+16:26:56 >>> ip dhcp-relay information policy keep
+awplus(config-if)#
+16:26:57 >>> end
+awplus#
+16:26:57 >>> show ip dhcp-relay
+Insertion of Relay Agent Option is enabled
+Checking of Relay Agent Option is disabled
+Relay Information policy is to keep DHCP packets as is
+  (`drop` and `append` were set the same way; `show ip dhcp-relay` then read
+   "Relay Information policy is to drop DHCP packets with relay agent option present"
+   and "Relay Information policy is to append new relay agent information".)
+
+  | policy            | relayed | option 82 arriving at the server                      |
+  | ----------------- | ------- | ----------------------------------------------------- |
+  | replace (default) |   3/3   | ONE TLV = the DUT's own: "vlan10" / switch MAC        |
+  | keep              |   3/3   | ONE TLV = the client's, untouched: "CKCKT99"/"CKREM99" |
+  | append            |   3/3   | TWO TLVs: the client's FIRST, then the DUT's own      |
+  | drop              |   0     | nothing relayed, offers 0/3                           |
+
+  replace (leg `checking-off-with-opt82`, the default policy):
+   chaddr=02:e8:00:00:40:01 giaddr=192.168.10.1
+      circuit_id=vlan10  remote_id=0006e01aead47043
+      raw=0106766c616e313002080006e01aead47043       <-- the client's CKCKT99 is gone
+  keep (leg `policy-keep`):
+   chaddr=02:e8:00:00:80:01 giaddr=192.168.10.1
+      circuit_id=CKCKT99  remote_id=CKREM99
+      raw=0107434b434b5439390207434b52454d3939       <-- the client's, byte for byte
+  drop (leg `policy-drop`):
+sent: 3 DISCOVER, 0 REQUEST  (clients=3)
+offers received: 0/3   acks received: 0/3
+      server record: {"leased": {}, "events": []}    <-- nothing relayed at all
+  append (leg `policy-append`), raw TLV dump of the relayed frame
+  (tools/opt82dump.py over the leg's eth4 capture):
+    policy-append, chaddr 02e80000a001 -- option-82 TLVs present: 2
+      [0] len=18 raw=0107434b434b5439390207434b52454d3939
+            sub 1 len 7 = b'CKCKT99'      sub 2 len 7 = b'CKREM99'
+      [1] len=18 raw=0106766c616e313002080006e01aead47043
+            sub 1 len 6 = b'vlan10'       sub 2 len 8 = b'\x00\x06\xe0\x1a\xea\xd4pC'
+    policy-keep,   chaddr 02e800008001 -- option-82 TLVs present: 1  (the client's only)
+    replace,       chaddr 02e800004001 -- option-82 TLVs present: 1  (the DUT's only)
+
+  => STEP 5 PASS on all four actions. `replace` substitutes the relay's own field for the
+     client's, `keep` forwards the client's untouched, `append` preserves the client's
+     and adds the relay's own after it (two distinct TLVs in one frame, confirmed from
+     the raw bytes), and `drop` discards the request entirely -- the control that must
+     not match, and it produced exactly zero.
+
+STEP 6 -- option 82 is stripped from the reply delivered to the client (RFC 3046)  PASS
+--------------------------------------------------------------------------------
+  Measured on the client side in EVERY leg above. It is a real measurement here because
+  the scapy server ran with --echo-option82 throughout, so each OFFER arriving at the
+  relay from the server CARRIED option 82. In every leg the OFFER that reached the client
+  on eth3 carried none:
+   02:e8:00:00:20:01 -> OFFER 192.168.10.100  option82: ABSENT (stripped)
+   02:e8:00:00:20:02 -> OFFER 192.168.10.101  option82: ABSENT (stripped)
+   02:e8:00:00:20:03 -> OFFER 192.168.10.102  option82: ABSENT (stripped)
+   ... identically for every client of every insertion leg (baseline-off,
+       agent-option-on, remote-id-ascii, checking-on-with-opt82, checking-on-no-opt82,
+       policy-keep, policy-append, post-reboot)
+
+  => STEP 6 PASS: the relay removes the agent information before handing the reply down
+     to the client, as RFC 3046 requires, in every configuration tested -- including the
+     legs where the field it inserted was a configured ASCII string and the legs where
+     the client's own field had been kept or appended.
+
+STEP 7 -- removal                                                                PASS
+--------------------------------------------------------------------------------
+  `no ip dhcp-relay agent-option remote-id`  -> the Remote Id string returns to the
+                                                switch MAC e01a.ead4.7043, proven in the
+                                                show output AND on the wire (STEP 3)
+  `no ip dhcp-relay agent-option checking`   -> response-path dropping stops; the STEP 5
+                                                legs that follow it all delivered their
+                                                OFFERs (3/3)
+16:30:55 >>> interface vlan10
+awplus(config-if)#
+16:30:55 >>> ip dhcp-relay information policy replace
+awplus(config-if)#
+16:30:56 >>> no ip dhcp-relay agent-option checking
+awplus(config-if)#
+16:30:57 >>> end
+awplus#
+16:31:03 >>> show ip dhcp-relay
+DHCP Relay Service is enabled
+vlan10 is up, line protocol is up
+Maximum hop count is 10
+Insertion of Relay Agent Option is enabled
+Checking of Relay Agent Option is disabled                  <-- removed
+Insertion of Subscriber-ID auto-MAC is disabled
+The Remote Id string for Relay Agent Option is e01a.ead4.7043   <-- back to the MAC
+Relay Information policy is to replace existing relay agent information  <-- back to default
+List of servers :   192.168.48.2
+
+  => STEP 7 PASS: each option-82 setting can be taken off again and the relay returns to
+     the state STEP 0 measured -- checking off, remote-id the switch MAC, policy replace
+     -- in the show output and, for the remote-id, in the relayed frames themselves.
+
+STEP 8 -- the settings survive a reboot                                          PASS
+--------------------------------------------------------------------------------
+  Staged on a SEPARATE boot file so flash:/default.cfg is never written:
+16:31:12 >>> copy running-config flash:/ckrelay.cfg
+Copying...
+Successful operation
+16:31:13 >>> dir flash:/ckrelay.cfg
+1608 -rw- Oct 15 2026 03:31:05  flash:/ckrelay.cfg
+16:31:20 >>> boot config-file flash:/ckrelay.cfg
+awplus(config)#
+16:31:27 >>> show boot
+Boot configuration
+--------------------------------------------------------------------------------
+Current software   : x960-tb277.rel
+Current boot image : flash:/x960-tb277.rel (file exists)
+Backup  boot image : Not set
+Default boot config: flash:/default.cfg
+Current boot config: flash:/ckrelay.cfg (file exists)
+Backup  boot config: Not set
+Autoboot status    : disabled
+16:31:39 >>> reload
+reboot question: 'reboot system? (y/n):' -> y
+16:32:39 login seen after 61 s
+
+  After the reload:
+16:33:27 >>> show ip dhcp-relay
+DHCP Relay Service is enabled
+Use of client side address as source address is disabled
+Use DHCP Relay agent's IP address in Server Identification field is disabled
+
+vlan10 is up, line protocol is up
+Maximum hop count is 10
+Maximum DHCP message length is 1400
+DHCP Relay short lease time for IPv4 is disabled
+DHCP Relay short lease time for IPv6 is disabled
+Insertion of Relay Agent Option is enabled           <-- survived the reboot
+Checking of Relay Agent Option is disabled
+Insertion of Subscriber-ID auto-MAC is disabled
+The Remote Id string for Relay Agent Option is e01a.ead4.7043
+Relay Information policy is to replace existing relay agent information
+List of servers :   192.168.48.2                     <-- survived the reboot
+
+  Proven on the wire after the reload, not only in the show -- leg `post-reboot`,
+  3 clients, with nothing re-applied by hand:
+sent: 3 DISCOVER, 3 REQUEST  (clients=3)
+offers received: 3/3   acks received: 3/3
+    eth4 frames relayed by the DUT: 6
+   chaddr=02:e8:00:00:c0:01 giaddr=192.168.10.1
+      circuit_id=vlan10  remote_id=0006e01aead47043
+      raw=0106766c616e313002080006e01aead47043
+   chaddr=02:e8:00:00:c0:02 giaddr=192.168.10.1
+      circuit_id=vlan10  remote_id=0006e01aead47043
+   chaddr=02:e8:00:00:c0:03 giaddr=192.168.10.1
+      circuit_id=vlan10  remote_id=0006e01aead47043
+   02:e8:00:00:c0:01 -> OFFER 192.168.10.100  option82: ABSENT (stripped)
+   02:e8:00:00:c0:02 -> OFFER 192.168.10.101  option82: ABSENT (stripped)
+   02:e8:00:00:c0:03 -> OFFER 192.168.10.102  option82: ABSENT (stripped)
+
+  => STEP 8 PASS: the option-82 configuration is written to the boot config and reloaded
+     intact, and the feature is still measurably working after the reboot -- insertion
+     with the default circuit-id and remote-id, and the strip on the reply path.
+================================================================================
