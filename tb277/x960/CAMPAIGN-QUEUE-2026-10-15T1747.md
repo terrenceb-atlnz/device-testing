@@ -890,6 +890,7 @@ Captures and step outputs on the box in `/tmp/ckC/`; console transcripts `/tmp/c
 | T43855 | PASS | static route proven **on the wire**: 5/5 forwarded against **0/5** in the baseline and **0/5** after `no ip route`, with a control flow to an unrouted prefix dropped in every leg. Removal proven in the **FIB** (`% Network not in table`), not just running-config. Three syntax forms measured (next-hop, next-hop + distance, interface form); the floating-static egress move is attributed by **swi_a's own ICMP unreachables**, and the distance-255 RIB-not-FIB rule is confirmed. Survives a real reload; teardown diffed clean on swi_d and swi_b | tester | static-2026-10-15T1747/T43855/work/run1.log |
 | T43861 | PASS | ECMP proven **per egress port on four counters across three devices**, never from `show ip route`: one route = 1920/1920 on a single port; two routes = a real split; **`maximum-paths 1` collapses the identical flow set to 1280/0**; removal returns all traffic to the survivor; survives a real reload. An instrument artefact was found and corrected mid-case — varying all four 5-tuple fields by the same index correlates the two addresses the hash actually uses and gave a misleading **81/19**; decorrelated spans gave **50/50**, and the verdict rests on the corrected legs. Three product findings recorded (F-1..F-3 below), none a failure of the feature | tester | static-2026-10-15T1747/T43861/work/run1.log |
 | T43862 | PASS | the secondary address proven **serving traffic**, not merely displayed: ARP **0/4** off → **4/4** on → **0/4** removed, and forwarding into the secondary subnet **0/5** → **5/5** → **0/5**; the connected route appears and disappears with it; survives a real reload. Multiple secondaries coexist; `ip address … secondary` with no primary is refused (`% Configure primary first`); removing the primary while a secondary exists is **refused, not cascaded** (`% Must delete secondary before deleting primary`). One planned discriminator was **discarded at baseline because it did not discriminate** — a frame merely *sourced* in the secondary subnet crosses the DUT with the feature off too, since forwarding is destination-based and there is no uRPF | tester | static-2026-10-15T1747/T43862/work/run1.log |
+| T43857 | PASS | OSPFv2 proven **on the wire across 9 counted legs**: the service gate measured, Full adjacency to **two** neighbours, routes learned from the protocol (code `O`, AD 110, partner Router LSAs, **no static route anywhere**) forwarding 5/5 + 5/5 against a control dropped in every leg. **The sharpest limb:** withdrawing ONE advertisement — link, port and adjacency all left up — dropped the subject to **0/5 in under 7 s** while the second neighbour stayed **5/5 in the SAME leg**. Static AD 1 displaces OSPF AD 110 **in the dataplane**, attributed by ICMP time-exceeded from the static next hop. `passive-interface` gives **0 OSPF packets in 30 s** while the Router LSA held at the neighbour still carries the network. Survives a real 61 s reboot | tester | igp-2026-10-15T1747/T43857/work/run1.log |
 
 ## Issues
 
@@ -1053,3 +1054,22 @@ Captures and step outputs on the box in `/tmp/ckC/`; console transcripts `/tmp/c
   with "no licence", so a tester that takes it at face value would grade a licensed, supported
   feature UNSUPPORTED. Expect the same for `service rip` and `service bgp` in groups C and D.
   Same shape as the DNS-relay settle in `platforms/x960.md` §6.8.
+- **🔴 F-5 (T43857, cosmetic, DECLARED, not a failure) — `no service <proto>` sticks as an
+  explicit running-config line on a device that BOOTED with that service enabled, and only on that
+  device.** Measured against both partners within the same minute: `show process | include ospf`
+  shows `ospfd` **still running on all three** (DUT pid 1701, swi_b pid 32355), yet only swi_d
+  renders `no service ospf` in running-config. swi_b and swi_a print no ospf line at all.
+  **Consequence, and it is general:** every reboot-persistence limb on a service-gated protocol
+  (`ospf`, `rip`, `bgp`, `pim`, `vrrp`, `bfd`) will leave a `no service <proto>` line behind and
+  **its teardown diff will not come back clean**. swi_d's T43857 teardown diff is exactly that one
+  line; both partners are byte-identical to pre-case, and the DUT's boot pointer, flash and route
+  table are all back to baseline. T43856's own reboot will show whether it clears on the next
+  boot. For `platforms/x960.md`.
+- **TECHNIQUE (T43857) — `show process | include <daemon>` is the instrument for real daemon
+  state.** `show running-config` shows the *configured* intent and the `%` messages show neither;
+  only the process table shows whether `ospfd` is actually running. This is what turned the
+  service-gate confusion into a measured fact in both directions:
+  - **start is ASYNCHRONOUS** — `service ospf` returns immediately, `router ospf` right after is
+    refused, the daemon appears seconds later;
+  - **stop needs a RELOAD** — `no service ospf` answers `% Save the config and restart for this
+    change to take effect.` and the daemon keeps running.
