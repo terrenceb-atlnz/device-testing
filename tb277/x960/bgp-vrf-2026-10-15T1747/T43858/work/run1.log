@@ -1,0 +1,415 @@
+================================================================================
+T43858  IPv4_UnicastRouting - BGPv4        working log, run 1
+================================================================================
+Campaign : tb277 x960 routing/ARP, 13 cases, stamp 2026-10-15T1747
+Group    : bgp-vrf-2026-10-15T1747  (group D, the last group -- 11 of 13 done, 11 PASS)
+Run by   : bench-runner subagent (tester).  Sentinel: the parent /test-mode session.
+Date     : 2026-10-15, 22:44 - (NZDT; the box and all three devices report UTC, NZDT = UTC+13)
+
+
+1. SESSION FACTS (given by the Test Engineer, not measured)
+------------------------------------------------------------
+  box          tb277
+  consoles     u2 = swi_d (DUT, AT-x960-56YSQ, 115200)
+               u3 = swi_b (AT-x960-28YSQ, 9600)
+               u5 = swi_a (AT-x950 GEN2-52XSTQm, 9600)
+  pdu          10.36.230.212 outlets u2=1, u3=7 ; 10.36.230.35 outlet u5=3
+  constraints  None (full authority within tests, power cycles allowed) EXCEPT RISK-1:
+               swi_a must never be reloaded or power-cycled (boot image `Not set`,
+               flash:/default.cfg not found -- it is running from a netboot).
+               NO POWER OPERATION OF ANY KIND WAS PERFORMED IN THIS CASE.  The only
+               reboot is step 9's `reload` of the DUT, which flash-boots.
+  Test Engineer is AWAY and cannot answer prompts.  Nothing in this case needed them.
+
+  Devices (role, model, serial, console, build):
+    swi_d  DUT        AT-x960-56YSQ          S/N A2WQS700B           u2 @115200
+           build sin_x96056-20261012-24  (AlliedWare Plus 0.0.0 10/12/26 06:38:00,
+           build name swmrvl_armv8-sin_x96056-20261012-24.rel)
+           licences: Base + `atlnz` (ATL-NZ internal, Full) -> BGP-FULL, BGP-5K, BGP-256,
+           BGP-64, BGP4+, No-Tier-Check.  BGP is NOT licence-limited on this unit.
+           SVI MAC (all SVIs share one, platforms/x960.md 6.5): e0:1a:ea:d4:70:43
+    swi_b  BGP peer   AT-x960-28YSQ          S/N A10737A261700021    u3 @9600
+           build sin_x96056-20260921-9.  Base License only -> BGP-64.  One prefix
+           advertised, well inside 64.
+    swi_a  BGP peer   AT-x950 GEN2-52XSTQm   S/N A10713A262600012    u5 @9600
+           build awplus_main-20261008-56.  Base + `full` (ATL-NZ internal).
+
+  Host NICs on the box (recorded once for the group; T43859 points here):
+    eth3  00:0d:b9:55:77:0e   -> swi_d port1.0.10 (vlan10)
+    eth4  00:0d:b9:55:77:0f   -> swi_d port1.0.48 (vlan48)
+    No host networking is changed at any point.  192.168.10.x is a scapy fiction; every
+    frame is crafted at L2 with the DUT's SVI MAC as next hop.
+
+  CLOCKS (RISK-5 of the queue said swi_b was ~13 h ahead; group A fixed it with
+  `clock set` and group D re-measured).  All three now agree with the box:
+    box    09:43:43 UTC (ssh `date -u`)
+    swi_d  09:44:14 UTC   | swi_b  09:45:00 UTC   | swi_a  09:45:22 UTC
+    read sequentially over ~100 s, so each is within a few seconds of the box.
+    OFFSET TO APPLY TO ANY swi_b OR swi_a TIMESTAMP IN THIS LOG: none.
+    Console transcripts carry NZDT wall-clock (UTC+13); device `show clock` is UTC.
+
+
+2. CASE AUTHORITY -- THERE IS NONE, AND THIS IS WHY
+------------------------------------------------------------
+  * AWPTCM-T43858 "IPv4_UnicastRouting - BGPv4" has NO step text.
+  * ck.db keys on AWP-nnnn, not AWPTCM-T<id>, so the lookup joins on TITLE
+    (memory `ckdb-case-lookup-by-title`).  Exact-title query re-run by this tester
+    against /home/terrenceb/claude/Test-cases/ask-ck/db/ck.db (read-only URI):
+        select id,title from testlink_cases where title='IPv4_UnicastRouting - BGPv4'
+        -> []   (no row)
+    This confirms the campaign triage's finding for this case specifically.
+  * There is NO BGP Feature Overview Guide in `Feature Overview Guides/` (the eight present
+    are ACL, DHCP, IP, Mirroring, OSPF, RIP, Route Selection, VRF-lite).
+  ==> The steps below are designed from (a) the TPS row -- row 34 "BGP-4", priority 1, Yes,
+      for the X960 platform; (b) the DUT's own CLI surface, probed read-only with
+      tools/qmark.py; (c) the shape the Test Engineer's standing orders require
+      (STANDING-ORDERS 7: baseline OFF, crafted frames, known counts, a control flow in the
+      same leg, removal, reboot persistence); and (d) reference rows found in ck.db by LIKE,
+      which are NOT this case's steps and are quoted only as shape:
+        AWP-10876 "Standard Test - Establish BGP peers" -- "The DUT should successfully open
+                  BGP connections to each of the peers."
+        AWP-15982 "Default route received via BGP" -- uses `show ip bgp summary`,
+                  `show ip route`, `show ip bgp neighbors` as its verification set.
+      THIS IS DECLARED: no authored expected result exists for T43858 on this bench.
+
+
+3. BENCH AT THE START OF THIS CASE -- VERIFIED ON THE HARDWARE, NOT ASSUMED
+------------------------------------------------------------
+  The dispatch stated the shared B/C/D L3 underlay was live.  It was re-measured at
+  22:44-22:45 NZDT (09:44-09:45 UTC) before any group-D command:
+
+    swi_d# show ip interface brief -> vlan10 192.168.10.1/24, vlan41 10.0.41.1/30,
+                                      vlan48 192.168.48.1/24, vlan61 10.0.61.1/30
+    swi_d# show ip route           -> the FOUR CONNECTED ROUTES ONLY.  No static, no B, no O, no R.
+    swi_d# show spanning-tree brief-> Root Id = Bridge Id = 0000:e01aead47043 (the DUT is root);
+                                      port1.0.4/10/16/48 Designated Forwarding;
+                                      port1.0.2 and port1.0.14 Disabled Discarding (shut, as group B left them)
+    swi_d# show boot               -> Current boot image : flash:/x960-tb277.rel (file exists)
+                                      Current boot config: flash:/default.cfg (file exists)
+    swi_d# show arp                -> 10.0.61.2 0000.cd42.3029 vlan61 port1.0.16 dynamic
+                                      10.0.41.2 889d.98df.2602 vlan41 port1.0.4  dynamic
+    swi_d# show running-config | include service
+                                   -> service ssh / no service telnet / service http /
+                                      no service rip / no service ospf / no service dhcp-server
+                                      (the last two are group C's FINDING F-5 sticky lines)
+    swi_b# -> lo 10.70.70.1/32, vlan61 10.0.61.2/30, S 192.168.10.0/24 + S 192.168.48.0/24 via 10.0.61.1
+    swi_a# -> lo 10.90.90.1/32, vlan41 10.0.41.2/30, S 192.168.10.0/24 + S 192.168.48.0/24 via 10.0.41.1
+
+  THE PARTNERS' RETURN ROUTES ARE STATIC AND STAY STATIC for the whole case.  The return path
+  is not what this case tests; keeping it static makes the FORWARD path the only variable, so a
+  reply that comes back proves the DUT had a forward route it can only have got from BGP.
+  (Static AD 1 also beats eBGP AD 20 on the partners, so a BGP-learned copy of the same prefix
+  cannot silently change the return path mid-case.)
+
+  Occupancy check before any console was opened (STANDING-ORDERS; orient-dt 1):
+    bench_probe.py --box tb277 precheck --consoles u2,u3,u5
+      /dev/u2 free   /dev/u3 free   /dev/u5 free
+      FOUND 1 item: process 744 (root, up 34-11:29:40) /usr/sbin/ser2net -c /etc/ser2net.conf
+    That is the box's console-server daemon -- the thing that PROVIDES /dev/uN -- not a session
+    holding a console.  It was present throughout the 14:58 and 17:47 campaigns.  No person is
+    being displaced.  Recorded, not escalated, exactly as the queue's standing NOTICE says.
+  Console state before use (tools/peek.py, one bare CR each):
+    /dev/u2 -> 'awplus#'   /dev/u3 -> 'x960-28YSQ#'   /dev/u5 -> 'awplus#'
+    All three at a clean exec prompt.  None parked in config mode or a root shell.
+
+
+4. TOOLS AND WHERE THE EVIDENCE LIVES
+------------------------------------------------------------
+  tools/ckcon.py, tools/cfg.py, tools/ckyn.py, tools/qmark.py, tools/peek.py,
+  tools/ckreload.py, tools/rcdiff.py, tools/rc2cfg.py, tools/arpleg.py (--icmp with
+  --gw-mac and --answer), plus plain `tcpdump` for the BGP-protocol observation.
+  NO NEW TOOL WAS WRITTEN AND NONE WAS NEEDED.
+  `python3.8` for every tool on tb277 (`tools/tb` is broken there -- the box's python3 is 3.6).
+  Captures on the box: /tmp/ckD/T43858/ ; console transcripts /tmp/ckD/console-u{2,3,5}.log
+  /tmp free space on tb277: 110 MB of 2.0 G (95% used), the rest being 1.8 GB of someone
+  else's wireshark_eth4*.pcapng which is NOT ours to delete.  Free space was checked before
+  every capture and every capture was kept to a few KB.
+
+
+5. THE FLOWS USED BY EVERY COUNTED LEG
+------------------------------------------------------------
+  Sender is always 192.168.10.5 / 00:11:22:33:44:01 on host eth3, next hop e0:1a:ea:d4:70:43.
+  A background ARP responder answers the DUT's ARP for 192.168.10.5 (`arpleg.py --answer`),
+  because this DUT does NOT learn a neighbour from a request it merely answers (group A
+  finding, now in tools/README.md).
+
+    10.70.70.1    SUBJECT-B.  swi_b's loopback.  Reachable ONLY if the DUT learned it over the
+                  eBGP session with swi_b.  No static route for it exists at any point except
+                  the deliberate administrative-distance limb (step 5), which is removed again.
+    10.90.90.1    SUBJECT-A.  swi_a's loopback, learned over a SECOND eBGP session on a
+                  DIFFERENT interface.  It is the live positive control for the withdrawal leg:
+                  when SUBJECT-B goes to zero, SUBJECT-A staying 5/5 IN THE SAME CAPTURE proves
+                  the bench, the DUT and the instrument are all still working.
+    203.0.113.9   CONTROL.  No route ever exists for it.  It must be dropped in EVERY leg,
+                  including the legs where the subjects forward.  Sent in the same leg.
+    192.168.10.1  INSTRUMENT CONTROL.  The DUT's own vlan10 address.  It must be answered in
+                  EVERY leg, so a zero on the other three is a measurement, not a dead instrument.
+
+
+6. STEPS
+================================================================================
+
+STEP 1 -- BASELINE, BGP OFF  (the feature OFF first; Test Engineer 2026-10-08)
+------------------------------------------------------------
+Objective: with no `router bgp` anywhere, the DUT holds no BGP route and forwards neither
+partner loopback.
+
+  State read first (22:45:34-22:45:45, tools/ckcon.py on /dev/u2):
+    awplus# show ip bgp summary            ->  (empty -- no output at all)
+    awplus# show ip bgp                    ->  (empty)
+    awplus# show ip vrf                    ->  no VRF is defined.
+    awplus# show running-config | include ip route   ->  (empty: NO static route anywhere)
+    awplus# show process | include bgp     ->  1721 bgpd   3  0.0  0.1  20 sleep
+    awplus# show process | include ospf    ->  (empty)
+    awplus# show process | include rip     ->  1744 ripd   3  0.0  0.1  20 sleep
+
+  STP immediately before the leg (re-read before EVERY counted leg -- RSTP here is
+  single-instance, platforms/x960.md 7.10):
+    port1.0.4  Designated Forwarding | port1.0.10 Designated Forwarding
+    port1.0.16 Designated Forwarding | port1.0.48 Designated Forwarding
+  /tmp free before the capture: 110 MB of 2.0 G.  Leg capture 2.3 KB.
+
+  tool: sudo python3.8 tools/arpleg.py --tag L1-bgp-off --out /tmp/ckD/T43858 --iface eth3 \
+          --icmp 10.70.70.1,10.90.90.1,203.0.113.9,192.168.10.1 --gw-mac e0:1a:ea:d4:70:43 \
+          --sender-ip 192.168.10.5 --sender-mac 00:11:22:33:44:01 \
+          --answer 192.168.10.5=00:11:22:33:44:01 --answer-iface eth3 --count 5 --wait 6
+
+  sent total: 20 frame(s).   cap L1-bgp-off-eth3.pcap: 27 frame(s)
+    x5  ICMP t8/c0 192.168.10.5 -> 10.70.70.1    [ours]  [00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x5  ICMP t8/c0 192.168.10.5 -> 10.90.90.1    [ours]
+    x5  ICMP t8/c0 192.168.10.5 -> 203.0.113.9   [ours]
+    x5  ICMP t8/c0 192.168.10.5 -> 192.168.10.1  [ours]
+    x5  ICMP t0/c0 192.168.10.1  -> 192.168.10.5 [ours]  [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:01]
+    x2  ICMP t3/c0 192.168.10.1  -> 192.168.10.5 [ours]   <- destination unreachable, FROM THE DUT
+
+    10.70.70.1   (SUBJECT-B)  : 5 sent, **0 echo replies**
+    10.90.90.1   (SUBJECT-A)  : 5 sent, **0 echo replies**
+    203.0.113.9  (CONTROL)    : 5 sent, **0 echo replies**
+    192.168.10.1 (INSTRUMENT) : 5 sent, **5 echo replies (ICMP type 0)** -- instrument alive
+  The DUT also emitted 2 ICMP type 3 destination-unreachables from its own vlan10 address, so
+  it made and reported a routing decision rather than silently blackholing.  Only 2 for 15
+  unroutable packets because ICMP unreachable generation is rate-limited on this platform
+  (platforms/x960.md 7.8) -- their SOURCE is the attribution, their COUNT is not a measurement.
+
+  NOTE on the ARP responder: it reports "0 ARP replies sent" in this leg because the DUT
+  already held a dynamic entry for 192.168.10.5, created by a first, discarded invocation of
+  the identical leg 20 s earlier (its stdout was lost to a bad shell filter; it was re-run in
+  full).  The DUT answered 5/5 for its own address in this leg, so the entry was demonstrably
+  live.  Leg L2 below shows the responder answering one request, which is the normal shape.
+
+  STEP 1 VERDICT: PASS -- baseline established.  Nothing is reachable through BGP because
+  there is no BGP, and the instrument is proven alive by the same capture.
+
+
+STEP 2 -- THE SERVICE GATE, MEASURED.  🔴 BGP IS **NOT** SERVICE-GATED ON THIS BUILD
+------------------------------------------------------------
+Objective: settle, first-hand and constructively, whether `service bgp` is required before
+`router bgp`, so that nothing later in this case can be mistaken for a platform gap.  Group C
+measured OSPF and RIP as strictly service-gated (platforms/x960.md 7A.1: `router ospf 1` sent
+~1 s after `service ospf` is REFUSED), and the dispatch carried that forward as "service bgp
+first, and ALONE".  It does not hold for BGP, and the measurement is unambiguous.
+
+  (a) bgpd is ALREADY RUNNING at baseline, with no `service bgp` in any running-config:
+        swi_d# show process | include bgp  ->  1721 bgpd  3  0.0  0.1  20 sleep
+        swi_b# show process | include bgp  ->  2281 bgpd  3  0.0  0.5  20 sleep
+        swi_b# show running-config | include service
+          -> service password-encryption / service ssh / no service telnet / service http /
+             no service dhcp-server      (NO bgp line of any kind, and swi_b has never been
+             given a `service bgp` command by anyone)
+      And unlike OSPF at group C's start, the show commands ANSWER instead of refusing:
+        swi_d# show ip bgp summary -> (empty output, no `%` line)
+        swi_d# show ip bgp         -> (empty output, no `%` line)
+      compare group C: `show ip ospf` -> `% OSPF protocol daemon is not running or feature
+      license is not available`.
+
+  (b) `router bgp` with NO `service bgp` -- ACCEPTED IMMEDIATELY (22:51:15, tools/cfg.py):
+        awplus# configure terminal
+        Enter configuration commands, one per line.  End with CNTL/Z.
+        awplus(config)# router bgp 65001
+        awplus(config-router)#            <- accepted, 0.8 s after entering config mode,
+                                             no refusal, no wait, no `service bgp` anywhere
+        awplus(config-router)# end
+      Read back (22:51:30):
+        awplus# show running-config router bgp
+        !
+        router bgp 65001
+         bgp graceful-restart
+        !
+        awplus# show running-config | include bgp   ->  router bgp 65001 / bgp graceful-restart
+                                                        (NO `service bgp` line was added)
+        awplus# show process | include bgp          ->  1721 bgpd  (SAME pid -- `router bgp`
+                                                        did not start a daemon; it was up)
+
+  (c) What `service bgp` actually is on this build (tools/qmark.py, read-only `?` probe --
+      never `<cmd>` + CR, memory `never-send-cli-help-through-a-cr-driver`):
+        awplus(config)# service ?
+          ...  bgp    Enable BGP service modes  ...
+        awplus(config)# service bgp ?
+          evpn  Enable EVPN
+      and the bare command is incomplete (22:52:18):
+        awplus(config)# service bgp
+        % Incomplete command.
+        awplus(config)# do show running-config | include service
+        service ssh / no service telnet / service http / no service rip / no service ospf /
+        no service dhcp-server          <- unchanged; nothing was added
+
+  ==> 🔴 FINDING F-6 (new).  **`service bgp` on this x960 build is not the BGPv4 daemon gate.
+      Its only completion is `evpn`, and the bare form is `% Incomplete command.`  bgpd runs
+      from boot on both an `atlnz`-licensed x960-56 and a Base-licensed x960-28, and
+      `router bgp <asn>` is accepted with no preparation at all.**  BGPv4 therefore behaves
+      DIFFERENTLY from OSPFv2 and RIP on the same software, which are strictly gated by
+      `service ospf` / `service rip` (platforms/x960.md 7A.1).  Two consequences:
+        - a tester that sends `service bgp` first, as the carried-forward instruction said,
+          gets `% Incomplete command.` -- and with a stop-on-error driver that `%` ABANDONS
+          THE REST OF THE BATCH, so the whole BGP configuration silently does not happen.
+          That is the 7A.1 trap with the sign reversed, and it would read as "BGP not working".
+        - T43858 will NOT leave a `no service bgp` sticky line (F-5), because there is no
+          `service bgp` to negate.  The queue's prediction that group D would add a third
+          sticky line is WRONG, and the end-of-group reload of swi_d is needed only for the
+          two lines group C left.
+
+  STEP 2 VERDICT: PASS -- the gate question is settled by measurement in both directions.
+  Nothing in this case may be graded UNSUPPORTED on the strength of a service-gate message,
+  because no service gate exists for BGPv4 here.
+
+
+STEP 3 -- ESTABLISH THE eBGP SESSIONS
+------------------------------------------------------------
+Objective: two eBGP sessions from the DUT, each to a different partner over a different
+interface, each advertising one prefix that exists ONLY behind that partner.
+Two sessions, not one, because a withdrawal leg is only trustworthy if a live positive control
+is measured in the SAME capture (group C technique).
+
+  Applied 22:52:41-22:53:13 NZDT (09:52:41-09:53:13 UTC), tools/cfg.py, one device per batch,
+  no `%` line from any of the three:
+
+    swi_d (/dev/u2):                        swi_b (/dev/u3):
+      configure terminal                      configure terminal
+      router bgp 65001                        router bgp 65002
+       bgp router-id 1.1.1.1                   bgp router-id 2.2.2.2
+       neighbor 10.0.61.2 remote-as 65002      neighbor 10.0.61.1 remote-as 65001
+       neighbor 10.0.41.2 remote-as 65003      network 10.70.70.1/32
+      end                                     end
+
+    swi_a (/dev/u5) -- CONFIG ONLY, never reloaded or power-cycled (RISK-1):
+      configure terminal
+      router bgp 65003
+       bgp router-id 3.3.3.3
+       neighbor 10.0.41.1 remote-as 65001
+       network 10.90.90.1/32
+      end
+
+  AS numbering: 65001 (DUT) / 65002 (swi_b) / 65003 (swi_a), all private, all DIFFERENT, so
+  both sessions are **eBGP** -- which is what makes the administrative distance 20 in step 5.
+  Each partner advertises exactly ONE prefix: swi_b is a Base-licence unit limited to BGP-64,
+  and one is well inside 64.
+
+  Read back at 22:53:25-22:53:28 (09:53:25 UTC), tools/ckcon.py on /dev/u2:
+
+    awplus# show ip bgp summary
+    BGP router identifier 1.1.1.1, local AS number 65001
+    BGP table version is 3
+    2 BGP AS-PATH entries
+    0 BGP community entries
+
+    Neighbor        V         AS   MsgRc  MsgSnt TblVer InOutQ Up/Down State/PfxRcd
+    10.0.41.2       4      65003       3       3      2 0/0    00:00:13        1
+    10.0.61.2       4      65002       3       2      1 0/0    00:00:24        1
+
+    Number of neighbors 2
+
+  BOTH SESSIONS ESTABLISHED.  On AW+ the State/PfxRcd column shows a NUMBER (the prefix count)
+  when the session is Established and a state name otherwise; both read `1`.  Version 4.
+  TIMING: at 09:53:25 UTC swi_b's session had been up 24 s (established ~09:53:01) and swi_a's
+  13 s (established ~09:53:12).  swi_b's `router bgp` batch finished ~09:53:00 and swi_a's
+  ~09:53:13, so **each session came up within ~1-2 s of the second end being configured** --
+  no 120 s ConnectRetry wait was incurred, because the DUT side was already listening.
+
+    awplus# show ip bgp
+    BGP table version is 3, local router ID is 1.1.1.1
+    Status codes: s suppressed, d damped, h history, * valid, > best, i - internal
+                  l - labeled, S Stale
+    Origin codes: i - IGP, e - EGP, ? - incomplete
+
+       Network          Next Hop            Metric LocPrf Weight Path
+    *> 10.70.70.1/32    10.0.61.2                0             0 65002 i
+    *> 10.90.90.1/32    10.0.41.2                0             0 65003 i
+
+    Number of prefixes 2
+    Total number of routes 2 (feature license allows maximum of 1000000)
+
+  Each prefix carries the ORIGINATING AS in its path (65002, 65003) and origin code `i` (IGP,
+  i.e. injected by a `network` statement).  That is protocol-level attribution: the DUT did not
+  invent these, it received them in an UPDATE from that AS.
+
+    awplus# show ip route bgp
+    B       10.70.70.1/32 [20/0] via 10.0.61.2, vlan61, 00:00:25
+    B       10.90.90.1/32 [20/0] via 10.0.41.2, vlan41, 00:00:14
+
+    awplus# show ip route 10.70.70.1
+    Routing entry for 10.70.70.1/32
+      Known via "bgp", distance 20, metric 0, best
+      Last update 00:00:26 ago
+      * via 10.0.61.2, vlan61
+
+  Code `B`, **administrative distance 20** = eBGP, as documented.  Each prefix points at the
+  partner that originated it, over that partner's own interface.
+  `bgp graceful-restart` appears by DEFAULT in running-config on all three units -- nobody
+  configured it.
+
+  Per-device .cfg files saved at this point (after setup, before the measurement steps), from
+  each device's `show running-config` via tools/rc2cfg.py:
+    T43858/swi_d.cfg (149 config lines)  T43858/swi_b.cfg (131)  T43858/swi_a.cfg (94)
+
+  STEP 3 VERDICT: PASS -- two eBGP sessions Established, one prefix received on each, both
+  installed in the route table as code B at AD 20.
+
+
+STEP 4 -- FORWARDING ON THE WIRE, WITH A CONTROL IN THE SAME CAPTURE
+------------------------------------------------------------
+Objective: the BGP-learned prefixes actually carry traffic.  `show ip bgp` and `show ip route`
+above are READ-BACKS, not evidence (STANDING-ORDERS 7; platforms/x960.md 5, where `show mirror`
+read Enabled while the dataplane copied nothing).
+
+  Pre-leg reads (22:54:42-22:54:45):
+    awplus# show spanning-tree brief | include port1.0.4 |port1.0.10|port1.0.16|port1.0.48
+      port1.0.4  Designated Forwarding | port1.0.10 Designated Forwarding
+      port1.0.16 Designated Forwarding | port1.0.48 Designated Forwarding
+    awplus# show running-config | include ip route
+      (EMPTY)   <- 🔴 THE KEY CONTROL FOR THE WHOLE CASE: there is NO static route on the DUT,
+                   so the only possible source of 10.70.70.1/32 and 10.90.90.1/32 is BGP.
+    awplus# show arp
+      10.0.61.2 0000.cd42.3029 vlan61 port1.0.16 dynamic
+      10.0.41.2 889d.98df.2602 vlan41 port1.0.4  dynamic      <- both next hops resolved
+  /tmp free before the capture: 110 MB of 2.0 G.  Leg capture ~3 KB.
+
+  tool: sudo python3.8 tools/arpleg.py --tag L2-bgp-on --out /tmp/ckD/T43858 --iface eth3 \
+          --icmp 10.70.70.1,10.90.90.1,203.0.113.9,192.168.10.1 --gw-mac e0:1a:ea:d4:70:43 \
+          --sender-ip 192.168.10.5 --sender-mac 00:11:22:33:44:01 \
+          --answer 192.168.10.5=00:11:22:33:44:01 --answer-iface eth3 --count 5 --wait 6
+
+  sent total: 20 frame(s).   cap L2-bgp-on-eth3.pcap: 39 frame(s)
+    x5  ICMP t8/c0 192.168.10.5 -> 10.70.70.1    [ours]
+    x5  ICMP t0/c0 10.70.70.1   -> 192.168.10.5  [ours]   <- ECHO REPLY, source = swi_b's loopback
+    x5  ICMP t8/c0 192.168.10.5 -> 10.90.90.1    [ours]
+    x5  ICMP t0/c0 10.90.90.1   -> 192.168.10.5  [ours]   <- ECHO REPLY, source = swi_a's loopback
+    x5  ICMP t8/c0 192.168.10.5 -> 203.0.113.9   [ours]
+    x5  ICMP t8/c0 192.168.10.5 -> 192.168.10.1  [ours]
+    x5  ICMP t0/c0 192.168.10.1 -> 192.168.10.5  [ours]
+    x2  ICMP t3/c0 192.168.10.1 -> 192.168.10.5  [ours]   <- unreachable FROM THE DUT (the control)
+    x1  ARP-REQ who-has 192.168.10.5 tell 192.168.10.1  /  x1 ARP-REPLY (the responder)
+
+    10.70.70.1   (SUBJECT-B)  : 5 sent, **5 echo replies** (0/5 at baseline)
+    10.90.90.1   (SUBJECT-A)  : 5 sent, **5 echo replies** (0/5 at baseline)
+    203.0.113.9  (CONTROL)    : 5 sent, **0 echo replies**  -- dropped in the SAME capture
+    192.168.10.1 (INSTRUMENT) : 5 sent, **5 echo replies**
+
+  The replies' SOURCE addresses are the far-side attribution: 10.70.70.1 is an address that
+  exists only on swi_b's loopback and 10.90.90.1 only on swi_a's, so each reply is proof the
+  frame reached that specific partner and came back.  The control, sent in the same 20-frame
+  leg with the same next-hop MAC, got nothing -- so the DUT is making a per-destination routing
+  decision, not flooding.
+
+  STEP 4 VERDICT: PASS -- 0/5 -> 5/5 on both BGP-learned prefixes, measured in the dataplane,
+  with an unrouted control at 0/5 and the instrument control at 5/5 in the same capture, and
+  with no static route anywhere on the DUT.
