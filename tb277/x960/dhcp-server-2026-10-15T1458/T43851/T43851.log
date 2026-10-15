@@ -1,0 +1,443 @@
+================================================================================
+TEST T43851 -- IPv4_DHCPServer - DHCP ARP Probe
+================================================================================
+Run:      2026-10-15 15:20-15:39 NZDT (steps 0-5 15:20-15:29, the reboot persistence
+          check 15:36-15:39). The DUT runs UTC, the box NZDT (UTC+13), so DUT timestamps
+          are box time minus 13 h. The DUT RTC was found reading "Sat, 25 Mar 2000
+          15:57:19 +0000" and was set at setup with the exec-only command
+          `clock set 02:21:06 15 Oct 2026`, after which it read "Thu, 15 Oct 2026
+          02:21:35 +0000", Timezone UTC, offset +00:00.
+Bench:    tb277, consoles u2 = swi_d (DUT); Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     T43851. No step text exists for this case in AWPTCM or ck.db, so the steps below
+          were derived from, and graded against, the "DHCP ARP Probe" TFS (project 1566,
+          signed off 2010-08-30, requirements S1566.1.01 - S1566.1.17, quoted verbatim per
+          step), the X960 software TPS row 27 "DHCP ARP Probe" (priority 1, supported =
+          Yes), the DHCP Feature Overview and Configuration Guide C613-22102-00 REV G
+          section "DHCP lease probing" p16, and the AW+ CLI pages probe-enable /
+          probe-type / probe-timeout / probe-packets. 6 steps plus a feature-OFF baseline.
+Build:    swi_d  sin_x96056-20261012-24  (flash:/x960-tb277.rel, build date
+          Mon Oct 12 06:38:00 UTC 2026), AT-x960-56YSQ, S/N A2WQS700B, standalone Active
+          Master, boot config flash:/default.cfg
+Configs:  swi_d.cfg (running-config after setup, before step 1; saved to startup: no)
+
+VERDICT: PASS -- ARP lease probing is honoured exactly on the wire on every graded limb:
+         the enable, type, packet-count and timeout settings each change what the DUT
+         transmits, an answered probe withholds the address and records the conflict, and
+         the no-forms restore the documented defaults.
+  probe enable / no probe enable .... honoured    (0 probes disabled vs 3 probes enabled)
+  probe packets N ................... honoured    (N=3 -> 3 probes; N=0 -> 0 probes)
+  probe timeout T ................... honoured    (T=1000 ms -> gaps 0.995 s, 1.001 s)
+  probe type arp vs probe type ping . distinct    (answered ARP withholds under arp; under
+                                                   ping it escalates to ICMP instead)
+  answered probe .................... address withheld  (.102 under arp, .106 under ping:
+                                                   no OFFER, no ACK)
+  probed address == offered address . yes         (every leg, on a fresh chaddr)
+  conflict recorded ................. show ip dhcp binding holds .102 with empty ClientId
+  show ip dhcp pool ................. reports all four probe settings and their defaults
+  no probe type/packets/timeout ..... Ping / 5 / 200 restored, probe lines gone from the
+                                                   running-config
+  reboot ............................ ARP / 3 / 1000 survive and still probe on the wire
+CAVEAT:  Every leg was driven from one host NIC on a single VLAN 10 access port, so only a
+         LOCALLY CONNECTED client was exercised; probing on behalf of a relayed, non-local
+         client was not measured. probe timeout was measured at 1000 ms only, and probe
+         packets at 3 and at the 0 boundary only -- the documented ranges were not swept.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+       tb277 eth3  00:0d:b9:55:77:0e
+       scapy DHCP client + ARP/ICMP responder, tcpdump capture
+              |    ^
+     crafted  |    |  DHCPOFFER / DHCPACK, and the DUT's ARP and ICMP
+     DHCP     |    |  probe bursts -- the probe burst IS the measurement
+     DISCOVER |    |
+              v    |
+    +-----------------------------------------------+
+    |  swi_d   AT-x960-56YSQ                 DUT    |
+    |  port1.0.10, untagged VLAN 10                 |
+    |  interface vlan10  192.168.10.1/24            |
+    |  service dhcp-server, pool CKPOOL             |
+    |  range 192.168.10.100 - 192.168.10.110        |
+    +-----------------------------------------------+
+
+  DUT     : swi_d (AT-x960-56YSQ) console /dev/u2 @115200, S/N A2WQS700B, hostname awplus,
+            standalone Active Master, RAM 8092132 kB, flash 14.3 GB
+  link    : tb277 eth3 <-> swi_d port1.0.10 (copper, untagged VLAN 10). Confirmed by
+            bench_probe 2026-10-15T020341Z: the host MAC is learned on that physical port.
+  host    : tb277 eth3, MAC 00:0d:b9:55:77:0e, 10.38.22.33/27. The host address is
+            irrelevant to this case -- every frame is crafted and read at layer 2, and no
+            host IP, route, interface or mount was changed.
+  unused  : swi_b (u3) and swi_a (u5) were never opened. The PDU (10.36.230.212 outlet 1)
+            was not used; the reboot in STEP 6 was a CLI `reload`.
+  tools   : tools/cfg.py (config driver, stops on any "% " line -- exit 0 on every call
+            below), tools/ckcon.py (show driver), tools/rc2cfg.py (produced swi_d.cfg),
+            tools/ckreload.py (STEP 6 reload), tools/dhcp4.py (IPv4 DHCP client/server/
+            decoder, used in "client" mode throughout, with --arp-answer and --icmp-answer
+            to simulate an address already in use). All run on tb277 as
+            `cd /tmp/dhcp-2026-10-15T1458/tools && sudo -n python3.8 dhcp4.py ...`.
+            Probes were counted twice and independently: by dhcp4.py's own AsyncSniffer and
+            by tcpdump into a per-leg pcap. Both ends agree in every leg.
+
+  Method: a ping cannot express any of this case. Each step sends a crafted DHCPDISCOVER
+  with a unique chaddr and counts what the DUT puts on the wire in reply. Addresses are
+  consumed in order, so each step takes the next free pool address and the assertion is on
+  the RELATIONSHIP (probed address == offered address; answered probe => that address
+  withheld), never on a hardcoded address. Every positive is paired with a control flow in
+  the same run that must NOT produce the same result.
+
+STEP 0 -- baseline: the pool as configured, then the feature OFF                      done
+--------------------------------------------------------------------------------
+  Setup applied through tools/cfg.py (exit 0, zero "% " lines); the full running-config
+  after setup is swi_d.cfg. All four `probe` commands were accepted on
+  sin_x96056-20261012-24, so the TPS "Yes" for row 27 is matched by the product.
+
+awplus# show ip dhcp pool
+  Pool CKPOOL :
+    subscriber-id substitution for client-id is not enabled
+    network: 192.168.10.0/24
+    address ranges:
+      addr: 192.168.10.100 to 192.168.10.110
+    lease <days:hours:minutes:seconds> <1:0:0:0>
+    subnet mask: 255.255.255.0 (pool's network mask)
+    Probe:                       Default Values
+      Status:       Enabled      [Enabled]        <-- all four settings are reported, each
+      Type:         ARP          [Ping]               against the platform's own default
+      Packets:      3            [5]
+      Timeout:      1000 msecs   [200]
+    Dynamic addresses:
+      Total:        11
+      Leased:       0
+      Utilization:  0.0 %
+
+  Feature OFF control -- probing disabled must put ZERO probes on the wire.
+  TFS S1566.1.05 verbatim: "When probing is disabled the DHCP server will immediately
+  respond (if it has a free lease) to every client request by sending a DHCPOFFER for the
+  next available IP address. It will do this without probing (by ping or ARP)."
+
+awplus(config)# ip dhcp pool CKPOOL
+awplus(dhcp-config)# no probe enable
+tb277$ sudo -n python3.8 dhcp4.py client eth3 --mac 02:c4:00:00:00:01 \
+         --arp-watch 192.168.10.0/24 \
+         --arp-answer 192.168.10.100,...,192.168.10.110   (ALL 11 pool addresses) \
+         --wait 15 --pcap leg1.pcap --json leg1.json
+  --- summary ---
+  chaddr 02:c4:00:00:00:01 xid 0x56b25a93
+  sent: 1 DISCOVER, 1 REQUEST
+  ARP probes seen: 0                               <-- nothing probed at all
+  OFFER: 192.168.10.100
+     lease_time=86400
+  ACK  : ACK 192.168.10.100
+     lease_time=86400 renewal=None rebinding=None
+
+  => STEP 0 done: with probing disabled the DUT emitted no ARP and no ICMP whatever and
+     offered .100 immediately, although the host stood ready to claim all 11 pool
+     addresses and was never asked. This is the zero-probe control that every later step
+     is read against, and it satisfies S1566.1.05. The ACK carried option 51 = 86400 s for
+     `lease 1 0 0`; options 58 (renewal) and 59 (rebinding) were absent.
+
+STEP 1 -- ARP probe burst: count and spacing must match the configuration             PASS
+--------------------------------------------------------------------------------
+  TFS S1566.1.03 verbatim: "When configured for ARP probing, the DHCP server will probe as
+  follows: 1. Send an ARP Request for the next available IP address. 2. Wait T msecs for a
+  response, where T is the configured timeout."
+  TFS S1566.1.04: "these steps are repeated N times, where N is the configured number of
+  probe packets."   Configured: N = 3, T = 1000 ms.
+
+awplus(config)# ip dhcp pool CKPOOL
+awplus(dhcp-config)# probe enable
+awplus(dhcp-config)# probe type arp
+tb277$ sudo -n python3.8 dhcp4.py client eth3 --mac 02:c4:00:00:00:02 \
+         --arp-watch 192.168.10.0/24 --wait 20 --pcap leg2.pcap --json leg2.json
+  (no --arp-answer: nothing on the segment claims the address)
+  --- summary ---
+  chaddr 02:c4:00:00:00:02 xid 0x75485364
+  sent: 1 DISCOVER, 1 REQUEST
+  ARP probes seen: 3 gaps=[0.995, 1.001]           <-- exactly N=3, spaced at T=1000 ms
+     t=0.4434   target=192.168.10.101   from=192.168.10.1
+     t=1.4388   target=192.168.10.101   from=192.168.10.1
+     t=2.4399   target=192.168.10.101   from=192.168.10.1
+  OFFER: 192.168.10.101
+     lease_time=86400
+  ACK  : ACK 192.168.10.101
+     lease_time=86400 renewal=None rebinding=None
+
+  => STEP 1 PASS: exactly three probes, not two and not five, against `probe packets 3`;
+     inter-probe gaps of 0.995 s and 1.001 s against `probe timeout 1000`; all three
+     sourced from the VLAN 10 SVI 192.168.10.1; and the address probed (.101) is the
+     address offered. Against the zero probes of STEP 0 on identical cabling, this is the
+     configured burst appearing on the wire. S1566.1.03 and the count/timing limbs of
+     S1566.1.04 hold.
+
+STEP 2 -- an answered ARP probe must prevent that address being offered               PASS
+--------------------------------------------------------------------------------
+  TFS S1566.1.04 verbatim: "The probing process is exited if a response is received. The
+  server will not then offer this address, and it will repeat this whole process for the
+  next available address."
+
+  Leg a -- the host claims 192.168.10.102, the next free address:
+tb277$ sudo -n python3.8 dhcp4.py client eth3 --mac 02:c4:00:00:00:03 \
+         --arp-watch 192.168.10.0/24 --arp-answer 192.168.10.102 --wait 25 \
+         --pcap leg3.pcap --json leg3.json
+  --- summary ---
+  chaddr 02:c4:00:00:00:03 xid 0xefba3d8f
+  sent: 1 DISCOVER, 0 REQUEST
+  ARP probes seen: 1                               <-- probing EXITED on the first reply
+     t=0.449    target=192.168.10.102   from=192.168.10.1  <- ANSWERED
+  OFFER: NONE
+  ACK  : NONE                                      <-- the address was NOT offered
+
+  Leg b -- the same chaddr retries, the host still claiming .102:
+tb277$ sudo -n python3.8 dhcp4.py client eth3 --mac 02:c4:00:00:00:03 \
+         --arp-watch 192.168.10.0/24 --arp-answer 192.168.10.102 --wait 25 \
+         --pcap leg3b.pcap --json leg3b.json
+  --- summary ---
+  chaddr 02:c4:00:00:00:03 xid 0x89b9dc7f
+  sent: 1 DISCOVER, 1 REQUEST
+  ARP probes seen: 3 gaps=[0.994, 1.001]           <-- .102 skipped, .103 probed instead
+     t=0.4477   target=192.168.10.103   from=192.168.10.1
+     t=1.4419   target=192.168.10.103   from=192.168.10.1
+     t=2.4429   target=192.168.10.103   from=192.168.10.1
+  OFFER: 192.168.10.103
+     lease_time=86400
+  ACK  : ACK 192.168.10.103
+     lease_time=86400 renewal=None rebinding=None
+
+  The DUT's own view of the same events:
+awplus# show ip dhcp binding
+  Pool CKPOOL Network 192.168.10.0/24
+  DHCP Client Entries
+  IP Address      ClientId                            Type    Expiry
+  --------------------------------------------------------------------------------
+  192.168.10.100  02c4.0000.0001                      Dynamic 16 Oct 2026 02:23:09
+  192.168.10.101  02c4.0000.0002                      Dynamic 16 Oct 2026 02:23:40
+  192.168.10.102                                      Dynamic 16 Oct 2026 02:23:56
+  192.168.10.103  02c4.0000.0003                      Dynamic 16 Oct 2026 02:24:47
+                  ^^^ .102 is held with an EMPTY ClientId: the conflict was detected and
+                      recorded, and the address belongs to no client
+
+  => STEP 2 PASS: an address proven in use is never offered. Probing exited on the first
+     reply (1 probe, not 3), no OFFER and no ACK followed, the DUT recorded .102 as a
+     conflict with an empty ClientId, and the retry skipped .102 and allocated .103. Legs
+     a and b differ only in which address the host claimed, so the withholding is caused by
+     the answered probe and nothing else.
+     Measured divergence from the spec wording: S1566.1.04 says the server "will repeat
+     this whole process for the next available address", which reads as a roll-on inside
+     the same transaction. It does not happen here -- the DUT sends nothing further for
+     that DISCOVER and the client must re-send, which then succeeds (leg b). Harmless with
+     any RFC 2131 client, since such a client always retries, but it is not what the
+     sentence says.
+
+STEP 3 -- probe type arp and probe type ping are genuinely different code paths       PASS
+--------------------------------------------------------------------------------
+  TFS S1566.1.17: "ARP probe and ping probe are mutually exclusive, and this will be
+  enforced by the CLI."
+  TFS S1566.1.01 (ping probing, locally connected clients) verbatim: "1. A single ARP
+  Request will be sent for the next available IP address. If a ARP response is received an
+  ICMP Echo Request for this address will immediately be sent. 2. Wait T msecs for a
+  response to the ARP Request or ICMP Echo Request."
+  So under ping probing the server still ARPs first, and ICMP only follows an ARP RESPONSE:
+  "probe type ping produces no ARP" is NOT the discriminator. The discriminator is an
+  ANSWERED ARP, which legs b and c isolate.
+
+  Leg a -- probe type ping, nothing answers (the baseline for legs b and c):
+awplus(config)# ip dhcp pool CKPOOL
+awplus(dhcp-config)# probe type ping
+awplus# show ip dhcp pool
+      Probe:                       Default Values
+        Status:       Enabled      [Enabled]
+        Type:         Ping         [Ping]          <-- the CLI selection took effect
+        Packets:      3            [5]
+        Timeout:      1000 msecs   [200]
+tb277$ sudo -n python3.8 dhcp4.py client eth3 --mac 02:c4:00:00:00:04 \
+         --arp-watch 192.168.10.0/24 --wait 20 --pcap leg4.pcap --json leg4.json
+  --- summary ---
+  chaddr 02:c4:00:00:00:04 xid 0x301676f9
+  sent: 1 DISCOVER, 1 REQUEST
+  ARP probes seen: 3 gaps=[0.996, 1.001]
+     t=0.4481   target=192.168.10.104   from=192.168.10.1
+     t=1.4439   target=192.168.10.104   from=192.168.10.1
+     t=2.4449   target=192.168.10.104   from=192.168.10.1
+  OFFER: 192.168.10.104
+     lease_time=86400
+  ACK  : ACK 192.168.10.104
+     lease_time=86400 renewal=None rebinding=None
+  ICMP Echo Requests = 0, counted by dhcp4.py and by tcpdump into leg4.pcap, which agree.
+  Correct per S1566.1.01: ARP first, no ARP response, so no escalation to ICMP.
+
+  Leg b -- probe type ping, the ARP is ANSWERED but the ICMP is NOT (target .105):
+  tcpdump leg5.pcap, verbatim:
+    15:26:39.244415 ARP, Request who-has 192.168.10.105 tell 192.168.10.1
+    15:26:39.283285 ARP, Reply 192.168.10.105 is-at 00:0d:b9:55:77:0e
+    15:26:39.283755 ARP, Request who-has 192.168.10.105 tell 192.168.10.1
+    15:26:39.350797 ARP, Reply 192.168.10.105 is-at 00:0d:b9:55:77:0e
+    15:26:39.351108 IP 192.168.10.1 > 192.168.10.105: ICMP echo request, id 32995, seq 0
+    15:26:40.246265 ARP, Request who-has 192.168.10.105 tell 192.168.10.1
+    15:26:41.246618 ARP, Request who-has 192.168.10.105 tell 192.168.10.1
+  ICMP Echo Requests = 1, against 0 in leg a  <-- the escalation of S1566.1.01 fired, and
+                                                  it was triggered by the ARP response
+  OFFER: 192.168.10.105 -- the address WAS offered, because no echo reply came back.
+
+  Leg c -- probe type ping, ARP and ICMP BOTH answered (target .106):
+  tcpdump leg6.pcap, verbatim:
+    15:27:54.072338 ARP, Request who-has 192.168.10.106 tell 192.168.10.1
+    15:27:54.111360 ARP, Reply 192.168.10.106 is-at 00:0d:b9:55:77:0e
+    15:27:54.111839 ARP, Request who-has 192.168.10.106 tell 192.168.10.1
+    15:27:54.159071 ARP, Reply 192.168.10.106 is-at 00:0d:b9:55:77:0e
+    15:27:54.159395 IP 192.168.10.1 > 192.168.10.106: ICMP echo request, id 53476, seq 0
+    15:27:54.208867 IP 192.168.10.106 > 192.168.10.1: ICMP echo reply,   id 53476, seq 0
+  --- summary ---
+  chaddr 02:c4:00:00:00:06 xid 0xc90ec72
+  sent: 1 DISCOVER, 0 REQUEST
+  ARP probes seen: 2 gaps=[0.049]
+     t=0.4472   target=192.168.10.106   from=192.168.10.1  <- ANSWERED
+     t=0.4963   target=192.168.10.106   from=192.168.10.1  <- ANSWERED
+  ICMP probes seen: 1 (answered 1)
+     t=0.5478   target=192.168.10.106   from=192.168.10.1  <- ANSWERED
+  OFFER: NONE
+  ACK  : NONE                                      <-- the address was withheld
+
+  => STEP 3 PASS: legs b and c are a matched pair -- identical configuration, identical
+     crafted DISCOVER, and the only difference is whether the ICMP echo was answered: .105
+     was offered, .106 was withheld, and probing exited on the reply as S1566.1.04
+     requires. Pairing STEP 2 (type arp, ARP answered => withheld) against leg b (type
+     ping, ARP answered but ICMP unanswered => offered) shows the two probe types are
+     different code paths and that the CLI selection takes effect, so S1566.1.01 and
+     S1566.1.17 hold.
+     Measured divergence from the spec wording: S1566.1.01 step 2 says the server waits T
+     ms "for a response to the ARP Request or ICMP Echo Request", and S1566.1.04 says the
+     address is not offered if a response is received. Under probe type ping an ARP
+     response alone did not stop the offer; only the ICMP echo reply did. The behaviour is
+     coherent -- under ping probing the ping is the authority -- but it is not the literal
+     "or" of S1566.1.01.
+
+STEP 4 -- the configured probe COUNT is honoured at its boundary                      PASS
+--------------------------------------------------------------------------------
+awplus(config)# ip dhcp pool CKPOOL
+awplus(dhcp-config)# probe type arp
+awplus(dhcp-config)# probe packets 0
+tb277$ sudo -n python3.8 dhcp4.py client eth3 --mac 02:c4:00:00:00:07 \
+         --arp-watch 192.168.10.0/24 --arp-answer 192.168.10.107 --wait 15 \
+         --pcap leg7.pcap --json leg7.json
+  --- summary ---
+  chaddr 02:c4:00:00:00:07 xid 0xf2f8cdb6
+  sent: 1 DISCOVER, 1 REQUEST
+  ARP probes seen: 0
+  ICMP probes seen: 0 (answered 0)
+  OFFER: 192.168.10.107
+     lease_time=86400
+  ACK  : ACK 192.168.10.107
+     lease_time=86400 renewal=None rebinding=None
+
+  => STEP 4 PASS: with `probe packets 0` the DUT probed not at all and handed out .107 even
+     though the host was standing by to claim it -- exactly the address that would have
+     been withheld in STEP 2. This is a second, independent zero-probe control, produced by
+     the count rather than by disabling the feature, so the count setting is read on every
+     allocation and is honoured down to its 0 boundary.
+
+STEP 5 -- removal: the no-forms restore the documented defaults and clear the config  PASS
+--------------------------------------------------------------------------------
+awplus(config)# ip dhcp pool CKPOOL
+awplus(dhcp-config)# no probe type
+awplus(dhcp-config)# no probe packets
+awplus(dhcp-config)# no probe timeout
+awplus# show ip dhcp pool
+  Pool CKPOOL :
+    subscriber-id substitution for client-id is not enabled
+    network: 192.168.10.0/24
+    address ranges:
+      addr: 192.168.10.100 to 192.168.10.110
+    lease <days:hours:minutes:seconds> <1:0:0:0>
+    subnet mask: 255.255.255.0 (pool's network mask)
+    Probe:                       Default Values
+      Status:       Enabled      [Enabled]
+      Type:         Ping         [Ping]           <-- back to the documented defaults,
+      Packets:      5            [5]                  each matching its own default column
+      Timeout:      200 msecs    [200]
+    Dynamic addresses:
+      Total:        11
+      Leased:       8
+      Utilization:  72.7 %
+
+awplus# show running-config
+  ...
+  ip dhcp pool CKPOOL
+   network 192.168.10.0 255.255.255.0
+   range 192.168.10.100 192.168.10.110
+  !
+  ...                                              <-- no probe line of any kind remains
+
+  => STEP 5 PASS: the three no-forms each returned their setting to exactly the documented
+     default (Ping / 5 / 200, S1566.1.10, .12 and .14), and the probe configuration is gone
+     from the running-config rather than merely overwritten. `lease 1 0 0` is absent from
+     the stanza for the same reason -- 1 day is the default lease -- which is consistent,
+     not a loss.
+
+STEP 6 -- persistence: the probe configuration survives a reboot                      PASS
+--------------------------------------------------------------------------------
+  Method: flash:/default.cfg was never written to. The probe settings were re-applied,
+  saved to a SEPARATE file, and the boot pointer aimed at that file, so the baseline boot
+  config is untouched.
+awplus(config)# ip dhcp pool CKPOOL
+awplus(dhcp-config)# probe enable
+awplus(dhcp-config)# probe type arp
+awplus(dhcp-config)# probe packets 3
+awplus(dhcp-config)# probe timeout 1000
+awplus# copy running-config flash:/ckdhcp.cfg
+  Copying...
+  Successful operation
+awplus# dir flash:/ckdhcp.cfg
+  1383 -rw- Oct 15 2026 02:36:40  flash:/ckdhcp.cfg
+awplus(config)# boot config-file flash:/ckdhcp.cfg
+awplus# show boot
+  Boot configuration
+  --------------------------------------------------------------------------------
+  Current software   : x960-tb277.rel
+  Current boot image : flash:/x960-tb277.rel (file exists)
+  Backup  boot image : Not set
+  Default boot config: flash:/default.cfg
+  Current boot config: flash:/ckdhcp.cfg (file exists)
+  Backup  boot config: Not set
+  Autoboot status    : disabled
+awplus# reload
+  reboot question: 'reboot system? (y/n):' -> y
+  login seen after 60 s
+
+  After the reload:
+awplus# show ip dhcp pool
+  Pool CKPOOL :
+    subscriber-id substitution for client-id is not enabled
+    network: 192.168.10.0/24
+    address ranges:
+      addr: 192.168.10.100 to 192.168.10.110
+    lease <days:hours:minutes:seconds> <120:0:0:0>
+    subnet mask: 255.255.255.0 (pool's network mask)
+    Probe:                       Default Values
+      Status:       Enabled      [Enabled]
+      Type:         ARP          [Ping]           <-- the configured probe settings
+      Packets:      3            [5]                  survived the reboot
+      Timeout:      1000 msecs   [200]
+awplus# show ip dhcp server summary
+  DHCP Server service is enabled
+  DHCP Server is running
+
+  Proven on the wire after the reload, not only in the show -- fresh chaddr:
+  --- summary ---
+  chaddr 02:c4:00:00:02:01 xid 0xb95e2a7a
+  sent: 1 DISCOVER, 1 REQUEST
+  ARP probes seen: 3 gaps=[0.995, 1.001]           <-- still N=3 at T=1000 ms
+     t=0.4448   target=192.168.10.105   from=192.168.10.1
+     t=1.44     target=192.168.10.105   from=192.168.10.1
+     t=2.4409   target=192.168.10.105   from=192.168.10.1
+  OFFER: 192.168.10.105
+  ACK  : ACK 192.168.10.105
+
+  => STEP 6 PASS: after a cold reload the pool still reports ARP / 3 / 1000, and a fresh
+     client draws exactly the same three-probe, 1000 ms burst it drew in STEP 1. The
+     setting is not merely stored in the config file -- it is read back and acted on by the
+     server after a restart. (The DUT clock also survived the reload, reading "Thu, 15 Oct
+     2026 02:38:52 +0000", so the year-2000 RTC reading found at setup was a stale state
+     and not a reset-on-every-boot trait.)
+================================================================================

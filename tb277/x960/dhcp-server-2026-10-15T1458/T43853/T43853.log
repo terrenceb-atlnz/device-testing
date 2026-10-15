@@ -1,0 +1,307 @@
+================================================================================
+TEST T43853 -- IPv4_DHCPServer - DHCP 120-day lease
+================================================================================
+Run:      2026-10-15 15:32-15:40 NZDT (steps 0-4 15:32-15:35, the reboot persistence check
+          15:36-15:39). The DUT runs UTC and the box NZDT (UTC+13), so DUT timestamps are
+          box time minus 13 h. The DUT RTC had been found reading March 2000 and was set
+          with the exec-only command `clock set 02:21:06 15 Oct 2026` before any
+          measurement; during this case it read "Thu, 15 Oct 2026 02:33:57 +0000",
+          Timezone UTC, offset +00:00.
+Bench:    tb277, consoles u2 = swi_d (DUT); Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     T43853. No step text exists for this case in AWPTCM or ck.db, so the steps below
+          were derived from, and graded against, the X960 software TPS row 25 "DHCP 120-day
+          lease" (priority 1, supported = Yes); the wiki "DHCP" feature page, section "120
+          Lease", verbatim: "Simple enhancement feature which allows a user to configure
+          lease times up to 120 days. The maximum used to be 30 days (set by IP Infusion)."
+          -- so the feature IS the raised ceiling, and the boundary is the heart of the
+          case; the AW+ CLI page lease.md, `lease <days> <hours> <minutes> [<seconds>]`,
+          "<days> The number of days, from 0 to 120 ... Default: 1", mode DHCP
+          Configuration; and the DHCP Feature Overview and Configuration Guide
+          C613-22102-00 REV G p13 "Set the lease". 5 steps plus a starting-state capture.
+          120 days = 120 x 86400 = 10,368,000 s, the value DHCP option 51 must carry.
+Build:    swi_d  sin_x96056-20261012-24  (flash:/x960-tb277.rel, build date
+          Mon Oct 12 06:38:00 UTC 2026), AT-x960-56YSQ, S/N A2WQS700B, standalone Active
+          Master, boot config flash:/default.cfg
+Configs:  swi_d.cfg (running-config after setup, before step 1; saved to startup: no)
+
+VERDICT: PASS -- a 120-day lease is configurable and is delivered on the wire as DHCP
+         option 51 = 10,368,000 s in both the OFFER and the ACK, the parser accepts 120 and
+         refuses 121, and the setting survives a reboot.
+  lease 120 0 0 accepted ............ yes          (no "% " line; pool reads <120:0:0:0>)
+  option 51 in the OFFER ............ 10,368,000   (read out of the captured frame)
+  option 51 in the ACK .............. 10,368,000   (read out of the captured frame)
+  binding expiry .................... 12 Feb 2027 02:33:39 from 15 Oct 2026 02:33:39 UTC,
+                                                    exactly 120 days to the second
+  lease 121 0 0 ..................... refused      ("% Invalid input detected")
+  lease 999 0 0 ..................... refused      ("% Invalid input detected")
+  other lease values, same run ...... honoured     (1 day -> 86,400; 1 hour -> 3,600)
+  no lease .......................... 1-day default restored on the wire (opt51 = 86,400)
+                                                    and the lease line gone from the
+                                                    running-config
+  reboot ............................ <120:0:0:0> survives and still delivers 10,368,000
+CAVEAT:  Options 58 (renewal / T1) and 59 (rebinding / T2) are ABSENT from every OFFER and
+         ACK in this run, although the client explicitly requested them in its option 55
+         parameter request list. They were recorded, not required: this server does not
+         emit T1/T2 unless configured, so demanding them would have been a false FAIL.
+         Nothing in this run measures what a client does with a 120-day lease over time --
+         no lease was allowed to run to renewal, rebinding or expiry; the proof is that the
+         configured duration is parsed, stored, delivered and re-delivered after a reboot.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+       tb277 eth3  00:0d:b9:55:77:0e
+       scapy DHCP client (option 55 requests 1,3,6,51,58,59), tcpdump capture
+              |    ^
+     crafted  |    |  DHCPOFFER / DHCPACK -- option 51 is read out of
+     DHCP     |    |  these two frames, and the verdict rests on them
+     DISCOVER |    |
+              v    |
+    +-----------------------------------------------+
+    |  swi_d   AT-x960-56YSQ                 DUT    |
+    |  port1.0.10, untagged VLAN 10                 |
+    |  interface vlan10  192.168.10.1/24            |
+    |  service dhcp-server, pool CKPOOL             |
+    |  range 192.168.10.100 - 192.168.10.110        |
+    +-----------------------------------------------+
+
+  DUT     : swi_d (AT-x960-56YSQ) console /dev/u2 @115200, S/N A2WQS700B, hostname awplus,
+            standalone Active Master
+  link    : tb277 eth3 <-> swi_d port1.0.10 (copper, untagged VLAN 10)
+  host    : tb277 eth3, MAC 00:0d:b9:55:77:0e. Every frame is crafted and read at layer 2;
+            no host IP, route, interface or mount was changed.
+  unused  : swi_b (u3) and swi_a (u5) were never opened. The PDU (10.36.230.212 outlet 1)
+            was not used; the reboot in STEP 5 was a CLI `reload`.
+  tools   : tools/cfg.py (config driver, stops on any "% " line), tools/ckcon.py (show
+            driver, used where a refusal had to be CAPTURED rather than abort the batch),
+            tools/ckyn.py, tools/rc2cfg.py (produced swi_d.cfg), tools/rcdiff.py,
+            tools/ckreload.py (answers `y` to reboot and `n` to any save-config question),
+            tools/dhcp4.py (IPv4 DHCP client/server/decoder, "client" mode). All run on
+            tb277 with python3.8.
+
+  Method: a ping cannot read a lease time. Every step sends a crafted DHCPDISCOVER with a
+  unique chaddr and an explicit option 55 parameter request list that ASKS for option 51
+  (and 58/59), then reads option 51 out of the captured OFFER and the captured ACK.
+  `show ip dhcp pool` and `show ip dhcp binding` are corroboration only, read after the
+  wire and never instead of it.
+
+STEP 0 -- starting state before step 1                                               done
+--------------------------------------------------------------------------------
+awplus# clear ip dhcp binding all
+awplus# show ip dhcp binding
+  (no entries listed)                              <-- every lease measured below is a
+                                                       fresh allocation
+awplus(config)# ip dhcp pool CKPOOL
+awplus(dhcp-config)# lease 120 0 0
+awplus# show ip dhcp pool
+  Pool CKPOOL :
+    subscriber-id substitution for client-id is not enabled
+    network: 192.168.10.0/24
+    address ranges:
+      addr: 192.168.10.100 to 192.168.10.110
+    lease <days:hours:minutes:seconds> <120:0:0:0>  <-- 120 days accepted and stored
+    subnet mask: 255.255.255.0 (pool's network mask)
+    Probe:                       Default Values
+      Status:       Enabled      [Enabled]
+      Type:         Ping         [Ping]
+      Packets:      5            [5]
+      Timeout:      200 msecs    [200]
+    Dynamic addresses:
+      Total:        11
+      Leased:       0
+      Utilization:  0.0 %
+
+  => STEP 0 done: the pool is empty of bindings and configured for a 120-day lease; the
+     probe settings sit at their platform defaults. The feature-OFF reading -- what this
+     pool delivers with no `lease` line at all -- is measured at STEP 4, where `no lease`
+     returns it to the documented 1-day default on the wire.
+
+STEP 1 -- a 120-day lease is delivered as option 51 = 10,368,000 in OFFER and ACK    PASS
+--------------------------------------------------------------------------------
+tb277$ sudo -n python3.8 dhcp4.py client eth3 --mac 02:c4:00:00:01:01 \
+         --prl 1,3,6,51,58,59 --arp-watch 192.168.10.0/24 --wait 20 \
+         --pcap leg1-120d.pcap --json leg1-120d.json
+
+  Every DHCP frame of the transaction, as decoded from the capture:
+      DISCOVER  yiaddr=0.0.0.0          opt51=None       opt58=None  opt59=None
+      OFFER     yiaddr=192.168.10.100   opt51=10368000   opt58=None  opt59=None
+      REQUEST   yiaddr=0.0.0.0          opt51=None       opt58=None  opt59=None
+      ACK       yiaddr=192.168.10.100   opt51=10368000   opt58=None  opt59=None
+                                        ^^^^^^^^^^^^^^ 10,368,000 s = 120 d 0 h 0 m 0 s,
+                                                       in BOTH the OFFER and the ACK
+
+  --- summary ---
+  chaddr 02:c4:00:00:01:01 xid 0x6b211f9f
+  sent: 1 DISCOVER, 1 REQUEST
+  OFFER: 192.168.10.100
+     lease_time=10368000
+  ACK  : ACK 192.168.10.100
+     lease_time=10368000 renewal=None rebinding=None
+
+  Corroboration from the DUT, read AFTER the frames:
+awplus# show clock
+  UTC Time:   Thu, 15 Oct 2026 02:33:57 +0000
+  Timezone: UTC
+  Timezone Offset: +00:00
+  Summer time zone: None
+awplus# show ip dhcp binding
+  Pool CKPOOL Network 192.168.10.0/24
+  DHCP Client Entries
+  IP Address      ClientId                            Type    Expiry
+  --------------------------------------------------------------------------------
+  192.168.10.100  02c4.0000.0101                      Dynamic 12 Feb 2027 02:33:39
+
+  => STEP 1 PASS: the configured 120-day lease reaches the client as option 51 =
+     10,368,000 s in both the OFFER and the ACK, and the DUT's own binding table agrees --
+     granted 15 Oct 2026 02:33:39 UTC, expiring 12 Feb 2027 02:33:39 UTC, which is
+     16 + 30 + 31 + 31 + 12 = 120 days, to the second. That expiry is only readable because
+     the DUT's RTC was repaired before the run. Options 58 and 59 are absent although
+     option 55 asked for them; recorded, not required (see CAVEAT).
+
+STEP 2 -- the boundary: 120 is accepted, 121 and 999 are refused                     PASS
+--------------------------------------------------------------------------------
+  Method: sent through tools/ckcon.py rather than the stop-on-error config driver, so that
+  the refusals are CAPTURED as the expected result instead of aborting the batch.
+
+awplus(config)# ip dhcp pool CKPOOL
+awplus(dhcp-config)# lease 121 0 0
+                                ^
+  % Invalid input detected at '^' marker.          <-- 121 days refused by the parser
+awplus(dhcp-config)# lease 120 0 0
+awplus(dhcp-config)#                               <-- 120 days accepted silently, no "% "
+awplus(dhcp-config)# lease 999 0 0
+                                ^
+  % Invalid input detected at '^' marker.          <-- far beyond the ceiling, refused
+awplus(dhcp-config)# end
+
+  => STEP 2 PASS: the parser accepts exactly up to 120 days and refuses 121 and 999, so the
+     documented range (lease.md, "<days> ... from 0 to 120") holds on
+     sin_x96056-20261012-24 and the old 30-day IP Infusion ceiling is gone. The accepted
+     and refused values differ by one day on the same command on the same pool, so this is
+     the ceiling itself and not a general parser limit. This step is the feature: the
+     enhancement is the raised maximum.
+
+STEP 3 -- other lease values must yield their own option 51, in the same run         PASS
+--------------------------------------------------------------------------------
+  Method: three successive IN-PLACE changes with no `no lease` between them, so each
+  overwrites a live value, each followed by a fresh client and graded on the captured
+  OFFER and ACK.
+
+awplus(dhcp-config)# lease 1 0 0     then  lease 0 1 0     then  lease 120 0 0
+
+  | configured      | expected opt51 | measured OFFER | measured ACK | chaddr            |
+  | --------------- | -------------- | -------------- | ------------ | ----------------- |
+  | lease 1 0 0     |         86,400 |         86,400 |       86,400 | 02:c4:00:00:01:02 |
+  | lease 0 1 0     |          3,600 |          3,600 |        3,600 | 02:c4:00:00:01:03 |
+  | lease 120 0 0   |     10,368,000 |     10,368,000 |   10,368,000 | 02:c4:00:00:01:04 |
+
+  (addresses allocated in order: .101, .102, .103 respectively)
+
+  => STEP 3 PASS: every configured value matched exactly, in both messages. The 1-day row
+     is the control the 120-day claim rests on -- identical crafted DISCOVER, identical
+     pool, identical cabling, and only the configured lease differs, yet option 51 moves
+     with it. The 1-hour row adds a third point, so the result is a curve rather than a
+     two-point coincidence, and it proves sub-day granularity. Each change was an in-place
+     overwrite of a live value and each took effect on the wire immediately, with
+     `show ip dhcp pool` agreeing with the wire at every point: there is no silent discard
+     of a repeated `lease` command on this platform.
+
+STEP 4 -- removal: `no lease` restores the 1-day default and clears the config       PASS
+--------------------------------------------------------------------------------
+awplus(config)# ip dhcp pool CKPOOL
+awplus(dhcp-config)# no lease
+awplus# show ip dhcp pool
+  Pool CKPOOL :
+    subscriber-id substitution for client-id is not enabled
+    network: 192.168.10.0/24
+    address ranges:
+      addr: 192.168.10.100 to 192.168.10.110
+    lease <days:hours:minutes:seconds> <1:0:0:0>   <-- the documented default
+    subnet mask: 255.255.255.0 (pool's network mask)
+
+  Proven on the wire, not only in the show -- fresh chaddr:
+  --- summary ---
+  chaddr 02:c4:00:00:01:05 xid 0xa7854bbd
+  sent: 1 DISCOVER, 1 REQUEST
+  OFFER: 192.168.10.104
+     lease_time=86400
+  ACK  : ACK 192.168.10.104
+     lease_time=86400 renewal=None rebinding=None
+
+awplus# show running-config
+  ...
+  ip dhcp pool CKPOOL
+   network 192.168.10.0 255.255.255.0
+   range 192.168.10.100 192.168.10.110
+  !
+  ...                                              <-- the lease line is GONE
+
+  => STEP 4 PASS: `no lease` is not merely a reset of the displayed value -- the next real
+     client is handed option 51 = 86,400 s, and the lease line has disappeared from the
+     running-config rather than being rewritten as `lease 1 0 0`. Removal is complete in
+     both the configuration and the behaviour.
+
+STEP 5 -- persistence: the 120-day lease survives a reboot                           PASS
+--------------------------------------------------------------------------------
+  Method: flash:/default.cfg was never written to. The setting was re-applied, saved to a
+  SEPARATE file, and the boot pointer aimed at that file, so the baseline boot config is
+  untouched.
+awplus(dhcp-config)# lease 120 0 0
+awplus# copy running-config flash:/ckdhcp.cfg
+  Copying...
+  Successful operation
+awplus# dir flash:/ckdhcp.cfg
+  1383 -rw- Oct 15 2026 02:36:40  flash:/ckdhcp.cfg
+awplus(config)# boot config-file flash:/ckdhcp.cfg
+awplus# show boot
+  Boot configuration
+  --------------------------------------------------------------------------------
+  Current software   : x960-tb277.rel
+  Current boot image : flash:/x960-tb277.rel (file exists)
+  Backup  boot image : Not set
+  Default boot config: flash:/default.cfg
+  Current boot config: flash:/ckdhcp.cfg (file exists)
+  Backup  boot config: Not set
+  Autoboot status    : disabled
+awplus# reload
+  reboot question: 'reboot system? (y/n):' -> y
+  login seen after 60 s
+
+  After the reload:
+awplus# show clock
+  UTC Time:   Thu, 15 Oct 2026 02:38:52 +0000
+awplus# show ip dhcp pool
+  Pool CKPOOL :
+    subscriber-id substitution for client-id is not enabled
+    network: 192.168.10.0/24
+    address ranges:
+      addr: 192.168.10.100 to 192.168.10.110
+    lease <days:hours:minutes:seconds> <120:0:0:0>  <-- the 120-day lease survived
+    subnet mask: 255.255.255.0 (pool's network mask)
+    Probe:                       Default Values
+      Status:       Enabled      [Enabled]
+      Type:         ARP          [Ping]
+      Packets:      3            [5]
+      Timeout:      1000 msecs   [200]
+awplus# show ip dhcp server summary
+  DHCP Server service is enabled
+  DHCP Server is running
+
+  Proven on the wire after the reload, not only in the show -- fresh chaddr:
+  --- summary ---
+  chaddr 02:c4:00:00:02:01 xid 0xb95e2a7a
+  sent: 1 DISCOVER, 1 REQUEST
+  OFFER: 192.168.10.105
+     lease_time=10368000
+  ACK  : ACK 192.168.10.105
+     lease_time=10368000 renewal=None rebinding=None
+
+  => STEP 5 PASS: after a cold reload the pool still reads <120:0:0:0> and a fresh client
+     is handed option 51 = 10,368,000 s again, so the 120-day value is written to the
+     config file, parsed back at boot and acted on by the server -- not merely held in a
+     running process. The DUT clock also survived the reload, reading "Thu, 15 Oct 2026
+     02:38:52 +0000".
+================================================================================
