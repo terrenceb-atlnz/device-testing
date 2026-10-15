@@ -138,7 +138,7 @@ re-reading as a top-three cost.
 | --- | --- | --- | --- | --- |
 | A | T33248 Static ARP · T33247 Clear ARP · T33249 ARP Logging · T33246 ARP Polling · T43848 Proxy ARP · T43849 Local Proxy ARP | arp-2026-10-15T1747 | **DONE 2026-10-15T2000 — 6 PASS, bench restored and re-probed (exit 0, all three configs identical to the pre-campaign capture)** | DUT + both host NICs. Two L3 segments (eth3/VLAN 10, eth4/VLAN 48) give proxy ARP its two sides without a partner. Run first: it is the least topology-hungry and it proves the bench before the routing underlay goes in |
 | B | T43855 IPv4 Static · T43861 ECMP Routing · T43862 Secondary IP Address | static-2026-10-15T1747 | **DONE** 21:21 — 3 PASS (underlay + restore recipe below; underlay stays up for C and D) | Needs the routing underlay (below) and both partners. ECMP uses the DUT's **two** links to one partner, or one link to each — the triangle gives equal-cost paths either way |
-| C | T43857 OSPFv2 · T43856 RIP v1/v2 | igp-2026-10-15T1747 | RUNNABLE (triaged 2026-10-15T1805) | Same underlay as B. `service ospf` / `service rip` FIRST |
+| C | T43857 OSPFv2 · T43856 RIP v1/v2 | igp-2026-10-15T1747 | **IN PROGRESS** from 21:35 (setup + restore recipe below; underlay verified intact, nothing group-level changed) | Same underlay as B. `service ospf` / `service rip` FIRST |
 | D | T43858 BGPv4 · T43859 VRF-Lite | bgp-vrf-2026-10-15T1747 | RUNNABLE (triaged 2026-10-15T1805) | Same underlay. `service bgp` first. VRF-Lite may need a feature the DUT lacks — that is UNSUPPORTED **with the refused command quoted**, after the service gate has been ruled out |
 
 **Group order is deliberate.** A runs on a bench almost identical to the one just restored. B, C
@@ -783,6 +783,99 @@ delete flash:/ck<ID>.cfg
 
 Apply the three RESTORE blocks above, then re-probe and diff as above.
 
+
+
+## Group C bench setup and restore — `igp-2026-10-15T1747` (written 2026-10-15 21:35 NZDT, before case 1 of group C)
+
+**Group C adds NOTHING at the bench level.** It runs on the **same shared B/C/D L3 underlay**
+built at the start of group B (section above), which the tester verified intact on all three
+devices at 21:30–21:32 NZDT, before any group-C command:
+
+```
+swi_d  boot config flash:/default.cfg (file exists);  Root Id = Bridge Id = 0000:e01aead47043 (DUT is root)
+       port1.0.4, 1.0.10, 1.0.16, 1.0.48 Designated Forwarding;  port1.0.2, 1.0.14 Disabled Discarding (shut)
+       vlan10 192.168.10.1/24 · vlan41 10.0.41.1/30 · vlan48 192.168.48.1/24 · vlan61 10.0.61.1/30
+       `show ip route` = the four connected routes ONLY; no static, no `router`, no `service ospf|rip`
+swi_b  lo 10.70.70.1/32 · vlan61 10.0.61.2/30 · ip route 192.168.10.0/24 + 192.168.48.0/24 via 10.0.61.1
+swi_a  lo 10.90.90.1/32 · vlan41 10.0.41.2/30 · ip route 192.168.10.0/24 + 192.168.48.0/24 via 10.0.41.1
+all three clocks within ~3 s of the box (08:30:43–08:31:47 UTC)
+```
+
+⇒ **The group restore is the shared underlay's own RESTORE block, run once after group D.**
+Group C leaves the underlay exactly as it found it.
+
+### What each case layers on top, and removes again in its own teardown
+
+| case | adds | removed by |
+| --- | --- | --- |
+| T43857 OSPFv2 | `service ospf` + `router ospf 1` on **all three** (router-ids DUT 1.1.1.1, swi_b 2.2.2.2, swi_a 3.3.3.3); `network` statements for the underlay legs, the two partner loopbacks and the DUT's vlan10/vlan48; a staged `flash:/ckT43857.cfg` for the reload limb | its own teardown |
+| T43856 RIP v1/v2 | `service rip` + `router rip` on **all three**; `version 1`/`version 2`; a **second address on swi_b's `lo`, `192.168.70.1/24`** (a cleanly classful prefix, needed because RIPv1 carries no masks and a /32 cannot survive it); a staged `flash:/ckT43856.cfg` | its own teardown |
+
+### Per-case RESTORE recipe (either case, if the session dies mid-case)
+
+Nothing here is needed if the underlay restore is run — but to return to the group-C start state:
+
+**swi_d (/dev/u2 @115200)** — send in SMALL batches, `cfg.py` abandons a batch at the first `% `
+```
+configure terminal
+ no router ospf 1
+ no router rip
+ no service ospf
+ no service rip
+ no ip route 10.70.70.1/32 10.0.41.2        ! only if the OSPF distance limb was in flight
+ end
+boot config-file flash:/default.cfg          ! config mode; pointer FIRST, before deleting
+delete flash:/ckT43857.cfg                   ! answers (y/n)[n] -- use ckyn.py, NOT cfg.py
+delete flash:/ckT43856.cfg
+show boot                                    ! must read Current boot config: flash:/default.cfg (file exists)
+dir flash:                                   ! `dir flash: | include x` is % Invalid input on this build
+```
+**swi_b (/dev/u3 @9600)**
+```
+configure terminal
+ no router ospf 1
+ no router rip
+ no service ospf
+ no service rip
+ interface lo
+  no ip address 192.168.70.1/24
+  exit
+ end
+```
+**swi_a (/dev/u5 @9600)** — config only, NEVER reload or power-cycle (RISK-1)
+```
+configure terminal
+ no router ospf 1
+ no router rip
+ no service ospf
+ no service rip
+ end
+```
+Then on each device `show running-config | include router|service ospf|service rip|ip route` must
+be back to the group-C start state quoted at the top of this section, and
+`python3.8 tools/rcdiff.py /tmp/ckC/<dev>-pre.out <post>` must print nothing (**it exits 0 even
+when it prints differences — read the output**).
+
+**`no service ospf` / `no service rip` remove the config line but the daemon keeps running until a
+reload** (memory `awplus-service-gated-routing-daemons`). That is expected, is not residue in
+running-config, and nothing is graded on it.
+
+### The flows every counted leg of group C uses
+
+Sender `192.168.10.5` / `00:11:22:33:44:01` on host `eth3`, next hop `e0:1a:ea:d4:70:43` (the DUT's
+SVI MAC — all SVIs share it). A background ARP responder (`arpleg.py --answer`) answers the DUT's
+ARP for the sender, because this DUT does not learn a neighbour from a request it merely answers.
+
+| flow | role |
+| --- | --- |
+| `10.70.70.1` | **SUBJECT-B** — swi_b's loopback. Reachable ONLY if the DUT learned it from the IGP via swi_b |
+| `10.90.90.1` | **SUBJECT-A** — swi_a's loopback. Reachable ONLY if the DUT learned it from the IGP via swi_a. A second neighbour, so a single-prefix withdrawal can be proven while the bench is demonstrably still alive |
+| `192.168.70.1` | **SUBJECT-B-v1** — T43856 only; the classful prefix RIPv1 can carry |
+| `203.0.113.9` | **CONTROL** — no route ever exists. Must be dropped in EVERY leg. (Deliberately outside `10/8`: RIPv1 summarises classfully and a `10.x` control could be captured by a `10.0.0.0/8` advertisement) |
+| `192.168.10.1` | **INSTRUMENT CONTROL** — the DUT's own vlan10 address. Must be answered in EVERY leg, so a zero elsewhere is a measurement and not a dead instrument |
+
+Captures and step outputs on the box in `/tmp/ckC/`; console transcripts `/tmp/ckC/console-u{2,3,5}.log`.
+`/tmp` was **95% full (111 MB free)** at group start — checked before every capture, all kept small.
 
 ## Results
 
