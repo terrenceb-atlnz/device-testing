@@ -1051,6 +1051,7 @@ D** block, then the **single reload of swi_d from `flash:/default.cfg`**, then r
 | T43862 | PASS | the secondary address proven **serving traffic**, not merely displayed: ARP **0/4** off → **4/4** on → **0/4** removed, and forwarding into the secondary subnet **0/5** → **5/5** → **0/5**; the connected route appears and disappears with it; survives a real reload. Multiple secondaries coexist; `ip address … secondary` with no primary is refused (`% Configure primary first`); removing the primary while a secondary exists is **refused, not cascaded** (`% Must delete secondary before deleting primary`). One planned discriminator was **discarded at baseline because it did not discriminate** — a frame merely *sourced* in the secondary subnet crosses the DUT with the feature off too, since forwarding is destination-based and there is no uRPF | tester | static-2026-10-15T1747/T43862/work/run1.log |
 | T43857 | PASS | OSPFv2 proven **on the wire across 9 counted legs**: the service gate measured, Full adjacency to **two** neighbours, routes learned from the protocol (code `O`, AD 110, partner Router LSAs, **no static route anywhere**) forwarding 5/5 + 5/5 against a control dropped in every leg. **The sharpest limb:** withdrawing ONE advertisement — link, port and adjacency all left up — dropped the subject to **0/5 in under 7 s** while the second neighbour stayed **5/5 in the SAME leg**. Static AD 1 displaces OSPF AD 110 **in the dataplane**, attributed by ICMP time-exceeded from the static next hop. `passive-interface` gives **0 OSPF packets in 30 s** while the Router LSA held at the neighbour still carries the network. Survives a real 61 s reboot | tester | igp-2026-10-15T1747/T43857/work/run1.log |
 | T43856 | PASS | RIP proven on the wire across 8 counted legs, **both versions read out of the protocol's own packets rather than a `show`**: the default is RIPv2 to multicast 224.0.0.9, TTL 1, explicit prefix length + route tag + next-hop on every entry (confirming the guide's "by default, RIP only sends and receives RIPv2 packets"); `version 1` on the same wire 34 s later is RIPv1 to broadcast 192.168.10.255 at ff:ff:ff:ff:ff:ff, TTL 64, no masks, no tags, and the four 10/8 entries collapsed into one classful `10.0.0.0`. The version change had a **selective, measured effect on traffic**: swi_a, left at v2, timed out after exactly the documented 180 s, dropped out of `Routing Information Sources` with 0 bad packets, and went 5/5 -> 0/5 while the two v1 prefixes stayed 5/5 in the same leg; returning to v2 recovered it in ~6 s. Withdrawal used the tightest control the bench allows -- one prefix withdrawn while the other prefix **from the same neighbour over the same port** kept forwarding -- and caught the mechanism: a triggered update at metric 16 took the route out of the FIB in 13 s, then the documented 120 s garbage-collect timer ran it out of the database, which `show ip route` alone cannot distinguish from a 180 s timeout. Removal returns the dataplane to baseline; survives a real 61 s reboot | tester | igp-2026-10-15T1747/T43856/work/run1.log |
+| T43858 | PASS | BGPv4 proven across **9 counted dataplane legs plus 4 protocol captures**, never from `show ip bgp`: two eBGP sessions Established to two different AS over two different links, and the prefixes carried in **real BGP-4 UPDATEs read off the wire** (Version 4 OPEN, ORIGIN IGP, AS_PATH {65002}, NEXT_HOP 10.0.61.2) -- the AS_PATH is what proves the route arrived by eBGP and no `show` can establish it. Forwarding 0/5 -> 5/5 with a control flow at 0/5 and an instrument control at 5/5 in **every** leg. A static at AD 1 displaces eBGP AD 20 with the **egress move attributed on the wire**. Withdrawal in its strongest form: one prefix withdrawn to 0/5 while the second neighbour held 5/5 **in the same capture**, and the WITHDRAW itself captured as an UPDATE carrying `Withdrawn routes: 10.70.70.1/32` + End-of-Rib. Removal proven in the **FIB** (`% Network not in table`), persistence across a real 60 s reboot. Teardown diffed CLEAN on all three devices | tester | bgp-vrf-2026-10-15T1747/T43858/work/run1.log |
 
 ## Issues
 
@@ -1285,3 +1286,34 @@ D** block, then the **single reload of swi_d from `flash:/default.cfg`**, then r
   with no modification: subject(s) + control + instrument-control in one 20-25 frame leg, the
   reply SOURCE address giving far-side attribution, and `--answer` keeping the DUT's ARP for the
   scapy sender alive. No new tool was needed and none was written.
+
+- **🔴 F-6 (T43858, measured) -- BGPv4 on this build is NOT service-gated, unlike OSPF and RIP.**
+  `service bgp ?` offers only `evpn`; the bare `service bgp` is `% Incomplete command.`, and `bgpd`
+  runs from boot. `router bgp <asn>` is accepted straight away with no gate. **The group-D dispatch
+  told the tester "`service bgp` first, and ALONE" -- that instruction was wrong**, inherited from
+  group C's OSPF/RIP gate, and had it been followed literally it would have produced a `% ` line
+  that makes `cfg.py` abandon the whole BGP batch. The tester found it by probing the CLI surface
+  instead of trusting the dispatch, which is the correct order. Consequence for the restore:
+  group D added **no** third `no service bgp` line, so the end-of-group reload of swi_d is still
+  required but only clears group C's two.
+- **🔴 F-7 (T43858, worth a developer) -- `show running-config` disagrees with both the saved file
+  and the wire on graceful restart.** On a fresh `router bgp`, the display renders
+  ` bgp graceful-restart` while `copy running-config` writes ` no bgp graceful-restart` and the
+  DUT's own OPEN message advertises **no** Graceful Restart capability. Two of the three agree, so
+  the *display* is the outlier -- but a reader who trusts `show running-config` is told the
+  opposite of what the device does. Attributed by reading the staged boot file and the OPEN packet,
+  not inferred.
+- **🔴 F-8 (T43858; the tester labelled this O-6/O-7, renumbered into this queue's single F series
+  to avoid a collision) -- A FOURTH INSTANCE OF THE §5 MIRROR DEFECT CLASS.** A port mirror copied
+  **zero** frames while `show mirror` read Enabled, direction receive, correct monitored port, and
+  traffic demonstrably ingressed that port. This is the same failure `platforms/x960.md` §5 records
+  for other features: the read-back says the feature is on and the dataplane does nothing.
+  **No verdict rests on the mirror.** The instrument actually used was the **DUT's own `tcpdump` at
+  privileged exec**, which is the right tool on this platform for unicast control-plane protocols --
+  it solves the "no scapy host behind a partner" problem that the mirror was reached for.
+- **INCIDENT, declared (T43858, cost ~2 min, no measurement affected).** The advisory
+  `% port1.0.48 is currently configured as a mirror-port...` stopped a `cfg.py` batch mid-way and
+  left `port1.0.48` shut and out of vlan 48 for about two minutes. The tester found it **by reading
+  the batch output** rather than trusting the exit code, restored the port and verified it
+  Forwarding in vlan 48 before any further measurement; **no counted leg ran in that window.** This
+  is the third recorded consequence of the `cfg.py` stop-at-first-`%` trap in this campaign.
