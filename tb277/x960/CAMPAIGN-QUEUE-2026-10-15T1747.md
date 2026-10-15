@@ -504,6 +504,7 @@ and diff `captures/<new>/u2.show_running-config.txt` against
 | T33248 | PASS | static ARP proven **on the wire**: 5/5 routed frames rewritten to the configured MAC and egressed on the configured port, the DUT's own ARP for that address suppressed; control address with no entry still ARPed and forwarded 0/5; removal returns config, table AND dataplane to baseline; survives a real reload. One instrument fault found and fixed first (`tools/arpleg.py` passed `-p` to tcpdump, so a frame carrying a next-hop MAC that was not the NIC's own was invisible and the leg read "0 forwarded") — both legs re-run after the fix | tester | arp-2026-10-15T1747/T33248/work/run1.log |
 | T33247 | PASS | all three implemented `clear arp-cache` forms (single address, unqualified, global) proven **in the dataplane**, not in the table: a cleared address draws broadcast ARPs and forwards 0/5 while a surviving entry forwards 5/5 with no ARP; the static entry is explicitly protected and still forwarding after every clear. Single-address and unqualified clears are distinguishable **on the wire** — after the targeted clear the DUT sent 5 ICMP host-unreachables unicast to the OTHER dynamic entry's MAC, which it could only do because that entry survived. `vrf` form recorded NOT EXERCISED (no VRF on the DUT yet; that is T43859) rather than claimed | tester | arp-2026-10-15T1747/T33247/work/run1.log |
 | T33249 | PASS | `arp log` emits one line per ARP cache event for crafted traffic that produces **zero** lines with the feature off; port, VLAN, MAC and IP in each line matched against the frames in the capture, and both directions appear (`del` from the clear, `add` from the re-learn). `mac-address-format ieee` changes only the MAC rendering (`0011.2233.4402` → `00-11-22-33-44-02`) and is held as its own running-config line. Both forms removable, each proven in running-config AND in the log output after it; survives a reboot and still logs | tester | arp-2026-10-15T1747/T33249/work/run1.log |
+| T43848 | PASS | with `ip proxy-arp` on vlan10 the DUT answers ARP for a vlan48 address with its **own** MAC, where the identical request drew **nothing** with the feature off; silent for an unroutable address and for the ingress interface's own subnet; the proxied address is genuinely reachable; removal and reboot persistence both proven on the wire. One four-target ARP leg replayed OFF / ON / after reload, with the DUT's own address as an instrument control in **every** leg so each zero is a measurement, not a dead instrument. **No ping anywhere** — a ping crosses vlan10→vlan48 identically with proxy ARP on or off and would have proved nothing | tester | arp-2026-10-15T1747/T43848/work/run1.log |
 
 ## Issues
 
@@ -556,3 +557,18 @@ and diff `captures/<new>/u2.show_running-config.txt` against
 - **TECHNIQUE (T33249) — the emitting process id is a cheap reboot witness.** `HSL[936]` became
   `HSL[944]` across the reload, which is independent proof the reboot was real rather than a stale
   log buffer being re-read. Reusable in any persistence limb that reads a log.
+- **🔴🔴 NEEDS TEST ENGINEER (T43848) — AN UNRECORDED DEVICE IS LIVE ON THE eth3 SEGMENT.**
+  A capture holds `who-has 10.38.22.33 tell 10.38.22.41` from MAC `00:0c:25:2a:a5:53`, answered by
+  the box. `10.38.22.33` is the box's own eth3 address; **`10.38.22.41` and that MAC are in no bench
+  record**, and `eth3` is supposed to reach only swi_d `port1.0.10`.
+  **The sentinel corroborated it against the capture history, and it is not a one-off:** MAC
+  `000c.252a.a553` has been learned on swi_d **`port1.0.10`** in every probe since **2026-10-09**
+  (`captures/2026-10-09T035251Z`, `2026-10-11T202947Z`, and all four of 2026-10-15), and the same
+  MAC also appears on **swi_b `sa1` in vlan 100** — the pre-existing aggregation flagged as RISK-2.
+  So a third party sits on, or is bridged onto, the host↔DUT link this campaign measures through.
+  *Did it confound anything?* **No.** All T43848 measurement is in 192.168.x, every counted frame was
+  matched by target and MAC plus a `CKARPLEG` payload marker, and the stray appeared once in ~25
+  captures. *What was done instead of asking:* recorded; the tester will check for an address clash
+  before T33246 uses `10.38.22.34`.
+  **It bears on T33246**, which plans to put the DUT's vlan10 in the box's real eth3 subnet, and on
+  any future case that uses bench addressing rather than private test subnets.
