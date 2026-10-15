@@ -67,12 +67,24 @@ def _sh(cmd):
                           stderr=subprocess.STDOUT, universal_newlines=True)
 
 
-def start_caps(ifaces, outdir, tag, bpf):
-    """Start one tcpdump per iface. Returns {iface: (popen, path)}."""
+def start_caps(ifaces, outdir, tag, bpf, promisc=True):
+    """Start one tcpdump per iface. Returns {iface: (popen, path)}.
+
+    PROMISCUOUS BY DEFAULT, and it must stay that way. A routed frame leaves the
+    DUT with the destination MAC of the *next hop*, which on a test bench is
+    almost never the capturing NIC's own MAC -- a static ARP entry's fake MAC, a
+    proxy-ARP target, a partner switch. A non-promiscuous capture silently drops
+    every one of them and the leg reads as "the DUT forwarded nothing", which is
+    indistinguishable from the feature being broken. Measured on tb277
+    2026-10-15: T33248 leg 1 read 0 forwarded frames with `-p`, and 5 of 5 with
+    the identical configuration once `-p` was removed.
+    """
     caps = {}
     for ifc in ifaces:
         path = os.path.join(outdir, "%s-%s.pcap" % (tag, ifc))
-        cmd = ["tcpdump", "-i", ifc, "-w", path, "-U", "-s", "0", "-n", "-p"]
+        cmd = ["tcpdump", "-i", ifc, "-w", path, "-U", "-s", "0", "-n"]
+        if not promisc:
+            cmd.append("-p")
         if bpf:
             cmd.append(bpf)
         p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
@@ -219,6 +231,8 @@ def main():
                     help="seconds to keep capturing after the last frame")
     ap.add_argument("--gap", type=float, default=0.25, help="seconds between frames")
     ap.add_argument("--filter", default="arp or ip or icmp", help="BPF for tcpdump")
+    ap.add_argument("--no-promisc", action="store_true",
+                    help="capture non-promiscuously; drops frames not addressed to the NIC")
     ap.add_argument("--sniff-only", action="store_true", help="capture only, send nothing")
     ap.add_argument("--top", type=int, default=12, help="distinct flows to print per cap")
     args = ap.parse_args()
@@ -236,7 +250,8 @@ def main():
 
     print("LEG %s  iface=%s watch=%s count=%d" %
           (args.tag, args.iface, ",".join(args.watch) or "-", args.count))
-    caps = start_caps(ifaces, args.out, args.tag, args.filter)
+    caps = start_caps(ifaces, args.out, args.tag, args.filter,
+                      promisc=not args.no_promisc)
     time.sleep(args.settle)
 
     sent = 0
