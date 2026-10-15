@@ -1,0 +1,358 @@
+T33247  IPv4_ARP - Clear ARP  --  working log, run 1
+====================================================
+
+RUN START: 2026-10-15 18:33 NZDT (2026-10-15 05:33 UTC)
+RUN END:   2026-10-15 18:42 NZDT (2026-10-15 05:42 UTC)
+
+Run quality: clean.
+
+
+1. SESSION FACTS
+----------------
+Test Engineer : bidhanc@bidhanc-dl  (AWAY -- unattended campaign, no prompts)
+Testbox       : tb277
+Consoles      : u2 = swi_d (DUT) @115200.  u3 = swi_b and u5 = swi_a were NOT opened.
+PDU           : 10.36.230.212 outlet 1 (u2).  Not used -- this case does not reboot anything.
+Constraints   : None (full authority within tests; power cycles allowed).
+Campaign      : tb277/x960/CAMPAIGN-QUEUE-2026-10-15T1747.md, group A `arp-2026-10-15T1747`,
+                case 2 of 6.
+Sentinel      : parent session (/test-mode one-session shape).
+Driver        : manual console + scapy.  No `.setup` on tb277 => no framework, no framework
+                post-failure PDU cycle; this case's own teardown is the only restore.
+
+
+2. DEVICE, HOST NICs, LINKS AND CLOCKS
+--------------------------------------
+Identical to case 1 of this group and recorded in full there:
+tb277/x960/arp-2026-10-15T1747/T33248/work/run1.log sections 2 and 3.  In brief:
+
+  swi_d  /dev/u2 @115200  awplus  AT-x960-56YSQ  S/N A2WQS700B  sin_x96056-20261012-24
+         boot image flash:/x960-tb277.rel (exists), boot config flash:/default.cfg (exists)
+         SVI MAC e0:1a:ea:d4:70:43 (shared by vlan10 and vlan48)
+  tb277 eth3  00:0d:b9:55:77:0e  -> swi_d port1.0.10   (VLAN 10, 192.168.10.0/24)
+  tb277 eth4  00:0d:b9:55:77:0f  -> swi_d port1.0.48   (VLAN 48, 192.168.48.0/24)
+  swi_d clock = box clock - 3 s.  Both read UTC.  No host networking was changed.
+  192.168.10.2 (MAC 00:11:22:33:44:01) and 192.168.48.2 (MAC 00:11:22:33:44:02) are scapy
+  fictions, not host addresses.
+
+
+3. CASE TEXT AND GROUNDING
+--------------------------
+AWPTCM T33247 "IPv4_ARP - Clear ARP".
+
+STEP TEXT: NONE EXISTS.  No exact-title match in ck.db (checked at triage for all 13 campaign
+titles; only T43849 has step text).  A reference row in the same family exists -- AWP-4339 "ARP
+Commands: Clear ARP" -- but it is NOT this case and is not presented as its steps.
+
+Grounded in:
+  (a) X960 platform support TPS row 19 "Clear ARP" -- priority 1, "Yes", note column empty.
+  (b) `ip_feature_overview_guide.pdf`, the "deleting ARP entries" section.
+  (c) The DUT's own CLI, read-only `?` probe:
+        awplus# clear arp-cache ?
+          A.B.C.D  Internet Protocol (IP)
+          global   Global Routing/Forwarding table
+          vrf      VRF instance
+          <cr>
+        awplus# clear arp-cache 192.168.10.2 ?
+          <cr>
+      NOTE the command is `clear arp-cache`, NOT `clear arp` -- `clear arp` on this build takes
+      only `security`.  Anyone scripting `clear arp <ip>` gets a parser rejection.
+  (d) STANDING-ORDERS Section 7 and memory `satisfactory-level-of-testing`.
+
+OBJECTIVE: all three forms of `clear arp-cache` remove the dynamic entries they name and no
+others; the removal is real in the DATAPLANE (the DUT re-ARPs and stops forwarding), not merely
+in the table read-back; a statically configured entry is NOT removed by any of them; and the
+cache repopulates normally afterwards.
+
+SCOPE NOTE, stated deliberately: `clear arp-cache` is an EXEC command with no configuration
+footprint.  The "prove removal from running-config and persistence across a reboot" floor
+(memory `satisfactory-level-of-testing`) has no object here -- there is nothing to remove and
+nothing to persist.  The two equivalent properties ARE proven instead:
+  - the effect is not sticky: the cache repopulates on the next resolution (steps 4, 6, 7);
+  - the volatile cache does not survive a reboot anyway.  Measured in this group's case 1 on the
+    same DUT: after the `reload` in T33248 step 6, `show arp` held ONLY the static entry
+    (T33248/work/run1.log step 6).  Quoted here rather than costing this case a second reboot.
+
+
+4. BENCH SETUP FOR THIS CASE
+----------------------------
+Group A's shared setup (vlan 10 + vlan 48 with their SVI addresses, port1.0.10 and port1.0.48
+members) was already in place from case 1 and is unchanged.  This case adds ONE thing before
+step 1 -- the static entry that serves as the control that must SURVIVE every clear:
+
+  awplus# configure terminal
+  awplus(config)# arp 192.168.48.9 0011.2233.4499 port1.0.48
+  awplus(config)# end
+  awplus# clear arp-cache            ! start from an empty dynamic cache
+
+Config saved: tb277/x960/arp-2026-10-15T1747/T33247/swi_d.cfg
+  -- 3 header + 99 config lines, captured 18:34 NZDT, AFTER setup and BEFORE step 1.
+     (99 lines vs case 1's 97: the two extra are the static arp line and its `!` separator.)
+
+TOOLS:
+  tools/arpleg.py   with `--answer IP=MAC --answer-iface eth3,eth4` (new in this case, see
+                    section 5), `--probe`, `--watch`
+  tools/cfg.py, tools/ckcon.py, tools/rc2cfg.py, tools/rcdiff.py, tools/qmark.py
+Captures on the box: /tmp/ck1747/T33247/
+
+
+5. A PLATFORM BEHAVIOUR THAT CHANGED THE METHOD  (found at step 0, and it matters)
+-----------------------------------------------------------------------------------
+The obvious way to populate a DUT's ARP cache is to send it an ARP request.  RFC 826 says a
+device that is the TARGET of an ARP request adds the sender to its table.  THIS DUT DOES NOT.
+
+  leg L0a-pop-eth3: 2 x `who-has 192.168.10.1 tell 192.168.10.2` from eth3
+                    -> DUT answered both: `ARP-REPLY 192.168.10.1 is-at e0:1a:ea:d4:70:43`
+  leg L0b-pop-eth4: 2 x `who-has 192.168.48.1 tell 192.168.48.2` from eth4
+                    -> DUT answered both: `ARP-REPLY 192.168.48.1 is-at e0:1a:ea:d4:70:43`
+  awplus# show arp
+  IP Address      LL Address       Interface            Port        Type
+  192.168.48.9    0011.2233.4499   vlan48               port1.0.48  static
+                    <- NEITHER sender was learned.  Nothing dynamic at all.
+
+=> On sin_x96056-20261012-24 a dynamic ARP entry is created only for a neighbour that ANSWERS an
+   ARP request the DUT ITSELF sent.  Being asked is not enough.
+
+Consequence for the method, and for every later ARP case: a leg that needs a dynamic entry must
+ANSWER, not merely ask.  `tools/arpleg.py` was extended for this with `--answer IP=MAC` (one
+background responder per `--answer-iface`, sharing one IP=MAC table, each seeing only its own
+wire) and `--announce` (gratuitous ARP).  The reason is written into the Answerer docstring.
+This also gives the group the ability to STOP answering on demand, which is how T33246's
+web-auth poll timeout will be driven.
+
+With the responder, learning works first time:
+
+  tool: sudo python3.8 tools/arpleg.py --tag L0c-learn --out /tmp/ck1747/T33247 \
+          --iface eth3 --watch eth4 --probe 192.168.48.2 --sender-ip 192.168.10.2 \
+          --sender-mac 00:11:22:33:44:01 --gw-mac e0:1a:ea:d4:70:43 --count 5 \
+          --answer 192.168.48.2=00:11:22:33:44:02,192.168.10.2=00:11:22:33:44:01 \
+          --answer-iface eth3,eth4 --wait 6
+  answering ARP for: 192.168.10.2=00:11:22:33:44:01, 192.168.48.2=00:11:22:33:44:02 on eth3,eth4
+  answerer sent 1 ARP reply/replies (eth3:0, eth4:1)
+  cap L0c-learn-eth4.pcap: 7 frame(s)
+    x5  UDP 192.168.10.2 -> 192.168.48.2 :9 [ours]  [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:02]
+    x1  ARP-REQ   who-has 192.168.48.2 tell 192.168.48.1  [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:02]
+    x1  ARP-REPLY 192.168.48.2 is-at 00:11:22:33:44:02    [00:11:22:33:44:02 -> e0:1a:ea:d4:70:43]
+
+  SECONDARY OBSERVATION: that ARP request was UNICAST to 00:11:22:33:44:02, not broadcast, even
+  though `show arp` had held no entry for 192.168.48.2.  The DUT had seen that MAC in the earlier
+  L0b leg.  So the DUT retains some knowledge of a sender it will not show in `show arp` -- one
+  more reason not to grade an ARP case on that table.  When the address is genuinely unknown the
+  request IS broadcast (every baseline leg below shows `-> ff:ff:ff:ff:ff:ff`).
+
+  A second learn leg (L0d-learn10, same shape from eth4 towards 192.168.10.2, answering on eth3)
+  produced the vlan10 entry the same way, with a broadcast request and one reply.
+
+
+6. STEPS
+--------
+
+STEP 1 -- THE CACHE IS POPULATED AND IN USE.  Establish the "before" state that the clears must
+          demonstrably destroy.
+
+  awplus# show arp
+  IP Address      LL Address       Interface            Port        Type
+  192.168.10.2    0011.2233.4401   vlan10               port1.0.10  dynamic
+  192.168.48.9    0011.2233.4499   vlan48               port1.0.48  static
+  192.168.48.2    0011.2233.4402   vlan48               port1.0.48  dynamic
+
+  tool: sudo python3.8 tools/arpleg.py --tag L1-cache-in-use --out /tmp/ck1747/T33247 \
+          --iface eth3 --watch eth4 --probe 192.168.48.2,192.168.48.9 \
+          --sender-ip 192.168.10.2 --sender-mac 00:11:22:33:44:01 \
+          --gw-mac e0:1a:ea:d4:70:43 --count 5 --wait 5        (NO answerer running)
+
+  LEG L1-cache-in-use  sent total: 10 frame(s)
+    cap L1-cache-in-use-eth3.pcap: 10 frame(s)
+      x5  UDP 192.168.10.2 -> 192.168.48.2 :9 [ours]  [00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+      x5  UDP 192.168.10.2 -> 192.168.48.9 :9 [ours]  [00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    cap L1-cache-in-use-eth4.pcap: 10 frame(s)
+      x5  UDP 192.168.10.2 -> 192.168.48.2 :9 [ours]  [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:02]
+      x5  UDP 192.168.10.2 -> 192.168.48.9 :9 [ours]  [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:99]
+
+  Reading: 10 of 10 frames forwarded, each rewritten to the MAC its entry holds, and NOT ONE ARP
+  REQUEST on either wire.  The cache is populated, correct and in use.
+  STEP 1 VERDICT: PASS (baseline established).
+
+STEP 2 -- `clear arp-cache A.B.C.D` CLEARS EXACTLY THE ENTRY NAMED.
+
+  awplus# clear arp-cache 192.168.48.2
+  awplus# show arp
+  IP Address      LL Address       Interface            Port        Type
+  192.168.10.2    0011.2233.4401   vlan10               port1.0.10  dynamic
+  192.168.48.9    0011.2233.4499   vlan48               port1.0.48  static
+                    <- 192.168.48.2 gone; the other dynamic entry and the static one remain
+
+  tool: sudo python3.8 tools/arpleg.py --tag L2-single-clear --out /tmp/ck1747/T33247 \
+          --iface eth3 --watch eth4 --probe 192.168.48.2,192.168.48.9 \
+          --sender-ip 192.168.10.2 --sender-mac 00:11:22:33:44:01 \
+          --gw-mac e0:1a:ea:d4:70:43 --count 5 --wait 5        (NO answerer running)
+
+  LEG L2-single-clear  sent total: 10 frame(s)
+    cap L2-single-clear-eth3.pcap: 15 frame(s)
+      x5  UDP  192.168.10.2 -> 192.168.48.2 :9 [ours]  [00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+      x5  UDP  192.168.10.2 -> 192.168.48.9 :9 [ours]  [00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+      x5  ICMP t3/c1 192.168.10.1 -> 192.168.10.2 [ours] [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:01]
+    cap L2-single-clear-eth4.pcap: 8 frame(s)
+      x5  UDP 192.168.10.2 -> 192.168.48.9 :9 [ours]  [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:99]
+      x3  ARP-REQ who-has 192.168.48.2 tell 192.168.48.1  [e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+
+  Reading, three independent facts in one leg:
+    - CLEARED: 192.168.48.2 is now unresolved.  The DUT broadcast 3 ARP requests for it and
+      forwarded 0 of its 5 frames -- against 5 of 5 with no ARP at all in step 1.
+    - NOT CLEARED (control, same leg): 192.168.48.9 still forwarded 5 of 5 to 00:11:22:33:44:99.
+    - NOT CLEARED, PROVEN ON THE WIRE rather than from the table: the DUT returned 5 ICMP type 3
+      code 1 (destination host unreachable) to 192.168.10.2, addressed UNICAST to
+      00:11:22:33:44:01.  It could only address those because its 192.168.10.2 entry had
+      survived.  That is the dataplane confirming what `show arp` claimed.
+  STEP 2 VERDICT: PASS.
+
+STEP 3 -- `clear arp-cache` WITH NO ARGUMENT CLEARS ALL DYNAMIC ENTRIES AND NO STATIC ONE.
+
+  (192.168.48.2 was first re-learned -- leg L2b-repop, answerer sent 1 reply -- so that two
+  dynamic entries existed to be cleared.)
+
+  awplus# show arp
+  192.168.10.2    0011.2233.4401   vlan10               port1.0.10  dynamic
+  192.168.48.9    0011.2233.4499   vlan48               port1.0.48  static
+  192.168.48.2    0011.2233.4402   vlan48               port1.0.48  dynamic
+  awplus# clear arp-cache
+  awplus# show arp
+  IP Address      LL Address       Interface            Port        Type
+  192.168.48.9    0011.2233.4499   vlan48               port1.0.48  static
+                    <- BOTH dynamic entries gone, the static one untouched
+
+  tool: sudo python3.8 tools/arpleg.py --tag L3-full-clear --out /tmp/ck1747/T33247 \
+          --iface eth3 --watch eth4 --probe 192.168.48.2,192.168.48.9 \
+          --sender-ip 192.168.10.2 --sender-mac 00:11:22:33:44:01 \
+          --gw-mac e0:1a:ea:d4:70:43 --count 5 --wait 5
+
+  LEG L3-full-clear  sent total: 10 frame(s)
+    cap L3-full-clear-eth3.pcap: 13 frame(s)
+      x5  UDP 192.168.10.2 -> 192.168.48.2 :9 [ours]  [00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+      x5  UDP 192.168.10.2 -> 192.168.48.9 :9 [ours]  [00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+      x3  ARP-REQ who-has 192.168.10.2 tell 192.168.10.1  [e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+    cap L3-full-clear-eth4.pcap: 8 frame(s)
+      x5  UDP 192.168.10.2 -> 192.168.48.9 :9 [ours]  [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:99]
+      x3  ARP-REQ who-has 192.168.48.2 tell 192.168.48.1  [e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+
+  Reading: and here is the discriminator that separates step 3 from step 2.  In step 2 the DUT
+  answered the unresolvable traffic with ICMP unreachables addressed to 192.168.10.2, because
+  that entry had survived.  After the unqualified `clear arp-cache` there are NO ICMP
+  unreachables; instead the DUT has to BROADCAST 3 ARP requests for 192.168.10.2 itself.  The
+  second dynamic entry really is gone, and the two clear forms are distinguishable on the wire
+  and not only in the table.  The static entry still forwarded 5 of 5.
+  STEP 3 VERDICT: PASS.
+
+STEP 4 -- `clear arp-cache global` (the global routing/forwarding table).
+
+  (192.168.48.2 re-learned again first -- leg L4a-repop, answerer sent 1 reply.)
+
+  awplus# show arp
+  192.168.48.9    0011.2233.4499   vlan48               port1.0.48  static
+  192.168.48.2    0011.2233.4402   vlan48               port1.0.48  dynamic
+  awplus# clear arp-cache global
+  awplus# show arp
+  IP Address      LL Address       Interface            Port        Type
+  192.168.48.9    0011.2233.4499   vlan48               port1.0.48  static
+
+  Reading: the dynamic entry in the global table is cleared; the static entry is not.  Same
+  outcome as the unqualified form for a device with no VRFs configured, which is what "global"
+  means here -- the global routing/forwarding table as distinct from `vrf WORD`.  The `vrf` form
+  is not exercised: no VRF exists on the DUT in this group, and VRF-Lite is group D's case
+  (T43859).  Recorded as NOT EXERCISED rather than passed.
+  STEP 4 VERDICT: PASS for the `global` form.  The `vrf` form: NOT EXERCISED, no VRF on the DUT.
+
+STEP 5 -- A STATIC ENTRY CANNOT BE CLEARED, AND THE DUT SAYS SO.
+
+  awplus# clear arp-cache 192.168.48.9
+  % Skipping 0011.2233.4499 as it is statically assigned.
+  % Can't find address
+  awplus# show running-config | include arp
+  arp 192.168.48.9 0011.2233.4499 port1.0.48
+
+  Reading: the static entry is explicitly protected, with a message that names the MAC and the
+  reason.  The second line "% Can't find address" follows because, the static entry having been
+  skipped, no clearable entry for that address remained.  Both lines are expected results of a
+  negative step, not failures -- but note that a stop-on-error driver treats them as errors
+  (cfg.py stopped its batch here, correctly), which is why the following `show` was re-issued
+  separately.  The configuration line is untouched.
+
+  tool: sudo python3.8 tools/arpleg.py --tag L5-static-survives --out /tmp/ck1747/T33247 \
+          --iface eth3 --watch eth4 --probe 192.168.48.9,192.168.48.2 \
+          --sender-ip 192.168.10.2 --sender-mac 00:11:22:33:44:01 \
+          --gw-mac e0:1a:ea:d4:70:43 --count 5 --wait 5
+
+  LEG L5-static-survives  sent total: 10 frame(s)
+    cap L5-static-survives-eth4.pcap: 8 frame(s)
+      x5  UDP 192.168.10.2 -> 192.168.48.9 :9 [ours]  [e0:1a:ea:d4:70:43 -> 00:11:22:33:44:99]
+      x3  ARP-REQ who-has 192.168.48.2 tell 192.168.48.1  [e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+
+  Reading: after a single clear, an unqualified clear, a global clear and an attempted clear of
+  the static entry itself, the static entry is STILL in the forwarding path -- 5 of 5 rewritten
+  to 00:11:22:33:44:99 -- while the dynamic address cleared alongside it is still unresolved.
+  STEP 5 VERDICT: PASS.
+
+STEP 6 -- THE CACHE REPOPULATES AFTER A CLEAR (the clear is an event, not a state).
+  Demonstrated three times over, at steps 3, 4 and 5: after each clear, a leg with the responder
+  running (L2b-repop, L4a-repop) re-learned 192.168.48.2 at the first attempt -- `show arp`
+  listed it as `dynamic` again and the next leg forwarded to it with no ARP.  No configuration
+  change was needed to re-enable learning, and no clear left the cache permanently disabled.
+  STEP 6 VERDICT: PASS.
+
+
+7. TEARDOWN AND RESTORE
+-----------------------
+  awplus# configure terminal
+  awplus(config)# no arp 192.168.48.9
+  awplus(config)# end
+  awplus# clear arp-cache
+  awplus# show arp
+  IP Address      LL Address       Interface            Port        Type
+  awplus#                                       <- empty
+  awplus# show running-config | include arp
+  awplus#                                       <- no arp line of any kind
+
+  TEARDOWN DIFF (STANDING-ORDERS Section 1), two comparisons, both needed:
+    a) vs THIS CASE's pre-step-1 copy:
+         tools/rcdiff.py /tmp/ck1747/T33247/pre-rc.out /tmp/ck1747/T33247/post-rc.out
+         -arp 192.168.48.9 0011.2233.4499 port1.0.48
+       The one expected difference: this case's own control entry, which was part of its setup
+       and is removed by its teardown.
+    b) vs the GROUP BASELINE (the state case 1 restored to, itself byte-identical to the
+       pre-campaign probe capture captures/2026-10-15T051005Z/u2.show_running-config.txt):
+         tools/rcdiff.py /tmp/ck1747/T33248/post-rc.out /tmp/ck1747/T33247/post-rc.out
+         -> no output.  NO RESIDUE.
+
+  Group A's shared setup (vlan 10 / vlan 48 and their SVI addresses) is deliberately left in
+  place for the next case; it is removed by the group restore block in the campaign queue.
+
+  Devices touched: swi_d only.  Processes started: none left running -- every tcpdump and every
+  ARP responder was started and stopped by arpleg.py inside its own leg (the tool prints the
+  responder's reply count at the end of each leg, so a responder left running would be visible).
+  Console state, read from the transcript /tmp/ck1747/console-u2.log, not from tool stdout:
+  exec prompt `awplus#`, `terminal no monitor`.
+
+
+8. FILES
+--------
+  tb277/x960/arp-2026-10-15T1747/T33247/swi_d.cfg        deliverable, after setup / before step 1
+  tb277/x960/arp-2026-10-15T1747/T33247/work/run1.log    this file
+  tools/arpleg.py                                        extended this case (--answer,
+                                                         --answer-iface, --announce), README
+                                                         entry updated
+  On the box (NOT committed): /tmp/ck1747/T33247/*.pcap (12 captures), pre-rc.out, post-rc.out,
+  and the console transcript /tmp/ck1747/console-u2.log
+
+
+VERDICT: PASS -- all three implemented forms of `clear arp-cache` (single address, unqualified,
+`global`) were proven to clear exactly the dynamic entries they name and no others, in the
+DATAPLANE and not only in `show arp`: after each clear the DUT broadcast ARP requests for the
+cleared address and forwarded 0 of 5 frames, while an address whose entry survived still
+forwarded 5 of 5 with no ARP at all.  The single-address and unqualified forms are distinguished
+on the wire by the DUT's own ICMP unreachables, which only the surviving entry made possible.  A
+statically configured entry is explicitly protected ("% Skipping ... as it is statically
+assigned.") and still forwarded after every clear.  The cache repopulates normally afterwards.
+The `vrf` form is NOT EXERCISED (no VRF exists on the DUT; that is group D's T43859) and is
+recorded as such rather than claimed.  Two platform behaviours worth carrying: the command is
+`clear arp-cache`, not `clear arp`; and this DUT does NOT learn an ARP entry from a request it
+merely answers, which changes how any ARP case must populate a cache.

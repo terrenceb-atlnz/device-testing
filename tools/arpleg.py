@@ -49,6 +49,7 @@ import logging
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 from scapy.all import (  # noqa: E402
     ARP,
+    AsyncSniffer,
     Dot1Q,
     Ether,
     ICMP,
@@ -122,12 +123,67 @@ def tag_frame(pkt, vlan):
     return pkt
 
 
+class Answerer(object):
+    """Answer ARP requests for given IPs, each with its own MAC, while a leg runs.
+
+    A DUT only creates a DYNAMIC ARP entry for a neighbour that ANSWERS the ARP
+    request the DUT itself sent. Measured on an x960-56YSQ 2026-10-15: sending the
+    DUT an unsolicited ARP request -- even one asking for the DUT's own address,
+    which RFC 826 says should populate the table -- left `show arp` empty. So any
+    leg that needs a dynamic entry to exist must answer, not merely ask.
+
+    It also lets a case STOP answering, which is how a poll/ageing/deauth timeout
+    is driven (web-auth ARP polling, ARP ageing).
+    """
+
+    def __init__(self, iface, table, verbose=True):
+        self.iface = iface
+        self.table = table           # {ip: mac}
+        self.sent = 0
+        self.verbose = verbose
+        self._s = None
+
+    def _handle(self, pkt):
+        if not pkt.haslayer(ARP):
+            return
+        a = pkt[ARP]
+        if a.op != 1:
+            return
+        mac = self.table.get(a.pdst)
+        if not mac:
+            return
+        if a.hwsrc in self.table.values():
+            return               # never answer ourselves
+        rep = (Ether(src=mac, dst=a.hwsrc) /
+               ARP(op=2, hwsrc=mac, psrc=a.pdst, hwdst=a.hwsrc, pdst=a.psrc))
+        sendp(rep, iface=self.iface, verbose=0)
+        self.sent += 1
+
+    def start(self):
+        self._s = AsyncSniffer(iface=self.iface, filter="arp", store=False,
+                               prn=self._handle)
+        self._s.start()
+
+    def stop(self):
+        if self._s is not None:
+            try:
+                self._s.stop()
+            except Exception:  # noqa: BLE001
+                pass
+
+
 def build(args):
     """Return a list of (description, frame) to send, in order."""
     out = []
     smac, sip = args.sender_mac, args.sender_ip
     for t in args.arp:
         eth = Ether(src=smac, dst=BCAST)
+        op = 2 if args.announce else 1
+        if op == 2:
+            a = ARP(op=2, hwsrc=smac, psrc=sip, hwdst=BCAST, pdst=sip)
+            f = eth / Dot1Q(vlan=args.vlan) / a if args.vlan else eth / a
+            out.append(("gratuitous arp: %s is-at %s" % (sip, smac), f))
+            continue
         a = ARP(op=1, hwsrc=smac, psrc=sip, hwdst="00:00:00:00:00:00", pdst=t)
         f = eth / Dot1Q(vlan=args.vlan) / a if args.vlan else eth / a
         out.append(("arp who-has %s tell %s" % (t, sip), f))
@@ -231,6 +287,15 @@ def main():
                     help="seconds to keep capturing after the last frame")
     ap.add_argument("--gap", type=float, default=0.25, help="seconds between frames")
     ap.add_argument("--filter", default="arp or ip or icmp", help="BPF for tcpdump")
+    ap.add_argument("--answer", default="",
+                    help="comma list of IP=MAC to answer ARP requests for, for the "
+                         "duration of the leg (makes the DUT learn a DYNAMIC entry)")
+    ap.add_argument("--answer-iface", default="",
+                    help="comma list of NICs the answerer listens/replies on "
+                         "(default: --iface). One answerer per NIC, sharing the "
+                         "same IP=MAC table; each only ever sees its own wire")
+    ap.add_argument("--announce", action="store_true",
+                    help="send the --arp specs as GRATUITOUS ARP replies instead of requests")
     ap.add_argument("--no-promisc", action="store_true",
                     help="capture non-promiscuously; drops frames not addressed to the NIC")
     ap.add_argument("--sniff-only", action="store_true", help="capture only, send nothing")
@@ -250,8 +315,25 @@ def main():
 
     print("LEG %s  iface=%s watch=%s count=%d" %
           (args.tag, args.iface, ",".join(args.watch) or "-", args.count))
+    answer_tbl = {}
+    for item in [x for x in args.answer.split(",") if x]:
+        ip, _, mac = item.partition("=")
+        if not mac:
+            sys.exit("--answer wants IP=MAC, got %r" % item)
+        answer_tbl[ip] = mac
+
     caps = start_caps(ifaces, args.out, args.tag, args.filter,
                       promisc=not args.no_promisc)
+    answerers = []
+    if answer_tbl:
+        aifs = [x for x in (args.answer_iface or args.iface).split(",") if x]
+        for aif in aifs:
+            a = Answerer(aif, answer_tbl)
+            a.start()
+            answerers.append(a)
+        print("  answering ARP for: %s  on %s" %
+              (", ".join("%s=%s" % kv for kv in sorted(answer_tbl.items())),
+               ",".join(aifs)))
     time.sleep(args.settle)
 
     sent = 0
@@ -265,6 +347,12 @@ def main():
         print("  sniff-only, %.1f s" % args.wait)
     time.sleep(args.wait)
 
+    for a in answerers:
+        a.stop()
+    if answerers:
+        print("  answerer sent %d ARP reply/replies (%s)" %
+              (sum(a.sent for a in answerers),
+               ", ".join("%s:%d" % (a.iface, a.sent) for a in answerers)))
     stop_caps(caps)
     paths = [p for (_, p) in caps.values()]
     chown_back(paths)

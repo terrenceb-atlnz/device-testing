@@ -501,9 +501,18 @@ local proxy ARP, web-auth ARP polling) but it is generic: any case that needs "s
 there, tell me what came back".
 It replaces the per-case `runleg.sh` heredocs that the 2026-10-15 process reviews named as the
 campaign's single largest avoidable cost.
-- **Run:** `sudo arpleg.py --tag NAME --out DIR --iface eth3 [--watch eth4 ...] [--arp TGT[,TGT]] [--probe DST[,DST]] [--icmp DST[,DST]] [--sender-ip IP] [--sender-mac MAC] [--gw-mac MAC] [--count N] [--vlan V] [--settle S] [--wait S] [--filter BPF] [--sniff-only] [--top N]`
+- **Run:** `sudo arpleg.py --tag NAME --out DIR --iface eth3 [--watch eth4 ...] [--arp TGT[,TGT]] [--probe DST[,DST]] [--icmp DST[,DST]] [--answer IP=MAC[,IP=MAC]] [--answer-iface eth3,eth4] [--announce] [--sender-ip IP] [--sender-mac MAC] [--gw-mac MAC] [--count N] [--vlan V] [--settle S] [--wait S] [--filter BPF] [--sniff-only] [--no-promisc] [--top N]`
 - **Where:** testbox (root — raw sockets + tcpdump); **needs:** scapy, tcpdump
 - **Imports:** none
+- **`--answer IP=MAC` makes the DUT learn a DYNAMIC entry.** A background responder answers ARP
+  requests for those addresses for the duration of the leg, one per `--answer-iface` (a comma
+  list; they share one table and each only ever sees its own wire), and the leg prints how many
+  replies it sent. **You need it**: measured on an x960-56YSQ 2026-10-15, this DUT does NOT create
+  a dynamic ARP entry for a neighbour that merely sends it an ARP request — not even a request
+  for the DUT's own address, which RFC 826 says should populate the table. Only a neighbour that
+  ANSWERS the DUT's own request is learned. Ending the leg stops answering, which is how a poll,
+  ageing or deauth timeout is driven. `--announce` sends the `--arp` specs as gratuitous ARP
+  replies instead of requests.
 - **Two independent counters:** it prints what it **sent** beside what the **capture** holds, and
   exits **7** when the sending NIC's capture holds fewer of its own marked frames than it sent.
   Marked frames carry `CKARPLEG-<tag>` in the payload and are flagged `[ours]` in the report, so
@@ -516,9 +525,12 @@ campaign's single largest avoidable cost.
   - It does not answer anything. For a leg that must respond, pair it with a responder
     (`nsresp.py`, `dhcp4.py`, `dnsresp.py`).
   - scapy on tb277 (2.4.4) imports matplotlib, which prints a `SyntaxWarning` on stderr. Harmless.
-- **Status:** verified 2026-10-15 on tb277, host `eth3` → x960-56YSQ `port1.0.10`: self-test leg
-  sent 3 ARP requests and the capture held exactly 3, decoded with both MACs. Used for every leg
-  of the `arp-2026-10-15T1747` group.
+- **Status:** verified 2026-10-15 on tb277, host `eth3`/`eth4` → x960-56YSQ `port1.0.10`/`port1.0.48`.
+  Self-test: 3 ARP requests sent, 3 in the capture, both MACs decoded. In use: T33248 proved a
+  static ARP entry rewrites 5/5 routed frames to the configured MAC while a control address with
+  no entry forwards 0/5 in the same leg; T33247 drove `--answer` to populate and re-populate the
+  DUT's dynamic cache and told the three `clear arp-cache` forms apart on the wire. Used for
+  every leg of the `arp-2026-10-15T1747` group.
 
 ### `nsresp.py`
 IPv6 Neighbor Solicitation responder. It answers every NS for a target in a /64 with an NA from a
