@@ -795,6 +795,7 @@ Apply the three RESTORE blocks above, then re-probe and diff as above.
 | T43849 | PASS | the authored expected result of ck.db **AWP-4357** met in full on hardware: swi_b's `ping 23.1.1.3` fails 100% **and its ARP table holds `23.1.1.3 → e01a.ead4.7043`, the DUT's MAC**; underneath, the crafted ARP drew **0** replies with the feature off and **3** carrying the DUT's MAC with it on. **The ping fails in BOTH states and carries no verdict on its own** — what separates them is the SOURCE of the unreachable: `From 23.1.1.2` (swi_b itself, packets never left) vs `From 23.1.1.1` (the DUT, which resolved, forwarded, then ARPed for the target itself). Also measured: local proxy ARP is bounded by the DUT interface's own /24, not the neighbour's /16 idea of on-link. Removal and reboot persistence both proven | tester | arp-2026-10-15T1747/T43849/work/run1.log |
 | T33246 | PASS | "ARP Polling" on this platform is **web-auth** ping-polling (Project 2561), not a generic ARP feature. Measured: **directed (unicast)** ARP polls to the supplicant's own MAC at the configured interval; **ICMP instead** under `type ping`; deauthentication after **exactly failcount** unanswered polls (3 directed ARPs, 0 replies, then polling stops — against 5 polls / 5 replies in the answering leg); removable; survives a reboot. The deauth is attributed by the DUT's own log naming the supplicant and MAC, **not** by `authorizedSupplicantNum`, which is quoted as context only. Stimulus was `ip link set eth3 arp off` on the box — link and port stay up, which is the condition the feature exists to detect | tester | arp-2026-10-15T1747/T33246/work/run1.log |
 | T43855 | PASS | static route proven **on the wire**: 5/5 forwarded against **0/5** in the baseline and **0/5** after `no ip route`, with a control flow to an unrouted prefix dropped in every leg. Removal proven in the **FIB** (`% Network not in table`), not just running-config. Three syntax forms measured (next-hop, next-hop + distance, interface form); the floating-static egress move is attributed by **swi_a's own ICMP unreachables**, and the distance-255 RIB-not-FIB rule is confirmed. Survives a real reload; teardown diffed clean on swi_d and swi_b | tester | static-2026-10-15T1747/T43855/work/run1.log |
+| T43861 | PASS | ECMP proven **per egress port on four counters across three devices**, never from `show ip route`: one route = 1920/1920 on a single port; two routes = a real split; **`maximum-paths 1` collapses the identical flow set to 1280/0**; removal returns all traffic to the survivor; survives a real reload. An instrument artefact was found and corrected mid-case — varying all four 5-tuple fields by the same index correlates the two addresses the hash actually uses and gave a misleading **81/19**; decorrelated spans gave **50/50**, and the verdict rests on the corrected legs. Three product findings recorded (F-1..F-3 below), none a failure of the feature | tester | static-2026-10-15T1747/T43861/work/run1.log |
 
 ## Issues
 
@@ -905,3 +906,23 @@ Apply the three RESTORE blocks above, then re-probe and diff as above.
 - **TRAP (T43855) — `dir flash: | include <x>` is `% Invalid input`**; `dir` takes no output
   modifiers on this build. Also: a `delete` whose `(y/n)` prompt is not answered returns
   `Deletion aborted` / `% Failed to delete`, which is easy to skim past — re-`dir` to confirm.
+- **🔴🔴 F-1 (T43861) — DOCUMENTATION DEFECT: ECMP on this x960 is PER-FLOW, not per-packet.**
+  400 packets of a single flow all took one path. **The Route Selection Feature Overview Guide
+  states the opposite for AlliedWare Plus switches.** The behaviour is normal and desirable; the
+  guide is wrong. Worth raising against the document, not the product.
+- **🔴 F-2 (T43861) — the ECMP hash uses IPv4 SOURCE and DESTINATION ADDRESSES ONLY.** 64 distinct
+  source ports gave **zero** spread; 64 distinct destination ports gave zero spread. Undocumented,
+  and it matters for any deployment whose flows differ only in L4 port — they will all land on one
+  path. For `platforms/x960.md`.
+- **🔴 F-3 (T43861) — an ECMP next hop with UNRESOLVED ARP is silently absent from the dataplane
+  while `show ip route database` still marks it `*>`.** Seen straight after the reboot: 100% of
+  traffic took the one resolved path, and the route table looked **identical** either way, until
+  the other next hop was pinged. **This is the sharpest illustration in the campaign of why
+  `show ip route` is a read-back and not evidence** — it is the routing-table analogue of the
+  `show mirror` defect in `platforms/x960.md` §5. For `platforms/x960.md`.
+- **TOOL (T43861) — `tools/ecmpflows.py`** (new, generic, catalogued): many flows with chosen
+  5-tuple fields varied, and far-side attribution from **ICMP unreachable source addresses** when
+  there is no scapy host behind the router — which is this bench's binding constraint. Self-tested
+  before use. **Its own trap, measured:** varying every 5-tuple field by the same index correlates
+  the source and destination addresses, which are the only fields this hash uses, and manufactures
+  a false imbalance.
