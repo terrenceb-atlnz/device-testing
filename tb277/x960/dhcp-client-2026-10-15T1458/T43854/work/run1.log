@@ -1,0 +1,346 @@
+T43854 — IPv4_DHCPClient - DNS Relay
+run 1, 2026-10-15, tb277 / x960-56YSQ
+run quality: CLEAN for the graded limbs. One limb (the forwarding cache) is recorded
+INCONCLUSIVE with its reason rather than graded; see "THE CACHE LIMB" below.
+
+================================================================================
+SESSION FACTS
+================================================================================
+Test Engineer : bidhanc@bidhanc-dl
+Testbox       : tb277
+Consoles      : u2 = swi_d (DUT) — only u2 was opened. u3, u5 never touched.
+PDU           : 10.36.230.212 outlet 1 (swi_d); not used (the reload was a CLI `reload`)
+Constraints   : None (full authority within tests)
+Group         : dhcp-client-2026-10-15T1458 (case 2 of 2 — last case of the campaign)
+Scratch       : tb277:/tmp/dhcp-2026-10-15T1458/
+Transcript    : tb277:/tmp/dhcp-2026-10-15T1458/console-u2.log
+
+Devices, host-NIC MACs and the box-vs-DUT clock: recorded once for the campaign in
+dhcp-server-2026-10-15T1458/T43851/work/run1.log.
+  DUT swi_d /dev/u2 @115200, AT-x960-56YSQ, S/N A2WQS700B, sin_x96056-20261012-24
+  DUT SVI MAC (all VLANs share it): e01a.ead4.7043
+  tb eth3 00:0d:b9:55:77:0e -> port1.0.10 = VLAN 10 = the DNS QUERYING HOST side
+  tb eth4 00:0d:b9:55:77:0f -> port1.0.48 = VLAN 48 = the UPSTREAM DNS SERVER side
+  The DUT is a DHCP CLIENT on vlan48 and the DNS RELAY between the two.
+
+================================================================================
+CASE SOURCE — no steps in AWPTCM or ck.db (queue issue I-2)
+================================================================================
+No ck.db case was mapped onto this one. Graded against:
+1. **TPS** — wiki "X960_platform_support_TPS" row 29, group "DHCP Client": **DNS Relay,
+   priority 1, Yes.** ⇒ UNSUPPORTED unavailable without DUT evidence.
+2. **Functional spec** — wiki "DNS Relay TFS", S1570.1.01 … .37. Graded limbs, verbatim:
+     S1570.1.02 "Supports forwarding DNS query packet to server."
+     S1570.1.03 "Caches DNS name resolve result."
+     S1570.1.04 "Switches to enable and disable DNS relay feature."
+     S1570.1.06 "Configures multiple DNS servers. (Maximum number of registerable DNS
+                 servers is 3.)"
+     S1570.1.12 "Imports the DNS servers learned on DHCP process to searched server list.
+                 (Supports to add last of configured name-server list only)."
+     S1570.1.14/.16/.18/.19 the `ip dns forwarding [retry|timeout|dead-time|cache]` commands.
+   Global defaults the TFS states: "Forwarding remote DNS query feature is disabled",
+   "The maximum retry times value is 2", "The timeout value is 3 second".
+   **Limitation, and it bit this run twice:** "When DNS relay configuration is changed
+   (including DHCP client updates DNS settings), DNS relay process is rebooted to apply new
+   settings. And the forwarding session DNS relay process has is cleared also."
+3. AW+ CLI pages `ip-dns-forwarding*`, `ip-name-server`.
+
+The DUT's defaults, read back and matching the TFS exactly:
+    show ip dns forwarding ->  Max-Retry: 2   Timeout: 3 second(s)
+                               Dead-Time: 3600 second(s)
+                               Source-Interface: not specified
+                               DNS Cache: disabled
+
+================================================================================
+TOOLS USED
+================================================================================
+tools/cfg.py, tools/ckcon.py, tools/ckyn.py, tools/rc2cfg.py, tools/rcdiff.py,
+tools/ckreload.py, tools/dhcp4.py (server mode, to lease the DUT and supply option 6).
+**tools/dnsresp.py — NEW this case**, generic, committed to tools/ with its README entry:
+  `respond <iface> --for <ip> [--zone n=ip] [--default-answer ip] [--ttl N]` — a fake
+    authoritative server that also answers ARP for the address it impersonates, and records
+    every query it receives.
+  `query <iface> --server <ip> --server-mac <mac> --src-ip <ip> --name <qname> ...` — crafted
+    A queries that also answer ARP for their own pretend source, and count the answers.
+Leg drivers, this case's own, in work/: dnssetup.sh, nsorder.sh, dnsorder.sh, dnsctl.sh,
+dnsctl2.sh, dnsmain.sh, dnscache.sh, persistC.sh, postrebootC.sh, teardownC.sh.
+
+**F-3 discipline applied from the first measurement**, as dnsresp.py was unproven on hardware:
+every leg runs tcpdump on eth4 (and on eth3 for the main legs) alongside the tool, and tcpdump
+is treated as authoritative for what was on the wire. The two agreed in every graded leg below
+(5 and 5, 0 and 0), which is what earned the tool its "verified" status in the README.
+
+================================================================================
+BENCH SETUP
+================================================================================
+Group C setup, applied once for the group and unchanged between its two cases
+(STANDING-ORDERS §6); recipe and restore block committed to the queue BEFORE the group ran
+(de10cf6). Full text in T35370/work/run1.log. In summary: VLAN 10 on port1.0.10 with SVI
+192.168.10.1/24; VLAN 48 on port1.0.48 with `ip address dhcp`; the DUT leases 192.168.48.100/24
+from the scapy DHCP server at 192.168.48.2.
+
+This case's own setup:
+    awplus(config)# ip name-server 192.168.48.9      <- a STATIC server, configured FIRST
+    awplus(config)# ip dns forwarding                <- global, disabled by default
+The static server is configured BEFORE the DHCP client learns one, because S1570.1.12's
+"added last" ordering is untestable otherwise — exactly the sequencing the TFS implies.
+
+Config saved: T43854/swi_d.cfg (3 header + 103 config lines). HONESTLY LABELLED: re-captured at
+17:12 after the legs, in the state with `ip name-server 192.168.48.9`, `ip dns forwarding` and
+`ip dns forwarding cache size 100 timeout 60`.
+
+================================================================================
+METHOD — STANDING-ORDERS §7 (scapy, not ping)
+================================================================================
+A ping cannot express a DNS relay. Each leg sends N crafted DNS A queries from eth3 to the
+DUT's VLAN-10 SVI (L2 destination e0:1a:ea:d4:70:43, source 192.168.10.50, which the query tool
+ARP-answers for so the DUT can reply), and counts at BOTH ends:
+  eth3 — the queries we actually emitted and the answers that came back;
+  eth4 — the queries the DUT FORWARDED upstream and the upstream replies;
+  the responder's own record — which upstream server was asked, for what, and when.
+Each positive leg is paired with a control in the same configuration that must forward zero.
+**Settle time is part of the method**: per the TFS Limitation, any DNS-relay config change —
+including the DHCP client learning a server — restarts the relay process. Legs wait 20 s after
+such a change. A 3 s wait produced a spurious zero early on; see "THE SETTLE TRAP".
+
+================================================================================
+STEP 1 — DNS relay forwards, and the answer reaches the client   (S1570.1.02)
+================================================================================
+  leg `fwd-on`, 5 distinct names ck1..ck5.test, one round, upstream responder at
+  192.168.48.9 answering every name with 10.9.9.9 (ttl 30):
+
+    eth3 DNS frames (our queries + the answers returned) : 10
+    eth4 DNS frames (forwarded upstream + upstream replies): 10
+    upstream queries the DUT FORWARDED (tcpdump)         : **5**
+    upstream queries the responder RECEIVED              : **5**, answered 5
+    QUERIES SENT: 5   ANSWERS RECEIVED: 5
+      ck1.test -> 10.9.9.9 (ttl 30)   ck2.test -> 10.9.9.9   ck3.test -> 10.9.9.9
+      ck4.test -> 10.9.9.9            ck5.test -> 10.9.9.9
+
+  5 in, 5 forwarded, 5 answered upstream, 5 delivered back with the correct A record, and the
+  two independent counters agree exactly. The forwarded queries are sourced from the DUT's own
+  DHCP-leased address:
+      17:05:44.031306 IP 192.168.48.100.49266 > 192.168.48.9.53: A? ck-a.test.
+STEP 1 PASS.
+
+================================================================================
+STEP 2 — CONTROL: `no ip dns forwarding` must forward NOTHING   (S1570.1.04)
+================================================================================
+  awplus(config)# no ip dns forwarding          (cfg.py exit 0, no "% " lines)
+  leg `fwd-off`, the SAME five names, same bench, after a 20 s settle:
+
+    eth3 DNS frames : 5      <- our five queries demonstrably left the host
+    eth4 DNS frames : **0**
+    upstream queries forwarded (tcpdump) : **0**
+    responder received                   : **0**
+    QUERIES SENT: 5   ANSWERS RECEIVED: 0   (all five "NO ANSWER")
+
+  The eth3 count is what makes this a control rather than an absence of evidence: the queries
+  were on the wire and the DUT simply did not forward them. STEP 2 PASS.
+
+================================================================================
+STEP 3 — the DHCP client imports a DNS server, and it is USED   (S1570.1.12, first limb)
+================================================================================
+The scapy DHCP server offers option 6 = 192.168.48.2. After the lease:
+    show ip name-server ->  Currently learned name-servers:
+                            192.168.48.2 dynamic (vlan48)
+                            192.168.48.9 static
+The DHCP-learned server appears, tagged `dynamic (vlan48)` with the interface that learned it.
+Proven in use, not just listed — leg `order` (STEP 4) shows the DUT actually querying it and
+the answer 10.2.2.2 returning to the client. STEP 3 PASS.
+
+================================================================================
+STEP 4 — the ORDERING limb (S1570.1.12 "added last"): measured on the wire, not the show
+================================================================================
+⚠ `show ip name-server` CANNOT answer this. It groups by type — it printed
+`192.168.48.2 dynamic` above `192.168.48.9 static` both before and after a re-lease, which is
+consistent with "grouped display" and with "dynamic really is first", and distinguishes
+neither. Grading the limb on that output would have been a coin flip dressed as a result.
+
+**The discriminator is which server the relay actually queries.** Two responders were run on
+eth4 at once, each answering ARP for its own address and each returning a DIFFERENT A record:
+    192.168.48.9  (static)         -> 10.9.9.9
+    192.168.48.2  (DHCP-learned)   -> 10.2.2.2
+and one query for `ck-order.test` was sent from eth3.
+
+  leg `order`:
+    .9 static : UPSTREAM QUERIES RECEIVED: 0   answered 0   **arp answered 0**
+    .2 dynamic: UPSTREAM QUERIES RECEIVED: 1   answered 1   arp answered 1
+        t=26.8217  ck-order.test  from 192.168.48.100
+    tcpdump eth4:
+        17:01:54.804064 IP 192.168.48.100.50058 > 192.168.48.2.53: A? ck-order.test.
+        17:01:54.883288 IP 192.168.48.2.53 > 192.168.48.100.50058: 1/0/0 A 10.2.2.2
+    client received: ck-order.test -> 10.2.2.2
+
+  The DUT queried ONLY the DHCP-learned server. It did not even ARP for the static one.
+
+**Control, to rule out "the static server was unreachable" rather than "not preferred".**
+Same bench, same addressing; only the DHCP-learned entry is removed, by re-leasing from a DHCP
+server that offers NO option 6:
+    show ip name-server -> Currently learned name-servers:
+                           192.168.48.9 static        (only)
+    show ip interface brief -> vlan48 192.168.48.100/24     (still addressed)
+  leg `ctl2`, after a 20 s settle, 6 queries:
+    .9 static : UPSTREAM QUERIES RECEIVED: 4   answered 4   arp answered 1
+    tcpdump eth4:
+        17:05:43.998660 ARP, Request who-has 192.168.48.9 tell 192.168.48.100
+        17:05:44.031007 ARP, Reply 192.168.48.9 is-at 00:0d:b9:55:77:0f
+        17:05:44.031306 IP 192.168.48.100.49266 > 192.168.48.9.53: A? ck-a.test.
+        17:05:44.119328 IP 192.168.48.9.53 > 192.168.48.100.49266: 1/0/0 A 10.9.9.9
+  ⇒ The static server at .9 is perfectly reachable and is used when it is the only one.
+
+**Conclusion of the pair:** with BOTH a static and a DHCP-learned server configured, this DUT
+sends its query to the **DHCP-learned** server and never consults the static one, although the
+static one is demonstrably usable. Recorded as OBSERVATION O-6 below rather than graded as a
+failure, because the TFS wording ("added last of configured name-server list") describes LIST
+POSITION, and a resolver is not obliged to walk its list in order — dnsmasq may select a server
+by responsiveness or by most-recent-update. What the measurement establishes is the externally
+visible behaviour; what it cannot establish is the internal list order the spec talks about.
+That distinction is the finding.
+
+================================================================================
+THE CACHE LIMB (S1570.1.03) — INCONCLUSIVE, recorded with its reason, NOT graded
+================================================================================
+    awplus(config)# ip dns forwarding cache size 100 time 60
+    show ip dns forwarding -> DNS Cache: enabled   Size: 100   Max-TTL: 60 second(s)
+    (the running-config renders this as `ip dns forwarding cache size 100 timeout 60`)
+
+  leg `cache`: the SAME name `ck-cache.test` queried twice, 5.3 s apart, well inside the 60 s
+  TTL, with the upstream responder returning ttl 60 both times:
+    round 1: answered 10.9.9.9
+    round 2: answered 10.9.9.9
+    upstream queries for ck-cache.test over BOTH rounds: **2**
+        17:10:24.518819 IP 192.168.48.100.30837 > 192.168.48.9.53: A? ck-cache.test.
+        17:10:29.818847 IP 192.168.48.100.40305 > 192.168.48.9.53: A? ck-cache.test.
+
+  A cache hit should have made the second upstream query absent. It was not absent.
+
+  **I am NOT grading this as a failure, for a specific reason I could not resolve on the
+  bench.** The TFS describes two distinct processes (§"Target Feature List"): a *Name Resolver
+  Process* for local applications and a *DNS Relay Process* for forwarding. S1570.1.03 reads
+  "Caches DNS **name resolve** result" and S1570.1.11 "Configures **name resolve result** cache
+  size" — wording that plausibly scopes the cache to the name-resolver path (the device's own
+  lookups) rather than to relayed third-party queries. If that reading is right, forwarding
+  every relayed query upstream is correct behaviour and my test premise was simply wrong — the
+  same class of mistake as the `agent-option checking` direction error in Group B, which the
+  documentation caught before it became a verdict. I found no text that settles it either way,
+  and nothing on this bench can distinguish "the relay path is not cached by design" from "the
+  cache is not working". **Limb recorded UNMEASURED with this reason**; it does not affect the
+  case verdict, which rests on the forwarding limbs that were measured cleanly at both ends.
+  Offered to the Test Engineer as the one item in this campaign that would benefit from a
+  developer's answer rather than another bench run.
+
+================================================================================
+THE SETTLE TRAP — a spurious zero, and how it was caught rather than reported
+================================================================================
+The first run of the static-only control forwarded NOTHING: zero upstream queries, zero ARPs,
+no answer. Read naively that is "the DUT cannot use a statically configured DNS server" — a
+serious false finding. It was a **settle-time artefact of the TFS Limitation**: the preceding
+`no ip address dhcp` / `ip address dhcp` is a DHCP-client DNS update, which restarts the relay
+process and clears its sessions. I had waited ~3 s. Re-run after a 20 s settle, the identical
+configuration forwarded 4 of 4 queries and ARPed for the server first (quoted in STEP 4).
+Every graded leg in this log therefore waits 20 s after any DNS-relay or DHCP-client change.
+This is the TFS's own documented limitation biting exactly as written, and it is the reason the
+method section treats settle time as part of the measurement rather than as hygiene.
+
+Also noted and not over-read: an early multi-round leg sent 6 queries and received 4 answers,
+with 4 reaching the upstream responder. Two queries for names already in flight produced no
+separate upstream query. Not investigated, and deliberately NOT used as cache evidence — the
+graded legs all use DISTINCT names in a single round precisely so that in-flight duplicate
+suppression cannot contaminate a count.
+
+================================================================================
+GROUP C REBOOT PERSISTENCE CHECK (covers T35370 and T43854)
+================================================================================
+Staged as in Groups A and B, on a SEPARATE boot file; `flash:/default.cfg` never written:
+    awplus# copy running-config flash:/ckclient.cfg  -> Successful operation
+            dir flash:/ckclient.cfg -> 1532 -rw- Oct 15 2026 04:11:44
+    awplus(config)# boot config-file flash:/ckclient.cfg
+    show boot -> Default boot config: flash:/default.cfg
+                 Current boot config: flash:/ckclient.cfg (file exists)
+    tools/ckreload.py -> 'reboot system? (y/n):' -> y, login seen after 61 s
+
+After the reload:
+    show ip dns forwarding -> DNS Cache: enabled   Size: 100   Max-TTL: 60 second(s)
+    show ip name-server    -> 192.168.48.9 static
+    (vlan48 unassigned until a DHCP server is present again — expected, not a fault)
+
+Proven on the wire after the reload, not only in the show — the DUT was re-leased
+(vlan48 192.168.48.100/24) and leg `postreboot` run:
+    eth3 DNS frames 10, eth4 DNS frames 10
+    upstream queries forwarded: **5**   responder received **5**, answered 5
+    QUERIES SENT: 5   ANSWERS RECEIVED: 5, all ck1..ck5.test -> 10.9.9.9
+PERSISTENCE PASS for both cases of the group.
+
+================================================================================
+TEARDOWN AND BENCH VERIFICATION
+================================================================================
+1. Boot pointer restored FIRST: `boot config-file flash:/default.cfg` (cfg.py exit 0).
+2. `delete flash:/ckclient.cfg` (ckyn.py exit 0) — deliberately deleted per the queue RESTORE
+   block: a copy of a test config, not a baseline.
+   Verified: Default boot config: flash:/default.cfg
+             Current boot config: flash:/default.cfg (file exists)
+             dir flash:/ckclient.cfg -> % No such file or directory
+3. Config teardown, WITHOUT any `no interface vlanN` (AW+ refuses it — Group A's measured trap,
+   carried into this group's recipe in advance):
+     no ip dns forwarding cache / no ip dns forwarding / no ip name-server 192.168.48.9
+     interface vlan48 / no ip address dhcp
+     interface vlan10 / no ip address
+     interface port1.0.10 / switchport access vlan 1
+     interface port1.0.48 / switchport access vlan 1
+     vlan database / no vlan 10 / no vlan 48
+   cfg.py exit 0, zero "% " lines — clean first time.
+4. Teardown diff (tools/rcdiff.py) against the campaign baseline
+   (dhcp-server-2026-10-15T1458/T43851/work/rc-before.log): **CLEAN** — byte-identical,
+   including the baseline's own `lldp run`.
+5. Post-run bench probe, same session facts: **EXIT 0, Advisories: none.** All nine link rows
+   identical to pre-run, including BOTH
+     tb eth3 -> swi_d port1.0.10   MAC learned on a physical port
+     tb eth4 -> swi_d port1.0.48   MAC learned on a physical port
+   which independently proves both ports are back in untagged VLAN 1.
+   (No `.setup` template on tb277, so the probe says "diff skipped" rather than MATCH —
+   pre-existing, reported at triage.)
+
+Nothing written to startup-config. No PDU power cycle. No licence change. swi_b and swi_a never
+opened. Console left logged in at `awplus#`. Zero root-owned files under the group folder.
+
+================================================================================
+OBSERVATION
+================================================================================
+O-6  **A DHCP-learned DNS server is queried in preference to a statically configured one.**
+     With `ip name-server 192.168.48.9` configured first and 192.168.48.2 subsequently learned
+     by the DHCP client, the relay sent its query to .2 and never ARPed for, let alone queried,
+     .9 — while a control with .9 as the only server proves .9 is reachable and used. TFS
+     S1570.1.12 says DHCP-provided servers "are always added last of configured name-server
+     list". The measurement shows the externally visible preference; it cannot show the
+     internal list order, and `show ip name-server` groups by type so it cannot either. Offered
+     as a spec-clarification item: either the list order differs from the spec, or "added last"
+     describes storage rather than query order and the spec could say so.
+     Evidence: work/order-*.{json,err}, work/ctl2-*, work/dnsorder.sh, work/dnsctl2.sh.
+
+================================================================================
+FILES
+================================================================================
+  T43854/swi_d.cfg                     deliverable (labelling caveat above)
+  T43854/work/run1.log                 this file
+  T43854/work/static-ns.log, ns-order.log, ns-cleared.log, ns-order2.log   ordering setup
+  T43854/work/fwd-on.log               `ip dns forwarding` enabled + defaults read back
+  T43854/work/order-*                  STEP 4 two-responder discriminator
+  T43854/work/ctl-*, ctl2-*            STEP 4 reachability control (and the settle trap)
+  T43854/work/fwd-on-*, fwd-off-*      STEPS 1 and 2, both NICs captured
+  T43854/work/cache-*                  the inconclusive cache limb
+  T43854/work/persist-*, reload.log, post-reboot.log, postreboot-*, pr-*  persistence
+  T43854/work/td-*.log, rc-after.log, td-diff.txt   teardown proof
+  T43854/work/*.sh                     this case's leg drivers (not generic)
+
+================================================================================
+VERDICT: PASS -- the DUT relays DNS correctly as a DHCP client. With `ip dns forwarding`
+enabled it forwarded 5 of 5 crafted queries to the upstream server from its own DHCP-leased
+address and returned all 5 correct answers to the querying host, counted independently at both
+NICs; with forwarding disabled the same 5 queries were demonstrably on the wire and 0 were
+forwarded. A DNS server learned by the DHCP client is imported, tagged `dynamic (vlan48)`, and
+is genuinely used. All settings survive a reboot, proven on the wire. The cache limb is
+recorded UNMEASURED with its reason -- the TFS wording plausibly scopes the cache to the
+name-resolver path rather than the relay path, and nothing on this bench can separate that from
+a cache fault. One observation, O-6: a DHCP-learned server is queried in preference to a
+statically configured one, which does not obviously match S1570.1.12's "added last".

@@ -568,6 +568,42 @@ for DHCPv6 server and relay cases.
   - Exit 2 means either an argument error or "ADVERTISE, NO LEASE".
 - **Status:** generalised 2026-10-02, not re-verified on hardware
 
+### `dnsresp.py`
+IPv4 DNS test tool: a crafted query client and a fake authoritative responder, for DNS relay /
+`ip dns forwarding` cases. It counts the queries a device forwards upstream and the answers it
+returns downstream, and lets a cache hit be proven by the ABSENCE of an upstream query. Both
+modes answer ARP for the address they impersonate, so the device under test resolves them
+without a static ARP entry. Nothing is installed on the host and no host IP, route or resolver
+setting is changed.
+- **Run:**
+  - `sudo dnsresp.py respond <iface> --for <ip> [--zone name=ip ...] [--default-answer ip] [--ttl N] [--duration S] [--pcap F] [--json F]`
+  - `sudo dnsresp.py query <iface> --server <ip> --server-mac <mac> --src-ip <ip> --name <qname> [--name ...] [--count N] [--gap S] [--base-id 0x..] [--wait S] [--pcap F] [--json F]`
+- **Where:** testbox (root); **needs:** scapy
+- **Imports:** none
+- **Limits:**
+  - A records only; one question per query.
+  - `--server-mac` is the L2 next hop (the relay's SVI MAC), since nothing is resolved by the
+    host stack.
+  - `query` exits 2 when no answer arrives — a legitimate RESULT for a forwarding-disabled
+    control, not only an error.
+- **Two responders can run on one NIC** (each filters on its own `--for` address), which is how
+  you discover WHICH upstream server a relay actually prefers — give them different
+  `--default-answer` values and see which one is queried.
+- **🔴 Settle time is part of the measurement.** On AW+, any DNS-relay configuration change —
+  including the DHCP client learning a new server — restarts the relay process and clears its
+  sessions (DNS Relay TFS, "Limitations"). Measured on tb277: a leg run ~3 s after such a change
+  forwarded NOTHING and read as "the device cannot use a static DNS server"; the identical
+  configuration after a 20 s settle forwarded every query. **Wait 20 s after any DNS or DHCP
+  client change before counting.**
+- **Counting discipline:** run tcpdump alongside and treat IT as authoritative for what was on
+  the wire; this tool's counts are what it decoded. A scapy sniffer starts seconds after its
+  process does. Use DISTINCT query names in a single round for any counted leg — repeated names
+  let in-flight duplicate suppression swallow queries and corrupt the count.
+- **Status:** verified 2026-10-15 on tb277, x960-56YSQ (T43854, DNS Relay): 5 queries forwarded
+  and 5 answers returned, counted at both NICs and agreeing with tcpdump exactly; 0 forwarded in
+  the forwarding-disabled control; and a two-responder run that identified which upstream server
+  the relay preferred.
+
 ### `rs.py`
 Sends ICMPv6 Router Solicitations to ff02::2, 2 s apart.
 - **Run:** `sudo rs.py <iface> <count>`
