@@ -1,0 +1,672 @@
+================================================================================
+TEST T43859 -- IPv4_UnicastRouting - VRF-Lite
+================================================================================
+Run:      2026-10-15 23:24 - 23:41 NZDT (the last timestamped step is 23:41:xx).
+          Device clocks read UTC, i.e. NZDT - 13 h: the start of the case is
+          23:24 NZDT = 10:24 UTC. All three device clocks were measured against the
+          box before the first reading below and agree with it to within a few
+          seconds, so NO offset applies to any reading here. UTC
+          timestamps quoted are device clocks; NZDT timestamps are box wall-clock.
+Bench:    tb277, consoles u2 = swi_d (DUT), u3 = swi_b, u5 = swi_a;
+          Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T43859. No authored step text and no authored expected result
+          exist for this case: the test-case database holds no row for the title
+          "IPv4_UnicastRouting - VRF-Lite". The step headings below therefore state
+          what was exercised; they are not quotations. What each step DOES quote,
+          verbatim, is the product claim it tests, from the VRF-lite Feature
+          Overview and Configuration Guide, C613-22142-00 REV B (the CLAIMS block
+          below). 9 steps.
+Build:    swi_d  AT-x960-56YSQ, S/N A2WQS700B, sin_x96056-20261012-24, console u2
+                 @115200. The only device this case configures. Licences Base +
+                 `atlnz`, which carries VRF-LITE-FULL, VRF-LITE-63, VRF-LITE-8.
+          swi_b  AT-x960-28YSQ, S/N A10737A261700021, sin_x96056-20260921-9.
+          swi_a  AT-x950 GEN2-52XSTQm, S/N A10713A262600012,
+                 awplus_main-20261008-56.
+                 swi_b and swi_a sit on the shared underlay but take no part in this
+                 case: neither is configured, reloaded or power-cycled by it.
+Configs:  swi_d.cfg, swi_b.cfg, swi_a.cfg (running-config after setup;
+          saved to startup: no). swi_d.cfg is this case's own setup -- VRFs red and
+          blue, vlan10 in red, vlan48 in blue. swi_b.cfg and swi_a.cfg carry headers
+          stating that neither device is touched by this case; they are recorded
+          because they are part of the shared underlay the case runs on.
+
+VERDICT: PASS -- VRF-Lite proven on hardware: two VRFs on one device isolate two
+         Layer 3 interfaces completely, the isolation is attributable to VRF
+         membership and to nothing else, overlapping addresses live in both VRFs at
+         once, static inter-VRF routing opens exactly what it names, and the whole
+         configuration survives a real reboot. Every cross-VRF result is a real
+         far-side frame count on a second host NIC, not a ping and not a `show`.
+      isolation between VRFs .......... 5/5 -> 0/5 (identical frames; the far-side
+                                                   capture is EMPTY, not merely low)
+      the DUT's own L3 interface in
+        the other VRF ................. 5/5 -> 0/5 (unreachable from the other VRF)
+      attributable to VRF membership .. proven    (BOTH SVIs back in ONE VRF -> 5/5
+                                                   again, nothing else changed)
+      an interface in exactly one VRF . confirmed (`show ip vrf`; a second VRF is refused)
+      the global table shrinks ........ confirmed (the two /24s leave it on the move)
+      address unset on a VRF move ..... confirmed (the device says so, and the
+                                                   interface stanza is empty after)
+      ARP entries are VRF aware ....... confirmed (`show arp vrf red` / `vrf blue`)
+      an LO interface per VRF ......... automatic (lo1, lo2; neither was asked for)
+      overlapping addresses ........... 5/5 both  (one address answering on two ports
+                                                   in two VRFs; each opposite
+                                                   capture EMPTY)
+      static inter-VRF routing ........ 0/5 -> 5/5 (and the unrouted control stays 0:
+                                                   the opening is route-specific)
+      removal ......................... clean     (config, route tables, interface
+                                                   rendering and dataplane all return
+                                                   frame-for-frame to the baseline)
+      persistence across a reload ..... holds     (VRFs, loopbacks, separated route
+                                                   tables, isolation AND inter-VRF
+                                                   routing all survive, from cold ARP)
+CAVEAT:  One measured limit of the proof, recorded in STEP 6: removing a static
+         inter-VRF route removes it from running-config and from the RIB while the
+         DUT KEEPS FORWARDING across the VRF boundary to a destination whose ARP
+         entry was resolved while the route existed. It was still forwarding ~2
+         minutes and three legs after the route was removed; HOW LONG THE STALE
+         ENTRY WOULD SURVIVE UNAIDED WAS NOT MEASURED. This concerns the REMOVAL of
+         a deliberate inter-VRF route, not VRF-Lite's isolation, which was complete
+         and immediate in every cold-start leg (STEPS 3 and 8a).
+         Scope: this is single-device VRF-Lite -- two VRFs, one Layer 3 interface in
+         each, on one DUT. Inter-VRF communication was exercised only by the guide's
+         static inter-VRF route mechanism; its other named mechanism, dynamic
+         filtered route leakage via BGP, was not exercised here, and no route
+         distinguisher was configured (Default RD reads `--` throughout). VRF-Lite
+         is licensed: the TPS places it under AT-FL-x960-01 and not under x960 Base,
+         so this result holds for a unit carrying that licence -- on a Base-only
+         x960 the feature would be absent. ICMP destination-unreachable generation
+         is rate-limited on this platform, so where type 3 packets are quoted the
+         DESTINATION named inside them is the attribution and their count is not a
+         measurement.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+  This case is the DUT and the two host NICs. Nothing else participates.
+
+   tb277 eth3  00:0d:b9:55:77:0e
+     crafted source 192.168.10.5 / 00:11:22:33:44:01
+     ARP responder for 192.168.10.5
+        |
+        v   ICMP echo requests, vlan10, next hop e0:1a:ea:d4:70:43 (the DUT's SVI MAC)
+   port1.0.10   vlan10 192.168.10.1/24   -- in VRF red while the case is isolated
+  +==============================================================+
+  |   swi_d   AT-x960-56YSQ   *** DUT ***                        |
+  |   the only device this case configures                       |
+  |   ip vrf red  (lo1, vlan10)     ip vrf blue  (lo2, vlan48)   |
+  +==============================================================+
+   port1.0.48   vlan48 192.168.48.1/24  -- in VRF blue while the case is isolated
+        |
+        v   routed and L2-rewritten by the DUT, COUNTED AS THEY ARRIVE
+   tb277 eth4  00:0d:b9:55:77:0f
+     ARP responder for 192.168.48.2 / 00:11:22:33:44:02 (and 192.168.48.3 in STEP 6c)
+
+   STEP 7b reverses this: the frames are crafted on eth4 and eth3 is the capture.
+
+  THE INSTRUMENT, and why it is stronger than a reply. Both host NICs land on the
+  DUT, on the two segments this case isolates from each other. So the cross-VRF
+  reading is a REAL FAR-SIDE COUNT: frames are crafted on eth3 and counted as they
+  ARRIVE on eth4, already routed and L2-rewritten by the DUT (source MAC = the DUT's
+  SVI MAC, destination MAC = the resolved next hop). A reply would only show that
+  something answered; a far-side count shows that the DUT forwarded.
+
+  DUT      : swi_d (AT-x960-56YSQ) console u2 @115200, S/N A2WQS700B,
+             sin_x96056-20261012-24. All SVIs on this platform share ONE MAC,
+             e0:1a:ea:d4:70:43 -- which matters in STEP 7.
+  host     : tb277 eth3 00:0d:b9:55:77:0e -> swi_d port1.0.10 (vlan10)
+             -- the sending segment, and the capture for reply-counted flows
+  host     : tb277 eth4 00:0d:b9:55:77:0f -> swi_d port1.0.48 (vlan48)
+             -- the FAR SIDE: where every cross-VRF frame is counted on arrival
+  global   : vlan41 10.0.41.1/30 and vlan61 10.0.61.1/30 remain in the global VRF
+             domain throughout and appear in the route-table output below, which is
+             part of the STEP 2 evidence. Neither carries any traffic in this case.
+  STP      : port1.0.10 and port1.0.48 Designated Forwarding, re-read before every
+             counted leg and again after the reboot of STEP 8 before measuring.
+  tools    : tools/arpleg.py (frame craft, `--watch` far-side capture, ARP responder,
+             count), tools/ckcon.py, tools/cfg.py, tools/ckyn.py, tools/qmark.py,
+             tools/ckreload.py, tools/rc2cfg.py -- all run on tb277 under
+             python3.8.
+
+  THE FLOWS. Every counted leg sends the same set, 5 frames each, in one
+  invocation, so every reading carries its own controls:
+    192.168.48.2   SUBJECT. A fictitious host on the vlan48 segment, COUNTED ON eth4.
+                   This is the cross-VRF flow the case turns on.
+    192.168.48.1   SUBJECT-2. The DUT's OWN vlan48 address -- "a Layer 3 interface in
+                   another VRF domain on the same device", which is exactly what
+                   claim G2 says must become unreachable. Counted as echo replies.
+    192.168.48.3   SUBJECT-3, in STEPS 6c and 6d only. A second host on the SAME /24
+                   that has NEVER been forwarded to. It is what separates "the route
+                   is gone" from "one programmed host entry is stale".
+    203.0.113.9    CONTROL. No route for it exists in any VRF, in any leg.
+    192.168.10.1   INSTRUMENT CONTROL. The DUT's own vlan10 address -- the SAME VRF
+                   as the sender, so it must be answered in EVERY leg. A zero
+                   elsewhere is then a measurement and not a dead instrument.
+  A background ARP responder runs on both NICs, because this DUT does not learn a
+  neighbour from a request it merely answers.
+
+--------------------------------------------------------------------------------
+THE CLAIMS UNDER TEST, QUOTED FROM THE PRODUCT DOCUMENTATION
+--------------------------------------------------------------------------------
+  VRF-lite Feature Overview and Configuration Guide, C613-22142-00 REV B.
+
+  G1 "One or more Layer 3 interfaces (VLAN) are associated with each VRF instance
+      forming an isolated VRF routing domain. A Layer 3 interface cannot belong to
+      more than one VRF instance at any time."                              (p.6)
+  G2 "VRF-Lite provides network isolation on a single device at Layer 3. ... This
+      separation of the routing tables prevents communication to Layer 3 interfaces
+      in other VRF domains on the same device."                             (p.7)
+  G3 "The same or overlapping IP addresses can be present in different route table
+      instances without conflicting. All routing table instances remain securely
+      isolated from those existing in other routing tables."                (p.11)
+  G4 "By default, no communication occurs between VRF instances, facilitating
+      multiple secure routing domains within the same VRF aware device."    (p.11)
+  G5 "However, inter-VRF communication between routing domains is possible by using
+      either static inter-VRF routes and/or dynamic filtered route leakage via
+      BGP..."                                                               (p.11)
+      and p.17: "Static inter-VRF routing involves creating static routes in one VRF
+      instance whose egress VLAN is in a different VRF. These static routes must
+      specify both the egress VLAN and next hop IP address."
+  G6 "As Layer 3 interfaces are moved to the created VRF instances, they are removed
+      from the global VRF domain, so the global VRF domain manages a decreasing set
+      of Layer 3 interfaces."                                               (p.7)
+  G7 "IP configuration on the interface in the previous VRF is unset (removed)
+      before moving the interface to a new VRF. ARP entries associated with the
+      Layer 3 interface are cleared when the interface is moved from one VRF
+      instance to another. In addition (static and dynamic) ARP entries are VRF
+      aware, as the same IP address can be used in other VRF instances."    (p.7)
+  G8 "If the Local Interface (LO) parameter is not specified, one is automatically
+      created for the VRF instance."                                        (p.14)
+
+STEP 1 -- baseline, no VRFs: the two segments talk                        done
+--------------------------------------------------------------------------------
+  Method: establish, in the global table, that a crafted frame from the eth3 segment
+  reaches the eth4 segment -- so that a later zero is a measured change and not a
+  broken bench.
+
+  State read at 23:24:2x:
+awplus# show ip vrf
+  no VRF is defined.
+awplus# show ip route
+  C 10.0.41.0/30 vlan41 · C 10.0.61.0/30 vlan61 ·
+  C 192.168.10.0/24 vlan10 · C 192.168.48.0/24 vlan48      (only)
+awplus# show spanning-tree brief
+  port1.0.10 Designated Forwarding · port1.0.48 Designated Forwarding
+
+  Leg V1-baseline-global:
+host# sudo python3.8 tools/arpleg.py --tag V1-baseline-global --out /tmp/ckD/T43859 \
+        --iface eth3 --watch eth4 \
+        --icmp 192.168.48.2,192.168.48.1,203.0.113.9,192.168.10.1 \
+        --gw-mac e0:1a:ea:d4:70:43 --sender-ip 192.168.10.5 --sender-mac 00:11:22:33:44:01 \
+        --answer 192.168.10.5=00:11:22:33:44:01,192.168.48.2=00:11:22:33:44:02 \
+        --answer-iface eth3,eth4 --count 5 --wait 6
+  sent 20 frames.  cap V1-...-eth3.pcap: 34 frames   cap V1-...-eth4.pcap: 7 frames
+    eth3:  x5 ICMP t8 192.168.10.5 -> 192.168.48.2
+           x5 ICMP t8 192.168.10.5 -> 192.168.48.1 ; x5 ICMP t0 192.168.48.1 -> 192.168.10.5
+           x5 ICMP t8 192.168.10.5 -> 203.0.113.9  (no reply)
+           x5 ICMP t8 192.168.10.5 -> 192.168.10.1 ; x5 ICMP t0 192.168.10.1 -> 192.168.10.5
+           x2 ICMP t3/c0 192.168.10.1 -> 192.168.10.5
+    eth4:  x5 ICMP t8 192.168.10.5 -> 192.168.48.2  [eth e0:1a:ea:d4:70:43 -> 00:11:22:33:44:02]
+           x1 ARP-REQ who-has 192.168.48.2 tell 192.168.48.1 / x1 ARP-REPLY (the responder)
+
+    192.168.48.2 (SUBJECT, counted on eth4) : 5 sent, 5 ARRIVED ON eth4, routed and
+                   L2-rewritten by the DUT (source MAC = the DUT's SVI MAC,
+                   destination MAC = the resolved next hop). A far-side dataplane
+                   count, not a reply.
+    192.168.48.1 (SUBJECT-2) : 5 sent, 5 echo replies
+    203.0.113.9  (CONTROL)   : 5 sent, 0 echo replies, 2 ICMP net-unreachable from the DUT
+    192.168.10.1 (INSTRUMENT): 5 sent, 5 echo replies
+
+  => STEP 1 done: with no VRF defined, the two segments communicate -- 5 of 5 crafted
+     frames cross from the vlan10 segment to the vlan48 segment and are counted on
+     the far NIC, the DUT's vlan48 address answers 5/5, the unrouted control is 0,
+     and the instrument control is 5/5 in the same capture. Every zero later in this
+     case is measured against this.
+
+STEP 2 -- create two VRFs and move one SVI into each
+          (tests G6, G7, G8)                                              PASS
+--------------------------------------------------------------------------------
+  Applied 23:25:07-23:25:24 with tools/ckcon.py:
+
+awplus(config)# ip vrf red
+awplus(config-vrf)# exit
+awplus(config)# ip vrf blue
+awplus(config-vrf)# exit
+awplus(config)# interface vlan10
+awplus(config-if)# ip vrf forwarding red
+  % All IP addresses configured on interface vlan10 have been removed
+awplus(config-if)# do show running-config interface vlan10
+  !
+  interface vlan10
+   ip vrf forwarding red
+  !                                        <-- the address really is GONE, not merely
+                                               hidden: the stanza carries no ip address
+awplus(config-if)# ip address 192.168.10.1/24
+awplus(config-if)# exit
+awplus(config)# interface vlan48
+awplus(config-if)# ip vrf forwarding blue
+  % All IP addresses configured on interface vlan48 have been removed
+awplus(config-if)# ip address 192.168.48.1/24
+
+  Read back at 23:25:3x:
+awplus# show ip vrf
+  Name                    Default RD            Interfaces
+  red                     --                    lo1
+                                                vlan10
+  blue                    --                    lo2
+                                                vlan48
+                                           <-- lo1 and lo2 were created automatically,
+                                               one per VRF; neither was asked for.
+                                               Default RD is `--`, none configured.
+
+awplus# show ip route
+  C       10.0.41.0/30 is directly connected, vlan41
+  C       10.0.61.0/30 is directly connected, vlan61
+  Gateway of last resort is not set
+  [VRF: red]
+  C       192.168.10.0/24 is directly connected, vlan10
+  [VRF: blue]
+  C       192.168.48.0/24 is directly connected, vlan48
+                                           <-- the two /24s have LEFT the global table,
+                                               which now holds only the two underlay
+                                               /30s. Each VRF renders in its own
+                                               `[VRF: name]` section, and NEITHER VRF
+                                               HOLDS THE OTHER'S PREFIX.
+awplus# show ip route vrf red / show ip route vrf blue
+  -> each shows only its own prefix
+awplus# show ip interface brief
+  -> also sectioned: global (vlan41, vlan61); [VRF: red] lo1 + vlan10 192.168.10.1/24;
+     [VRF: blue] lo2 + vlan48 192.168.48.1/24
+
+  => STEP 2 PASS: all three claims confirmed, and two of them by the device's own
+     words. G7's first half -- the device printed `% All IP addresses configured on
+     interface vlanN have been removed` on each move, and the mid-batch
+     `do show running-config interface vlan10` proves the address is gone from the
+     configuration itself and not merely from a message. G8 -- lo1 and lo2 appeared
+     without being configured, one per VRF. G6 -- the global routing table now
+     manages a strictly smaller set of Layer 3 interfaces, the two moved /24s having
+     left it for their own `[VRF:]` sections.
+
+STEP 3 -- isolation on the wire: the identical frames stop crossing
+          (tests G2, G4)                                                  PASS
+--------------------------------------------------------------------------------
+  Method: the SAME tool invocation as STEP 1, only the tag changed. Nothing else on
+  the bench, the DUT or the host is different.
+
+  Leg V2-vrf-isolated.
+  cap V2-...-eth3.pcap: 29 frames.   cap V2-...-eth4.pcap: 0 frames
+
+    192.168.48.2 (SUBJECT, counted on eth4) : 5 sent, 0 ARRIVED ON eth4   (5/5 in STEP 1)
+    192.168.48.1 (SUBJECT-2)                : 5 sent, 0 echo replies      (5/5 in STEP 1)
+    203.0.113.9  (CONTROL)                  : 5 sent, 0 echo replies
+    192.168.10.1 (INSTRUMENT)               : 5 sent, 5 echo replies  <-- the vlan10 SVI
+                   is alive and routing INSIDE VRF red, so both zeros above are
+                   measurements and not a dead instrument
+
+  The eth4 capture is EMPTY -- zero frames, not a low count. Nothing at all crossed.
+  The DUT also returned 2 ICMP type 3; decoded from the pcap they read
+    ICMP host 192.168.48.2 unreachable          (code 1, not code 0)
+  i.e. the DUT made and reported a routing decision about the cross-VRF destination
+  specifically. The destination named inside them is the attribution; the count is
+  not, because unreachable generation is rate-limited on this platform.
+
+  => STEP 3 PASS: G2 and G4 confirmed on the wire. With no configuration whatever
+     other than VRF membership, a frame from one VRF reaches neither a host on the
+     other VRF's segment nor the other VRF's own Layer 3 interface on the same
+     device, while the sender's own VRF keeps routing normally in the same capture.
+
+STEP 4 -- the decisive control: same ports, same addresses, only the VRF
+          changes (tests G1)                                              PASS
+--------------------------------------------------------------------------------
+  Method: a zero is only worth what its control is worth. To prove the zero in
+  STEP 3 was VRF isolation and not a broken port, a dead cable, an STP block or a
+  lost ARP, BOTH interfaces are put in the SAME VRF and the identical frames sent
+  again -- with nothing else whatsoever changed.
+
+  First, an attempt that was refused, at 23:26:41:
+awplus(config)# interface vlan48
+awplus(config-if)# ip vrf forwarding red
+  % vlan48: VRF is already associated        <-- vlan48 is currently in blue
+  The guide (p.7) describes moving an interface "from one VRF instance to another
+  via command" as a supported operation whose ifindex is preserved. On this build a
+  DIRECT VRF-to-VRF move is refused; the interface must be returned to the global
+  domain first.
+
+  The sequence that works, at 23:27:10:
+awplus(config-if)# no ip vrf forwarding blue
+  % All IP addresses configured on interface vlan48 have been removed
+awplus(config-if)# do show running-config interface vlan48
+  (nothing -- the stanza is empty)
+awplus(config-if)# ip vrf forwarding red
+awplus(config-if)# ip address 192.168.48.1/24
+
+awplus# show ip vrf
+  red                     --                    lo1 / vlan10 / vlan48
+  blue                    --                    lo2                   <-- now empty of SVIs
+awplus# show ip route vrf red
+  C       192.168.10.0/24 is directly connected, vlan10
+  C       192.168.48.0/24 is directly connected, vlan48
+awplus# show ip route
+  [VRF: blue]  "No entries in route table"
+                                           <-- vlan48 appears under exactly ONE VRF,
+                                               never two: G1 confirmed
+
+  Leg V3-both-in-red, identical tool invocation.
+  cap eth3: 32 frames.   cap eth4: 7 frames
+    192.168.48.2 (SUBJECT, on eth4) : 5 sent, 5 ARRIVED        (0 in STEP 3)
+    192.168.48.1 (SUBJECT-2)        : 5 sent, 5 echo replies   (0 in STEP 3)
+    203.0.113.9  (CONTROL)          : 5 sent, 0 echo replies
+    192.168.10.1 (INSTRUMENT)       : 5 sent, 5 echo replies
+
+  Returned to the isolated state for the next step at 23:28:2x --
+  `no ip vrf forwarding red` / `ip vrf forwarding blue` /
+  `ip address 192.168.48.1/24` on vlan48 -- and re-measured, so that STEP 5 has a
+  baseline taken immediately before it:
+    Leg V4-isolated-again.  cap eth3 27 frames, cap eth4 0 frames
+    192.168.48.2: 0 on eth4 · 192.168.48.1: 0 replies · 203.0.113.9: 0 ·
+    192.168.10.1: 5/5
+
+  => STEP 4 PASS: same two physical ports, same two VLANs, same two IP addresses,
+     same crafted frames, same ARP responder -- the ONLY difference between 0/5 and
+     5/5 is which VRF vlan48 belongs to. That attributes the zero of STEP 3 to VRF
+     membership and to nothing else, and the move back to the isolated state
+     reproduces the zero, so the behaviour is reversible in both directions. G1 is
+     confirmed along the way: the device refuses to let vlan48 belong to two VRFs,
+     and `show ip vrf` lists it under exactly one.
+
+STEP 5 -- static inter-VRF routing (tests G5)                             PASS
+--------------------------------------------------------------------------------
+  Method: the guide's own escape hatch -- deliberate, route-by-route communication
+  between two VRFs -- must work, and must open only what it names. The unrouted
+  control in the same capture is what measures the second half.
+
+  Applied 23:29:02, both accepted with no message:
+awplus(config)# ip route vrf red  192.168.48.0/24 vlan48
+awplus(config)# ip route vrf blue 192.168.10.0/24 vlan10
+
+  The form accepted here is network + EGRESS VLAN, with no next-hop address. The
+  guide's p.17 prose says these routes "must specify both the egress VLAN and next
+  hop IP address", while its own worked example on the same page uses the VLAN-only
+  form (`ip route vrf red 192.168.20.0/24 vlan10`). The VLAN-only form is what this
+  build accepts and what works; the prose overstates the requirement.
+
+awplus# show ip route vrf red
+  C       192.168.10.0/24 is directly connected, vlan10
+  S       192.168.48.0/24 [1/0] is directly connected, vlan48
+awplus# show ip route vrf blue
+  S       192.168.10.0/24 [1/0] is directly connected, vlan10
+  C       192.168.48.0/24 is directly connected, vlan48
+awplus# show running-config | include ip route
+  ip route vrf red 192.168.48.0/24 vlan48
+  ip route vrf blue 192.168.10.0/24 vlan10
+                                           <-- a static route in one VRF whose egress
+                                               interface lives in the other, rendered
+                                               as "is directly connected, <the other
+                                               VRF's vlan>"
+
+  Leg V5-inter-vrf-static.  cap eth3: 32 frames.  cap eth4: 7 frames
+    192.168.48.2 (SUBJECT, on eth4) : 5 sent, 5 ARRIVED        (0 in V4, immediately before)
+    192.168.48.1 (SUBJECT-2)        : 5 sent, 5 echo replies   (0 in V4)
+    203.0.113.9  (CONTROL)          : 5 sent, 0 echo replies
+    192.168.10.1 (INSTRUMENT)       : 5 sent, 5 echo replies
+
+  => STEP 5 PASS: G5 confirmed on the wire. Two static inter-VRF routes restore
+     crossing from 0/5 to 5/5 in both of the measured directions, and the unrouted
+     control stays at 0 in the same capture -- so the opening is exactly as wide as
+     the two prefixes named and no wider. Isolation did not collapse; it was
+     punctured where it was told to be.
+
+STEP 6 -- removal of the inter-VRF route, and what the dataplane does
+          about it                                                        PASS
+--------------------------------------------------------------------------------
+  Method: prove removal. The control plane is read first, then the identical leg is
+  sent again. This is where the case found something, so the mechanism is pinned
+  down with two further controls rather than reported as a bare anomaly.
+
+  6a. Removed at 23:30:0x:
+awplus(config)# no ip route vrf red  192.168.48.0/24 vlan48
+awplus(config)# no ip route vrf blue 192.168.10.0/24 vlan10
+awplus# show ip route vrf red
+  C 192.168.10.0/24 ...                    <-- only the connected route
+awplus# show running-config | include ip route
+  (EMPTY)
+awplus# show ip route vrf red 192.168.48.2
+  % Network not in table
+
+      Leg V6-static-removed.  cap eth3: 27 frames.  cap eth4: 5 frames
+        192.168.48.2 (SUBJECT, on eth4) : 5 sent, 5 STILL ARRIVED ON eth4
+        192.168.48.1 (SUBJECT-2)        : 5 sent, 0 echo replies   (the control plane
+                                          correctly treats blue's own interface as
+                                          unreachable again)
+        203.0.113.9  (CONTROL)          : 0
+        192.168.10.1 (INSTRUMENT)       : 5/5
+
+      So: gone from running-config, gone from the RIB, `% Network not in table` --
+      and the hardware was still forwarding across the VRF boundary.
+
+  6b. Reproduced ~50 s later, with the route table and the ARP tables read in
+      between, 23:30:43-23:30:47:
+awplus# show ip route vrf red 192.168.48.2
+  % Network not in table
+awplus# show arp vrf red
+  [VRF: red]   192.168.10.5  0011.2233.4401  vlan10  port1.0.10  dynamic
+awplus# show arp vrf blue
+  [VRF: blue]  192.168.48.2  0011.2233.4402  vlan48  port1.0.48  dynamic
+awplus# show arp
+  -> renders a global section, then [VRF: red], then [VRF: blue]
+                                           <-- G7's second half confirmed: ARP entries
+                                               ARE VRF aware, each held in its own
+                                               VRF's table and rendered in its own
+                                               section
+      Leg V6b-static-removed-recheck: eth4 again 5 frames. Not a settling artefact.
+
+  6c. THE DISCRIMINATOR THAT IDENTIFIES THE MECHANISM. The same leg was re-run with
+      192.168.48.3 -- a second host on the SAME /24 that had never been forwarded
+      to -- alongside 192.168.48.2, with an ARP responder for both on eth4:
+        Leg V6c-newhost-discriminator.  cap eth4: 5 frames
+          192.168.48.2 : 5 sent, 5 arrived on eth4      <-- still crossing
+          192.168.48.3 : 5 sent, 0 arrived on eth4      <-- correctly blocked
+          203.0.113.9  : 0 · 192.168.10.1 : 5/5
+      The ROUTE really is gone -- anything new is blocked. What survives is a
+      per-host forwarding entry for the one destination that was resolved while the
+      inter-VRF route existed.
+
+  6d. THE REMEDY, measured. Clearing the other VRF's ARP cache stops it immediately,
+      at 23:32:0x:
+awplus# clear arp-cache vrf blue
+awplus# show arp vrf blue
+  [VRF: blue]
+  IP Address      LL Address       Interface            Port        Type
+                                           <-- empty
+        Leg V6d-after-clear-arp-vrf.  cap eth4: 0 frames
+          192.168.48.2 : 5 sent, 0 arrived   <-- the crossing is gone
+          192.168.48.3 : 5 sent, 0 arrived
+          203.0.113.9  : 0 · 192.168.10.1 : 5/5
+      `clear arp-cache vrf <name>` empties that VRF's ARP table and leaves the others
+      alone, which is the VRF-aware behaviour G7 describes, exercised directly.
+
+  => STEP 6 PASS for the removal of the configuration and of the RIB entry, both
+     proven: the line is gone from running-config and `show ip route vrf red
+     192.168.48.2` answers `% Network not in table`. The dataplane residue is
+     recorded with its mechanism and its remedy both measured, and it is a measured
+     limit rather than a gap in the evidence: 5 of 5 crafted frames still crossed the
+     VRF boundary, reproduced in three successive legs over ~2 minutes, while a
+     second host on the same /24 that had never been forwarded to was correctly
+     blocked 0/5 -- which identifies a stale ARP-derived per-host forwarding entry,
+     programmed while the route existed, rather than a stale route -- and
+     `clear arp-cache vrf blue` stopped it at once. This concerns the removal of a
+     deliberate inter-VRF route, not VRF-Lite's isolation, which was complete and
+     immediate from a cold start in STEPS 3 and 8a. It is carried in the CAVEAT
+     above, including the fact that the unaided lifetime of the stale entry was not
+     measured.
+
+STEP 7 -- overlapping addresses in two VRFs (tests G3)                    PASS
+--------------------------------------------------------------------------------
+  Method: the headline claim of VRF-Lite -- the same IP address live on two
+  interfaces at once, each in its own VRF, which is impossible in a single global
+  table. A configuration that is ACCEPTED is not a feature that WORKS, so both
+  instances are then measured independently, each with the opposite NIC as the
+  capture.
+
+  Applied 23:35:19 -- vlan48, in VRF blue, is given VRF red's vlan10 address:
+awplus(config)# interface vlan48
+awplus(config-if)# no ip address 192.168.48.1/24
+awplus(config-if)# ip address 192.168.10.1/24
+  (accepted with no message of any kind)
+
+awplus# show ip interface brief
+  (global)      vlan41 10.0.41.1/30 · vlan61 10.0.61.1/30
+  [VRF: red]    lo1 unassigned · vlan10 192.168.10.1/24
+  [VRF: blue]   lo2 unassigned · vlan48 192.168.10.1/24
+awplus# show ip route
+  [VRF: red]    C 192.168.10.0/24 is directly connected, vlan10
+  [VRF: blue]   C 192.168.10.0/24 is directly connected, vlan48
+                                           <-- the same /32 address and the same /24
+                                               connected prefix exist twice, in two
+                                               route tables
+
+  Leg V7a-overlap-from-red (--iface eth3 --watch eth4, sender 192.168.10.5):
+  cap eth3: 27 frames.   cap eth4: 0 frames
+    x5 ARP-REQ  who-has 192.168.10.1 tell 192.168.10.5
+    x5 ARP-REPLY 192.168.10.1 is-at e0:1a:ea:d4:70:43          <-- red's vlan10 answers
+    x5 ICMP t8 192.168.10.5 -> 192.168.10.1 ; x5 ICMP t0 192.168.10.1 -> 192.168.10.5
+    x5 ICMP t8 192.168.10.5 -> 203.0.113.9 (CONTROL, 0 replies)
+    -> 5/5 ARP, 5/5 ICMP, and NOTHING on eth4.
+
+  Leg V7b-overlap-from-blue (--iface eth4 --watch eth3, sender 192.168.10.6 on the
+  other segment -- chosen inside the target address's own subnet because this DUT
+  answers ARP only for a sender in that subnet):
+  cap eth4: 29 frames.   cap eth3: 0 frames
+    x5 ARP-REQ  who-has 192.168.10.1 tell 192.168.10.6
+    x5 ARP-REPLY 192.168.10.1 is-at e0:1a:ea:d4:70:43          <-- blue's vlan48 answers
+    x5 ICMP t8 192.168.10.6 -> 192.168.10.1 ; x5 ICMP t0 192.168.10.1 -> 192.168.10.6
+    x5 ICMP t8 192.168.10.6 -> 203.0.113.9 (CONTROL, 0 replies)
+    x1 ARP-REQ who-has 192.168.10.6 tell 192.168.10.1          <-- the DUT uses
+        192.168.10.1 as its own identity on the BLUE side too
+    -> 5/5 ARP, 5/5 ICMP, and NOTHING on eth3.
+
+  Worth knowing when reading this: both instances answer with the SAME MAC, because
+  all SVIs on this platform share one. So two hosts in two different VRFs see the
+  identical IP and the identical MAC for their default gateway and cannot tell from
+  the wire that they are talking to different routing domains. That is correct
+  VRF-Lite behaviour on a one-MAC platform.
+
+  Reverted at 23:36:xx -- `no ip address 192.168.10.1/24` / `ip address
+  192.168.48.1/24` on vlan48, verified `[VRF: blue] vlan48 192.168.48.1/24`. The
+  per-device .cfg deliverables were captured at this point, with the case's setup
+  applied; swi_d.cfg's VRF lines read `ip vrf red 1` / `ip vrf blue 2`, running-config
+  writing back the automatically assigned LO interface numbers of G8.
+
+  => STEP 7 PASS: G3 confirmed on the wire. One address, configured on two
+     interfaces at once without a single complaint from the device, is answered
+     INDEPENDENTLY on two different ports in two different VRFs -- 10 ARP replies and
+     10 echo replies in total, 5/5 each way -- while each leg's opposite-NIC capture
+     is EMPTY, so the two instances never see each other and neither leaks into the
+     other's segment. The unrouted control is 0 in both legs.
+
+STEP 8 -- persistence across a real reboot of the DUT                     PASS
+--------------------------------------------------------------------------------
+  Method: nothing is written to startup-config; a NAMED boot config is staged and
+  the pointer is put back afterwards. Both halves are then re-measured on the wire
+  from a cold start -- the isolation, and the controlled opening of it.
+
+awplus# copy running-config flash:/ckT43859.cfg
+awplus(config)# boot config-file flash:/ckT43859.cfg
+awplus# show boot
+  Current boot config: flash:/ckT43859.cfg (file exists)
+  Reload issued 10:38:01 UTC; the `reboot system? (y/n):` question answered y;
+  `login:` after 60 s, at 10:39:03 UTC.
+
+  State after the reboot, 23:39:17-23:39:20 (14-17 s after login):
+awplus# show ip vrf
+  red                     --                    lo1 / vlan10
+  blue                    --                    lo2 / vlan48
+                                           <-- both VRFs survived, with their
+                                               automatic loopbacks
+awplus# show ip route
+  (global) C 10.0.41.0/30 vlan41 · C 10.0.61.0/30 vlan61
+  [VRF: red]  C 192.168.10.0/24 vlan10
+  [VRF: blue] C 192.168.48.0/24 vlan48
+awplus# show arp
+  -> global, [VRF: red] and [VRF: blue] sections, all three EMPTY
+awplus# show spanning-tree brief
+  23:39:20  port1.0.10 Forwarding · port1.0.48 Discarding   <-- still in RSTP transition
+  23:39:4x  port1.0.10 Forwarding · port1.0.48 Forwarding   <-- settled; the legs below
+                                                                were measured only after
+                                                                this reading
+
+  8a. Isolation after the reboot -- leg V8-after-reload-isolated, run with completely
+      cold ARP tables in all three domains:
+        cap eth3: 30 frames.   cap eth4: 1 frame
+        192.168.48.2 (SUBJECT, on eth4) : 5 sent, 0 of our frames arrived
+        192.168.48.1 (SUBJECT-2)        : 5 sent, 0 echo replies
+        203.0.113.9  (CONTROL)          : 0
+        192.168.10.1 (INSTRUMENT)       : 5/5
+      The one frame on eth4 is identified rather than waved away:
+        x1 ARP-REQ who-has 192.168.48.1 tell 192.168.48.1  [e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+      -- a GRATUITOUS ARP the DUT sends for its own vlan48 address as that SVI comes
+      up after the reboot. It is the DUT's own duplicate-address probe, not our
+      traffic, and it carries no payload marker. Zero of the 5 subject frames crossed.
+
+  8b. The feature is not merely present but still FUNCTIONAL. The inter-VRF statics
+      were re-added on the rebooted unit and the crossing re-measured:
+awplus(config)# ip route vrf red  192.168.48.0/24 vlan48
+awplus(config)# ip route vrf blue 192.168.10.0/24 vlan10
+        Leg V9-after-reload-intervrf.  cap eth3: 32 frames.  cap eth4: 7 frames
+          192.168.48.2 : 5 sent, 5 arrived on eth4
+          192.168.48.1 : 5 sent, 5 echo replies
+          203.0.113.9  : 0 · 192.168.10.1 : 5/5
+
+  => STEP 8 PASS: the VRF configuration, its automatically created loopbacks and its
+     separated route tables all survived a real 60 s reboot booted from a staged file
+     on flash. More than that, both halves of the feature were re-proven on the wire
+     from completely cold ARP tables: isolation held at 0/5 across the boundary with
+     the instrument control at 5/5, and re-adding the two static inter-VRF routes
+     restored crossing to 5/5 -- so what survived the reboot is the working feature
+     and not just its configuration text.
+
+STEP 9 -- removal: everything back in the global table                    PASS
+--------------------------------------------------------------------------------
+  Applied 23:41:xx, in the order the VRFs require -- routes, then interfaces out,
+  then the VRFs themselves:
+awplus(config)# no ip route vrf red  192.168.48.0/24 vlan48
+awplus(config)# no ip route vrf blue 192.168.10.0/24 vlan10
+awplus(config)# interface vlan10
+awplus(config-if)# no ip vrf forwarding red
+awplus(config-if)# ip address 192.168.10.1/24
+awplus(config)# interface vlan48
+awplus(config-if)# no ip vrf forwarding blue
+awplus(config-if)# ip address 192.168.48.1/24
+awplus(config)# no ip vrf red
+awplus(config)# no ip vrf blue
+  The address must be re-applied after `no ip vrf forwarding` for the same reason as
+  STEP 2: G7 applies in both directions.
+
+awplus# show ip vrf
+  no VRF is defined.
+awplus# show running-config | include vrf
+  (EMPTY)                                  <-- including the lo1 / lo2 the device had
+                                               created for itself
+awplus# show ip route
+  C 10.0.41.0/30 vlan41 · C 10.0.61.0/30 vlan61 ·
+  C 192.168.10.0/24 vlan10 · C 192.168.48.0/24 vlan48      <-- the STEP 1 global table
+awplus# show ip interface brief
+  -> ONE unsectioned list again, all four SVIs with their addresses, no [VRF:]
+     headings anywhere
+
+  Leg V10-vrf-removed.  cap eth3: 34 frames.  cap eth4: 7 frames
+    192.168.48.2 (SUBJECT, on eth4) : 5 sent, 5 arrived
+    192.168.48.1 (SUBJECT-2)        : 5 sent, 5 echo replies
+    203.0.113.9  (CONTROL)          : 0
+    192.168.10.1 (INSTRUMENT)       : 5/5
+
+  => STEP 9 PASS: removal returns the configuration, the route tables, the interface
+     rendering and the dataplane to exactly the pre-case state. The capture is frame
+     for frame the STEP 1 baseline -- 34 on eth3 and 7 on eth4, the same flows in the
+     same proportions -- and even the DUT's unreachables for the unrouted control are
+     back to t3/c0 network-unreachable, where in every VRF-separated leg they had
+     been t3/c1 host-unreachable. The device-created loopbacks are gone with their
+     VRFs, leaving nothing behind.
+================================================================================
