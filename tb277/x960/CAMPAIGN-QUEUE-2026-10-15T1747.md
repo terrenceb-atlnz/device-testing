@@ -934,3 +934,17 @@ Apply the three RESTORE blocks above, then re-probe and diff as above.
   address it is asking about. For `platforms/x960.md`, alongside the group-A ARP facts.
 - **GROUP B COMPLETE — 3 of 3 PASS** (T43855, T43861, T43862). The shared B/C/D underlay stays up
   for groups C and D; the tester verified it intact at hand-back.
+- **🔴 NEEDS TEST ENGINEER (operational, found at group B hand-back) — tb277 `/tmp` is 95% FULL,
+  111 MB free of 2.0 G.** Confirmed by the sentinel: `none 2.0G 1.9G 111M 95% /tmp`. The space is
+  **someone else's**, three Wireshark captures left in `/tmp`:
+  `wireshark_eth4TTYHW3.pcapng` **1.4 G**, `wireshark_eth4HF42V3.pcapng` 253 M,
+  `wireshark_eth4HR3HW3.pcapng` 184 M. Our own scratch is trivial by comparison —
+  `/tmp/ckB` 2.2 M and `/tmp/dhcp-2026-10-15T1458` 2.4 M.
+  **Not touched, and not ours to delete** (STANDING-ORDERS §4). 111 MB is enough for groups C and
+  D at group B's rate, but a capture that silently truncates on a full filesystem is exactly the
+  class of harness fault that manufactures a false finding — so C and D check free space before
+  each capture and keep them small. **Worth reclaiming before the next big campaign.**
+- **OBSERVATION (group B) — swi_d `port1.0.40` is also up and Forwarding with no LLDP neighbour**,
+  alongside `port1.0.8` already recorded. Two unknown far ends, which is why group B did **not**
+  disable spanning tree globally and instead made the DUT root. Both belong in `bench-state.md`'s
+  link table once identified.
