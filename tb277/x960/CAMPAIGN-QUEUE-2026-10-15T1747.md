@@ -518,6 +518,7 @@ and diff `captures/<new>/u2.show_running-config.txt` against
 | T33249 | PASS | `arp log` emits one line per ARP cache event for crafted traffic that produces **zero** lines with the feature off; port, VLAN, MAC and IP in each line matched against the frames in the capture, and both directions appear (`del` from the clear, `add` from the re-learn). `mac-address-format ieee` changes only the MAC rendering (`0011.2233.4402` → `00-11-22-33-44-02`) and is held as its own running-config line. Both forms removable, each proven in running-config AND in the log output after it; survives a reboot and still logs | tester | arp-2026-10-15T1747/T33249/work/run1.log |
 | T43848 | PASS | with `ip proxy-arp` on vlan10 the DUT answers ARP for a vlan48 address with its **own** MAC, where the identical request drew **nothing** with the feature off; silent for an unroutable address and for the ingress interface's own subnet; the proxied address is genuinely reachable; removal and reboot persistence both proven on the wire. One four-target ARP leg replayed OFF / ON / after reload, with the DUT's own address as an instrument control in **every** leg so each zero is a measurement, not a dead instrument. **No ping anywhere** — a ping crosses vlan10→vlan48 identically with proxy ARP on or off and would have proved nothing | tester | arp-2026-10-15T1747/T43848/work/run1.log |
 | T43849 | PASS | the authored expected result of ck.db **AWP-4357** met in full on hardware: swi_b's `ping 23.1.1.3` fails 100% **and its ARP table holds `23.1.1.3 → e01a.ead4.7043`, the DUT's MAC**; underneath, the crafted ARP drew **0** replies with the feature off and **3** carrying the DUT's MAC with it on. **The ping fails in BOTH states and carries no verdict on its own** — what separates them is the SOURCE of the unreachable: `From 23.1.1.2` (swi_b itself, packets never left) vs `From 23.1.1.1` (the DUT, which resolved, forwarded, then ARPed for the target itself). Also measured: local proxy ARP is bounded by the DUT interface's own /24, not the neighbour's /16 idea of on-link. Removal and reboot persistence both proven | tester | arp-2026-10-15T1747/T43849/work/run1.log |
+| T33246 | PASS | "ARP Polling" on this platform is **web-auth** ping-polling (Project 2561), not a generic ARP feature. Measured: **directed (unicast)** ARP polls to the supplicant's own MAC at the configured interval; **ICMP instead** under `type ping`; deauthentication after **exactly failcount** unanswered polls (3 directed ARPs, 0 replies, then polling stops — against 5 polls / 5 replies in the answering leg); removable; survives a reboot. The deauth is attributed by the DUT's own log naming the supplicant and MAC, **not** by `authorizedSupplicantNum`, which is quoted as context only. Stimulus was `ip link set eth3 arp off` on the box — link and port stay up, which is the condition the feature exists to detect | tester | arp-2026-10-15T1747/T33246/work/run1.log |
 
 ## Issues
 
@@ -598,3 +599,15 @@ and diff `captures/<new>/u2.show_running-config.txt` against
   13-hour error would be restoring a fault. It is the one thing group A leaves different from how
   it found the bench. (The time-only form `clock set HH:MM:SS` is refused as `% Incomplete
   command` despite being the only form `?` offers.)
+- **🔴🔴 NEEDS TEST ENGINEER (T33246, confirming and extending the T43848 finding) — the box's eth3
+  is NOT a point-to-point link to swi_d `port1.0.10`.** `10.38.22.41` / `00:0c:25:2a:a5:53` is live
+  on that segment and **attempted web authentication on `port1.0.10`** during this case. An ARP
+  sweep of the /27 after a cache flush found it to be **the only other live address** (the lladdrs
+  seen on `.34` and `.49` were stale entries). The sentinel separately confirmed that MAC has been
+  learned on swi_d `port1.0.10` in every probe since **2026-10-09** and also appears on swi_b `sa1`
+  in vlan 100. *Not confounding:* every counted frame in group A is matched on BOTH MACs, the
+  negative legs are **zero-frame** rather than low-frame (40 s, 0 frames, twice), and the deauth is
+  attributed by log line. Section 9 of T33246's working log records the whole episode.
+- **🔴 NEEDS TEST ENGINEER (T33246) — swi_d `port1.0.8` is connected at 1000BASE-T and
+  STP-Forwarding, and is ABSENT from `bench-state.md`'s link table.** The probe does not know what
+  is on the other end. Worth identifying before any case assumes the bench's link list is complete.
