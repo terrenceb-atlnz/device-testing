@@ -316,6 +316,7 @@ valid last-resort restore.
 | --- | --- | --- | --- | --- |
 | T43851 | PASS | ARP probing honoured on the wire: 3 probes at the configured 1000 ms spacing; **0** probes when disabled and when `probe packets 0`; an answered probe withholds the address and records a conflict binding (empty ClientId); `no` forms restore the TFS defaults. Frame-level evidence in 7 pcaps, not a `show` read-back. Two TFS-wording observations (O-1, O-2), neither a functional failure | tester | dhcp-server-2026-10-15T1458/T43851/work/run1.log |
 | T43853 | PASS | opt51 = **10,368,000 s** in both OFFER and ACK; binding expiry exactly 120 days out (15 Oct 2026 → 12 Feb 2027); parser **accepts 120, refuses 121 and 999** — that boundary IS the 30→120 day feature; 1-day (86,400) and 1-hour (3,600) controls measured in the same run as in-place overwrites; `no lease` restores the 1-day default; settings survive a reboot, re-proven on the wire (3-probe ARP burst at 0.995/1.001 s). **No M2-shaped silent discard for `lease`** — the pool read agreed with the wire at every point | tester | dhcp-server-2026-10-15T1458/T43853/work/run1.log |
+| T43852 | PASS | 5/5 crafted DISCOVERs and REQUESTs relayed **1:1 in 0.76 ms**, giaddr rewritten to 192.168.10.1 and hops incremented; all 5 OFFERs/ACKs returned to the right clients on the far side; **both** zero-relay controls clean (`no service dhcp-relay`, and relay on with no `server-address`); hop threshold enforced at the default 10 (hops 2 relayed as 3, hops 10 dropped). Four harness faults found and fixed first, all recorded in the log under HARNESS FAULTS; no measurement in the verdict predates the fixes | tester | dhcp-relay-2026-10-15T1458/T43852/work/run1.log |
 
 ## Issues
 
@@ -373,3 +374,25 @@ review), NOTED (no decision needed now), CLOSED (decided or answered).
 - **Root-owned files were 15, not just the pcaps** — `dhcp4.py --json` also ran under sudo. All
   chowned, scratch swept, zero remain. Keep using `tcpdump -Z $(whoami)` and chown after any
   sudo-run tool (I-4).
+- **🔴 F-1 (T43852) A RELAYED DHCP FRAME IS INVISIBLE TO SCAPY BY DEFAULT.** scapy binds BOOTP to
+  UDP only for the exact pairs 68→67 and 67→68. An AW+ relay forwards from an **ephemeral source
+  port** (measured: `192.168.48.1.57304 > 192.168.48.2.67`), so the frame is never dissected as
+  BOOTP, reads as `Raw`, and any scapy server, sniffer or decoder reports **"nothing arrived"**
+  while `tcpdump` on the same NIC prints it plainly. Before/after on the identical bench minutes
+  apart: eth4 relayed 4 / server received **0** → eth4 relayed 10 / server received **5** with
+  giaddr and hops. **That is a working relay graded broken.** Fixed with two `bind_layers` lines
+  in `tools/dhcp4.py`, documented in its README entry. **Not x960-specific — this hits any AW+
+  relay tested with scapy.** Belongs in a memory at wrap, not only `platforms/x960.md`.
+- **O-3 (T43852) `service dhcp-relay` on an already-enabled relay answers `% DHCP Relay is already
+  globally enabled`.** The requested state holds, so it is an advisory — but it is
+  indistinguishable from a rejection to a stop-on-error driver, and `cfg.py` halted its batch on
+  it. Same class as the x960 mirror-port advisory (`platforms/x960.md` §5). The tester
+  deliberately did NOT edit `console.py` mid-campaign because every driver shares it — correct
+  call; this is a change to make between campaigns, with the transcript as evidence.
+- **I-4 UPDATE — `tcpdump -Z $(whoami)` BREAKS CAPTURES ON THE NFS LAB HOME.** The sentinel's
+  advice after the root-owned-pcap finding was half right. Dropping privilege means tcpdump cannot
+  write to the **root-squashed NFS** home, so captures came out header-only and read as *no
+  traffic* — mimicking a dropping relay. Group A's pcaps worked precisely **because** they were
+  written as root. **Correct method: capture to local `/tmp` as root, then copy and chown into the
+  case folder.** That satisfies both constraints — real captures, and no root-owned file left for
+  `/create-logs` to trip on.
