@@ -411,6 +411,7 @@ and eth4 by host-MAC learning on exactly those ports and cannot exit 0 otherwise
 | T43853 | PASS | opt51 = **10,368,000 s** in both OFFER and ACK; binding expiry exactly 120 days out (15 Oct 2026 → 12 Feb 2027); parser **accepts 120, refuses 121 and 999** — that boundary IS the 30→120 day feature; 1-day (86,400) and 1-hour (3,600) controls measured in the same run as in-place overwrites; `no lease` restores the 1-day default; settings survive a reboot, re-proven on the wire (3-probe ARP burst at 0.995/1.001 s). **No M2-shaped silent discard for `lease`** — the pool read agreed with the wire at every point | tester | dhcp-server-2026-10-15T1458/T43853/work/run1.log |
 | T43852 | PASS | 5/5 crafted DISCOVERs and REQUESTs relayed **1:1 in 0.76 ms**, giaddr rewritten to 192.168.10.1 and hops incremented; all 5 OFFERs/ACKs returned to the right clients on the far side; **both** zero-relay controls clean (`no service dhcp-relay`, and relay on with no `server-address`); hop threshold enforced at the default 10 (hops 2 relayed as 3, hops 10 dropped). Four harness faults found and fixed first, all recorded in the log under HARNESS FAULTS; no measurement in the verdict predates the fixes | tester | dhcp-relay-2026-10-15T1458/T43852/work/run1.log |
 | T43850 | PASS | insertion off/on matched pair; circuit-id `vlan10` and remote-id = switch MAC on the wire (S1566.100.01/.06); ASCII override `CK-REMOTE-82` and its revert to the MAC proven in captured frames; remote-id correctly **refused** while agent-option is disabled (S1566.100.07); **all four** information-policy actions (replace/keep/drop/append) correct; option 82 **stripped** from replies per RFC 3046; survives reboot | tester | dhcp-relay-2026-10-15T1458/T43850/work/run1.log |
+| T35370 | PASS | the whole DHCP-client identity surface measured on the wire: **option 61** (type byte 0x01 + SVI MAC), **option 12** hostname `CKDHC1`, **option 124** carrying IANA enterprise **207** (Allied Telesis), and **125** added to the parameter request list. Each absent in the baseline and each removed cleanly by its `no` form. No TFS exists for "Extended ID", so the build's identity surface was enumerated by help probe and **all four** measured rather than one being guessed | tester | dhcp-client-2026-10-15T1458/T35370/work/run1.log |
 
 ## Issues
 
@@ -509,3 +510,23 @@ review), NOTED (no decision needed now), CLOSED (decided or answered).
   is unaffected** and the feature is relay/snooping. The triage re-cut that moved T43850 into the
   relay group was therefore right, and for the documented reason. Minor TPS categorisation
   observation, not a defect.
+- **🔥 O-5 (T35370) TWO near-identical `% …already…` messages mean OPPOSITE things on this
+  platform.** `% DHCP client is already running on this interface.` is a **GENUINE REJECTION**
+  (`cfg exit=2`, state unchanged — the client-id is NOT applied). `% DHCP Relay is already
+  globally enabled` (O-3) is an **ADVISORY** (state holds). Only the second is a
+  `console.ADVISORY` candidate. **Treating the first as an advisory silently measures the
+  DEFAULT client and reports it as configured — a false defect against TPS row 30.** The working
+  sequence is `no ip address dhcp` then `ip address dhcp client-id <if>`, with
+  `show running-config interface vlan48` confirming the keyword before any capture. For
+  `platforms/x960.md` at wrap.
+- **O-6 (T35370) All SVIs share one MAC** (`vlan1`, `vlan10`, `vlan48` all `e01a.ead4.7043`), so
+  `client-id vlan10` and `client-id vlan48` produce **byte-identical option 61**. Proven by
+  running both, not asserted. Graded on presence / type byte / length, and the log states that
+  discriminator explicitly so it is never mistaken for a content comparison.
+- **O-7 (T35370) The AW+ client's parameter request list is [1,3,15,6,43].** The wiki DHCP page
+  documents only 1/3/6/15, so **option 43 is additional to that page's description**. Not graded,
+  recorded.
+- **Rule from the tcpdump-vs-tool gap (resolved, benign):** 7 frames on the wire = 4 client→server
+  + 3 replies; the scapy server decoded 3 of 4 because the first arrived during its scapy import
+  (same cost as Group B's harness fault). No DUT loss, no verdict count affected.
+  **tcpdump is authoritative for the wire; the scapy tool only for what it decoded.**
