@@ -42,6 +42,7 @@ from scapy.all import (  # noqa: E402
     IP,
     UDP,
     AsyncSniffer,
+    bind_layers,
     conf,
     get_if_hwaddr,
     mac2str,
@@ -53,6 +54,16 @@ from scapy.all import (  # noqa: E402
 
 # The ONE correct spelling of option 82 for this scapy. See the module docstring.
 OPT82 = "relay_agent_information"
+
+# !! Relayed DHCP arrives from an EPHEMERAL source port !!
+# scapy binds BOOTP to UDP only for the exact pairs (sport 68, dport 67) and
+# (sport 67, dport 68). An AW+ DHCP relay forwards to the server from an ephemeral
+# source port (measured on tb277: 192.168.48.1:57304 -> 192.168.48.2:67), so the
+# relayed frame is NOT dissected as BOOTP and silently reads as Raw -- a server or
+# decoder would report "nothing arrived" while tcpdump on the same NIC shows the
+# packet plainly. Bind on destination port alone so any DHCP frame is dissected.
+bind_layers(UDP, BOOTP, dport=67)
+bind_layers(UDP, BOOTP, dport=68)
 
 BCAST = "ff:ff:ff:ff:ff:ff"
 MSGTYPE = {
@@ -256,7 +267,7 @@ def cmd_client(args):
                       iface=iface, verbose=0)
                 ent["answered"] = True
             return
-        if BOOTP in pkt and pkt[BOOTP].xid == xid and DHCP in pkt:
+        if BOOTP in pkt and DHCP in pkt and pkt[BOOTP].op == 2:
             s = summarize(pkt)
             s["t"] = now
             seen["dhcp"].append(s)
@@ -266,30 +277,50 @@ def cmd_client(args):
     time.sleep(0.4)
 
     sent = {"discover": 0, "request": 0}
-    disc = build_dhcp(mac, 1, xid, args)
-    sendp(disc, iface=iface, verbose=0, count=args.count)
-    sent["discover"] = args.count
+    txs = []
 
-    offer = ack = None
-    deadline = time.time() + args.wait
-    while time.time() < deadline:
-        offer = next((d for d in seen["dhcp"] if d["type"] == "OFFER"), None)
-        if offer:
-            break
-        time.sleep(0.1)
-
-    if offer and not args.discover_only:
-        req = build_dhcp(mac, 3, xid, args,
-                         requested=offer["yiaddr"],
-                         server_id=offer["options"].get("server_id") or offer["siaddr"])
-        sendp(req, iface=iface, verbose=0)
-        sent["request"] = 1
-        deadline = time.time() + args.wait
+    def wait_for(kinds, want_xid, secs):
+        deadline = time.time() + secs
         while time.time() < deadline:
-            ack = next((d for d in seen["dhcp"] if d["type"] in ("ACK", "NAK")), None)
-            if ack:
-                break
-            time.sleep(0.1)
+            hit = next((d for d in seen["dhcp"]
+                        if d["type"] in kinds and int(d["xid"], 16) == want_xid), None)
+            if hit:
+                return hit
+            time.sleep(0.05)
+        return None
+
+    def one(tx_mac, tx_xid):
+        sendp(build_dhcp(tx_mac, 1, tx_xid, args), iface=iface, verbose=0, count=args.count)
+        sent["discover"] += args.count
+        off = wait_for(("OFFER",), tx_xid, args.wait)
+        a = None
+        if off and not args.discover_only:
+            req = build_dhcp(tx_mac, 3, tx_xid, args, requested=off["yiaddr"],
+                             server_id=off["options"].get("server_id") or off["siaddr"])
+            sendp(req, iface=iface, verbose=0)
+            sent["request"] += 1
+            a = wait_for(("ACK", "NAK"), tx_xid, args.wait)
+        txs.append({"chaddr": tx_mac, "xid": hex(tx_xid),
+                    "offer": off["yiaddr"] if off else None,
+                    "ack": (a["type"] + " " + a["yiaddr"]) if a else None,
+                    "lease_time": (a or off or {}).get("options", {}).get("lease_time"),
+                    "offer_frame": off, "ack_frame": a})
+        return off, a
+
+    # N distinct clients in ONE process: a fresh subprocess per client costs several
+    # seconds of scapy import, which silently skews any timed count (measured 2026-10-15).
+    base = [int(x, 16) for x in mac.split(":")]
+    offer = ack = None
+    for i in range(args.clients):
+        b = list(base)
+        b[5] = (b[5] + i) & 0xFF
+        tx_mac = ":".join("%02x" % x for x in b)
+        tx_xid = (xid + i) & 0xFFFFFFFF
+        o, a = one(tx_mac, tx_xid)
+        if i == 0:
+            offer, ack = o, a
+        if args.gap and i < args.clients - 1:
+            time.sleep(args.gap)
 
     time.sleep(0.3)
     sniffer.stop()
@@ -306,6 +337,10 @@ def cmd_client(args):
         "icmp_probe_count": len(seen["icmp"]),
         "icmp_answered": sum(1 for a in seen["icmp"] if a.get("answered")),
         "offer": offer, "ack": ack,
+        "clients": args.clients,
+        "transactions": txs,
+        "offers_received": sum(1 for t in txs if t["offer"]),
+        "acks_received": sum(1 for t in txs if t["ack"]),
         "dhcp_frames": seen["dhcp"],
     }
     if len(seen["arp"]) > 1:
@@ -320,7 +355,15 @@ def cmd_client(args):
 
     print("\n--- summary ---", file=sys.stderr)
     print("chaddr %s xid %s" % (mac, hex(xid)), file=sys.stderr)
-    print("sent: %d DISCOVER, %d REQUEST" % (sent["discover"], sent["request"]), file=sys.stderr)
+    print("sent: %d DISCOVER, %d REQUEST  (clients=%d)" % (
+        sent["discover"], sent["request"], args.clients), file=sys.stderr)
+    if args.clients > 1:
+        print("offers received: %d/%d   acks received: %d/%d" % (
+            res["offers_received"], args.clients,
+            res["acks_received"], args.clients), file=sys.stderr)
+        for t in txs:
+            print("   %s -> offer %s ack %s" % (t["chaddr"], t["offer"], t["ack"]),
+                  file=sys.stderr)
     print("ARP probes seen: %d%s" % (len(seen["arp"]),
           (" gaps=%s" % res.get("arp_gaps_s")) if len(seen["arp"]) > 1 else ""), file=sys.stderr)
     for a in seen["arp"]:
@@ -467,7 +510,11 @@ def main():
     c.add_argument("--src-mac", help="Ethernet source, if different from chaddr")
     c.add_argument("--dst-mac", help="Ethernet destination (default broadcast)")
     c.add_argument("--xid", type=lambda x: int(x, 0))
-    c.add_argument("--count", type=int, default=1, help="DISCOVERs to send")
+    c.add_argument("--count", type=int, default=1,
+                   help="identical DISCOVER retransmits per client")
+    c.add_argument("--clients", type=int, default=1,
+                   help="distinct clients in ONE process (MAC and xid increment per client)")
+    c.add_argument("--gap", type=float, default=0.0, help="seconds between clients")
     c.add_argument("--client-id", help="option 61: a MAC, 'hex:..' or an ASCII string")
     c.add_argument("--hostname", help="option 12")
     c.add_argument("--prl", help="option 55 parameter request list, e.g. 1,3,6,51")
