@@ -509,26 +509,6 @@ and diff `captures/<new>/u2.show_running-config.txt` against
 `captures/2026-10-15T051005Z/u2.show_running-config.txt` (the group's pre-run baseline, 70 lines).
 
 
-### 🔴 CORRECTION for the B/C/D restore block, found in group A (T43849, both devices)
-
-The restore sketch under "Groups B, C, D share ONE L3 underlay" says to remove every
-`interface vlanN` address **before** `no interface vlanN`. **That is not sufficient on this
-build.** `no interface vlanN` answers `% Removal of interface not allowed` even with the address
-removed AND every member port moved out of the VLAN. What removes the SVI is deleting the VLAN:
-
-```
-interface portX / switchport access vlan 1      ! ports out of the VLAN first
-interface vlanN / no ip address
-vlan database / no vlan N                        ! THIS removes interface vlanN with it
-```
-`no interface vlanN` is not needed at all and should not be in a restore batch.
-
-**Why it matters more than it looks:** `cfg.py` stops at the first `% ` line, so a restore batch
-that contains `no interface vlanN` **aborts there and silently skips everything after it**. In
-T43849 that left a `shutdown` on swi_d `port1.0.2` which only the running-config diff caught.
-Related: `tools/rcdiff.py` PRINTS its differences but EXITS 0, so `rcdiff.py a b && echo clean`
-prints a false reassurance — read its output, never its exit code.
-
 ## Results
 
 | case | verdict | reason | graded by | working log |
