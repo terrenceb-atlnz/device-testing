@@ -689,3 +689,255 @@ neighbour still forwarding in the SAME capture.
   STEP 7 VERDICT: PASS -- one prefix withdrawn, 5/5 -> 0/5 on the wire, with a second BGP prefix
   from a second neighbour at 5/5 in the same capture and the session still Established; and the
   prefix restored to 5/5 within ~12 s of being re-advertised.
+
+
+STEP 8 -- REMOVAL: GONE FROM running-config, FROM THE FIB, AND FROM THE DATAPLANE
+------------------------------------------------------------
+Objective: prove removal where it counts.  "Gone from running-config" alone is the read-back
+trap this campaign keeps catching.
+
+  awplus(config)# no router bgp 65001                                       (23:16:0x)
+
+  Read back (23:16:14-23:16:20):
+    awplus# show running-config | include bgp   ->  (EMPTY -- even the `bgp graceful-restart`
+                                                     line the DUT had added itself is gone)
+    awplus# show ip bgp summary                 ->  (EMPTY)
+    awplus# show ip route
+      C       10.0.41.0/30 is directly connected, vlan41
+      C       10.0.61.0/30 is directly connected, vlan61
+      C       192.168.10.0/24 is directly connected, vlan10
+      C       192.168.48.0/24 is directly connected, vlan48
+      -> EXACTLY the four connected routes of the group-D start state.  Nothing left behind.
+    awplus# show ip route 10.70.70.1            ->  **% Network not in table**
+      -> FIB removal, not merely configuration removal.
+    awplus# show process | include bgp          ->  1721 bgpd  (daemon still running, as it was
+                                                     before the case began -- see F-6)
+
+  Dataplane leg L8-bgp-removed.  cap: 29 frames
+    10.70.70.1   (SUBJECT-B)  : 5 sent, **0 echo replies**
+    10.90.90.1   (SUBJECT-A)  : 5 sent, **0 echo replies**
+    203.0.113.9  (CONTROL)    : 5 sent, 0 echo replies
+    192.168.10.1 (INSTRUMENT) : 5 sent, **5 echo replies**  -- instrument alive
+  The capture is frame-for-frame the step-1 baseline again (29 vs 27 frames, the difference
+  being the responder's ARP exchange).
+
+  STEP 8 VERDICT: PASS -- removal returns configuration, route table, FIB and dataplane to the
+  pre-case baseline.
+
+
+STEP 9 -- PERSISTENCE ACROSS A REAL REBOOT OF THE DUT
+------------------------------------------------------------
+Objective: the configuration survives a real power-on-reset-equivalent reboot and the feature
+still works afterwards -- measured on the wire, not read off `show running-config`.
+**Nothing is written to startup-config.**  A NAMED boot config is staged and the pointer put
+back afterwards, exactly as groups B and C did.
+
+  Re-applied on the DUT, then staged (23:17:2x):
+    awplus(config)# router bgp 65001 / bgp router-id 1.1.1.1
+                    neighbor 10.0.61.2 remote-as 65002
+                    neighbor 10.0.41.2 remote-as 65003
+    awplus# copy running-config flash:/ckT43858.cfg          (tools/ckyn.py)
+    awplus(config)# boot config-file flash:/ckT43858.cfg     (config mode)
+    awplus# show boot
+      Current boot image : flash:/x960-tb277.rel (file exists)
+      Current boot config: flash:/ckT43858.cfg (file exists)
+    awplus# show ip bgp summary -> both neighbours Established, 1 prefix each, Up/Down 00:00:22
+
+  Reload (tools/ckreload.py /dev/u2 115200 ... 300):
+    reload issued 10:17:37 UTC, reboot question 'reboot system? (y/n):' answered y,
+    **login: seen after 60 s** (10:18:40 UTC).  Consistent with platforms/x960.md 7.9's
+    60-68 s for this unit.  swi_a and swi_b were NOT rebooted (RISK-1).
+
+  State after the reboot (10:18:48-10:19:01, i.e. 8-21 s after login):
+    awplus# show boot                  -> Current boot config: flash:/ckT43858.cfg (file exists)
+    awplus# show ip bgp summary
+      10.0.41.2  4  65003  3  2  1  0/0  00:00:12  1
+      10.0.61.2  4  65002  3  2  1  0/0  00:00:12  1
+      -> BOTH sessions Established and BOTH prefixes received **12 s after the interfaces came
+         up, ~66 s after the reload was issued**.  (Compare OSPF on this bench: still ExStart
+         43 s after login, Full at ~78 s -- platforms/x960.md 7A.4.  BGP is markedly faster
+         here because there is no adjacency state machine over a shared segment to run.)
+    awplus# show ip route bgp
+      B       10.70.70.1/32 [20/0] via 10.0.61.2, vlan61, 00:00:12
+      B       10.90.90.1/32 [20/0] via 10.0.41.2, vlan41, 00:00:12
+    awplus# show arp                   ->  **COMPLETELY EMPTY** -- no next hop resolved at all
+    awplus# show running-config | include service
+      service ssh / no service telnet / service http / no service rip / no service ospf /
+      no service dhcp-server
+      -> 🔴 **NO `no service bgp` LINE WAS ADDED.**  The queue predicted group D would leave a
+         third F-5 sticky line.  It did not, because there is no `service bgp` for BGPv4 to
+         negate (F-6).  Only group C's two lines remain.
+    awplus# show spanning-tree brief | include port1.0.48
+      23:19:01  port1.0.48 ... Designated **Discarding**     <- still in RSTP transition
+      23:19:34  port1.0.48 ... Designated **Forwarding**     <- settled.  Re-read before
+                                                                believing a post-reboot STP state.
+
+  Dataplane leg L9-after-reload (run with that COMPLETELY EMPTY ARP table, deliberately --
+  platforms/x960.md 7A.3 says a single-path route resolves on demand and forwards everything):
+    10.70.70.1   (SUBJECT-B)  : 5 sent, **5 echo replies**
+    10.90.90.1   (SUBJECT-A)  : 5 sent, **5 echo replies**
+    203.0.113.9  (CONTROL)    : 5 sent, 0 echo replies
+    192.168.10.1 (INSTRUMENT) : 5 sent, 5 echo replies
+  Not one frame lost on a cold ARP table.  7A.3 confirmed again for BGP single-path routes.
+
+  🔴 FINDING F-7, FOUND BY THIS LIMB -- THE SAVED CONFIG AND THE DISPLAYED CONFIG DISAGREE
+  ABOUT `bgp graceful-restart`, AND THE WIRE AGREES WITH THE SAVED CONFIG.
+    - Creating `router bgp 65001` makes `show running-config` render ` bgp graceful-restart`
+      (nobody configured it; it appears by itself).  That is what T43858/swi_d.cfg holds, line
+      145, because that file is a capture of `show running-config`.
+    - `copy running-config flash:/ckT43858.cfg` at the same moment wrote the OPPOSITE:
+        awplus# show file flash:/ckT43858.cfg | include graceful
+         no bgp graceful-restart
+    - After booting from that file, `show running-config router bgp` reads:
+        router bgp 65001
+         bgp router-id 1.1.1.1
+         no bgp graceful-restart
+         neighbor 10.0.41.2 remote-as 65003
+         neighbor 10.0.61.2 remote-as 65002
+    - 🔴 THE WIRE SETTLES IT.  The DUT's own BGP OPEN, captured in step 6b(1) **while
+      running-config was displaying ` bgp graceful-restart`**, advertised these capabilities
+      and no others:
+        Multiprotocol Extensions (1) AFI IPv4 / SAFI Unicast
+        Route Refresh (Cisco) (128)
+        Route Refresh (2)
+        32-Bit AS Number (65), 4 Byte AS 65001
+      **There is no Graceful Restart capability (64) in it.**  And after the reboot:
+        awplus# show ip bgp neighbors 10.0.61.2
+          BGP state = Established, up for 00:01:53
+          Last read 00:01:53, hold time is 90, keepalive interval is 30 seconds
+          Neighbor capabilities:
+            Route refresh: advertised and received (old and new)
+            4-Octet ASN Capability: advertised and received
+            Address family IPv4 Unicast: advertised and received
+      -- again no graceful restart, in either direction.
+    ⇒ So graceful restart was never actually enabled; the **`show running-config` DISPLAY was
+      the thing that was wrong**, and the saved file and the protocol both say `no`.  This is
+      the same class as `show mirror` (platforms/x960.md 5) and `show ip route database` (7.3):
+      a read-back that does not reflect the dataplane.  It is cosmetic for THIS case -- nothing
+      in T43858 depends on graceful restart -- but a user who configures `bgp graceful-restart`
+      and verifies it with `show running-config` would be misled in the other direction too.
+      **FOR THE TEST ENGINEER / a developer: which of the two is intended?**  Recorded, not
+      asked (the Test Engineer is away), and it does NOT change this case's verdict.
+    Incidental but useful: this also means a `.cfg` deliverable captured from
+    `show running-config` is not byte-identical to what `copy running-config` would write.
+    T43858/swi_d.cfg is a faithful capture of the DISPLAY, as logged-output.md 2 specifies.
+
+  Measured BGP timers on this build, for the next run:
+    hold time 90 s, keepalive interval 30 s (both from `show ip bgp neighbors`, and the 90 s
+    hold time is confirmed independently in the OPEN decode of step 6b).
+
+  STEP 9 VERDICT: PASS -- the configuration survived a real 60 s reboot, both sessions
+  re-established and both prefixes were re-learned within 12 s of the interfaces coming up, and
+  forwarding was proven on the wire at 5/5 + 5/5 against a control at 0/5, from a completely
+  cold ARP table.
+
+
+STEP 10 -- TEARDOWN, AND THE DIFF
+------------------------------------------------------------
+  Boot pointer restored FIRST, then the staged file deleted (the order the queue's recipe
+  requires), then BGP removed on all three devices:
+    swi_d:  configure terminal / boot config-file flash:/default.cfg / no router bgp 65001 / end
+            delete flash:/ckT43858.cfg          (tools/ckyn.py, answers the (y/n)[n] prompt)
+    swi_b:  configure terminal / no router bgp 65002 / end
+    swi_a:  configure terminal / no router bgp 65003 / end     (config only -- never reloaded)
+
+    awplus# show boot
+      Current boot image : flash:/x960-tb277.rel (file exists)
+      Current boot config: **flash:/default.cfg (file exists)**
+    awplus# dir flash:
+      onie-support-alliedtelesis_x960_56ysq.tar.bz2 / x960-sin_x96056-20261008-22.rel / log/ /
+      minicom.log / default.cfg / x960-tb277.rel / x960-benb.rel / gui-userdata/ / lost+found/
+      -> **NO ck*.cfg of any kind.**  (`dir flash: | include <x>` is `% Invalid input` on this
+         build -- group B's trap -- so the full listing is read and quoted.)
+
+  TEARDOWN DIFF -- `show running-config` after, against the pre-case capture taken at
+  22:44-22:45 before any group-D command, on EVERY device the case touched:
+    python3.8 tools/rcdiff.py /tmp/ckD/dut-pre.out  /tmp/ckD/T43858/dut-post.out   -> NO OUTPUT
+    python3.8 tools/rcdiff.py /tmp/ckD/swib-pre.out /tmp/ckD/T43858/swib-post.out  -> NO OUTPUT
+    python3.8 tools/rcdiff.py /tmp/ckD/swia-pre.out /tmp/ckD/T43858/swia-post.out  -> NO OUTPUT
+  (rcdiff PRINTS differences but EXITS 0, so the OUTPUT is what was read, never the exit code --
+  the T43849 trap.)
+
+  🔴 ALL THREE DEVICES ARE BYTE-IDENTICAL TO THE GROUP-D START STATE, INCLUDING THE DUT, which
+  rebooted from a staged config during this case.  Group C could not achieve that for OSPF or
+  RIP because of F-5's sticky `no service <proto>` line.  BGP leaves nothing, for the reason
+  F-6 gives: there is no service to negate.  The shared B/C/D underlay is intact and T43859 can
+  run on it unchanged.
+
+  One deviation introduced and reverted INSIDE this case, declared: the port mirror of step 6a
+  (removed; `show mirror` empty) and the access VLAN it took off port1.0.48 (restored to
+  vlan 48; the clean rcdiff above is the proof, since port1.0.48's stanza is in it).
+
+
+7. RUN QUALITY
+------------------------------------------------------------
+  CLEAN.  Nine counted dataplane legs (L1, L2, L3, L4, L5, L6, L7, L8, L9), every one carrying
+  its subject(s), an unrouted control that was 0/5 in all nine, and the DUT's own address as an
+  instrument control that was 5/5 in all nine.  Four protocol-packet captures on the DUT itself.
+  No step was skipped.
+  Two instrument/driver incidents, both detected immediately by reading output rather than exit
+  codes, both repaired and verified before any further measurement, both written up in step 6a:
+  the port-mirror produced nothing (platforms/x960.md 5 defect class, no verdict rests on it),
+  and the cfg.py batch it broke left port1.0.48 shut and out of its VLAN for ~2 minutes.  No
+  counted leg ran during that window.
+  Nothing was asked of the Test Engineer; nothing in this case needed them.
+
+
+8. FILES SAVED
+------------------------------------------------------------
+  tb277/x960/bgp-vrf-2026-10-15T1747/T43858/swi_d.cfg   (after setup, before step 1's successor;
+  tb277/x960/bgp-vrf-2026-10-15T1747/T43858/swi_b.cfg    see the F-7 note -- these are captures
+  tb277/x960/bgp-vrf-2026-10-15T1747/T43858/swi_a.cfg    of `show running-config`, as required)
+  tb277/x960/bgp-vrf-2026-10-15T1747/T43858/work/run1.log  (this file)
+  On the box, not committed: /tmp/ckD/T43858/*.pcap (nine leg captures),
+  /tmp/ckD/T43858/dut-tcpdump{,2,3}.out and upd-{announce,withdraw,withdraw2,withdraw3}.out
+  (the BGP protocol decodes), /tmp/ckD/T43858/{dut,swib,swia}-{setup,post}.out,
+  /tmp/ckD/console-u{2,3,5}.log
+
+
+9. FINDINGS RAISED BY THIS CASE (next free numbers; F-5 and OPEN-5 were the highest in use)
+------------------------------------------------------------
+  F-6  BGPv4 on this build is NOT service-gated, unlike OSPFv2 and RIP on the same software.
+       `service bgp` exists but takes only `evpn`; the bare form is `% Incomplete command.`
+       bgpd runs from boot on both an atlnz-licensed x960-56 and a Base-licensed x960-28.
+       Consequences: a "service bgp first" script hits a `%` that makes a stop-on-error driver
+       abandon the whole BGP configuration; and a BGP reboot-persistence limb leaves NO sticky
+       `no service bgp` line, so its teardown diff CAN come back clean.  For platforms/x960.md.
+  F-7  `show running-config` renders ` bgp graceful-restart` on a freshly created `router bgp`
+       instance while `copy running-config` writes ` no bgp graceful-restart` and the DUT's own
+       BGP OPEN advertises no Graceful Restart capability.  Display disagrees with both the
+       saved file and the wire.  Cosmetic here; wants a developer's answer on which is intended.
+       For platforms/x960.md and FOR THE TEST ENGINEER.
+  O-6  (observation, platform) The port mirror copied ZERO frames with `show mirror` reading
+       Enabled / direction receive / correct source and destination, on a freshly applied and
+       freshly bounced mirror, while traffic demonstrably ingressed the monitored port in the
+       same window.  A fourth instance of the platforms/x960.md 5 defect class, this time on
+       `direction receive`.  Also: configuring a port as a mirror destination silently removes
+       it from its access VLAN, and `no mirror interface` does not put it back.
+  O-7  (tool) `interface <mirror-destination-port>` emits `% ... is currently configured as a
+       mirror-port. Use caution when altering its config`, which cfg.py treats as an error.
+       Combined with the asynchronous `entered disabled state` console lines from the following
+       `shutdown`, the batch stopped and LEFT THE PORT SHUT.  Candidate for console.ADVISORY --
+       but only with a transcript showing the following command took effect, per the rule in
+       tools/README.md.
+  TECHNIQUE  The DUT's own `tcpdump` at privileged exec is the right instrument for any
+       unicast control-plane protocol on this platform (BGP, TCP-based anything), because such
+       traffic never reaches a host NIC on another segment and the port mirror cannot be
+       trusted.  `tcpdump -i vlan61 -c N -nn -v tcp port 179`, triggered from the PARTNER's
+       console so only one driver touches each /dev/uN.  BPF `greater 90` isolates UPDATEs from
+       keepalives (the 14-byte Ethernet header counts: a keepalive is an 85-byte frame).
+
+================================================================================
+VERDICT: PASS -- BGPv4 proven end to end on hardware across nine counted dataplane legs and
+four protocol captures: two eBGP sessions Established to two partners, the prefixes carried in
+real BGP-4 UPDATE messages (Version 4 OPEN, ORIGIN IGP, AS_PATH {65002}, NEXT_HOP 10.0.61.2),
+forwarding 0/5 -> 5/5 with an unrouted control at 0/5 and the DUT's own address at 5/5 in every
+leg, eBGP AD 20 displaced by a static at AD 1 with the EGRESS MOVE attributed on the wire by
+ICMP sourced from the other partner, one prefix withdrawn to 0/5 while the second neighbour's
+prefix stayed 5/5 in the same capture and the session stayed Established, removal returning
+config, FIB (`% Network not in table`) and dataplane to baseline, and persistence across a real
+60 s reboot with both sessions up and both prefixes forwarding 12 s after the interfaces came
+up.  Teardown diffed CLEAN on all three devices.  Two findings recorded (F-6 the absent BGP
+service gate, F-7 the graceful-restart display/save disagreement) and two observations (O-6,
+O-7); none is a failure of BGPv4.
+================================================================================
