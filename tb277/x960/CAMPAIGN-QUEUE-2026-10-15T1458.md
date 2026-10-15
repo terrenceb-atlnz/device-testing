@@ -116,6 +116,72 @@ Common setup for all three groups: `tb eth3 → swi_d port1.0.10` = VLAN 10, SVI
 **Restore both ports to untagged VLAN 1** or the post-run probe will not MATCH — its host-MAC
 discovery depends on exactly those ports.
 
+## Group A bench setup and restore recipe (written before the first case, 2026-10-15)
+
+**If this tester dies mid-group, a fresh tester restores the DUT with the RESTORE block below.**
+Only swi_d (/dev/u2 @115200) is touched by Group A. swi_b and swi_a are not used at all.
+
+Scratch on the box: `/tmp/dhcp-2026-10-15T1458/` (tools copy + console transcripts + captures).
+
+### Pre-existing baseline (what "restored" means)
+DUT swi_d at **default config plus `lldp run`** (the probe added `lldp run` by design on
+2026-10-15T0129; it is in the baseline, not drift). Boot config default, boots
+`flash:/x960-tb277.rel`. Byte-exact pre-case copy:
+`tb277/x960/dhcp-server-2026-10-15T1458/T43851/work/rc-before.log`.
+
+### SETUP (applied once for the whole group, STANDING-ORDERS §6)
+```
+clock set <HH:MM:SS> <DD> <MON> <YYYY>          # exec-only; DUT RTC reads year 2000. Pre-change
+                                                # value recorded in the working log first.
+configure terminal
+ vlan database
+  vlan 10 name ckdhcp-client
+  exit
+ interface port1.0.10
+  switchport access vlan 10
+  exit
+ interface vlan10
+  ip address 192.168.10.1/24
+  exit
+ service dhcp-server
+ ip dhcp pool CKPOOL
+  network 192.168.10.0/24
+  range 192.168.10.100 192.168.10.110
+  lease 1 0 0
+  probe enable
+  probe type arp
+  probe timeout 1000
+  probe packets 3
+  exit
+ exit
+```
+Host side: `tb eth3` (→ swi_d port1.0.10) is the scapy client and ARP responder. No host IP,
+route or mount change is made — every flow is crafted at layer 2, so `sudo` is needed only for
+raw sockets.
+
+### RESTORE (run this to put the bench back)
+```
+configure terminal
+ no ip dhcp pool CKPOOL
+ no service dhcp-server
+ interface vlan10
+  no ip address
+  exit
+ no interface vlan10
+ interface port1.0.10
+  switchport access vlan 1
+  exit
+ vlan database
+  no vlan 10
+  exit
+ exit
+```
+Then verify: `show running-config` must diff clean against `rc-before.log` (tools/rcdiff.py),
+`show ip dhcp pool` must be empty, and **port1.0.10 must be back in untagged VLAN 1** or the
+post-run `bench_probe.py` will not exit 0 MATCH — its host-MAC discovery uses that exact port.
+Nothing is written to startup-config at any point, so a power-cycle of outlet 1 on
+10.36.230.212 is also a valid last-resort restore.
+
 ## Known bench notes
 
 - **The DUT is at default config**, so every group builds its own setup from scratch.
