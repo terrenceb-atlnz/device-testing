@@ -280,3 +280,124 @@ STEP 5 -- REMOVAL, PROVEN IN ARP *AND* IN THE DATAPLANE.
                      running-config.
       192.168.10.9 : 5/5 -- instrument alive, so the zero is a measurement.
   STEP 5 VERDICT: PASS.
+
+STEP 6 -- PERSISTENCE ACROSS A REBOOT.
+
+  Nothing written to startup-config; a NAMED boot config is staged and the pointer put back.
+  awplus(config-if)# ip address 172.16.10.1/24 secondary      (re-added after step 5's removal)
+  awplus# copy running-config flash:/ckT43862.cfg   -> Successful operation
+  awplus(config)# boot config-file flash:/ckT43862.cfg
+  awplus# show boot -> Current boot config: flash:/ckT43862.cfg (file exists)
+
+  THE RELOAD: python3.8 tools/ckreload.py /dev/u2 115200 … 600
+    'reboot system? (y/n):' -> y ;  21:18:16 **login seen after 61 s**
+    (61 s, consistent with the 68 s and 60 s measured in T43855 and T43861 -- three reloads of
+     this x960-56YSQ this evening, all around a minute to `login:`.)
+
+  AFTER THE REBOOT, before anything was re-applied (21:19:02-21:19:06):
+    awplus# show boot -> Current boot config: flash:/ckT43862.cfg (file exists)
+    awplus# show running-config interface vlan10
+     ip address 192.168.10.1/24
+     ip address 172.16.10.1/24 secondary            <- the secondary came back
+    awplus# show ip route
+    C       172.16.10.0/24 is directly connected, vlan10    <- and its connected route
+    C       192.168.10.0/24 is directly connected, vlan10
+    C       192.168.48.0/24 is directly connected, vlan48
+    awplus# show spanning-tree brief | include port1.0.10|port1.0.48
+    port1.0.10  0000:e01aead47043  8392  Designated  Forwarding
+    port1.0.48  0000:e01aead47043  83b8  Designated  Forwarding
+
+  6a. ARP after the reboot.  --tag L6a-arp-after-reload, sender 172.16.10.5:
+        x4  ARP-REQ  who-has 172.16.10.1 tell 172.16.10.5
+        x4  **ARP-REPLY 172.16.10.1 is-at e0:1a:ea:d4:70:43**    -> 4 replies
+        x4  ARP-REQ  who-has 172.17.10.1 tell 172.16.10.5        -> 0 replies, control holds
+
+  6b. FORWARDING after the reboot.  --tag L6b-route-after-reload, eth4 -> watch eth3:
+      cap on eth3:
+        x5  ICMP t8/c0 192.168.48.9 -> **172.16.10.5**  [eth e0:1a:ea:d4:70:43 -> 00:11:22:33:44:05]
+        x5  ICMP t8/c0 192.168.48.9 -> 192.168.10.9     [eth e0:1a:ea:d4:70:43 -> 00:11:22:33:44:0a]
+        x1  **ARP-REQ who-has 172.16.10.5 tell 172.16.10.1**  + its reply
+        x1  ARP-REQ who-has 192.168.10.9 tell 192.168.10.1     + its reply
+      172.16.10.5  : 5 sent, **5 arrived**.   192.168.10.9 : 5/5, instrument alive.
+      172.17.10.5  : 5 sent, **0 arrived**, negative control still holds.
+      (No ICMP unreachables appeared on eth4 this time, only the DUT's ARP requests for
+       192.168.48.9 -- after a reboot it had to re-resolve the sender before it could have sent
+       one.  The unreachable is context in this case, never the evidence.)
+  STEP 6 VERDICT: PASS -- the secondary address, its connected route, its ARP behaviour and its
+  forwarding all survive a real reboot.
+
+
+6. TEARDOWN AND RESTORE
+-----------------------
+  awplus(config)# boot config-file flash:/default.cfg           (pointer restored FIRST)
+  awplus(config-if)# interface vlan10 / no ip address 172.16.10.1/24 secondary
+  awplus# delete flash:/ckT43862.cfg   -> Successful operation  (ckyn.py; cfg.py's YN: form
+                                          does not handle this prompt -- see T43855 §8)
+  awplus# show boot  -> Current boot config: flash:/default.cfg (file exists)
+  awplus# show running-config interface vlan10
+   ip address 192.168.10.1/24                                   <- primary only, as found
+  awplus# dir flash:      -> **0** files matching ck*.cfg
+  awplus# show vlan brief -> **no VLAN 99 row** (the step-3 scaffold is gone)
+
+  TEARDOWN DIFF (STANDING-ORDERS §1), against the capture taken after group setup and before
+  step 1:
+    python3 tools/rcdiff.py 62-dut-pre.out 62-dut-post.out   -> NO OUTPUT (identical)
+  (`rcdiff.py` PRINTS differences but EXITS 0; the empty output is the proof.)
+  swi_a and swi_b were never touched by this case and were not re-diffed here; T43861's teardown
+  diffed both clean at 21:06, after which nothing on either was changed.
+
+  The shared B/C/D underlay is deliberately LEFT UP for groups C and D (STANDING-ORDERS §6).
+
+
+7. WHAT THIS CASE DID NOT PROVE
+--------------------------------
+- **The 32-secondary limit.**  The guide says "up to 32 secondary addresses on a single
+  interface".  Two were configured; the 32nd and 33rd were **NOT exercised**.  That is a scale
+  test (33 config lines and a teardown) and it was not needed to settle any functional limb.
+- **"the only packets generated that have a secondary address as source address are routing
+  updates".**  **NOT TESTED.**  What was measured is adjacent but different: the DUT's own ARP
+  requests on vlan10 carry `tell 172.16.10.1`, the secondary, as the ARP sender protocol
+  address.  Deciding the guide's sentence needs a DUT-generated IP packet (a ping sourced by the
+  device, an ICMP error, an SNMP trap) aimed into the secondary subnet, with the IP source read
+  off the wire.  It is the natural next experiment and is deliberately left open rather than
+  inferred.
+- **The `label <label>` parameter** of `ip address` was not exercised.
+- **Secondary addresses on a routed physical port or on an aggregator** -- only an SVI was used.
+- **Overlapping or conflicting secondaries** (same subnet as the primary, or as another
+  secondary) were not attempted.
+- **Multi-homing over a reboot with the secondary as the ONLY address** is impossible by
+  construction: step 3 proves a primary must exist first.
+
+
+8. FILES
+--------
+  In the repo (committed):
+    tb277/x960/static-2026-10-15T1747/T43862/swi_d.cfg   (3 header + 140 config lines)
+    tb277/x960/static-2026-10-15T1747/T43862/work/run1.log  (this file)
+    (no swi_a.cfg / swi_b.cfg: this case uses the DUT and the two host NICs only)
+  On the box (NOT committed; /tmp does not survive a reboot):
+    /tmp/ckB/T43862/*.pcap -- L1a-arp-off, L1b-route-off (the discarded discriminator),
+      L1c-to-secondary-off, L2a-arp-on, L2b-arp-on-insubnet, L2c-to-secondary-on,
+      L5a-arp-removed, L5b-route-removed, L6a-arp-after-reload, L6b-route-after-reload
+    /tmp/ckB/T43862/{dut-pre-rc,dut-post-rc,td}.out
+    /tmp/ckB/console-u2.log, /tmp/ckB/console-u2-reload.log
+
+RUN END: 2026-10-15 21:21 NZDT (2026-10-15 08:21 UTC)
+
+VERDICT: PASS -- a secondary IP address on the x960-56YSQ is absent by default, and once
+configured it genuinely SERVES TRAFFIC rather than merely appearing in a show command: the DUT
+answers ARP for it with its own MAC (4/4, against 0/4 with the feature off), installs a
+connected route for its subnet, and forwards traffic arriving from another subnet INTO it (5/5
+on the wire, against 0/5 at baseline) while an unconfigured control subnet is dropped in the
+same leg.  The DUT uses the secondary as its own interface identity when it ARPs for a host
+there (`tell 172.16.10.1`).  Removal takes the address out of the dataplane as well as the
+config (ARP 4 -> 0, forwarding 5 -> 0), and everything survives a real reboot.  The two
+documented ordering rules are enforced on hardware with clear messages: `% Configure primary
+first vlan99` and `% Must delete secondary before deleting primary` -- so removing the primary
+is REFUSED, not cascaded, and nothing is silently lost.  Two observations: `show ip interface
+brief` shows only the primary (O-3), and the DUT answers ARP for an address on the interface
+only when the ARP sender is inside THAT address's subnet -- symmetric for primary and secondary,
+which is what confirms the guide's "treated the same" claim rather than contradicting it (F-4).
+One planned discriminator was discarded at baseline because it did not discriminate: a frame
+merely SOURCED in the secondary subnet crosses the DUT with the feature off too, since
+forwarding is destination-based and there is no uRPF.
