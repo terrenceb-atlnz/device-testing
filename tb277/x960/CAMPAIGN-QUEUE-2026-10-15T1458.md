@@ -129,3 +129,12 @@ review), NOTED (no decision needed now), CLOSED (decided or answered).
 - **I-2 Case steps are not available from AWPTCM or ck.db.** Grounded in the TPS, the Feature
   Overview guide and the Test Strategy instead (above). Every verdict must say so, and cite the
   TPS row it rests on. NOTED.
+- **I-3 The sentinel watches every testbox, not just this one.** `sentinel.sh` reads the
+  framework's per-device logs under `/home/st-art/pytest-create/*/*/`, which is on the SHARED
+  lab home (`10.36.250.11:/home`), so a watch on tb277 also replays tb470's runs. On the first
+  arm (2026-10-15 15:00) that dumped ~11 MB of 2026-10-08→13 backlog — stale tb470 IE520 and
+  x230v2 framework logs and week-old tb277 console transcripts — straight into the sentinel's
+  context before a single case had run, and the harness suppressed events for rate. Fixed for
+  this session by stopping the watch, letting the pass baseline 415 remote offsets at EOF, and
+  re-arming. **The kit should scope the remote glob to this box's own runs, or baseline silently
+  on a first arm.** NOTED — worth fixing in `.claude/skills/orient-dt/sentinel/sentinel.sh`.
