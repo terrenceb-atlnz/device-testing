@@ -491,6 +491,35 @@ Sends IGMPv2 joins (Membership Reports) or leaves from a fake receiver host.
   - `src_ip` must be a real on-subnet address; AW+ drops reports from 0.0.0.0.
 - **Status:** generalised 2026-10-02, not re-verified on hardware
 
+### `arpleg.py`
+One **test leg** in one command: start `tcpdump` on every NIC named, send a known count of
+crafted frames from one of them, stop, then decode the captures and print a grouped count of
+everything seen — with the **Ethernet source and destination of every flow**, so the question
+"who answered, and with which MAC?" is read off the wire instead of a `show arp` read-back
+(STANDING-ORDERS §7). Written for the ARP cases (static ARP, clear ARP, ARP logging, proxy ARP,
+local proxy ARP, web-auth ARP polling) but it is generic: any case that needs "send this, capture
+there, tell me what came back".
+It replaces the per-case `runleg.sh` heredocs that the 2026-10-15 process reviews named as the
+campaign's single largest avoidable cost.
+- **Run:** `sudo arpleg.py --tag NAME --out DIR --iface eth3 [--watch eth4 ...] [--arp TGT[,TGT]] [--probe DST[,DST]] [--icmp DST[,DST]] [--sender-ip IP] [--sender-mac MAC] [--gw-mac MAC] [--count N] [--vlan V] [--settle S] [--wait S] [--filter BPF] [--sniff-only] [--top N]`
+- **Where:** testbox (root — raw sockets + tcpdump); **needs:** scapy, tcpdump
+- **Imports:** none
+- **Two independent counters:** it prints what it **sent** beside what the **capture** holds, and
+  exits **7** when the sending NIC's capture holds fewer of its own marked frames than it sent.
+  Marked frames carry `CKARPLEG-<tag>` in the payload and are flagged `[ours]` in the report, so
+  the tool's traffic is never confused with the bench's.
+- **Limits:**
+  - `--probe` / `--icmp` need `--gw-mac` (the L2 next hop, i.e. the DUT's SVI MAC); `--arp` does not.
+  - Output goes to `--out`, which should be a **local `/tmp` path on the box**: tcpdump runs as
+    root and cannot write the root-squashed NFS lab home (memory `tcpdump-nfs-root-squash-capture`).
+    Pcaps are chowned back to `SUDO_UID` at the end, so copy them down afterwards.
+  - It does not answer anything. For a leg that must respond, pair it with a responder
+    (`nsresp.py`, `dhcp4.py`, `dnsresp.py`).
+  - scapy on tb277 (2.4.4) imports matplotlib, which prints a `SyntaxWarning` on stderr. Harmless.
+- **Status:** verified 2026-10-15 on tb277, host `eth3` → x960-56YSQ `port1.0.10`: self-test leg
+  sent 3 ARP requests and the capture held exactly 3, decoded with both MACs. Used for every leg
+  of the `arp-2026-10-15T1747` group.
+
 ### `nsresp.py`
 IPv6 Neighbor Solicitation responder. It answers every NS for a target in a /64 with an NA from a
 unique fake MAC (`02:87:70:xx:xx:xx`), so the DUT fills its ND table and FDB.

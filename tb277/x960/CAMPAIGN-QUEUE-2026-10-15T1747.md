@@ -380,6 +380,123 @@ web auth + RADIUS + an HTTP login, and a problem there must not delay the five c
 Build the B/C/D underlay once at the start of B and leave it up through D, removing only each
 group's own protocol.
 
+## Group A bench setup and restore — `arp-2026-10-15T1747` (written 2026-10-15 18:15 NZDT, before case 1)
+
+**Per `/test-mode` §2 and STANDING-ORDERS §6: set ONCE before the group, restored ONCE after it.**
+A fresh tester must be able to restore the bench from this section alone.
+
+### What the group changes
+
+Only **swi_d (the DUT, /dev/u2 @115200)**, except T43849, which also touches **swi_b
+(/dev/u3 @9600)** and restores it inside its own case. **swi_a (/dev/u5) is never opened or
+touched by group A** (RISK-1: it netboots with `flash:/default.cfg` not found).
+
+Two routed segments, one per host NIC, each its own VLAN so RSTP blocks nothing (RISK-4):
+
+```
+tb eth3 00:0d:b9:55:77:0e (10.38.22.33/27)  ── swi_d port1.0.10  → VLAN 10, interface vlan10 192.168.10.1/24
+tb eth4 00:0d:b9:55:77:0f (10.38.22.65/27)  ── swi_d port1.0.48  → VLAN 48, interface vlan48 192.168.48.1/24
+```
+
+The host NICs keep their own `10.38.22.x/27` addresses and **no host networking is changed at
+any point** — every frame is crafted at L2 by `tools/arpleg.py`, so the kernel's addresses and
+routes are bypassed entirely and the two private subnets stay quiet. That also means `192.168.10.2`
+and `192.168.48.2` are **scapy fictions**, not host addresses.
+
+### SETUP — swi_d, apply once before case 1
+
+```
+configure terminal
+vlan database
+ vlan 10,48
+ exit
+interface port1.0.10
+ switchport access vlan 10
+ exit
+interface port1.0.48
+ switchport access vlan 48
+ exit
+interface vlan10
+ ip address 192.168.10.1/24
+ exit
+interface vlan48
+ ip address 192.168.48.1/24
+ exit
+end
+```
+
+### RESTORE — swi_d, apply once after case 6 (and after any abort)
+
+**Address first, interface second**: `no interface vlanN` answers `% Removal of interface not
+allowed` while an address is still on it (2026-10-15 handover).
+
+```
+configure terminal
+interface vlan10
+ no ip address
+ exit
+interface vlan48
+ no ip address
+ exit
+no interface vlan10
+no interface vlan48
+interface port1.0.10
+ switchport access vlan 1
+ exit
+interface port1.0.48
+ switchport access vlan 1
+ exit
+vlan database
+ no vlan 10,48
+ exit
+end
+show boot                 ! must read Current boot config: flash:/default.cfg (file exists)
+dir flash: | include ck   ! must list NO ck*.cfg -- delete any that a reboot limb staged
+```
+
+**Both ports MUST end as untagged VLAN 1.** `bench_probe.py`'s host-MAC discovery depends on
+exactly `port1.0.10` and `port1.0.48` learning the host MACs, and the post-run probe will not
+reproduce the recorded links otherwise (2026-10-15 handover).
+
+Nothing in group A is written to `startup-config`. The reboot-persistence limbs stage a **named**
+boot config instead and put the pointer back:
+
+```
+copy running-config flash:/ck<ID>.cfg
+configure terminal / boot config-file flash:/ck<ID>.cfg / end
+reload                                        ! answers (y/n) -- send `y\r`
+# ... re-measure on the wire ...
+configure terminal / boot config-file flash:/default.cfg / end
+delete flash:/ck<ID>.cfg
+```
+
+### Per-case deviations from the group setup, each restored inside its own case
+
+| case | deviation | restored by |
+| --- | --- | --- |
+| T43849 Local Proxy ARP | adds **VLAN 23** on swi_d `port1.0.10` + `port1.0.16`, `interface vlan23 23.1.1.1/24` + `ip local-proxy-arp`; on **swi_b** `port1.0.16` access VLAN 23 + `interface vlan23 23.1.1.2/16` (the /16 is the point of the case). `port1.0.10` leaves VLAN 10 for the case and returns to it | the case's own teardown, on **both** devices, each diffed against its pre-case `show running-config`. swi_b `sa1` / `port1.0.2` / `port1.0.4` / `vlan 100` are **not touched** (RISK-2) |
+| T33246 ARP Polling | re-addresses `interface vlan10` to **10.38.22.34/27**, inside the box's existing `eth3` subnet, so `curl` can reach the DUT's web-auth server **with no host networking change**; adds `auth-web`, `auth-web-server`, `radius-server local` | the case's own teardown, which puts `192.168.10.1/24` back |
+
+### The instrument
+
+`tools/arpleg.py` (new this group, catalogued in `tools/README.md`) runs every leg: it starts
+`tcpdump` on each NIC named, sends a known count of crafted frames, stops, and prints a grouped
+count with the **Ethernet src/dst of every flow**. It exits 7 if its own send count and the
+capture disagree. Captures live on the box at `/tmp/ck1747/<id>/`, never on the NFS home
+(root-squash yields header-only pcaps).
+
+### If the session dies mid-group
+
+Apply the RESTORE block above on swi_d, and — only if T43849 was in flight — the swi_b half of
+its row. Then re-run the probe:
+
+```
+ssh tb277 'cd ~/claude/device-testing/bench-setup && python3.8 bench_probe.py --box tb277 run \
+   --consoles u2,u3,u5 --no-prompt --pdu 10.36.230.212 --outlet u2=1,u3=7,u5=3@10.36.230.35'
+```
+and diff `captures/<new>/u2.show_running-config.txt` against
+`captures/2026-10-15T051005Z/u2.show_running-config.txt` (the group's pre-run baseline, 70 lines).
+
 ## Results
 
 | case | verdict | reason | graded by | working log |
