@@ -18,7 +18,8 @@ Must run as root (raw sockets + tcpdump). Outputs are chowned back to SUDO_UID.
 Run:
   sudo python3 arpleg.py --tag NAME --out DIR --iface eth3 [--watch eth4 ...]
        [--arp TARGET[,TARGET...]] [--probe DST[,DST...]] [--icmp DST[,DST...]]
-       [--udp DST[:PORT][@SRC][,...]] [--l2-dst MAC|broadcast] [--sport N] [--ttl N]
+       [--udp DST[:PORT][@SRC][%L2DST][,...]] [--l2-dst MAC|broadcast]
+       [--show-ttl] [--sport N] [--ttl N]
        [--sender-ip IP] [--sender-mac MAC] [--gw-mac MAC]
        [--count N] [--settle S] [--wait S] [--filter BPF] [--vlan V]
        [--sniff-only]
@@ -219,6 +220,11 @@ def build(args):
         f = eth / Dot1Q(vlan=args.vlan) / ip if args.vlan else eth / ip
         out.append(("udp %s -> %s:9 (eth dst %s)" % (sip, d, args.gw_mac), f))
     for spec in args.udp:
+        # DST[:PORT][@SRC][%L2DST] -- %L2DST is parsed first because it is last.
+        # A PER-SPEC Ethernet destination lets ONE leg carry a frame addressed to a
+        # first-hop-redundancy virtual MAC AND a control addressed to a MAC nobody
+        # owns; a single --l2-dst applies to every --udp spec and cannot.
+        spec, _, l2_over = spec.partition("%")
         body, _, src_over = spec.partition("@")     # DST[:PORT][@SRC]
         ssrc = src_over or sip
         d, _, p = body.partition(":")
@@ -233,6 +239,8 @@ def build(args):
         l2d = l2
         if not args.l2_dst and is_v4_multicast(d):
             l2d = mcast_mac(d)
+        if l2_over:                       # an explicit per-spec MAC wins over both
+            l2d = BCAST if l2_over == "broadcast" else l2_over
         if not l2d:
             sys.exit("--udp needs --gw-mac or --l2-dst (use 'broadcast' for a true"
                      " link-layer broadcast, which a UDP-helper or directed-broadcast"
@@ -252,6 +260,9 @@ def build(args):
         f = eth / Dot1Q(vlan=args.vlan) / ip if args.vlan else eth / ip
         out.append(("icmp %s -> %s (eth dst %s)" % (sip, d, args.gw_mac), f))
     return out
+
+
+SHOW_TTL = False     # set from --show-ttl in main()
 
 
 def classify(pkt):
@@ -278,6 +289,12 @@ def classify(pkt):
         # 2026-10-16: a --udp ...:69 burst reported 0 of 5 as [ours].
         mine = b"CKARPLEG" in bytes(pkt)
         mark = " [ours]" if mine else ""
+        # The TTL is the only field on the wire that says how many routers forwarded
+        # a frame.  When two routers share one virtual MAC (VRRP/first-hop
+        # redundancy) the hop count is what attributes a forwarded frame to ONE of
+        # them -- the L2 and L3 headers are identical either way.
+        if SHOW_TTL:
+            mark += " ttl=%d" % ip.ttl
         if pkt.haslayer(ICMP):
             ic = pkt[ICMP]
             k = "ICMP t%d/c%d %-15s -> %-15s%s" % (ic.type, ic.code, ip.src,
@@ -337,6 +354,10 @@ def main():
                     help="Ethernet destination for --udp ONLY (--probe and --icmp keep "
                          "--gw-mac, so one leg can carry a broadcast flow and a unicast "
                          "control). Use 'broadcast' for a true link-layer broadcast")
+    ap.add_argument("--show-ttl", action="store_true",
+                    help="append the received IPv4 TTL to each flow in the report; "
+                         "the hop count is what tells two routers sharing one "
+                         "virtual MAC apart (VRRP and other first-hop redundancy)")
     ap.add_argument("--sport", type=int, default=40000, help="UDP source port")
     ap.add_argument("--ttl", type=int, default=64, help="IPv4 TTL of --udp frames")
     ap.add_argument("--icmp", default="", help="comma list of IPv4 dsts for ICMP echo")
@@ -365,6 +386,9 @@ def main():
     ap.add_argument("--sniff-only", action="store_true", help="capture only, send nothing")
     ap.add_argument("--top", type=int, default=12, help="distinct flows to print per cap")
     args = ap.parse_args()
+
+    global SHOW_TTL
+    SHOW_TTL = args.show_ttl
 
     if os.geteuid() != 0:
         sys.exit("arpleg.py must run as root (raw sockets + tcpdump)")

@@ -832,6 +832,224 @@ So group D inherits **exactly the group-B shared underlay** described above and 
   and clears on a box reboot. The other user's 1.8 GB is untouched.
 
 
+## Group D (bfd-vrrp-2026-10-16T1406) — bench setup and its EXACT restore recipe
+
+Written by the group-D tester (bench-runner) at **2026-10-16 18:25 NZDT / 05:25 UTC**, **before
+the first configuration command of group D**, so a fresh tester can restore the bench if this
+one dies mid-group. STANDING-ORDERS §6: bench setup is set ONCE per TestSet, not per case.
+This is the campaign's **last** group, so this recipe is also the campaign's final restore.
+
+### Gate results, 2026-10-16 17:49-18:21 NZDT (04:49-05:21 UTC)
+
+| gate | result |
+| --- | --- |
+| §1 occupancy `precheck u2,u3,u5` | **u2, u3, u5 all free**, exit 0. FOUND lists the same two non-ours items as triage and groups B/C: `ser2net` pid 744 and `minicom -D /dev/ttyUSB1` pid 10790 (the Test Engineer's own u1). **Neither touched.** Re-sent to the sentinel as an informational `NEEDS TEST ENGINEER:`; not blocked on (unattended rule) |
+| §2 consoles parked mid-state? | **No.** `peek` gave `awplus login:` (u2), `x960-28YSQ login:` (u3), `awplus login:` (u5) |
+| §3 template | **none** — `no deployed tb277.setup` (RISK-6). All manual; no framework, so no preflight (gate 6), no `fw` launch (gate 8) and no post-failure PDU cycle |
+| §4 probe `run --consoles u2,u3,u5 --pdu 10.36.230.212 --outlet u2=1,u3=7 --name u2=swi_d,u3=swi_b,u5=swi_a` | **exit 0**, `diff skipped` (no template), **no advisories**. Capture `bench-setup/tb277/captures/2026-10-16T051523Z` |
+| §7 boot baseline | DUT `Current boot image: flash:/x960-tb277.rel (file exists)`, `Current boot config: flash:/default.cfg (file exists)`, `Autoboot status: disabled`. Software `sin_x96056-20261012-24`, build date Mon Oct 12 06:38:00 UTC 2026 |
+| §9 sentinel | `sentinel: parent` (one-session `/test-mode` shape) — nothing to arm |
+| clocks (RISK-5) | DUT `05:16:33 UTC` vs box `05:16:51`; swi_b `05:20:08 UTC` vs box `05:20:18`. Both ~10-18 s behind the box, which is within console round-trip latency. **RISK-5's 13 h swi_b offset is GONE** — the two devices' logs can be correlated directly. swi_a is not used by group D |
+| scratch | `/tmp/ckt1406d/` on the box (49 tools) |
+
+**Inheritance VERIFIED, not assumed.** `tools/rcdiff.py` of each device's group-D pre-capture
+against group C's final capture prints **nothing** for all three devices:
+
+| device | group C final | group D pre | diff |
+| --- | --- | --- | --- |
+| swi_d (DUT) | `mcast-.../T43866/work/final-u2.log` | `bfd-vrrp-.../T47201/work/pre-u2.log` | **empty** |
+| swi_b | `mcast-.../T43866/work/final-u3.log` | `bfd-vrrp-.../T47201/work/pre-u3.log` | **empty** |
+| swi_a | `mcast-.../T43866/work/final-u5.log` | `bfd-vrrp-.../T47201/work/pre-u5.log` | **empty** |
+
+**The restore targets for group D are those three `pre-u*.log` files.**
+
+### Devices touched by group D
+
+| device | console | touched how |
+| --- | --- | --- |
+| **swi_d (DUT)** | /dev/u2 @115200 | STP priority, two ports shut, `port1.0.16` trunked, vlan 61 + its SVI, `service bfd` / `service rip` / `service vrrp`, RIP, a BFD peer, a VRRP instance. **One reload at the very END of the group**, to clear the O-24 sticky `no service …` lines |
+| **swi_b (partner)** | /dev/u3 @9600 | vlan 10 + vlan 61, `port1.0.16` trunked, two SVIs, a static route, the same services and protocols. **Not reloaded and not power-cycled** (its boot config is its own and this campaign never wrote it) |
+| **swi_a** | /dev/u5 @9600 | **NOT TOUCHED AT ALL.** Group D needs one partner and swi_b is it (RISK-1) |
+
+Host side: box `eth3` (`10.38.22.33/27`, `00:0d:b9:55:77:0e`) is the VRRP client segment and the
+BFD/RIP route-verification source; box `eth4` (`10.38.22.65/27`, `00:0d:b9:55:77:0f`) is the
+far-side counter. **No host NIC addressing is changed** (STANDING-ORDERS §4).
+
+### 🔴 NEW-RISK-8 remedy — group D's first configuration, confirmed before any measurement
+
+At the group-D gate the DUT was **not** root: `Root Id 8000:0000cd423029` (swi_b),
+`port1.0.2 Rootport Forwarding`, `port1.0.4` / `port1.0.14` / `port1.0.16` **Alternate
+Discarding**, `port1.0.10` / `port1.0.48` Designated Forwarding. `port1.0.16` is the link both
+group-D cases need, so it must be made Forwarding first. Group C's proven recipe, re-used:
+
+```
+configure terminal
+ spanning-tree priority 0
+ interface port1.0.2
+  shutdown
+ interface port1.0.14
+  shutdown
+ end
+```
+
+The DUT becomes root, so every DUT port is Designated Forwarding; shutting `port1.0.2` (the
+RISK-2 swi_b leg) forces swi_b's root-port choice onto **`port1.0.16`** rather than a bridge-ID
+tie-break, and shutting `port1.0.14` removes the redundant swi_a leg. **Confirm with
+`show spanning-tree brief` on BOTH devices before measuring** (Discarding for ~17-21 s).
+
+### The topology group D builds
+
+```
+host eth3 10.38.22.33/27 ──(DUT port1.0.10 access vlan 10)── swi_d  vlan10 10.38.22.34/27
+                                                               ║        vlan61 10.0.61.1/30
+                         port1.0.16 TRUNK, tagged vlan 10 + vlan 61    ║
+                                                               ║
+host eth4 10.38.22.65/27 ──(DUT port1.0.48 access vlan 48)──  swi_b  vlan10 10.38.22.35/27
+                            DUT vlan48 10.38.22.66/27                  vlan61 10.0.61.2/30
+```
+
+- **vlan 61 `10.0.61.0/30`** is the point-to-point transit for **T47201** (RIP adjacency and the
+  BFD session). It has no host NIC, so protocol packets on it are read with **the DUT's own
+  `tcpdump` at privileged exec** (`platforms/x960.md` §7B.2).
+- **vlan 10 extended to swi_b** is the shared segment for **T47873**: the DUT and swi_b are two
+  VRRP routers on the host's own broadcast domain, so VRRP advertisements (224.0.0.18) and the
+  ARP exchange for the virtual IP are captured **directly on host `eth3`** — no mirror and no
+  device-side capture needed.
+- The group-B underlay (`vlan10`/`vlan48` SVIs) is **kept as-is**; group D only adds to it.
+
+### Setup, as sent
+
+**DUT (/dev/u2 @115200)**, after the NEW-RISK-8 remedy above:
+```
+configure terminal
+ vlan database
+  vlan 61 name ckTRANSIT
+  exit
+ interface port1.0.16
+  switchport mode trunk
+  switchport trunk allowed vlan add 10,61
+ interface vlan61
+  ip address 10.0.61.1/30
+ end
+```
+
+**swi_b (/dev/u3 @9600)**:
+```
+configure terminal
+ vlan database
+  vlan 10 name ckVRRP
+  vlan 61 name ckTRANSIT
+  exit
+ interface port1.0.16
+  switchport mode trunk
+  switchport trunk allowed vlan add 10,61
+ interface vlan10
+  ip address 10.38.22.35/27
+ interface vlan61
+  ip address 10.0.61.2/30
+ exit
+ ip route 10.38.22.64/27 10.38.22.34
+ end
+```
+(The static route is what lets swi_b, when it is the VRRP Master, hairpin a frame addressed to
+the virtual MAC back through the DUT to host `eth4` — the second hop is what the TTL counts.)
+
+🔴 **`service <proto>` goes in its OWN batch, then ~10 s, then everything else**
+(`platforms/x960.md` §7A.1). It does **not** apply to BGP (§7B.1); it DOES apply to `bfd`,
+`rip` and `vrrp`, all three of which are in this platform's `service ?` list and all three of
+which refused at triage with a daemon-not-running message.
+
+**Per-case additions, each removed by that case's own teardown and NOT part of the group setup:**
+
+| case | what it adds on top of the group setup | removed by |
+| --- | --- | --- |
+| T47201 | `service bfd`, `service rip`, `router rip` + `network` statements on both devices, a `bfd` peer/profile if one is configurable | its own teardown |
+| T47873 | `service vrrp`, `router vrrp <vrid> vlan10` + `virtual-ip`/`priority`/`preempt-mode` on both devices | its own teardown |
+
+### 🔴 Restore recipe — the EXACT sequence
+
+Run this to put the bench back to the campaign baseline. Group D changes nothing on swi_a,
+nothing on the host, and nothing in startup-config or the boot pointers.
+
+**swi_b (/dev/u3 @9600) — do this one FIRST**, so the DUT's trunk is the last thing removed:
+```
+configure terminal
+ no ip route 10.38.22.64/27 10.38.22.34
+ interface vlan10
+  no ip address
+ interface vlan61
+  no ip address
+ exit
+ no interface vlan10
+ no interface vlan61
+ interface port1.0.16
+  switchport mode access
+  switchport access vlan 1
+ exit
+ vlan database
+  no vlan 10
+  no vlan 61
+  exit
+ end
+```
+
+**DUT (/dev/u2 @115200):**
+```
+configure terminal
+ interface vlan61
+  no ip address
+ exit
+ no interface vlan61
+ interface port1.0.16
+  switchport mode access
+  switchport access vlan 1
+ exit
+ vlan database
+  no vlan 61
+  exit
+ interface port1.0.2
+  no shutdown
+ interface port1.0.14
+  no shutdown
+ exit
+ no spanning-tree priority
+ end
+```
+
+**Then, on the DUT only, ONE reload onto `flash:/default.cfg`** — that is the only thing that
+clears the O-24 sticky `no service bfd` / `no service rip` / `no service vrrp` lines a
+reboot-persistence limb leaves behind (`platforms/x960.md` §7A.2). After the reload the group-B
+shared underlay is GONE (it lives in running-config only), so **re-apply it** from the group B/C/D
+section above before the final probe, because the campaign's measured end state includes it:
+```
+configure terminal
+ vlan database
+  vlan 10 name ckUNDERLAY-eth3
+  vlan 48 name ckUNDERLAY-eth4
+  exit
+ interface port1.0.10
+  switchport access vlan 10
+ interface port1.0.48
+  switchport access vlan 48
+ interface vlan10
+  ip address 10.38.22.34/27
+ interface vlan48
+  ip address 10.38.22.66/27
+ end
+```
+
+Verify with, and only with, a diff against the saved pre-group captures — **gate on the OUTPUT,
+never on the exit code**, because `rcdiff.py` prints differences and still exits 0:
+```
+tools/tb ckcon tb277 ckt1406d u2 115200 "show running-config" > final-u2.log
+python3 tools/rcdiff.py tb277/x960/bfd-vrrp-2026-10-16T1406/T47201/work/pre-u2.log final-u2.log
+#   ... and the same for u3 (and u5, which should never have changed)
+```
+Baseline to return to on the DUT: `Current boot config: flash:/default.cfg`,
+`Current boot image: flash:/x960-tb277.rel`, `Autoboot status: disabled`, and
+`dir flash:/*.cfg` holding **only** `default.cfg`.
+
+
 ## Results
 
 | case | verdict | reason | graded by | working log |
