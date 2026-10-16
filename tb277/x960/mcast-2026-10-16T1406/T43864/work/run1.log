@@ -1,0 +1,301 @@
+# T43864 — (41) IPv4_MulticastRouting - PIM-DM — working log, run 1
+# tester: bench-runner subagent (one-session /test-mode shape; sentinel = parent session)
+# started 2026-10-16 17:00 NZDT (04:00 UTC), finished 17:18 NZDT, tb277, group mcast-2026-10-16T1406
+# run is CLEAN (every zero below is paired with an instrument control that arrived at full count)
+
+## Session facts, devices, links, clocks, host NICs and the pre-run gate
+
+  Identical to, and recorded IN FULL in, **T43863/work/run1.log** (same group, same session,
+  same bench, same gate run).  In short: tb277; DUT swi_d AT-x960-56YSQ S/N A2WQS700B,
+  sin_x96056-20261012-24, /dev/u2 @115200, SVI MAC e0:1a:ea:d4:70:43; partner swi_a
+  AT-x950 GEN2-52XSTQm S/N A10713A262600012, awplus_main-20261008-56, /dev/u5 @9600, SVI MAC
+  88:9d:98:df:26:02; host eth3 10.38.22.33/27 (00:0d:b9:55:77:0e) = source segment, eth4
+  10.38.22.65/27 (00:0d:b9:55:77:0f) = receiver segment; DUT ~14 s behind the box, swi_a and
+  swi_b in sync with it; gate all green, probe exit 0, no advisories.
+
+  🔴 Devices touched: **swi_d and swi_a**.  swi_b was NOT opened, configured, reloaded or
+  power-cycled by this case.  swi_a was configured but **never reloaded or power-cycled**
+  (RISK-1).  No host-NIC addressing or other root-level host change.
+
+## Authored content — this case HAS some, and it is quoted
+
+  `tools/tb tool tb277 ckt1406c ckcase AWPTCM-T43864` -> ck.db `zephyr_cases` id 40184, key
+  AWPTCM-T43864, title "(41) IPv4_MulticastRouting - PIM-DM",
+  folder /New Platform Test (MASTER)/New Platform Template/IPv4, priority **High**,
+  status Draft, `num_steps` 1.  Verbatim:
+
+    objective:    "PIM-DM works as expected DUT can route multicast traffic using PIM-DM"
+    precondition: "IXIA -- DUT -- sw1(running PIM-DM)-- IXIA"
+    steps_text:   "Setup a PIM-DM network  Multicast client able to get multicast stream"
+    expected:     (the single step carries no separate expected-result text)
+
+  So there IS an authored objective and an authored TOPOLOGY, but no step-by-step procedure and
+  no authored expected result.  **The authored topology is satisfied exactly**: the group-C
+  two-router bench is `IXIA -- DUT -- sw1 -- IXIA` with the two host NICs standing in for the
+  two IXIA ports and **swi_a as `sw1`, genuinely running PIM-DM** (`service pdm`,
+  `ip pim dense-mode`, adjacency up — proofs below).  The rest of the procedure below is
+  DESIGNED, from RFC 3973 and the DUT's CLI surface, and is labelled as such.
+
+  Designed limbs and why each is here: PIM-DM is *defined* by flood-and-prune plus Graft, so a
+  PIM-DM verdict that only showed "a joined client gets the stream" would not distinguish it
+  from PIM-SM at all.  The limbs below therefore include the three things that are PIM-DM and
+  not PIM-SM: the prune of a branch with no receiver, the **State Refresh** that keeps that
+  prune alive, and the **Graft** that reverses it.
+
+## Topology and the service gate
+
+  Group C's shared two-router topology, unchanged from T43863 (diagram and the NEW-RISK-8 STP
+  remedy are in T43863's log; re-confirmed here after each reload).  PIM-SM was fully removed at
+  the end of T43863, so this case began from a multicast-OFF bench.
+
+    swi_d(config)#service pdm           accepted, 17:01 (no error)
+    swi_a(config)#service pdm           accepted, 17:01 (no error)
+    awplus#show process | include pdm
+    3343 pdmd                5   0.0   0.1    20 sleep                   <- the daemon IS running
+
+  🔴 **swi_b cannot be `sw1`**: `service pdm` on swi_b answers
+  `% Service is not currently licensed on this platform` (finding O-20, measured at group
+  setup).  That is why `sw1` is swi_a.
+
+  🔴 **F-13 applied up front, and then it bit anyway — which confirms it.**  T43863 established
+  that `ip pim <mode>` does not enable router-side IGMP.  `ip igmp` was therefore included in
+  this case's setup.  But the baseline join at 17:01:45 was sent BEFORE that line was applied,
+  so it landed in the snooping table only, and the first PIM-DM forwarding leg read 0/10 for a
+  group that looked joined.  Re-joining AFTER `ip igmp` was enabled gave 10/10 with nothing else
+  changed (legs 3a/3b).  **A membership learned while the interface was snoop-only does not
+  migrate when router-side IGMP is later enabled — it must be re-sent.**  Carried into F-13.
+
+    swi_a#show ip igmp interface vlan48
+     IGMP Enabled, Active, Querier, Version 3 (default)
+    swi_a#show ip pim dense-mode neighbor      (read on the DUT, same adjacency)
+    Neighbor-Address Interface          Uptime/Expires    Ver
+    10.0.61.2        vlan61             00:00:04/00:01:43 v2
+    awplus#show ip pim dense-mode interface
+    Address          Interface VIFIndex Ver/   Nbr
+    10.38.22.34      vlan10    3        v2/D   0           <- D = DENSE mode
+    10.0.61.1        vlan61    5        v2/D   1
+
+## Measurement stance
+
+  As T43863: `tools/arpleg.py` legs from host eth3 counted on host eth4, each carrying a
+  never-joined control group and an **instrument control** (routed ICMP 10.38.22.40 ->
+  10.38.22.65) that must arrive.  The instrument control arrived at FULL count in all 11
+  counted legs of this case, so every zero here is a measurement.  Control-plane claims are
+  decoded from the DUT's own `tcpdump` on vlan 61, the routed-only transit segment.
+  Group addresses are all distinct in their low 23 bits, so no two share a link-layer address.
+
+## LEG 1 (designed) — BASELINE OFF, and a stronger one than T43863's
+
+  `pdmd` RUNNING, a receiver JOINED, but no `ip multicast-routing` and no `ip pim dense-mode`:
+
+    cap d1-baseline-off-eth4.pcap: 10 frame(s)
+      x10 ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours] [eth 88:9d:98:df:26:02 -> 00:0d:b9:55:77:0f]
+
+  => **0 of 10** for the joined group 239.6.6.6; 10/10 instrument control.  Starting the daemon
+     alone forwards nothing — the baseline isolates the configuration, not the service.
+  VERDICT leg 1: PASS.
+
+## LEG 2/3 (authored: "multicast client able to get multicast stream") — it does
+
+  (3a, before `ip igmp` had been applied when the join was sent — see F-13 above)
+    cap d2-pimdm-flood-eth4.pcap: 10 frame(s)   -> only the 10/10 ICMP control; group 0/10
+
+  (3b, identical leg, membership re-sent after `ip igmp` was enabled, nothing else changed)
+    cap d3-pimdm-forwarding-eth4.pcap: 20 frame(s)
+      x10 UDP  10.38.22.40 -> 239.6.6.6 :5001 [ours] [eth 88:9d:98:df:26:02 -> 01:00:5e:06:06:06]
+      x10 ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours] [eth 88:9d:98:df:26:02 -> 00:0d:b9:55:77:0f]
+    and again at a higher count:
+    cap d7-joined-on-transit-eth4.pcap: x30 UDP 239.6.6.6 + x30 ICMP control
+
+  => **10 of 10 and then 30 of 30**, delivered by **swi_a's MAC**, so the stream was routed by
+     the DUT, crossed the trunk and was routed again by `sw1`.  The authored objective and the
+     authored topology are both satisfied.
+  🟢 Worth noting against T43863: PIM-SM lost 1-2 frames per group to the Register/tree build;
+     **PIM-DM lost none** on a warm bench, because dense mode floods first and asks later.
+  VERDICT legs 2/3: PASS (the authored step).
+
+## LEG 4 (designed) — a branch with NO receiver does not get the stream
+
+  Three groups never joined and never previously used, each measured on its own:
+    239.7.7.7    40 frames sent -> cap d4-flood-prune-first-eth4.pcap: **0 of 40** (40/40 control)
+    239.11.11.11 50 frames sent -> cap d6-floodprune2-eth4.pcap:       **0 of 50** (50/50 control)
+    239.12.12.12 25 frames sent -> cap d9-flood-attempt-eth4.pcap:     **0 of 25** (25/25 control)
+  And the table state, same source, same router, same protocol, one group with a receiver and
+  one without, read in a single command pair:
+
+    awplus#show ip mroute 239.12.12.12                   (no receiver)
+    (10.38.22.40, 239.12.12.12), uptime 00:00:30, stat expires 00:03:00
+    Owner PIM-DM, Flags: TF
+      Incoming interface: vlan10
+      Outgoing interface list:                           <- EMPTY: pruned
+    awplus#show ip mroute 239.11.11.11                   (receiver present, see leg 6)
+    (10.38.22.40, 239.11.11.11), uptime 00:04:19, stat expires 00:02:41
+    Owner PIM-DM, Flags: TF
+      Incoming interface: vlan10
+      Outgoing interface list:
+        vlan61 (1)                                       <- grafted back on
+  VERDICT leg 4: PASS.
+
+## LEG 5 (designed) — the PIM-DM control plane on the transit wire
+
+    awplus#tcpdump -i vlan61 -c 24 -nn            (during a stream to an unjoined group)
+    04:05:50.847472 IP 10.0.61.1 > 224.0.0.13: PIMv2, Prune Refresh, length 36
+    04:05:58.028256 IP 10.0.61.2 > 224.0.0.13: PIMv2, Join / Prune, length 34
+    ... and repeatedly thereafter:
+    04:07:08.159471 IP 10.0.61.1 > 224.0.0.13: PIMv2, Prune Refresh, length 36
+    04:07:11.587323 IP 10.0.61.1 > 224.0.0.13: PIMv2, Prune Refresh, length 36
+    04:07:13.747242 IP 10.0.61.2 > 224.0.0.13: PIMv2, Join / Prune, length 34
+    04:07:50.851472 IP 10.0.61.1 > 224.0.0.13: PIMv2, Prune Refresh, length 36
+
+  Read: `sw1` (10.0.61.2) sends **Join/Prune** upstream to prune the branch, and the DUT
+  (10.0.61.1) sends **Prune Refresh** — PIM-DM **State Refresh** (RFC 3973 §4.5) — periodically
+  to keep that prune alive.  Both messages are PIM-DM-specific; neither appears in T43863's
+  PIM-SM captures, which instead carried Register / Register-Stop.  This is the cleanest
+  protocol-level discriminator between the two cases.
+  VERDICT leg 5: PASS.
+
+## LEG 6 (designed) — GRAFT: a pruned branch is restored when a receiver appears
+
+  The A/B is on ONE group, 239.11.11.11, which had just measured 0 of 50 while pruned (leg 4).
+  A receiver joined it, and the same leg was repeated:
+
+    awplus#tcpdump -i vlan61 -c 7 -nn proto 103
+    04:09:50.859731 IP 10.0.61.1 > 224.0.0.13 : PIMv2, Prune Refresh, length 36
+    04:09:55.736294 IP 10.0.61.2 > 10.0.61.1  : PIMv2, Graft, length 34
+    04:09:55.736500 IP 10.0.61.1 > 10.0.61.2  : PIMv2, Graft Acknowledgement, length 34
+    04:09:57.738881 IP 10.0.61.1 > 224.0.0.13 : PIMv2, Prune Refresh, length 36
+
+    cap d8-graft-eth4.pcap: 41 frame(s)
+      x20 UDP  10.38.22.40 -> 239.11.11.11 :5001 [ours] [eth 88:9d:98:df:26:02 -> 01:00:5e:0b:0b:0b]
+      x20 ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours] (20/20 instrument control)
+
+  => **0 of 50 pruned -> 20 of 20 grafted**, same group, same source, same wire, the only change
+     being one IGMP report.  The Graft is **unicast** `sw1` -> DUT and the Graft-Ack is unicast
+     back **206 microseconds later**, exactly as RFC 3973 §4.6 specifies.
+  VERDICT leg 6: PASS.  This is the limb that makes the case PIM-DM rather than "multicast".
+
+## LEG 7 (designed) — prune on leave, with a still-joined group as the in-leg control
+
+    tools/tb sudotool tb277 ckt1406c igmp eth4 leave 239.11.11.11 10.38.22.70 00:11:22:33:44:77 2 0.5
+    cap d10-prune-on-leave-eth4.pcap: 20 frame(s)
+      x10 UDP  10.38.22.40 -> 239.6.6.6 :5001 [ours] [eth 88:9d:98:df:26:02 -> 01:00:5e:06:06:06]
+      x10 ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours]
+
+  => the LEFT group 239.11.11.11 **0 of 10**; the still-joined group 239.6.6.6 **10 of 10**, in
+     the same leg, same instant.  Group-specific, and it reverses the Graft of leg 6.
+  VERDICT leg 7: PASS.
+
+## LEG 8 (designed, satisfactory-level) — persistence across a reboot
+
+    awplus#copy running-config flash:/ck43864.cfg  -> Successful operation
+    awplus(config)#boot config-file flash:/ck43864.cfg
+    tools/tb ckreload tb277 ckt1406c u2 115200 480  -> 'reboot system? (y/n):' y; login after 61 s
+  swi_a was NOT reloaded (RISK-1) and stayed up throughout.  Before measuring:
+    awplus#show boot -> Current boot config: flash:/ck43864.cfg (file exists)
+    awplus#show ip pim dense-mode neighbor -> 10.0.61.2 vlan61 00:00:05/00:01:42 v2
+    awplus#show spanning-tree brief -> port1.0.48 Designated **Discarding**   (the 17-21 s window)
+    awplus#show spanning-tree brief -> port1.0.48 Designated Forwarding        (re-read; now safe)
+  Then a group never used before the reload:
+    cap d11-postreload-eth4.pcap: 18 frame(s)
+      x10 ICMP t8/c0 ... (10/10 instrument control)
+      x8  UDP 10.38.22.40 -> 239.13.13.13 :5001 [ours] [eth 88:9d:98:df:26:02 -> 01:00:5e:0d:0d:0d]
+  => 8 of 10 for the new group, **0 of 10** for the never-joined control in the same leg.
+     (8 rather than 10 because after a cold boot the dense-mode state is rebuilt from nothing —
+     on the warm bench of leg 3 the same shape of leg gave 10 of 10.)
+  Boot pointer restored and the staged file removed:
+    awplus(config)#boot config-file flash:/default.cfg
+    awplus#delete flash:/ck43864.cfg -> Delete flash:/ck43864.cfg? (y/n)[n]:y -> Successful operation
+    awplus#show boot -> Current boot config: flash:/default.cfg (file exists)
+  VERDICT leg 8: PASS.
+
+## LEG 9 (designed, satisfactory-level) — removal, in running-config AND the dataplane
+
+    awplus(config-if)#no ip pim dense-mode        (interface vlan10)
+    awplus#show running-config interface vlan10
+    interface vlan10
+     ip address 10.38.22.34/27                     <- the pim line is GONE
+    cap d12-removed-eth4.pcap: 11 frame(s)
+      x10 ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours]   (10/10 instrument control)
+  => **0 of 10** for 239.13.13.13, whose membership was still live and which had been forwarding
+     8/10 a minute earlier.
+  VERDICT leg 9: PASS.
+
+## NOT MEASURED, and said so rather than claimed
+
+  🟡 **The FLOOD half of "flood and prune" was never observed as data on the wire.**  Three
+  never-joined groups were streamed (40, 50 and 25 frames, 4-5 frames/s), with a tcpdump armed
+  on vlan 61 before the stream in two of the three, and **not one data frame of any of them
+  appeared on the transit segment or at the receiver**.  The prune is unambiguous (leg 4's empty
+  OIF, leg 5's Join/Prune, and the fact that a prune cannot exist without something to prune),
+  so the mechanism is not in doubt; what is not demonstrated is the brief initial flood.  On
+  this build **State Refresh is active** (leg 5), which is precisely the feature that suppresses
+  PIM-DM's periodic re-flood, and the first-packet flood converges to a pruned OIF faster than a
+  0.2 s inter-frame gap can sample.  **To measure it** a future run needs a line-rate stimulus
+  (`tools/linerate.py` or tcpreplay) with a capture on vlan 61 and per-frame timestamps, so the
+  flood/prune boundary can be located in time rather than counted.  Recorded as **O-25**.
+  This is a limitation of the stimulus, not a platform fault, and it does not affect the verdict:
+  every authored and designed claim above is carried by a measurement.
+
+## Teardown and its proof
+
+  This case's own additions removed from BOTH devices; group C's shared topology deliberately
+  left up for T43865/T43866 (it is in the queue with its restore recipe):
+    DUT   : no ip pim dense-mode (vlan10, vlan61), no ip multicast-routing, then `no service pdm` alone
+    swi_a : no ip pim dense-mode (vlan48, vlan61), no ip igmp, no ip multicast-routing,
+            then `no service pdm` alone
+  Both answered `% Save the config and restart for this change to take effect.` to
+  `no service pdm` — an advisory, not a rejection.
+
+  `python3 tools/rcdiff.py work/pre-u2.log work/post-u2.log`, and the same for u5, gated on the
+  OUTPUT (rcdiff exits 0 even when it prints differences).  The pre-case captures are T43863's
+  post-teardown captures, i.e. the shared topology with no multicast configuration:
+
+  - **swi_a: the diff is EMPTY.** Byte-identical to its pre-case state.  No PIM-DM residue, no
+    sticky service line, nothing.
+  - **DUT: exactly ONE added line — `no service pdm`** (beside the `no service pim` T43863 left).
+
+  🔴 That is the **second independent reproduction in one session** of x960.md §7A.2, and it
+  came out the same way for a second protocol: the DUT booted from `flash:/ck43864.cfg`, which
+  contained `service pdm`, during leg 8, so it keeps the line; swi_a never rebooted, so it keeps
+  nothing.  **The discriminator is the boot, not the daemon, and not the protocol.**  Both lines
+  are cleared by the single end-of-group reload of the DUT onto `flash:/default.cfg`, which is
+  in the queue's restore recipe.  Semantically they are the default (no process, no daemon).
+
+## Tools used, with the exact arguments
+
+  - `tools/tb` for every step on the box; scratch `/tmp/ckt1406c/`.
+  - `tools/ckcase.py` — `tools/tb tool tb277 ckt1406c ckcase AWPTCM-T43864` (authored text above).
+  - `tools/arpleg.py` via `tools/tb sudotool` — 11 counted legs, e.g.
+      arpleg --tag d8-graft --out /tmp/ckt1406c/T43864 --iface eth3 --watch eth4 \
+        --udp 239.11.11.11:5001 --icmp 10.38.22.65 --gw-mac e0:1a:ea:d4:70:43 \
+        --sender-ip 10.38.22.40 --sender-mac 00:11:22:33:44:01 --count 20 --gap 0.25 \
+        --settle 3 --wait 5 --filter "ip"
+  - `tools/igmp.py` via `tools/tb sudotool` — IGMPv2 joins and leaves (v2 path only in this case).
+  - `tools/cfg.py`, `ckcon.py`, `ckyn.py`, `ckreload.py`, `rc2cfg.py`, `rcdiff.py` via `tools/tb`.
+  - the DUT's own `tcpdump -i vlan61 -c N -nn [ip | proto 103]` at privileged exec.
+
+  ⚠️ **Bench note for anyone repeating this (O-26).**  A capture on a switched VLAN of this DUT
+  competes with a **1 Hz loop-detect LDF stream** (`loop-protection loop-detect ldf-interval 1
+  fast-block` is in the baseline config).  Those are 802.3/LLC `Null Unnumbered, test` frames
+  with no IP header, and an unfiltered `tcpdump -c 24` is consumed by them in under half a
+  minute before much PIM or data lands — which wasted one capture here.  A bare `ip` qualifier
+  excludes every one of them while keeping PIM, IGMP and the multicast data:
+  `tcpdump -i vlanN -c 30 -nn ip`.
+
+## Files saved
+
+  - `../swi_d.cfg`, `../swi_a.cfg` — per-device running-config after setup, before step 1
+    (17:13 NZDT, from `work/setup-u2.log` / `work/setup-u5.log` via `tools/rc2cfg.py`).  Both
+    are complete for this case, including swi_a's `ip igmp`.
+  - `work/pre-u2.log`, `work/pre-u5.log` — pre-case captures (= T43863's post-teardown state)
+  - `work/setup-u2.log`, `work/setup-u5.log`, `work/post-u2.log`, `work/post-u5.log`
+  - pcaps on the box in `/tmp/ckt1406c/T43864/` (not committed; deleted at group end)
+  - console transcripts on the box: `/tmp/ckt1406c/console-u{2,5}.log`
+
+## Steps skipped
+
+  None.  One designed limb is NOT MEASURED and is declared above (the initial flood, O-25).
+  PIM-DM **Assert** is not reachable on this bench for the same reason as PIM-SM's: it needs two
+  PIM routers on one shared segment, and the only multi-router segment here is a /30.
+
+VERDICT: PASS -- the authored objective and the authored topology (`IXIA -- DUT -- sw1(running PIM-DM) -- IXIA`, with swi_a as a real PIM-DM sw1) are both satisfied and the authored step measured 10/10 then 30/30; plus baseline off with the daemon already running, a branch with no receiver pruned (0/40, 0/50, 0/25 with an empty OIF), the PIM-DM-specific State Refresh and Join/Prune decoded on the transit wire, a Graft/Graft-Ack handshake turning the same group from 0/50 to 20/20, group-specific prune on leave, and removal and reboot persistence proven in the dataplane. The initial flood is declared NOT MEASURED (O-25) with the instrument that would measure it named.

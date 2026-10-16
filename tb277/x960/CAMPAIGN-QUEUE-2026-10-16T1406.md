@@ -797,6 +797,7 @@ untouched swi_b, and the DUT back on `flash:/default.cfg` after one reload.
 | T44181 | **PASS** | All 11 authored steps (step 1's ART run substituted by a direct measurement of the limit it measures: 100 instances accepted, 0 and 101 rejected), plus baseline-off, wire-measured normal and critical intervals, fail-count/up-count transitions corroborated by the DUT's own trigger log to within 1 s, per-instance `clear`, removal and reboot persistence in the dataplane. Produced O-13..O-16 and the new `tools/hostsim.py`. Trigger-SCRIPT-CONTENT limb not measurable unattended (needs a root write to the box's /tftproot, §4). | tester | ipv4svc-2026-10-16T1406/T44181/work/run1.log |
 | T44378 | **PASS** | **No authored step text exists** -- designed from the IP Feature Overview Guide C613-22007-00 REV I p.16 and the DUT's CLI surface, and said so in the log. Nothing relayed by default; both all-ones and subnet-directed broadcasts relayed on helped ports while an unhelped control port never was; the forward-protocol port list and the helper address proven independent; multiple helper addresses each produce a copy; a helper address that is a connected subnet's broadcast is forwarded as a true link-layer broadcast; removal and reboot persistence in the dataplane. Teardown diff EMPTY. Produced O-17, O-18 and a real `arpleg.py` marker defect. | tester | ipv4svc-2026-10-16T1406/T44378/work/run1.log |
 | T43863 | **PASS** | **No authored step text exists** -- designed from RFC 4601 and the DUT's CLI surface, and said so in the log. Two-router topology (DUT = source DR, swi_a = last-hop DR and RP) built after O-20 settled that swi_b cannot run PIM. Baseline off with a JOINED receiver 0/10; forwarding 5/5 with a never-joined control group 0/5 and an instrument control in all 9 legs; Register / RP Join-Prune / Register-Stop / SPT decoded on the transit wire with the DUT's own tcpdump; prune-on-leave proven group-specific (left group 0/5, still-joined group 5/5, same leg); the RP isolated by A/B on one group (0/10 -> 8/10); removal and reboot persistence both proven in the dataplane. Produced F-13, O-20..O-24 and two generic tool fixes. | tester | mcast-2026-10-16T1406/T43863/work/run1.log |
+| T43864 | **PASS** | Authored objective and authored topology both satisfied -- the group-C two-router bench IS `IXIA -- DUT -- sw1(running PIM-DM) -- IXIA` with swi_a as a real PIM-DM sw1 -- and the authored step measured 10/10 then 30/30. Plus baseline off with `pdmd` already running (0/10), a branch with no receiver pruned (0/40, 0/50, 0/25, empty OIF), the PIM-DM-specific State Refresh and Join/Prune decoded on the transit wire, a Graft/Graft-Ack handshake 206 us apart turning the SAME group from 0/50 to 20/20, group-specific prune on leave, removal and reboot persistence in the dataplane. Initial flood declared NOT MEASURED (O-25). Produced O-25, O-26 and the F-13 addendum. | tester | mcast-2026-10-16T1406/T43864/work/run1.log |
 | T44182 | **PASS** | **No authored step text exists** -- designed from the same guide, p.17. Off by default and dropped; enabled on the DESTINATION subnet's interface the identical frames are forwarded and translated to a link-layer broadcast; enabled on the INGRESS interface it is inert (O-19); the optional standard ACL filters on source and is consulted per packet, proven by INVERTING it; removal and reboot persistence in the dataplane. Teardown diff EMPTY. | tester | ipv4svc-2026-10-16T1406/T44182/work/run1.log |
 
 ## Issues
@@ -900,6 +901,29 @@ untouched swi_b, and the DUT back on `flash:/default.cfg` after one reload.
   known families from a COPY of the buffer and retry. Self-tested on 6 buffers before being
   pushed. **Any campaign that shuts or unshuts ports through `cfg.py` was losing the rest of its
   batch to this.**
+- **O-25 (T43864) — the FLOOD half of PIM-DM flood-and-prune was NOT observable at 4-5
+  frames/s.** Three never-joined groups were streamed (40, 50, 25 frames) with a capture armed
+  on the transit VLAN before two of them; **not one data frame of any reached the transit
+  segment or the receiver**. The prune itself is unambiguous (empty OIF in `show ip mroute`,
+  swi_a's `Join / Prune` on the wire) and **State Refresh is active** on this build
+  (`PIMv2, Prune Refresh` from the DUT every ~60 s), which is precisely the feature that
+  suppresses the periodic re-flood. The first-packet flood converges faster than a 0.2 s
+  inter-frame gap can sample. **To measure it:** a line-rate stimulus (`tools/linerate.py` or
+  tcpreplay) with a capture on the transit VLAN and per-frame timestamps, so the flood/prune
+  boundary is located in time rather than counted. Not a platform fault; a stimulus limit.
+- **⚠️ O-26 (T43864) — a capture on any switched VLAN of this DUT competes with a 1 Hz
+  loop-detect LDF stream.** `loop-protection loop-detect ldf-interval 1 fast-block` is in the
+  baseline config, so `tcpdump -i vlanN -c 24` unfiltered is consumed by 802.3/LLC
+  `Null Unnumbered, test` frames in under half a minute before much protocol traffic lands —
+  it wasted one capture here. Those frames carry **no IP header**, so a bare `ip` qualifier
+  drops every one of them while keeping PIM, IGMP and the multicast data:
+  `tcpdump -i vlanN -c 30 -nn ip`. Use `proto 103 or net 239.0.0.0/8` when the data matters too.
+- **🔴 F-13 ADDENDUM (T43864) — a membership learned while the interface was snoop-only does
+  NOT migrate when router-side IGMP is later enabled.** It must be re-sent. T43864 applied
+  F-13's lesson in its setup and was still caught, because the baseline join preceded the
+  `ip igmp` line by ~45 s; the first forwarding leg read 0/10 for a group that looked joined,
+  and an identical leg after a re-join read 10/10 with nothing else changed. A tester enabling
+  `ip igmp` on a live bench must re-join every group.
 - **🟢 O-24 (T43863) — the sticky `no service <proto>` rule (x960.md §7A.2) reproduced side by
   side on the x960, and it is narrower than a reader might fear.** The same teardown commands
   were sent to both units within one minute. The **DUT** keeps `no service pim` in
