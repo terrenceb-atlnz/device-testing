@@ -18,7 +18,7 @@ Must run as root (raw sockets + tcpdump). Outputs are chowned back to SUDO_UID.
 Run:
   sudo python3 arpleg.py --tag NAME --out DIR --iface eth3 [--watch eth4 ...]
        [--arp TARGET[,TARGET...]] [--probe DST[,DST...]] [--icmp DST[,DST...]]
-       [--udp DST[:PORT][,DST[:PORT]...]] [--l2-dst MAC|broadcast] [--sport N] [--ttl N]
+       [--udp DST[:PORT][@SRC][,...]] [--l2-dst MAC|broadcast] [--sport N] [--ttl N]
        [--sender-ip IP] [--sender-mac MAC] [--gw-mac MAC]
        [--count N] [--settle S] [--wait S] [--filter BPF] [--vlan V]
        [--sniff-only]
@@ -205,18 +205,20 @@ def build(args):
         f = eth / Dot1Q(vlan=args.vlan) / ip if args.vlan else eth / ip
         out.append(("udp %s -> %s:9 (eth dst %s)" % (sip, d, args.gw_mac), f))
     for spec in args.udp:
-        d, _, p = spec.partition(":")
+        body, _, src_over = spec.partition("@")     # DST[:PORT][@SRC]
+        ssrc = src_over or sip
+        d, _, p = body.partition(":")
         port = int(p) if p else 9
         if not l2:
             sys.exit("--udp needs --gw-mac or --l2-dst (use 'broadcast' for a true"
                      " link-layer broadcast, which a UDP-helper or directed-broadcast"
                      " case needs)")
         eth = Ether(src=smac, dst=l2)
-        ip = IP(src=sip, dst=d, ttl=args.ttl) / UDP(sport=args.sport, dport=port) / Raw(
+        ip = IP(src=ssrc, dst=d, ttl=args.ttl) / UDP(sport=args.sport, dport=port) / Raw(
             load=b"CKARPLEG-" + args.tag.encode() + b"-p%d" % port)
         f = eth / Dot1Q(vlan=args.vlan) / ip if args.vlan else eth / ip
         out.append(("udp %s -> %s:%d (eth dst %s, ttl %d)"
-                    % (sip, d, port, l2, args.ttl), f))
+                    % (ssrc, d, port, l2, args.ttl), f))
     for d in args.icmp:
         if not args.gw_mac:
             sys.exit("--icmp needs --gw-mac")
@@ -302,9 +304,11 @@ def main():
     ap.add_argument("--probe", default="",
                     help="comma list of IPv4 dsts for routed UDP probes (dport 9)")
     ap.add_argument("--udp", default="",
-                    help="comma list of DST[:PORT] UDP probes with a CHOSEN dport "
-                         "(default 9); pair a matched port with an unmatched one in "
-                         "the same leg as the control")
+                    help="comma list of DST[:PORT][@SRC] UDP probes with a CHOSEN dport "
+                         "(default 9) and optionally a per-spec source address; pair a "
+                         "matched port or source with an unmatched one in the SAME leg "
+                         "as the control (an ACL-filtered forwarding case needs two "
+                         "sources in one capture)")
     ap.add_argument("--l2-dst", default="",
                     help="Ethernet destination for --udp ONLY (--probe and --icmp keep "
                          "--gw-mac, so one leg can carry a broadcast flow and a unicast "

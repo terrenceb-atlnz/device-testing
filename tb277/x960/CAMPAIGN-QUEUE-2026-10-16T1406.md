@@ -173,7 +173,7 @@ the relevant guide **and** the TPS support matrix before drafting steps
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
 | A | T43870 IPv4_SNMP - SNMPv3 | snmp-2026-10-16T1406 | **DONE -- PASS** (14:33-14:53) | 🟢 Instrument confirmed: net-snmp 5.7.3 (`snmpwalk/snmpget/snmpset/snmptrap`, `snmptrapd`) + `python3-pysnmp4`, all on the box — **no helper needs writing**. `snmp-server view/group/user/host` all present on the DUT. **ck.db `zephyr_cases` holds a full 9-step authored procedure with exact OIDs** (see Triage result). DUT + host eth3 only. Cheapest and least topology-hungry: run it FIRST to prove the bench and the instrument before the expensive groups. SNMPv3 = USM users, auth/priv, engine ID, views. No SNMP helper exists in `tools/` — one will be needed (`snmpwalk`/`snmpget` on the box, or a scapy/pysnmp helper) |
-| B | T44181 Ping Polling · T44378 UDP Broadcast Helper · T44182 Directed Broadcast Forwarding | ipv4svc-2026-10-16T1406 | **IN PROGRESS** (started 15:04; gate clean, underlay recorded 15:10) | 🟢 `ping-poll <1-100>`, `ip forward-protocol udp`, `ip helper-address`, `ip directed-broadcast [acl]` all confirmed present. T44181 has **11 authored steps**; the other two have none (design from the IP Feature Overview Guide, which we hold). No partner and no STP work needed. DUT + BOTH host NICs; two L3 segments (eth3/vlan10, eth4/vlan48). **Builds the shared L3 underlay** that groups C and D then inherit (STANDING-ORDERS §6: set once per TestSet) |
+| B | T44181 Ping Polling · T44378 UDP Broadcast Helper · T44182 Directed Broadcast Forwarding | ipv4svc-2026-10-16T1406 | **DONE -- 3/3 PASS** (15:04-16:12) | 🟢 `ping-poll <1-100>`, `ip forward-protocol udp`, `ip helper-address`, `ip directed-broadcast [acl]` all confirmed present. T44181 has **11 authored steps**; the other two have none (design from the IP Feature Overview Guide, which we hold). No partner and no STP work needed. DUT + BOTH host NICs; two L3 segments (eth3/vlan10, eth4/vlan48). **Builds the shared L3 underlay** that groups C and D then inherit (STANDING-ORDERS §6: set once per TestSet) |
 | C | T43863 PIM-SM · T43864 PIM-DM · T43865 PIM-SSM · T43866 MulticastRouting VRF-Lite | mcast-2026-10-16T1406 | **RUNNABLE** (triaged 14:24) | 🟢 DUT holds `PIM/PIM-100/PIM-1024/PIM6` + `VRF-LITE-FULL`; `service pim`/`service pdm`/`service pim6` all exist; `ip multicast-routing [vrf]`, `ip pim ssm {default|range}`, `ip pim vrf`, `show ip mroute vrf` all present. **A TWO-ROUTER topology IS achievable** despite both NICs being on the DUT — trunk eth4's VLAN to the partner and give the partner the SVI (see Triage result). **FIRST ACTION: `service pim` on swi_b, alone, wait 10 s** — swi_b's Base licence lacks the `PIM` bit, so if it refuses, fall back to swi_a (has `PIM`, RISK-1 care) or single-router. **T43865 needs `tools/igmp.py` extended to IGMPv3** (SSM is defined by the (S,G) join; current tool is v2-only). Needs the NEW-RISK-8 STP remedy. Carry **F-9** into T43866. The big group. Needs `ip multicast-routing` + the PIM service gate, a source on one host NIC and a real IGMP receiver on the other. **Check the licence and the `service ?` surface for pim/pdm BEFORE grading anything UNSUPPORTED.** T43866 is multicast *inside a VRF* — different from the unicast VRF-Lite case already passed (T43859) |
 | D | T47201 IPv4_BFD - With RIP v1/v2 · T47873 VRRP(v3) | bfd-vrrp-2026-10-16T1406 | **RUNNABLE** (triaged 14:24) | 🟠 **T47201 expect UNSUPPORTED, and that is the finding**: BFD is present and NOT licence-gated on all three units, but AW+ has **no RIP↔BFD binding** — `bfd all-interfaces` is OSPF-only, and the DUT's `ip rip ?` offers no `bfd`. Rule the service gate out, quote the refusals, and pair with a working `bfd peer` session so the verdict is "BFD works, no RIP binding". 🟢 **T47873 runnable**: `VRRP` is in swi_b's Base licence so it is a legitimate peer; `service vrrp` is the gate. AW+ has **no `version {2|3}` command** — grade v3 from the advertisement's version field on the wire; `transition-mode`/`alternate-checksum-mode` prove VRRPv3-for-IPv4 exists. Needs the NEW-RISK-8 STP remedy. Both need a partner and the shared underlay. BFD needs `service bfd` + RIP on both ends; swi_b has the `RIP` licence. VRRP(v3) needs DUT and swi_b on one shared VLAN with a host as the client, and is graded on the virtual MAC on the wire |
 
@@ -182,7 +182,109 @@ bench before anything expensive. B builds the **one** L3 underlay; C and D inher
 only their own protocol, removing it in their own teardown. That keeps three groups from
 rebuilding the same addressing three times — the pattern that worked on 2026-10-15.
 
-**🟢 Triage RAN 2026-10-16 14:09–14:24 NZDT — see `## Triage result` at the end of this file.**
+**🟢 Triage RAN 2026-10-16 14:09–14:24 NZDT — see `### New from group B (T44181, T44378, T44182, 2026-10-16). Next free numbers were F-13 and O-13.
+
+**No F-level defect was found in any of the three cases** -- F-13 is still free. Everything
+the IP Feature Overview Guide claims for these three features, this platform does. Seven
+observations, and three tool defects fixed generically.
+
+- **O-13 (T44181) — a trigger's `description` is REFUSED before its `type` is set.**
+  `% Please specify the trigger type first`. The authored step 2 names `type ping-poll
+  <1-100> {up|down}` and `description` with no ordering constraint. A replay of
+  `show running-config` is safe (it emits `type` first); a hand-written batch in the
+  authored order is not, and `cfg.py` stops at the `% ` and abandons the rest of it.
+  Evidence: `T44181/work/s5-s6-config.log`.
+- **🔴 O-14 (T44181) — the ping-poll PERIOD is `timeout + interval`, not `interval`.**
+  With `timeout 2`, `normal-interval 5`, `critical-interval 2`: **5.0-5.2 s while Up** and
+  **3.7-4.6 s, mean 4.14 s, while Down** (= timeout 2 + critical-interval 2), over 36 gaps
+  on the host's own packet record, confirmed by the DUT's own debug lines ("Sending ping"
+  at 02:31:38/42/46/50/54, "unsuccessful" exactly 2 s after each). The authored text says
+  the critical interval is "set to send a packet every one second" by default -- with the
+  default `timeout 1` that is an actual 2 s period. **A tester who configures
+  `critical-interval 2`, measures 4 s and grades the command broken is wrong.** Not a
+  defect; carry it into any future ping-poll or poll-timer case.
+- **O-15 (T44181) — ping polling writes NO log line of its own for a state change.**
+  `show log | include PING` returned nothing across four measured transitions; the only
+  record is `TRIGGER[...]: Trigger N (...) activated`, which exists only if a ping-poll
+  trigger is configured. A deployment using ping polling without a trigger leaves no audit
+  trail. Evidence: `T44181/work/s4-dutlog.log`.
+- **O-16 (T44181) — there is no `show debugging ping-poll`** (`% Invalid input detected`)
+  and the full `show debugging` output has no ping-poll section. The debug state is
+  readable only from the `Debugging` field of `show ping-poll <n>`.
+- **O-17 (T44378) — `ip forward-protocol` accepts only `udp`, and `ip forward-protocol udp`
+  only a NUMERIC port.** No named service keywords (`tftp`, `domain`, `netbios-ns`, ...)
+  exist on this platform, and `ip helper-address` takes a bare `A.B.C.D` with no interface
+  or VRF form. A case written against the Cisco-style named forms fails at its first
+  command. Evidence: `T44378/work/s0-qmark-global.log`.
+- **O-18 (T44378) — a relayed frame keeps the ORIGINAL IP source and BOTH UDP ports**; only
+  the IP destination and the Ethernet header are rewritten. IP Helper is a plain forwarder
+  with no relay-agent semantics -- no giaddr rewrite, no option insertion -- which is the
+  OPPOSITE of `ip dhcp-relay` on the same box (`platforms/x960.md` §6). A server behind the
+  helper sees the client's real address, and a tester looking for a giaddr rewrite will
+  wrongly think the relay is broken. Evidence: `T44378/work/s2-helper-on.log`.
+- **🔴 O-19 (T44182) — `ip directed-broadcast` on the INGRESS interface is completely
+  inert, and nothing says so.** Byte-identical frames to the far subnet's broadcast address
+  were dropped 0/10 with the command on `vlan10` and forwarded 10/10 with it on `vlan48`,
+  nothing else changed. The guide does say "the interface via which the switch connects to
+  that destination subnet", but this is the easiest thing to get wrong in the feature, a
+  wrong configuration reads as a product failure, and there is no warning and no `show`
+  command that reveals it. Evidence: `T44182/work/s2-wrong-if.log` vs `s3-right-if.log`.
+
+**🔴 Three tool defects found and fixed generically (not worked around). These would have
+cost groups C and D time:**
+- **`tools/tb`'s `SUDO_TOOLS` allowlist was STALE.** It listed 8 root tools and was missing
+  `arpleg`, `ecmpflows`, `dhcp4` and `dnsresp` -- all added 2026-10-15 -- so none of them
+  could be run through the wrapper at all. All four added, plus the new `hostsim`. (Group A
+  never hit this because `tools/tb` did not work on tb277 until group A fixed `BOX_PY`.)
+- **🔴 `arpleg.py` mis-marked its own frames on well-known UDP ports.** It looked for its
+  `CKARPLEG` tag in `pkt[Raw].load`, but **scapy dissects well-known UDP ports into their
+  OWN layer** -- 69 becomes TFTP, 67/68 BOOTP, 53 DNS -- so for those ports there is no
+  `Raw` layer and the tag is invisible: a `--udp ...:69` burst reported **0 of 5 of its own
+  frames as `[ours]`** and raised a false `COUNTER DISAGREEMENT` (exit 7). The measurement
+  was unaffected but the self-check was lying, which is worse. Both the mark and the
+  counter now scan `bytes(pkt)`. Same family as the documented `dhcp4.py` BOOTP trap --
+  **any other scapy tool that marks payloads has the same hole.**
+- **`arpleg.py --out DIR` left a ROOT-OWNED directory**, so a later non-root tool could not
+  write into it: `poll.py` completed 180 s of sampling and then died with
+  `PermissionError: '/tmp/ckt1406b/T44181/poll.done'`. It now chowns the directory back to
+  `SUDO_UID` as it already did the pcaps.
+
+**🟢 New and extended generic tooling, all with `tools/README.md` entries:**
+- **`tools/hostsim.py` (NEW)** -- the IPv4 counterpart of `nsresp.py`: a fake host that
+  answers ARP who-has and ICMP echo for a list of addresses from a fake MAC, installs
+  nothing and changes no host IP/route/interface, and **can be silenced on a timer
+  (`--mute-at`/`--unmute-at`) or by a file, for SELECTED addresses only (`--mute-ip`),
+  while still answering ARP** -- so a polled neighbour can go away with the link and the
+  switch port still up, and a never-muted second address is the in-leg instrument control.
+  `--log-echo` writes the per-request wire record an interval measurement reads from.
+  Groups C and D: this is the cheap way to make any neighbour reachable or unreachable on
+  demand (a VRRP client, a tracked next hop, an ARP ageing timeout).
+- **`tools/arpleg.py` extended** with `--udp DST[:PORT][@SRC]` (a CHOSEN destination port
+  and an optional per-spec source -- an ACL-filtered forwarding case needs two sources in
+  ONE capture), `--l2-dst MAC|broadcast` (scoped to `--udp` ONLY, so one leg can carry a
+  link-layer broadcast flow AND a routed unicast control), `--sport` and `--ttl`.
+- **`console.ADVISORY`** gained `does not exist\. Please ensure it is created` -- the
+  trigger `script N <file>` warning is an ADVISORY, not a rejection: the reference IS
+  stored (`show trigger 1 -> Number of scripts 1`). Added with the transcript that
+  `console.py`'s own rule requires (`T44181/work/s9-script-file.log`).
+
+**🟢 Useful for groups C and D:**
+- **`ckcase.py` confirmed again**: T44181 had 11 authored steps; **T44378 and T44182 had
+  NONE** (no objective, no precondition, empty `steps`), exactly as triage predicted. Both
+  logs say so explicitly and name the guide section used instead. Run `ckcase.py` first.
+- **Reload to `login:` measured three times on this build: 68 s, 61 s, 60 s** -- the x960
+  §7.9 range (60-68 s) holds. **Re-read STP after EVERY reload**: the T44182 post-reload
+  read caught `port1.0.48 Designated Learning` and needed a confirming read before the
+  measurement could be trusted.
+- **The reboot-persistence recipe works cleanly here**: `copy running-config
+  flash:/ck<ID>.cfg` -> `boot config-file flash:/ck<ID>.cfg` -> reload -> restore the
+  pointer -> `delete` with `ckyn.py`'s `YN:` form. Three times, no residue. startup-config
+  and `flash:/default.cfg` were never written.
+- ⚠️ **The shared underlay lives in running-config ONLY.** `flash:/default.cfg` is the
+  pristine campaign baseline and was never written, so **any reload by group C or D comes
+  up WITHOUT the underlay** and it must be re-applied (the recipe is in the section above).
+
+## Triage result` at the end of this file.**
 **10 runnable / 0 blocked by topology / 0 blocked otherwise.** Nothing needs a recable, a
 destack, a licence or a Test Engineer decision. Two caveats, both resolved inside their own
 group: **NEW-RISK-8** (the DUT is not the STP root and both swi_a legs are Discarding — remedy in
@@ -458,8 +560,9 @@ Re-read `show spanning-tree brief` after every reload before measuring (Discardi
 | case | verdict | reason | graded by | working log |
 | --- | --- | --- | --- | --- |
 | T43870 | **PASS** | All 9 authored steps passed, plus baseline-off, auth/priv enforcement, on-the-wire encryption with an in-capture plaintext control, removal and reboot persistence. The authored precondition omits the group's read view (O-9) and was run with that one line supplied. Also produced F-12. | tester | snmp-2026-10-16T1406/T43870/work/run1.log |
-| T44181 | **PASS** | All 11 authored steps exercised, plus baseline-off, wire-measured intervals, removal and reboot persistence. **Max ping polls measured directly at 100** (0 and 101 rejected). The down/up transitions were read off the wire with a **never-muted second poll as the in-leg control**, and corroborated by the DUT's own trigger log to within 1 s across a 9 s clock offset. No platform defect; four observations O-13..O-16, of which **O-14** is the one to carry. One limb NOT measurable unattended: the CONTENT of a trigger script (needs a root write to the box's /tftproot, STANDING-ORDERS §4) — the ping-poll side of the trigger contract was measured in full. | tester | ipv4svc-2026-10-16T1406/T44181/work/run1.log |
-| T44378 | **PASS** | **No authored step text exists** (ck.db `zephyr_cases` 40676 has no objective, no precondition, empty steps), so the case was designed from the IP Feature Overview Guide C613-22007-00 REV I p.16 and the log says so rather than inventing a procedure. Graded on the wire with **two controls in every counted leg** — an unhelped UDP port that must never be relayed, and a routed ICMP unicast that must always arrive. Nothing relayed by default; all-ones and ingress-subnet-directed broadcasts relayed 5/5 on helped ports while the unhelped port held 0/5; the port list and the helper address proven **independent** (removing one port took it 5/5 -> 0/5 while the other kept relaying); multiple helper addresses each produce their own copy; and a helper that is a connected subnet's broadcast address is forwarded as a true **link-layer broadcast** while a host address is unicast — two L2 treatments of one ingress frame in one capture. Removal and reboot persistence proven in the dataplane. Counted side was eth4 (no known foreign host), every frame attributed by both MACs, 30 s background baseline 0/0 | tester | ipv4svc-2026-10-16T1406/T44378/work/run1.log |
+| T44181 | **PASS** | All 11 authored steps (step 1's ART run substituted by a direct measurement of the limit it measures: 100 instances accepted, 0 and 101 rejected), plus baseline-off, wire-measured normal and critical intervals, fail-count/up-count transitions corroborated by the DUT's own trigger log to within 1 s, per-instance `clear`, removal and reboot persistence in the dataplane. Produced O-13..O-16 and the new `tools/hostsim.py`. Trigger-SCRIPT-CONTENT limb not measurable unattended (needs a root write to the box's /tftproot, §4). | tester | ipv4svc-2026-10-16T1406/T44181/work/run1.log |
+| T44378 | **PASS** | **No authored step text exists** -- designed from the IP Feature Overview Guide C613-22007-00 REV I p.16 and the DUT's CLI surface, and said so in the log. Nothing relayed by default; both all-ones and subnet-directed broadcasts relayed on helped ports while an unhelped control port never was; the forward-protocol port list and the helper address proven independent; multiple helper addresses each produce a copy; a helper address that is a connected subnet's broadcast is forwarded as a true link-layer broadcast; removal and reboot persistence in the dataplane. Teardown diff EMPTY. Produced O-17, O-18 and a real `arpleg.py` marker defect. | tester | ipv4svc-2026-10-16T1406/T44378/work/run1.log |
+| T44182 | **PASS** | **No authored step text exists** -- designed from the same guide, p.17. Off by default and dropped; enabled on the DESTINATION subnet's interface the identical frames are forwarded and translated to a link-layer broadcast; enabled on the INGRESS interface it is inert (O-19); the optional standard ACL filters on source and is consulted per packet, proven by INVERTING it; removal and reboot persistence in the dataplane. Teardown diff EMPTY. | tester | ipv4svc-2026-10-16T1406/T44182/work/run1.log |
 
 ## Issues
 
