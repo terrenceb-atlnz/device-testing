@@ -174,7 +174,7 @@ the relevant guide **and** the TPS support matrix before drafting steps
 | --- | --- | --- | --- | --- |
 | A | T43870 IPv4_SNMP - SNMPv3 | snmp-2026-10-16T1406 | **DONE -- PASS** (14:33-14:53) | 🟢 Instrument confirmed: net-snmp 5.7.3 (`snmpwalk/snmpget/snmpset/snmptrap`, `snmptrapd`) + `python3-pysnmp4`, all on the box — **no helper needs writing**. `snmp-server view/group/user/host` all present on the DUT. **ck.db `zephyr_cases` holds a full 9-step authored procedure with exact OIDs** (see Triage result). DUT + host eth3 only. Cheapest and least topology-hungry: run it FIRST to prove the bench and the instrument before the expensive groups. SNMPv3 = USM users, auth/priv, engine ID, views. No SNMP helper exists in `tools/` — one will be needed (`snmpwalk`/`snmpget` on the box, or a scapy/pysnmp helper) |
 | B | T44181 Ping Polling · T44378 UDP Broadcast Helper · T44182 Directed Broadcast Forwarding | ipv4svc-2026-10-16T1406 | **DONE -- 3/3 PASS** (15:04-16:12) | 🟢 `ping-poll <1-100>`, `ip forward-protocol udp`, `ip helper-address`, `ip directed-broadcast [acl]` all confirmed present. T44181 has **11 authored steps**; the other two have none (design from the IP Feature Overview Guide, which we hold). No partner and no STP work needed. DUT + BOTH host NICs; two L3 segments (eth3/vlan10, eth4/vlan48). **Builds the shared L3 underlay** that groups C and D then inherit (STANDING-ORDERS §6: set once per TestSet) |
-| C | T43863 PIM-SM · T43864 PIM-DM · T43865 PIM-SSM · T43866 MulticastRouting VRF-Lite | mcast-2026-10-16T1406 | **IN PROGRESS** (from 16:10) — partner settled 16:19: **swi_a**, swi_b licence-refuses `service pim` AND `service pdm` (O-20) | 🟢 DUT holds `PIM/PIM-100/PIM-1024/PIM6` + `VRF-LITE-FULL`; `service pim`/`service pdm`/`service pim6` all exist; `ip multicast-routing [vrf]`, `ip pim ssm {default|range}`, `ip pim vrf`, `show ip mroute vrf` all present. **A TWO-ROUTER topology IS achievable** despite both NICs being on the DUT — trunk eth4's VLAN to the partner and give the partner the SVI (see Triage result). **FIRST ACTION: `service pim` on swi_b, alone, wait 10 s** — swi_b's Base licence lacks the `PIM` bit, so if it refuses, fall back to swi_a (has `PIM`, RISK-1 care) or single-router. **T43865 needs `tools/igmp.py` extended to IGMPv3** (SSM is defined by the (S,G) join; current tool is v2-only). Needs the NEW-RISK-8 STP remedy. Carry **F-9** into T43866. The big group. Needs `ip multicast-routing` + the PIM service gate, a source on one host NIC and a real IGMP receiver on the other. **Check the licence and the `service ?` surface for pim/pdm BEFORE grading anything UNSUPPORTED.** T43866 is multicast *inside a VRF* — different from the unicast VRF-Lite case already passed (T43859) |
+| C | T43863 PIM-SM · T43864 PIM-DM · T43865 PIM-SSM · T43866 MulticastRouting VRF-Lite | mcast-2026-10-16T1406 | **DONE -- 4/4 PASS** (16:10-18:05) — partner was **swi_a** (swi_b licence-refuses `service pim` AND `service pdm`, O-20); all three devices restored byte-identical, verified | 🟢 DUT holds `PIM/PIM-100/PIM-1024/PIM6` + `VRF-LITE-FULL`; `service pim`/`service pdm`/`service pim6` all exist; `ip multicast-routing [vrf]`, `ip pim ssm {default|range}`, `ip pim vrf`, `show ip mroute vrf` all present. **A TWO-ROUTER topology IS achievable** despite both NICs being on the DUT — trunk eth4's VLAN to the partner and give the partner the SVI (see Triage result). **FIRST ACTION: `service pim` on swi_b, alone, wait 10 s** — swi_b's Base licence lacks the `PIM` bit, so if it refuses, fall back to swi_a (has `PIM`, RISK-1 care) or single-router. **T43865 needs `tools/igmp.py` extended to IGMPv3** (SSM is defined by the (S,G) join; current tool is v2-only). Needs the NEW-RISK-8 STP remedy. Carry **F-9** into T43866. The big group. Needs `ip multicast-routing` + the PIM service gate, a source on one host NIC and a real IGMP receiver on the other. **Check the licence and the `service ?` surface for pim/pdm BEFORE grading anything UNSUPPORTED.** T43866 is multicast *inside a VRF* — different from the unicast VRF-Lite case already passed (T43859) |
 | D | T47201 IPv4_BFD - With RIP v1/v2 · T47873 VRRP(v3) | bfd-vrrp-2026-10-16T1406 | **RUNNABLE** (triaged 14:24) | 🟠 **T47201 expect UNSUPPORTED, and that is the finding**: BFD is present and NOT licence-gated on all three units, but AW+ has **no RIP↔BFD binding** — `bfd all-interfaces` is OSPF-only, and the DUT's `ip rip ?` offers no `bfd`. Rule the service gate out, quote the refusals, and pair with a working `bfd peer` session so the verdict is "BFD works, no RIP binding". 🟢 **T47873 runnable**: `VRRP` is in swi_b's Base licence so it is a legitimate peer; `service vrrp` is the gate. AW+ has **no `version {2|3}` command** — grade v3 from the advertisement's version field on the wire; `transition-mode`/`alternate-checksum-mode` prove VRRPv3-for-IPv4 exists. Needs the NEW-RISK-8 STP remedy. Both need a partner and the shared underlay. BFD needs `service bfd` + RIP on both ends; swi_b has the `RIP` licence. VRRP(v3) needs DUT and swi_b on one shared VLAN with a host as the client, and is graded on the virtual MAC on the wire |
 
 **Group order is deliberate.** A is a single cheap case that proves console, instrument and
@@ -782,11 +782,54 @@ Discarding for ~17–21 s after `login:` — and diff the DUT against
 **4. swi_b:** nothing to restore. Two `service` commands were refused and one `?` probe was
 read-only; its running-config was captured before and is unchanged.
 
-### What group C leaves for group D
+### 🟢 What group C leaves for group D — MEASURED, 2026-10-16 18:05 NZDT (05:05 UTC)
 
-Recorded here as the group runs; the final state is restated in `## Results` when group C ends.
-**Intended** end state = exactly the group-B shared underlay on the DUT, a bare swi_a, an
-untouched swi_b, and the DUT back on `flash:/default.cfg` after one reload.
+**All three devices are byte-identical to their pre-group state.** `tools/rcdiff.py` against
+each device's pre-group capture prints **nothing** for all three (gated on the OUTPUT, not the
+exit code):
+
+| device | pre-group capture | final capture | diff |
+| --- | --- | --- | --- |
+| swi_d (DUT) | `T43863/work/pre-u2.log` | `T43866/work/final-u2.log` | **empty** |
+| swi_a | `T43863/work/pre-u5.log` | `T43866/work/final-u5.log` | **empty** |
+| swi_b | `T43863/work/pre-u3.log` | `T43866/work/final-u3.log` | **empty** |
+
+So group D inherits **exactly the group-B shared underlay** described above and nothing else:
+
+- `vlan 10` (`port1.0.10`, host `eth3`) with SVI **`10.38.22.34/27`**, and `vlan 48`
+  (`port1.0.48`, host `eth4`) with SVI **`10.38.22.66/27`** — both back in running-config only,
+  as group B left them. 🔴 **A reload still loses them**; re-apply from group B's recipe.
+- DUT boot baseline restored and verified: `Current boot image: flash:/x960-tb277.rel`,
+  `Current boot config: flash:/default.cfg`, `Autoboot status: disabled`, and
+  `dir flash:/*.cfg` holds **only** `default.cfg` — all three staged `ck4386*.cfg` files were
+  deleted.
+- **The sticky `no service pim` / `no service pdm` lines are GONE.** They were present on the
+  DUT after T43863/T43864 (O-24) and were cleared exactly as planned by **one** reload onto
+  `flash:/default.cfg` at group end — `show running-config | include service` now reads only
+  `service ssh, no service telnet, service http, no service dhcp-server`.
+- **STP is back at the campaign baseline**, re-measured from the DUT: `Root Id
+  8000:0000cd423029` (swi_b is root again), `port1.0.2` Rootport Forwarding, `port1.0.4`,
+  `port1.0.14`, `port1.0.16` Alternate Discarding, **`port1.0.10` and `port1.0.48` Designated
+  Forwarding**. `spanning-tree priority 0` is removed and `port1.0.2` / `port1.0.14` are
+  un-shut. ⇒ **NEW-RISK-8 is live again for group D**, which needs the remedy for T47873 (VRRP
+  needs a partner); T47201's BFD limb does too if it pairs with swi_b.
+- **swi_a was never reloaded or power-cycled** (RISK-1 honoured end to end). Its entire restore
+  was done by configuration and verified empty.
+- **swi_b was never configured at all** — two refused `service` commands and one read-only `?`
+  probe, nothing applied.
+- Post-run probe: **exit 0**, no advisories, capture
+  `bench-setup/tb277/captures/2026-10-16T050342Z`, all six inter-switch links and both host-NIC
+  links present and unchanged. ⚠️ Note the probe itself re-enabled `lldp run` on the DUT: the
+  group-end reload cleared it (it is not in `flash:/default.cfg`), and the probe switched it
+  back on and left it on, which is how the pre-group state had it. That is why the DUT's final
+  diff is empty.
+- **Dataplane sanity, measured**: a routed ICMP from host `eth3` (10.38.22.40) to host `eth4`
+  (10.38.22.65) arrives **5 of 5** through the DUT's two SVIs. The underlay group D needs is
+  not merely configured, it forwards.
+- ⚠️ Left on the box: `/tmp/ckt1406c/` holds this group's console transcripts and ~45 small
+  BPF-filtered pcaps (each tens of KB, well under 5 MB in total). `tools/tb` has no delete
+  action by design (Ask-CK D6 / STANDING-ORDERS §4), so they were not removed; `/tmp` is tmpfs
+  and clears on a box reboot. The other user's 1.8 GB is untouched.
 
 
 ## Results
