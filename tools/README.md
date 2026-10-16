@@ -107,6 +107,19 @@ on; this one does not (orient-dt §3).
   that treats an advisory as an error stops its batch and **silently skips every command after
   it**: that cost a run on tb277 2026-10-08 (T44992) and tripped `qmark.py` again on 2026-10-09
   (T44973). Add an entry only with a transcript showing the command took effect.
+- **🔴 Prompt-splice recovery (2026-10-16, tb277 x960):** AW+ **switch-driver** messages are
+  written straight to the console by the port driver, not through the logging subsystem, so
+  **neither `terminal no monitor` nor `no log console` suppresses them**. One can land INSIDE
+  the prompt rather than after it -- `awplus(config-ifswitch: port 14(port1.0.14) entered
+  disabled state` then `)#` on the next line, and the same shape from
+  `vlan61: entered allmulticast mode`. Neither half matched, so the command ran to its FULL
+  timeout and `cfg.py` then silently abandoned the rest of its batch although the command HAD
+  taken effect -- 90 s and a truncated batch per `shutdown`/`no shutdown`. Fixed two ways so an
+  unseen message still works: `PROMPT_ANYWHERE_RE` also matches a line beginning `)#` (the tail
+  a splice always leaves; no device output legitimately starts a line that way), and
+  `SPLICE_RE` / `unsplice()` strip the known families from a COPY of the buffer and retry. The
+  transcript and the returned output keep every byte. Same silent-truncation family as
+  `console.ADVISORY`.
 - **Mode-aware terminal settings (2026-10-02):** `to_exec()`, `set_monitor(on)` and
   `monitor_off()`. `terminal monitor` / `terminal no monitor` / `terminal length` are exec-only
   and `terminal monitor` does not toggle, so these methods confirm a prompt first, `end` out of
@@ -541,14 +554,28 @@ Writes a pcap of sequence-numbered IPv4 multicast UDP frames from a fake source 
 - **Status:** verified 2026-10-02 on tb470 (scapy 2.6.1)
 
 ### `igmp.py`
-Sends IGMPv2 joins (Membership Reports) or leaves from a fake receiver host.
-- **Run:** `sudo igmp.py <iface> <join|leave> <group> <src_ip> <src_mac> [count=2] [interval_s=0.5]`
-- **Where:** testbox (root); **needs:** scapy (contrib.igmp)
+Sends IGMP joins (Membership Reports) or leaves from a fake receiver host, **v2 or v3**.
+- **Run:** `sudo igmp.py <iface> <join|leave> <group> <src_ip> <src_mac> [count=2] [interval_s=0.5] [-2|-3] [--source A[,B]] [--record TYPE]`
+- **Where:** testbox (root); **needs:** scapy (`contrib.igmp`, `contrib.igmpv3`)
 - **Imports:** none
+- **`-3` is what an SSM case needs.** PIM-SSM is *defined* by the (S,G) join, and IGMPv2 cannot
+  carry a source list, so an SSM verdict cannot be reached with the v2 path. `--record` takes
+  `is-include | is-exclude | to-include | to-exclude | allow | block`; the default is
+  `to-include`, which is what a real host sends when it joins an SSM channel, and a `leave` with
+  no `--record` becomes `to-include` with an EMPTY source list, which is how IGMPv3 leaves an
+  include-mode group. An IGMPv3 report goes to 224.0.0.22, a v2 report to the group and a v2
+  leave to 224.0.0.2; the tool picks the right destination and link-layer address for each.
+  `--source` with `-2` is refused rather than silently ignored.
 - **Limits:**
-  - IGMPv2 only.
   - `src_ip` must be a real on-subnet address; AW+ drops reports from 0.0.0.0.
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+  - One group record per call.
+  - 🔴 **The receiving ROUTER usually needs more than PIM.** On AW+ (x960, 2026-10-16) a report
+    reaches the IGMP *snooping* table and shows up in `show ip igmp groups` even when
+    router-side IGMP is disabled, and PIM then never sees the membership and nothing forwards.
+    If a join "works" but no traffic arrives, check `show ip igmp interface <if>` for
+    `IGMP Disabled, Active(Snoop Only)` before suspecting this tool (finding F-13).
+- **Status:** v2 verified 2026-10-16 on tb277 (x960-56YSQ + x950 GEN2, joins and leaves driving
+  real PIM-SM trees and a measured group-specific prune); **v3 added 2026-10-16** for T43865.
 
 ### `arpleg.py`
 One **test leg** in one command: start `tcpdump` on every NIC named, send a known count of
@@ -582,6 +609,13 @@ campaign's single largest avoidable cost.
   `--udp` only, so one leg can carry the broadcast flow AND a routed unicast `--icmp` control
   that must arrive. Pair a matched port with an unmatched one in the same leg (added 2026-10-16
   for T44378/T44182).
+- **An IPv4 MULTICAST `--udp` destination derives its own link-layer address** (RFC 1112 §6.4,
+  `01:00:5e` + the low 23 bits) when no `--l2-dst` is given, so ONE leg can carry the subject
+  group and a never-joined control group each correctly addressed -- which is exactly what a
+  multicast verdict needs and what a single `--l2-dst` could not give. An explicit `--l2-dst`
+  still wins, so a deliberately MISMATCHED L2 address stays testable. Added 2026-10-16 for the
+  tb277 PIM group; verified in-leg (239.1.1.1 -> 01:00:5e:01:01:01 beside
+  239.9.9.9 -> 01:00:5e:09:09:09).
 - **🔴 scapy marker trap (measured on tb277 2026-10-16):** the tool marks its own frames with
   `CKARPLEG-<tag>` in the payload. scapy dissects well-known UDP ports into their OWN layer --
   69 becomes TFTP, 67/68 BOOTP, 53 DNS -- so for those ports there is **no `Raw` layer at all**

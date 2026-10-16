@@ -796,6 +796,7 @@ untouched swi_b, and the DUT back on `flash:/default.cfg` after one reload.
 | T43870 | **PASS** | All 9 authored steps passed, plus baseline-off, auth/priv enforcement, on-the-wire encryption with an in-capture plaintext control, removal and reboot persistence. The authored precondition omits the group's read view (O-9) and was run with that one line supplied. Also produced F-12. | tester | snmp-2026-10-16T1406/T43870/work/run1.log |
 | T44181 | **PASS** | All 11 authored steps (step 1's ART run substituted by a direct measurement of the limit it measures: 100 instances accepted, 0 and 101 rejected), plus baseline-off, wire-measured normal and critical intervals, fail-count/up-count transitions corroborated by the DUT's own trigger log to within 1 s, per-instance `clear`, removal and reboot persistence in the dataplane. Produced O-13..O-16 and the new `tools/hostsim.py`. Trigger-SCRIPT-CONTENT limb not measurable unattended (needs a root write to the box's /tftproot, §4). | tester | ipv4svc-2026-10-16T1406/T44181/work/run1.log |
 | T44378 | **PASS** | **No authored step text exists** -- designed from the IP Feature Overview Guide C613-22007-00 REV I p.16 and the DUT's CLI surface, and said so in the log. Nothing relayed by default; both all-ones and subnet-directed broadcasts relayed on helped ports while an unhelped control port never was; the forward-protocol port list and the helper address proven independent; multiple helper addresses each produce a copy; a helper address that is a connected subnet's broadcast is forwarded as a true link-layer broadcast; removal and reboot persistence in the dataplane. Teardown diff EMPTY. Produced O-17, O-18 and a real `arpleg.py` marker defect. | tester | ipv4svc-2026-10-16T1406/T44378/work/run1.log |
+| T43863 | **PASS** | **No authored step text exists** -- designed from RFC 4601 and the DUT's CLI surface, and said so in the log. Two-router topology (DUT = source DR, swi_a = last-hop DR and RP) built after O-20 settled that swi_b cannot run PIM. Baseline off with a JOINED receiver 0/10; forwarding 5/5 with a never-joined control group 0/5 and an instrument control in all 9 legs; Register / RP Join-Prune / Register-Stop / SPT decoded on the transit wire with the DUT's own tcpdump; prune-on-leave proven group-specific (left group 0/5, still-joined group 5/5, same leg); the RP isolated by A/B on one group (0/10 -> 8/10); removal and reboot persistence both proven in the dataplane. Produced F-13, O-20..O-24 and two generic tool fixes. | tester | mcast-2026-10-16T1406/T43863/work/run1.log |
 | T44182 | **PASS** | **No authored step text exists** -- designed from the same guide, p.17. Off by default and dropped; enabled on the DESTINATION subnet's interface the identical frames are forwarded and translated to a link-layer broadcast; enabled on the INGRESS interface it is inert (O-19); the optional standard ACL filters on source and is consulted per packet, proven by INVERTING it; removal and reboot persistence in the dataplane. Teardown diff EMPTY. | tester | ipv4svc-2026-10-16T1406/T44182/work/run1.log |
 
 ## Issues
@@ -855,6 +856,61 @@ untouched swi_b, and the DUT back on `flash:/default.cfg` after one reload.
     `bgp graceful-restart`.
 
 ### New from group C (2026-10-16). Next free numbers were F-13 and O-20.
+
+- **🔴 F-13 (T43863, and it will bite every multicast case) — `ip pim sparse-mode` does NOT
+  enable router-side IGMP on an interface, and IGMP SNOOPING hides the fact.** With
+  `ip multicast-routing`, `ip pim sparse-mode` on the receiver SVI, the PIM adjacency up, the
+  group-to-RP mapping present on both routers and the RPF route present, a joined receiver got
+  **0 of 5** frames. The receiver interface read:
+  `IGMP Disabled, Active(Snoop Only), Non-Querier, Version 3 (default)` /
+  `IGMP querying router is 0.0.0.0`, while at the same instant
+  `show ip igmp groups` listed `239.1.1.1 vlan48 uptime 00:00:39 Expires 00:03:41` and
+  `show ip pim sparse-mode local-members` listed **nothing** under vlan48 — the membership was
+  held by snooping, which does not feed PIM. The report itself was confirmed well-formed on the
+  wire first (`IP p2 10.38.22.70 -> 239.1.1.1`, correct on-subnet source), so the host was
+  exonerated before the platform was blamed. A single `ip igmp` on the interface fixed it:
+  `IGMP Enabled, Active, Querier` and `(*, 239.1.1.1) : Include`, and the same leg then
+  forwarded. ⇒ **a receiver interface needs BOTH `ip pim sparse-mode` and an explicit
+  `ip igmp`.** Two read-backs disagree at the same instant and the dataplane follows the
+  pessimistic one — the same family as the x960 mirroring trap (`platforms/x960.md` §5) where
+  `show mirror` read Enabled while nothing was copied. **Worth a developer's eye**: whether
+  enabling PIM on an interface should imply router-side IGMP, and whether `show ip igmp groups`
+  should distinguish a snooped membership from a routed one.
+  Evidence: `mcast-2026-10-16T1406/T43863/work/run1.log` legs 2 and 3.
+- **O-21 (T43863)** `show ip igmp groups` reports **`Last Reporter 0.0.0.0`** on this build even
+  though the report on the wire carries a correct on-subnet source (10.38.22.70, confirmed by
+  capture), both before and after `ip igmp` was enabled. Cosmetic, but it reads like a malformed
+  report and cost diagnosis time inside F-13.
+- **O-22 (T43863)** `no interface vlanN` is **refused** on AW+: `% Removal of interface not
+  allowed`. An SVI is retired with `no ip address` (the VLAN stays, L2 bridging continues),
+  and the VLAN itself with `no vlan N` in `vlan database`. Group C needed this to move the
+  receiver subnet's SVI from the DUT to the partner.
+- **🔴 O-23 (T43863) — TOOL DEFECT FOUND AND FIXED in `tools/console.py`.** AW+ **switch-driver**
+  port-state messages are written straight to the console by the driver, not through the logging
+  subsystem, so **neither `terminal no monitor` nor `no log console` suppresses them** (both
+  measured). One can land INSIDE the prompt rather than after it:
+  `awplus(config-ifswitch: port 14(port1.0.14) entered disabled state` / `)#`, and a second
+  family does the same on `ip pim sparse-mode`: `awplus(config-ifvlan61: entered allmulticast
+  mode` / `)#`. Neither half is a prompt, so the command ran to its FULL 90 s timeout and
+  `cfg.py` then **silently abandoned every command after it** although the command itself had
+  taken effect — the same silent-truncation family as the advisory trap already in
+  `console.ADVISORY`. Fixed generically and twice over, so an unseen message still works:
+  `PROMPT_ANYWHERE_RE` now also matches a line beginning `)#` (the tail a splice always leaves,
+  and something no device output legitimately produces), and `SPLICE_RE`/`unsplice()` strip the
+  known families from a COPY of the buffer and retry. Self-tested on 6 buffers before being
+  pushed. **Any campaign that shuts or unshuts ports through `cfg.py` was losing the rest of its
+  batch to this.**
+- **🟢 O-24 (T43863) — the sticky `no service <proto>` rule (x960.md §7A.2) reproduced side by
+  side on the x960, and it is narrower than a reader might fear.** The same teardown commands
+  were sent to both units within one minute. The **DUT** keeps `no service pim` in
+  running-config, because it had BOOTED from `flash:/ck43863.cfg` (which contained
+  `service pim`) during the reboot-persistence limb. **swi_a keeps nothing at all** — its
+  post-teardown running-config holds only `service password-encryption, service ssh,
+  no service telnet, service http, no service dhcp-server`, exactly as before the group — because
+  it never rebooted. ⇒ the discriminator is **the boot, not the daemon**, confirmed on a second
+  platform. Note both units answer `% Save the config and restart for this change to take
+  effect.` to `no service pim`, which is an **advisory, not a rejection** — `cfg.py` stops at
+  it, so never put commands after it in one batch.
 
 - **🟢 O-20 (group C setup) — `service <proto>` gives a CLEAN licence verdict; `show ip pim …`
   does not.** The campaign spent two rounds of reasoning on whether swi_b's Base licence can run

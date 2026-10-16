@@ -66,7 +66,38 @@ PROMPT_RE = re.compile(r'[\w.-]+(?:\([\w -]+\))?#[ \t]*$')
 # alternating 0-4 s and exactly-25 s iterations, 25 s being the timeout.
 # Anchoring at line start is what keeps a stray '#' inside log text from
 # matching, now that the trailing context is no longer required.
-PROMPT_ANYWHERE_RE = re.compile(r'(?:^|\r?\n)[\w.-]+(?:\([\w -]+\))?#')
+PROMPT_ANYWHERE_RE = re.compile(r'(?:^|\r?\n)(?:[\w.-]+(?:\([\w -]+\))?|\))#')
+# The '|\)' alternative is the GENERAL half of the splice fix below: when a device
+# message lands inside the '(mode)' part of the prompt, the prompt's tail is left on
+# its own line as ')#', and no device output legitimately starts a line that way.
+# Matching it needs no list of message texts, so a message nobody has seen yet still
+# completes the command.
+
+# A SECOND, worse splice: AW+ switch-driver port-state messages are written to
+# the console by the port driver itself, not through the logging subsystem, so
+# NEITHER `terminal no monitor` NOR `no log console` suppresses them (both
+# measured on tb277, x960-56YSQ sin_x96056-20261012-24, 2026-10-16).  Unlike the
+# trailing splice above, one can land INSIDE the prompt:
+#     shutdown
+#     switch: port 14(port1.0.14) entered disabled state
+#     awplus(config-ifswitch: port 14(port1.0.14) entered disabled state
+#     )#
+# and the same from a different family, on `ip pim sparse-mode`:
+#     awplus(config-ifvlan61: entered allmulticast mode
+#     )#
+# Neither half is a prompt -- `)#` does not start with [\w.-] -- so the command
+# runs to its FULL timeout and cfg.py then abandons every command after it,
+# although the command itself took effect.  Measured cost before this fix: 90 s
+# per `shutdown`/`no shutdown`, and a silently truncated batch each time.
+# These lines are stripped from a COPY of the buffer and the prompt match is
+# retried, so the transcript and the returned output still keep every byte.
+SPLICE_RE = re.compile(
+    r'(?:switch: port \d+\([\w./-]+\)|[\w.:/-]+) entered [\w ]+ (?:state|mode)[ \t]*\r?\n?')
+
+
+def unsplice(buf):
+    """buf with AW+ switch-driver port-state messages removed (prompt matching only)."""
+    return SPLICE_RE.sub('', buf)
 
 
 class ConsoleError(Exception):
@@ -237,6 +268,20 @@ class Console:
                 buf += self._read_some()
                 self.last_prompt_seen = True
                 return buf
+            # Retry against a copy with any spliced port-state message removed,
+            # which is the only way a prompt broken in half can be recognised.
+            clean = unsplice(buf)
+            if clean != buf:
+                cstart = 0
+                if line.strip():
+                    j = clean.find(line.strip())
+                    if j >= 0:
+                        cstart = j + len(line.strip())
+                if PROMPT_ANYWHERE_RE.search(clean, cstart):
+                    time.sleep(settle)
+                    buf += self._read_some()
+                    self.last_prompt_seen = True
+                    return buf
         # Ran out of time with no prompt back.  Callers driving a box that may
         # WEDGE must be able to tell this from a normal completion -- returning
         # a partial buffer silently would make a wedge look like a clean result.

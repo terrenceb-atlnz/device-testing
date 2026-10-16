@@ -179,6 +179,20 @@ class Answerer(object):
                 pass
 
 
+def is_v4_multicast(addr):
+    """True for an IPv4 address in 224.0.0.0/4."""
+    try:
+        return 224 <= int(addr.split(".")[0]) <= 239 and len(addr.split(".")) == 4
+    except (ValueError, IndexError):
+        return False
+
+
+def mcast_mac(addr):
+    """The IANA link-layer address for an IPv4 multicast group (RFC 1112 s.6.4)."""
+    o = [int(x) for x in addr.split(".")]
+    return "01:00:5e:%02x:%02x:%02x" % (o[1] & 0x7f, o[2], o[3])
+
+
 def build(args):
     """Return a list of (description, frame) to send, in order."""
     out = []
@@ -209,16 +223,26 @@ def build(args):
         ssrc = src_over or sip
         d, _, p = body.partition(":")
         port = int(p) if p else 9
-        if not l2:
+        # An IPv4 MULTICAST destination has exactly one correct link-layer address
+        # (RFC 1112 s.6.4: 01:00:5e + the low 23 bits), and it differs per group.
+        # Deriving it means one leg can carry the subject group AND a control group
+        # that was never joined, each correctly addressed -- which is what a
+        # multicast verdict needs, and what a single --l2-dst cannot give.  An
+        # explicit --l2-dst still wins, so a deliberately MISMATCHED L2 address
+        # (a group's frame sent to another group's MAC) remains testable.
+        l2d = l2
+        if not args.l2_dst and is_v4_multicast(d):
+            l2d = mcast_mac(d)
+        if not l2d:
             sys.exit("--udp needs --gw-mac or --l2-dst (use 'broadcast' for a true"
                      " link-layer broadcast, which a UDP-helper or directed-broadcast"
-                     " case needs)")
-        eth = Ether(src=smac, dst=l2)
+                     " case needs); an IPv4 multicast destination derives its own")
+        eth = Ether(src=smac, dst=l2d)
         ip = IP(src=ssrc, dst=d, ttl=args.ttl) / UDP(sport=args.sport, dport=port) / Raw(
             load=b"CKARPLEG-" + args.tag.encode() + b"-p%d" % port)
         f = eth / Dot1Q(vlan=args.vlan) / ip if args.vlan else eth / ip
         out.append(("udp %s -> %s:%d (eth dst %s, ttl %d)"
-                    % (ssrc, d, port, l2, args.ttl), f))
+                    % (ssrc, d, port, l2d, args.ttl), f))
     for d in args.icmp:
         if not args.gw_mac:
             sys.exit("--icmp needs --gw-mac")
