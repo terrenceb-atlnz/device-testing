@@ -358,6 +358,42 @@ The same stress loop as `i2c_stress.py`, as a thin wrapper over the framework's
 
 ## Config and transcript analysis
 
+### `hostsim.py`
+A fake IPv4 host on one NIC: answers ARP who-has and ICMP echo for the addresses given,
+from a fake MAC, installing nothing on the host and changing no host IP, route or interface.
+The IPv4 counterpart of `nsresp.py` (which answers IPv6 Neighbor Solicitations).
+- **Why it exists:** several cases need a reachable neighbour that the test can make
+  UNREACHABLE on demand **while the link and the switch port stay UP** -- ping polling, a
+  VRRP client, a tracked next hop, an ARP ageing or deauth timeout. Shutting a port or
+  pulling an address also kills the measuring instrument and changes the thing under test,
+  and dropping ICMP on the box needs an iptables rule, i.e. root (STANDING-ORDERS §4).
+  Touching `--mutefile`, or reaching `--mute-at`, makes it stop answering ICMP echo within
+  one packet; ARP keeps being answered (unless `--mute-arp`), so the DUT's neighbour entry
+  stays valid and the loss the DUT sees is a pure echo-reply loss.
+- **Run:** `sudo hostsim.py <iface> <ip[,ip...]> <stats.json> [--mac MAC] [--stopfile F] [--mutefile F] [--mute-at S] [--unmute-at S] [--mute-ip IPs] [--mute-arp] [--log-echo F] [--duration S] [--no-arp] [--no-icmp] [--quiet]`
+- **Where:** testbox (root); **needs:** tcpdump (only to compile the BPF filter)
+- **Imports:** none
+- **`--mute-ip` keeps an instrument control in the same leg.** Give it two addresses, mute
+  only one, and the address that keeps answering proves the capture is alive, so the
+  silence of the other is a measurement rather than a dead instrument.
+- **`--log-echo F`** appends `<epoch>\t<dst>\t<src>\t<id>\t<seq>\t<answered|muted>` per
+  echo request. That file IS the wire record a poll-interval measurement is read from; it
+  needs no pcap decoder.
+- **Default MAC** is `02:87:71:<low 3 octets of the IPv4 address>`, so each address is
+  distinguishable on the wire and in the DUT's ARP table. `--mac` forces one for all.
+- **Limits:**
+  - IPv4 only, untagged frames only (no 802.1Q); echo REQUESTS only, nothing else is answered.
+  - The NIC is in promiscuous mode while it runs.
+  - It answers for an address the host's own kernel does not own; if the kernel DOES own it,
+    both will answer and the DUT sees duplicates.
+- **Status:** verified 2026-10-16 on tb277, host eth3 -> x960-56YSQ port1.0.10 (T44181).
+  Self-test: the DUT's `ping 10.38.22.44 repeat 4` went from "0 received, 100% packet loss"
+  to "4 received, 0% packet loss" with it running, and `show arp` learned
+  `10.38.22.44 0287.7126.162c vlan10 port1.0.10 dynamic`. In use: carried the whole
+  ping-poll measurement -- 77 echo requests logged across a timed 50 s mute window, driving
+  a clean Up -> Down -> Up transition pair that the DUT's own trigger log matched to within
+  1 s, with a never-muted second address as the in-leg control.
+
 ### `rcdiff.py`
 Unified diff of the first `show running-config` in two saved `ckcon.py` **stdouts** (not the `<transcript>` argument, which has no `HH:MM:SS >>>` headers). This is the
 pre-case versus post-case teardown check (STANDING-ORDERS §1).

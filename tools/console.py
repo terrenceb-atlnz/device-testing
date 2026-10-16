@@ -43,7 +43,8 @@ BAUD = 115200
 # it only with a transcript showing the command took effect.
 ADVISORY = re.compile(
     r"is currently configured as a mirror-port"          # altering a mirror destination port
-    r"|This access-list is attached to an interface",    # re-entering a bound hardware ACL sub-mode
+    r"|This access-list is attached to an interface"     # re-entering a bound hardware ACL sub-mode
+    r"|does not exist\. Please ensure it is created",    # trigger `script N <file>`: the reference IS stored
     re.I)
 
 def is_advisory(line):

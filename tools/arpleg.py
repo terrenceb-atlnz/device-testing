@@ -309,6 +309,7 @@ def main():
     args.probe = [x for x in args.probe.split(",") if x]
     args.icmp = [x for x in args.icmp.split(",") if x]
     os.makedirs(args.out, exist_ok=True)
+    chown_back([args.out])   # a root-owned --out dir blocks later non-root tools writing into it
 
     ifaces = [args.iface] + [w for w in args.watch if w != args.iface]
     frames = [] if args.sniff_only else build(args)
