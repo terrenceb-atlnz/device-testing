@@ -459,6 +459,7 @@ Re-read `show spanning-tree brief` after every reload before measuring (Discardi
 | --- | --- | --- | --- | --- |
 | T43870 | **PASS** | All 9 authored steps passed, plus baseline-off, auth/priv enforcement, on-the-wire encryption with an in-capture plaintext control, removal and reboot persistence. The authored precondition omits the group's read view (O-9) and was run with that one line supplied. Also produced F-12. | tester | snmp-2026-10-16T1406/T43870/work/run1.log |
 | T44181 | **PASS** | All 11 authored steps exercised, plus baseline-off, wire-measured intervals, removal and reboot persistence. **Max ping polls measured directly at 100** (0 and 101 rejected). The down/up transitions were read off the wire with a **never-muted second poll as the in-leg control**, and corroborated by the DUT's own trigger log to within 1 s across a 9 s clock offset. No platform defect; four observations O-13..O-16, of which **O-14** is the one to carry. One limb NOT measurable unattended: the CONTENT of a trigger script (needs a root write to the box's /tftproot, STANDING-ORDERS §4) — the ping-poll side of the trigger contract was measured in full. | tester | ipv4svc-2026-10-16T1406/T44181/work/run1.log |
+| T44378 | **PASS** | **No authored step text exists** (ck.db `zephyr_cases` 40676 has no objective, no precondition, empty steps), so the case was designed from the IP Feature Overview Guide C613-22007-00 REV I p.16 and the log says so rather than inventing a procedure. Graded on the wire with **two controls in every counted leg** — an unhelped UDP port that must never be relayed, and a routed ICMP unicast that must always arrive. Nothing relayed by default; all-ones and ingress-subnet-directed broadcasts relayed 5/5 on helped ports while the unhelped port held 0/5; the port list and the helper address proven **independent** (removing one port took it 5/5 -> 0/5 while the other kept relaying); multiple helper addresses each produce their own copy; and a helper that is a connected subnet's broadcast address is forwarded as a true **link-layer broadcast** while a host address is unicast — two L2 treatments of one ingress frame in one capture. Removal and reboot persistence proven in the dataplane. Counted side was eth4 (no known foreign host), every frame attributed by both MACs, 30 s background baseline 0/0 | tester | ipv4svc-2026-10-16T1406/T44378/work/run1.log |
 
 ## Issues
 
@@ -488,6 +489,19 @@ Re-read `show spanning-tree brief` after every reload before measuring (Discardi
   critical-interval 2), over 36 gaps on the host's own packet record and confirmed by the DUT's
   debug lines. **A tester expecting the bare `critical-interval` would read this as a broken
   timer.**
+- **🔴 TOOL DEFECT FOUND AND FIXED (T44378) — it produced a FALSE counter disagreement, and any
+  payload-marking scapy tool has the same hole.** `tools/arpleg.py` looked for its payload marker
+  in `pkt[Raw].load`, but **scapy dissects well-known UDP ports into their own layer** — 69 into
+  `TFTP`, 67/68 into `BOOTP`, 53 into `DNS` — so a burst to `:69` has **no `Raw` layer at all**.
+  The tool reported **0 of its own 5 frames** and flagged them as foreign, which reads exactly
+  like the DUT failing to relay. Fixed to scan the whole frame rather than `Raw`; README updated.
+  **Check every other scapy helper that tags payloads for the same assumption** before trusting a
+  zero from it. This is the third instrument fault this bench has caught before it reached a
+  verdict, and the reason every leg carries an instrument control.
+- **O-17 (T44378)** `ip forward-protocol udp` takes a **numeric port only** — no named service
+  keywords.
+- **O-18 (T44378)** the relay **preserves the original IP source and both UDP ports** — no
+  `giaddr`, no relay-agent option — unlike `ip dhcp-relay` on the same box.
 - **🔴 CARRIED, STILL OPEN FOR THE TEST ENGINEER** (none blocked a case on 2026-10-15, and none
   is expected to block one here):
   - an unrecorded device `10.38.22.41` / `00:0c:25:2a:a5:53` is live on the box's eth3 segment,
