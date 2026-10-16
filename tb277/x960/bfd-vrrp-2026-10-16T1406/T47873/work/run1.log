@@ -1,0 +1,766 @@
+================================================================================
+T47873  VRRP(v3)                              tb277 / AT-x960-56YSQ  -- run 1
+================================================================================
+Run label: CLEAN.
+Group: bfd-vrrp-2026-10-16T1406 (group D, the campaign's last group and last case).
+
+SESSION FACTS, DEVICES, HOST NICs AND CLOCKS
+  Identical to T47201 run 1, which records them in full
+  (bfd-vrrp-2026-10-16T1406/T47201/work/run1.log, top of file). In brief:
+  tb277; u2 = swi_d (DUT, AT-x960-56YSQ, sin_x96056-20261012-24, all SVIs share
+  MAC e0:1a:ea:d4:70:43); u3 = swi_b (AT-x960-28YSQ, Base licence incl. VRRP,
+  device MAC 00:00:cd:42:30:29); u5 = swi_a NOT TOUCHED. Host eth3
+  10.38.22.33/27 (00:0d:b9:55:77:0e) on DUT port1.0.10; host eth4 10.38.22.65/27
+  (00:0d:b9:55:77:0f) on DUT port1.0.48. Unattended; sentinel = parent.
+  Every timestamp quoted below is the BOX's clock, one clock throughout.
+
+--------------------------------------------------------------------------------
+AUTHORED TEXT -- IT EXISTS, AND IS QUOTED VERBATIM
+--------------------------------------------------------------------------------
+`tools/ckcase.py AWPTCM-T47873` (ck.db `zephyr_cases`, row id 44054,
+folder /5.5.6-0/Singularity/x950 Gen2, script_type STEP_BY_STEP, num_steps 1,
+has_objective 0). The single step's text, verbatim and complete:
+
+  "Refer the FOG document to configure a basic VRRP and ensure that end
+   device(s) can be reached when either the master or the backup router loses
+   connection
+   https://www.alliedtelesis.com/sites/default/files/file/2022-11/VRRP_Feature_Overview_Guide.pdf
+   No unexpected errors, crashes are observed. Role transitioning works
+   correctly."
+
+So the authored case has three checkable claims and names its own authority:
+  (1) configure a basic VRRP per the FOG document;
+  (2) end device(s) can be reached when EITHER the master OR the backup router
+      loses connection;
+  (3) role transitioning works correctly, with no unexpected errors or crashes.
+There is no objective and no precondition, and the step names no topology, no
+addresses and no expected output -- those were designed, and every design choice
+is stated below.
+
+THE NAMED DOCUMENT WAS OBTAINED AND READ. The URL in the step text resolves; the
+PDF is now in the repo at
+  `Feature Overview Guides/VRRP Feature Overview and Configuration Guide - VRRP_Feature_Overview_Guide.pdf`
+(the directory is gitignored). It is C613-22049-00 REV E. Everything attributed
+to "the guide" below is from it.
+
+--------------------------------------------------------------------------------
+HOW "v3" WAS GRADED, AND WHY NOT FROM A CONFIG LINE
+--------------------------------------------------------------------------------
+The case is titled VRRP(**v3**). There is NO `version` command on this platform:
+
+    awplus(config-router)# version ?
+    % Unrecognized command                              [work/s2b-qmark-router.log]
+
+and the guide's own "VRRPv2 to VRRPv3 transition configuration" chapter upgrades
+a router by **changing its software release and rebooting**, not by a command.
+So "v3" cannot be read off the configuration, and was graded three ways on the
+wire and from the device's own state:
+  - the VERSION FIELD of the advertisement, decoded from a capture;
+  - the presence of `transition-mode {true|false}` and `alternate-checksum-mode`,
+    both of which exist only because VRRPv3 does;
+  - `Accept mode: TRUE` by default, which the guide states is specifically the
+    AlliedWare Plus **VRRPv3** behaviour (guide p.3).
+
+--------------------------------------------------------------------------------
+TOPOLOGY, AND THE ONE DESIGN CHOICE THAT CARRIES THE WHOLE CASE
+--------------------------------------------------------------------------------
+The group-D bench setup (queue file, committed b0bc177) extends `vlan 10` to
+swi_b over the `port1.0.16` trunk, so the DUT, swi_b and host `eth3` are all in
+one broadcast domain:
+
+   host eth3 10.38.22.33/27  --(DUT port1.0.10, access vlan 10)--  swi_d  10.38.22.34/27
+                                                                     ||
+                                   port1.0.16 trunk, tagged vlan 10 + 61
+                                                                     ||
+   host eth4 10.38.22.65/27  --(DUT port1.0.48, access vlan 48)--  swi_b  10.38.22.35/27
+                               DUT vlan48 10.38.22.66/27           + ip route 10.38.22.64/27 10.38.22.34
+
+  VRID 10  =>  virtual MAC **00:00:5e:00:01:0a**   (0000.5e00.01<vrid>, vrid 10 = 0x0a)
+  virtual IP 10.38.22.36, **owned by NEITHER router**, so there is no preferred
+  master, the election is decided purely by priority, and the virtual MAC is
+  used in every case. DUT priority 150 (Master), swi_b priority 100 (Backup).
+  10.38.22.36 was confirmed free before use: see LEG V0.
+
+** THE DESIGN CHOICE: swi_b has a static route to 10.38.22.64/27 via the DUT. **
+Both host NICs land on the DUT, so when swi_b is Master a frame addressed to the
+virtual MAC must HAIRPIN -- host -> swi_b -> DUT -> eth4. That is deliberate,
+because it makes the two routers distinguishable **in the dataplane**:
+
+    DUT is Master   -> ONE routing hop   -> the frame arrives at eth4 with TTL 63
+    swi_b is Master -> TWO routing hops  -> it arrives with TTL 62
+
+Both routers answer with the SAME virtual MAC and the frames are otherwise
+byte-identical, so the TTL is the only field on the wire that says which router
+forwarded. That is why `tools/arpleg.py` was extended with `--show-ttl` for this
+case (and with `%L2DST`, below).
+
+--------------------------------------------------------------------------------
+THE MEASUREMENT METHOD
+--------------------------------------------------------------------------------
+Every counted leg is one `tools/arpleg.py` invocation carrying THREE UDP flows to
+the same destination 10.38.22.65, differing ONLY in their Ethernet destination,
+plus an ARP request for the virtual IP:
+
+    --arp 10.38.22.36
+    --udp '10.38.22.65:9999%00:00:5e:00:01:0a'   SUBJECT    the virtual MAC
+          '10.38.22.65:9998%02:00:00:00:00:99'   CONTROL    a MAC nobody owns
+          '10.38.22.65:9997%e0:1a:ea:d4:70:43'   INSTRUMENT the DUT's real SVI MAC
+    --count 5 --show-ttl --iface eth3 --watch eth4 --sender-ip 10.38.22.33
+
+  - the CONTROL must never arrive. If it does, the switch is flooding rather than
+    routing and the subject's arrival would mean nothing.
+  - the INSTRUMENT must always arrive, whatever VRRP is doing, because it is
+    addressed to the DUT's own permanent SVI MAC. It is what makes a zero on the
+    subject a measurement instead of a dead capture.
+  - the three flows use three different UDP destination ports so they are
+    separable in one capture.
+
+TOOL WORK DONE FOR THIS CASE (generic, in `tools/`, with README entries):
+  - `arpleg.py --udp DST[:PORT][@SRC]**%L2DST**` -- a PER-SPEC Ethernet
+    destination. `--l2-dst` applies to every `--udp` spec and therefore cannot
+    carry a subject and a control that differ only in their link-layer address,
+    which is exactly what a first-hop-redundancy case needs.
+  - `arpleg.py --show-ttl` -- appends the received IPv4 TTL to each flow.
+  Both were self-tested in LEG V0 below, in a real leg with a known-good control.
+
+================================================================================
+MEASUREMENTS
+================================================================================
+
+LEG V0 -- BASELINE, BEFORE `service vrrp`                                 [PASS]
+--------------------------------------------------------------------------------
+  awplus# show vrrp                                     [work/s0-baseline-u2.log]
+  % VRRPD protocol daemon is not running or feature license is not available
+  awplus# show vrrp brief            (same message)
+  awplus# show process | include vrrp            (no output -- no vrrpd)
+  awplus# show running-config | include vrrp     (no output -- no configuration)
+  awplus# show arp
+  10.38.22.33  000d.b955.770e  vlan10  port1.0.10  dynamic
+  10.0.61.2    0000.cd42.3029  vlan61  port1.0.16  dynamic
+  10.38.22.35  0000.cd42.3029  vlan10  port1.0.16  dynamic
+  -- no 10.38.22.36 anywhere.
+
+  COUNTED LEG V0-baseline              [cap V0-baseline-eth3.pcap / -eth4.pcap]
+    eth3: ARP-REQ who-has 10.38.22.36 tell 10.38.22.33   x5
+          ** and NO ARP reply of any kind ** -- the virtual IP is unowned and
+          nothing on the segment answers for it.
+    eth4: UDP ...:9997 [ours] ttl=63  x5   INSTRUMENT -- arrives, one hop
+          ...:9999                    x0   SUBJECT    -- the virtual MAC is dead
+          ...:9998                    x0   CONTROL
+  => the "off" state is measured, not assumed. It is also the self-test of the
+     two new arpleg features: the three flows were correctly emitted to three
+     different Ethernet destinations from one spec list, and the TTL column
+     printed.
+
+LEG V1 -- `service vrrp`, THE CONFIGURATION, AND v3 ON THE WIRE           [PASS]
+--------------------------------------------------------------------------------
+  The service gate (x960.md 7A.1), sent ALONE on each device:
+    awplus(config)# service vrrp                            [work/s1-svc-u2.log]
+    x960-28YSQ(config)# service vrrp                        [work/s1-svc-u3.log]
+    awplus# show process | include vrrp                   [work/s1b-svcup-u2.log]
+     6350 vrrpd               7   0.0   0.1    20 sleep
+    awplus# show vrrp
+    VMAC enabled                      ** the virtual MAC feature is ON by default **
+    awplus# show vrrp brief
+    Interface  Grp Prio Own Pre State      Virtual IP     (empty -- no sessions)
+
+  CLI SURFACE, read with the no-CR help probe `tools/qmark.py` (self-test passed
+  on every probe):                      [work/s2-qmark-global.log, s2b-qmark-router.log]
+    awplus(config)# vrrp ?
+      icmp-ttl-exceeded-error-use-physical-address
+      vmac                                          Virtual-MAC feature
+    awplus(config)# router vrrp ?        -> <1-255>  Virtual router identifier
+    awplus(config)# router vrrp 10 ?     -> IFNAME   Interface name
+    awplus(config)# router vrrp 10 vlan10
+    awplus(config-router)# ?
+      advertisement-interval   alternate-checksum-mode  circuit-failover
+      disable  do  enable  exit  help  no  preempt-mode  priority  show
+      transition-mode  virtual-ip
+    awplus(config-router)# virtual-ip 10.38.22.36 ?
+      backup  Set default backup (Not IP address owner)
+      master  Set default master (IP address owner)
+    awplus(config-router)# transition-mode ?
+      false  Transition mode disabled
+      true   Transition mode enabled
+    awplus(config-router)# advertisement-interval ?
+      <1-40>  Interval (in seconds)
+      csec    Use centiseconds rather than seconds
+    awplus(config-router)# version ?
+      % Unrecognized command
+
+    ** TWO CORRECTIONS TO THE DISPATCH'S EXPECTED COMMAND SET, both measured: **
+    - there is NO `accept-mode` command in IPv4 `router vrrp` mode. Accept mode
+      is nevertheless ON and `show vrrp` reports it (`Accept mode: TRUE`), which
+      matches the guide p.3: "The VRRPv3 accept mode is enabled by default in the
+      AlliedWare Plus VRRPv3 implementation". It is not configurable here; the
+      `accept-mode` command belongs to `router ipv6 vrrp`.
+    - `vrrp vmac` is a GLOBAL command (`awplus(config)# vrrp vmac`), not a
+      router-mode one, and VMAC is already enabled by default on this build.
+
+  CONFIGURATION, as sent          [work/s3-cfg-u2.log, work/s3b-cfg-u3.log]
+    DUT (/dev/u2)                          swi_b (/dev/u3)
+      configure terminal                     configure terminal
+      router vrrp 10 vlan10                  router vrrp 10 vlan10
+       virtual-ip 10.38.22.36 backup          virtual-ip 10.38.22.36 backup
+       priority 150                           priority 100
+       enable                                 enable
+      end                                    end
+    No command on either device was rejected.
+
+  STATE                                              [work/s4-vrrpstate-u2.log]
+    awplus# show vrrp brief
+    Interface  Grp Prio Own Pre State   Virtual IP
+     vlan10     10  150   N   P Master  10.38.22.36
+    awplus# show vrrp
+    VMAC enabled
+    Address family IPv4
+    VRRP Id: 10 on interface: vlan10
+     State: AdminUp   - Master
+     Virtual IP address: 10.38.22.36 (Not-owner)
+     Priority is 150
+     Advertisement interval: 100 centiseconds
+     Preempt mode: TRUE
+     Multicast membership on IPv4 interface vlan10: JOINED
+     Transition mode: FALSE
+     Accept mode: TRUE
+     Master address: 10.38.22.34
+    x960-28YSQ# show vrrp brief                          [work/s3b-cfg-u3.log]
+     vlan10     10  100   N   P Backup  10.38.22.36
+    Defaults confirmed against the guide: priority range 1-255 default 100
+    (guide p.7), preempt TRUE by default (p.7), advertisement interval 1 s.
+
+  ** VRRPv3 READ OFF THE WIRE **                       [work/s5-adv-wire-u2.log]
+    awplus# tcpdump -i vlan10 -c 3 -nn -v -e proto 112
+    05:59:32.403403 00:00:5e:00:01:0a > 01:00:5e:00:00:12, ethertype IPv4,
+        length 46: (tos 0x0, ttl 255, id 53, proto VRRP (112), length 32)
+        10.38.22.34 > 224.0.0.18: **VRRPv3**, Advertisement, vrid 10, prio 150,
+        intvl 100cs, length 12, (bad vrrp cksum 1846), addrs: 10.38.22.36
+      ... x3, exactly 1.000 s apart (05:59:32.403 / 33.403 / 34.405)
+    Everything the case needs is in that one line:
+      - version field          = **VRRPv3**
+      - vrid                   = 10, and the virtual IP it advertises is 10.38.22.36
+      - priority               = 150
+      - interval               = 100 cs, i.e. the configured 1 s
+      - Ethernet SOURCE        = **00:00:5e:00:01:0a**, the RFC virtual MAC for
+                                 vrid 10, NOT either router's own address
+      - IP source              = 10.38.22.34, which attributes the Master
+      - destination            = 224.0.0.18 / 01:00:5e:00:00:12, TTL 255
+    The `(bad vrrp cksum 1846)` is the subject of F-17 below. It is NOT ignored
+    and it is NOT assumed to be an artefact; it was measured.
+
+LEG V2 -- THE VIRTUAL MAC IS THE SUBJECT, AND IT IS NOT EITHER ROUTER'S  [PASS]
+--------------------------------------------------------------------------------
+  COUNTED LEG V1-dut-master, which ARPs for all THREE addresses at once so the
+  virtual MAC is discriminated against both real ones in the SAME capture:
+                                     [cap V1-dut-master-eth3.pcap / -eth4.pcap]
+    eth3:
+      x5  ARP-REQ  who-has 10.38.22.36 tell 10.38.22.33
+      x5  ARP-REPLY 10.38.22.36 is-at **00:00:5e:00:01:0a**
+                                   [eth 00:00:5e:00:01:0a -> 00:11:22:33:44:01]
+      x5  ARP-REPLY 10.38.22.34 is-at e0:1a:ea:d4:70:43   (the DUT's real SVI MAC)
+      x5  ARP-REPLY 10.38.22.35 is-at 00:00:cd:42:30:29   (swi_b's real MAC)
+      x14 IP p112 10.38.22.34 -> 224.0.0.18 ttl=255 [eth 00:00:5e:00:01:0a -> ...]
+    eth4:
+      x5  UDP ...:9999 [ours] **ttl=63**   SUBJECT    via the virtual MAC, ONE hop
+      x5  UDP ...:9997 [ours] ttl=63       INSTRUMENT
+      x0  UDP ...:9998                     CONTROL
+  => the ARP reply for the virtual IP carries 0000.5e00.010a in BOTH the ARP
+     payload AND the Ethernet source, and the same capture proves that address is
+     neither router's own. That matters here specifically because every SVI on
+     this DUT shares one MAC (x960.md 6.5) -- the virtual MAC is the only
+     address on this segment that is not e0:1a:ea:d4:70:43.
+     Compare LEG V0: the identical ARP request got NO reply at all.
+
+LEG V3 -- "THE BACKUP ROUTER LOSES CONNECTION" (authored claim 2, half 1) [PASS]
+--------------------------------------------------------------------------------
+  Stimulus: `interface vlan10 / shutdown` on swi_b.    [work/s6-backup-down-u3.log]
+    x960-28YSQ# show vrrp brief
+     vlan10     10  100   N   P **Initialize** 10.38.22.36
+    (the guide p.4: "If a VRRP instance is running on a VLAN interface and the
+     VLAN interface goes down, then the VRRP instance ... moves to an INIT
+     state" -- confirmed.)
+  COUNTED LEG V2-backup-down            [cap V2-backup-down-eth3/-eth4.pcap]
+    eth3: x10 IP p112 10.38.22.34 -> 224.0.0.18   (the DUT still advertising)
+          x5  ARP-REPLY 10.38.22.36 is-at 00:00:5e:00:01:0a
+    eth4: x5 ...:9999 ttl=63   SUBJECT    -- end device still reached
+          x5 ...:9997 ttl=63   INSTRUMENT
+          x0 ...:9998          CONTROL
+  => the backup lost connection and the end device was reached throughout, with
+     no change visible to the client at all. Restored with `no shutdown`
+     [work/s7-backup-up-u3.log]; swi_b returned to Backup with
+     `Master address: 10.38.22.34`.
+
+LEG V4 -- "THE MASTER LOSES CONNECTION" (authored claim 2, half 2) AND
+          "ROLE TRANSITIONING WORKS CORRECTLY" (authored claim 3)        [PASS]
+--------------------------------------------------------------------------------
+  Stimulus chosen: VRRP's OWN failover trigger, `circuit-failover`, rather than a
+  bare priority edit -- it is the mechanism the guide describes for "the master
+  loses connection to the rest of the network" (guide p.25), and unlike shutting
+  the DUT's vlan10 or vlan48 it does not also destroy the measurement path.
+
+  ORDERING CONSTRAINT FOUND (O-37):              [work/s13-cktfail-u2.log]
+    awplus(config-router)# circuit-failover vlan61 120
+    % You must disable this session first
+  so the real sequence is disable / configure / enable:  [work/s13b-cktfail-u2.log]
+    awplus(config)# router vrrp 10 vlan10
+    awplus(config-router)# disable
+    awplus(config-router)# circuit-failover vlan61 120
+    awplus(config-router)# enable
+    awplus# show vrrp
+     Monitored circuit: vlan61, Priority Delta: 120, Status: UP
+  150 - 120 = 30, which is below swi_b's 100, so failing vlan61 must hand over.
+
+  BEFORE                                        [work/s13c-premaster-u2.log]
+    DUT    vlan10 10 150 N P Master  10.38.22.36
+  STIMULUS, `shutdown` echoed at box epoch 1792130863.090  [work/s14-failover-u2.log]
+    awplus(config)# interface vlan61
+    awplus(config-if)# shutdown
+    DUT, read in the same instant:  vlan10 10 **30** N P Master   (priority
+    already dropped by the delta; the role had not yet moved)
+  AFTER                      [work/s14b-swib-master-u3.log, s14c-dut-backup-u2.log]
+    swi_b# show vrrp brief
+     vlan10     10  100   N   P **Master**  10.38.22.36
+    swi_b# show vrrp
+     State: AdminUp   - Master      Priority is 100
+     Master address: **10.38.22.35**
+    DUT# show vrrp brief
+     vlan10     10   30   N   P **Backup**  10.38.22.36
+    ** exactly ONE master. This is a clean transition, not the split state of
+       F-17 below. **
+
+  ** THE ROLE TRANSITION, MEASURED IN THE DATAPLANE **
+                                      [cap V4-swib-master-eth3.pcap / -eth4.pcap]
+    eth3:
+      x10 IP p112 **10.38.22.35** -> 224.0.0.18 ttl=255
+                                   [eth 00:00:5e:00:01:0a -> 01:00:5e:00:00:12]
+          ** the advertisements now come from swi_b's address, still sourced
+             from the SAME virtual MAC **
+      x5  ARP-REPLY 10.38.22.36 is-at **00:00:5e:00:01:0a**
+          ** unchanged. The client sees nothing at all, which is the point. **
+    eth4:
+      x5  UDP ...:9999 [ours] **ttl=62**   SUBJECT    -- TWO hops: swi_b -> DUT
+      x5  UDP ...:9997 [ours] **ttl=63**   INSTRUMENT -- ONE hop, unchanged
+      x0  UDP ...:9998                     CONTROL
+    ** 62 against 63 IN THE SAME CAPTURE is the whole verdict. The subject flow
+       gained exactly one routing hop while the instrument flow did not, so the
+       frames to the virtual MAC are now being forwarded by swi_b and not by the
+       DUT -- read off the wire, not off `show vrrp`. And the end device was
+       reached, 5 of 5, right through the master losing connection. **
+
+  RECOVERY            [work/s15-recover-u2.log, s15b-master-again-u2.log,
+                       cap V5-preempt-back-eth4.pcap]
+    awplus(config-if)# interface vlan61 / no shutdown
+    DUT# show vrrp brief   ->  vlan10 10 150 N P Master
+     Monitored circuit: vlan61, Priority Delta: 120, Status: UP
+    COUNTED LEG V5-preempt-back:
+      x5 UDP ...:9999 [ours] **ttl=63**   back to ONE hop
+      x5 UDP ...:9997 [ours] ttl=63
+    => preempt back works (preempt-mode TRUE), and the dataplane says so. The
+       full round trip Master -> Backup -> Master was measured in the dataplane
+       at every step. No error and no crash on either device.
+
+LEG V5 -- `transition-mode true`: v2 AND v3 ADVERTISEMENTS TOGETHER       [PASS]
+--------------------------------------------------------------------------------
+  The guide p.26: "RFC 5798 for VRRPv3 allows a VRRPv3 virtual router to send
+  both VRRPv2 and VRRPv3 advertisements ... Transition mode is disabled by
+  default and is enabled by issuing the transition-mode true command."
+  The same O-37 ordering constraint applies.        [work/s16-transition-u2.log]
+    awplus(config-router)# transition-mode true
+    % You must disable this session first
+  so:                                              [work/s16b-transition-u2.log]
+    disable / transition-mode true / enable  ->  `Transition mode: TRUE`
+
+  ON THE WIRE                                 [work/s16c-transition-wire-u2.log]
+    awplus# tcpdump -i vlan10 -c 4 -nn -v -e proto 112
+    06:10:07.103828 00:00:5e:00:01:0a > 01:00:5e:00:00:12, length 46:
+        (ttl 255, proto VRRP (112), length 32)
+        10.38.22.34 > 224.0.0.18: **VRRPv3**, Advertisement, vrid 10, prio 150,
+        intvl 100cs, length 12, (bad vrrp cksum 1846), addrs: 10.38.22.36
+    06:10:07.103854 00:00:5e:00:01:0a > 01:00:5e:00:00:12, length 54:
+        (ttl 255, proto VRRP (112), length 40)
+        10.38.22.34 > 224.0.0.18: **VRRPv2**, Advertisement, vrid 10, prio 150,
+        authtype none, intvl 1s, length 20, addrs: 10.38.22.36
+    ... and the same PAIR again at 06:10:08.104189 / .104214
+  => with transition mode on, every advertisement period emits BOTH versions,
+     26 microseconds apart, from the same virtual MAC to the same group. The v2
+     frame is 20 bytes of VRRP against v3's 12 (v2 carries the 8-byte auth
+     field) and expresses the identical 1 s interval as `intvl 1s` instead of
+     `intvl 100cs`. swi_b was unaffected and stayed Backup
+     [work/s16d-swib-tm-u3.log], as the guide says only the Master needs it.
+  ** This is also the cleanest single piece of evidence that the default is v3:
+     turning transition mode ON is what makes a v2 advertisement appear. With it
+     off, the DUT sends v3 and only v3. **
+  Reverted with `disable / transition-mode false / enable` [work/s17-tm-off-u2.log].
+
+LEG V6 -- PERSISTENCE ACROSS A COLD BOOT, MEASURED IN THE DATAPLANE       [PASS]
+--------------------------------------------------------------------------------
+  The campaign's staged-boot-config recipe, so startup-config and
+  `flash:/default.cfg` are never written:               [work/s18-stage-u2.log]
+    awplus# copy running-config flash:/ckT47873.cfg
+    awplus(config)# boot config-file flash:/ckT47873.cfg
+    awplus# show boot
+      Current boot image : flash:/x960-tb277.rel (file exists)
+      Current boot config: flash:/ckT47873.cfg (file exists)
+      Autoboot status    : disabled
+  RELOAD                                               [work/s19-reload-u2.log]
+    reload issued 1792131110; `login:` seen after **60 s** -- inside the 60-68 s
+    range x960.md 7.9 records for this build.
+  RE-READ STP BEFORE MEASURING (x960.md 7B.8 -- this is exactly the trap):
+                                     [work/s20-postboot-u2.log, s20b-stp2-u2.log]
+    first read : port1.0.10 Forwarding, port1.0.16 Forwarding,
+                 **port1.0.48 Designated Discarding**   <- would have read as a
+                 feature failure on the far-side count
+    second read: port1.0.10 / port1.0.16 / port1.0.48 all Designated Forwarding
+  STATE AFTER THE COLD BOOT
+    awplus# show vrrp brief  ->  vlan10 10 150 N P **Master** 10.38.22.36
+    awplus# show vrrp        ->  State: AdminUp - Master
+                                 Monitored circuit: vlan61, Delta: 120, Status: UP
+                                 Transition mode: FALSE   Accept mode: TRUE
+    awplus# show running-config | include service  ->  ... **service vrrp** ...
+  COUNTED LEG V6-after-reboot        [cap V6-after-reboot-eth3/-eth4.pcap]
+    eth3: x10 IP p112 10.38.22.34 -> 224.0.0.18 [eth 00:00:5e:00:01:0a -> ...]
+          x5  ARP-REPLY 10.38.22.36 is-at 00:00:5e:00:01:0a
+    eth4: x5 ...:9999 [ours] ttl=63   SUBJECT
+          x5 ...:9997 [ours] ttl=63   INSTRUMENT
+          x0 ...:9998                 CONTROL
+  => the virtual router, its virtual MAC, its election result, its monitored
+     circuit and its forwarding all survive a cold boot, and that is proven by
+     frames arriving, not by a `show` command.
+  Boot pointer restored and the staged file deleted    [work/s21-bootrestore-u2.log]
+    awplus(config)# boot config-file flash:/default.cfg
+    awplus# delete flash:/ckT47873.cfg
+    Delete flash:/ckT47873.cfg?  (y/n)[n]:y
+    awplus# show boot -> Current boot config: flash:/default.cfg (file exists),
+                         Current boot image: flash:/x960-tb277.rel, Autoboot disabled
+    awplus# dir flash:/*.cfg
+          1049 -rw- Oct 16 2026 05:02:19  flash:/default.cfg      ** only that **
+
+LEG V7 -- REMOVAL, BACK TO THE MEASURED BASELINE                          [PASS]
+--------------------------------------------------------------------------------
+  `circuit-failover` removed first (same O-37 disable/enable dance)
+  [work/s22-nockt-u2.log], then on BOTH devices:
+    awplus(config)# no router vrrp 10 vlan10      [work/s23-rm-u3.log, s23b-rm-u2.log]
+  COUNTED LEG V7-removed                  [cap V7-removed-eth3/-eth4.pcap]
+    eth3: x5 ARP-REQ who-has 10.38.22.36 tell 10.38.22.33
+          ** and no ARP reply of any kind **
+          ** and no IP p112 group at all -- the advertisements have stopped **
+    eth4: x5 UDP ...:9997 [ours] ttl=63   INSTRUMENT -- still 5/5, capture alive
+          x0 UDP ...:9999                 SUBJECT    -- the virtual MAC is dead
+          x0 UDP ...:9998                 CONTROL
+  => byte-for-byte the LEG V0 baseline. The A/B is closed in both directions with
+     the same instrument, and the instrument control answers in both halves.
+
+================================================================================
+F-17 (CANDIDATE FINDING, WANTS A DEVELOPER) -- THE DEFAULT VRRPv3-FOR-IPv4
+      ADVERTISEMENT CHECKSUM IS NOT THE ONE THE DEVICE'S OWN tcpdump ACCEPTS,
+      AND A PAIR WITH MISMATCHED CHECKSUM MODES PRODUCES **TWO MASTERS**
+================================================================================
+This started as `(bad vrrp cksum 1846)` in LEG V1 and was NOT written off as a
+decoder artefact. It was measured.
+
+THE A/B, IN ONE CAPTURE, ONE DECODER, ONE WINDOW   [work/s8b-altcksum-wire-u2.log]
+  `alternate-checksum-mode` set on the **DUT only**:
+    10.38.22.34  (DUT,   alternate-checksum-mode ON)   VRRPv3 ... prio 150
+                                                       ** no checksum complaint **
+    10.38.22.35  (swi_b, default mode)                 VRRPv3 ... prio 100
+                                                       ** (bad vrrp cksum 4a46) **
+  Two frames, same instrument, same second, differing only in which checksum
+  style the sender used. The one WITH `alternate-checksum-mode` validates clean.
+  => the validator and the DEFAULT mode disagree; the validator and the
+     ALTERNATE mode agree.
+
+A THIRD, INDEPENDENT CONFIRMATION, from the transition-mode capture
+                                            [work/s16c-transition-wire-u2.log]
+  With transition mode on, the SAME daemon emits a v2 and a v3 advertisement
+  26 microseconds apart. The **VRRPv2** frame validates clean; the **VRRPv3**
+  frame in the same pair does not. So the instrument is not simply broken for
+  VRRP -- it is specifically the v3 checksum it rejects.
+
+THE SPLIT-MASTER, MEASURED  [work/s8c-swib-split-u3.log, cap V3-split-master-*]
+  With the modes mismatched, swi_b **stopped accepting the DUT's advertisements
+  and took over**, although it is priority 100 against the DUT's 150:
+    DUT   19:03:19  vlan10 Grp 10 Prio 150 **Master**  Master address: 10.38.22.34
+    swi_b 19:03:32  vlan10 Grp 10 Prio 100 **Master**  Master address: 10.38.22.35
+  A priority-100 router cannot displace a priority-150 router it can hear, so
+  this is a receive-side rejection, and the checksum is the only thing that
+  changed. The dataplane harm, counted:   [cap V3-split-master-eth3/-eth4.pcap]
+    x11 IP p112 **10.38.22.35** -> 224.0.0.18 [eth 00:00:5e:00:01:0a -> ...]
+    x10 IP p112 **10.38.22.34** -> 224.0.0.18 [eth 00:00:5e:00:01:0a -> ...]
+        ** both routers advertising for vrid 10 from the SAME virtual MAC **
+    x10 ARP-REPLY 10.38.22.36 is-at 00:00:5e:00:01:0a
+        ** TEN replies to FIVE requests -- both routers answered, and the client
+           is now steered by whichever reply lands last **
+    eth4: x5 ...:9999 ttl=63   -- the frames still got through, the DUT winning
+                                  the L2 race for them; which router serves the
+                                  client is a race, not a decision
+  Two ports claiming one unicast MAC on one segment is the classic duplicate-MAC
+  hazard, and `show vrrp` on each device looks perfectly healthy in isolation.
+
+THE CONTROLS THAT BOUND IT, both measured, so the finding is not over-claimed
+  - DEFAULT-to-DEFAULT IS FINE. Before any of this, with both devices in the
+    default mode, swi_b read `State: AdminUp - Backup` **and**
+    `Master address: 10.38.22.34`         [work/s7b-swib-accepts-u3.log].
+    It can only know the master's address by receiving, validating and parsing
+    the DUT's advertisements. So AW+-to-AW+ interop in the default is unaffected
+    -- both ends compute the checksum the same way. This is NOT a defect that
+    appears in a normal single-vendor deployment.
+  - ALTERNATE-to-ALTERNATE IS ALSO FINE. Setting `alternate-checksum-mode` on
+    swi_b as well re-converged the pair immediately: swi_b back to
+    `Backup`, `Master address: 10.38.22.34`      [work/s10b-matched-u3.log],
+    and a capture then showed a single advertiser, 10.38.22.34, with no
+    checksum complaint                           [work/s11-matched-wire-u2.log].
+    ** So it is the MISMATCH that breaks the pair, not either mode. **
+  - Reverting both to the default re-converged again [work/s12c-reconverged-u3.log].
+
+WHAT IS *NOT* ESTABLISHED, AND MUST NOT BE READ INTO THIS
+  Which of the two modes is the RFC 5798 §5.2.8-conformant one is **NOT settled
+  by this bench**. RFC 5798 requires the VRRPv3-over-IPv4 checksum to cover a
+  pseudo-header, and the obvious reading of the A/B is that the validator
+  implements that rule and the DUT's default does not -- but that reading rests
+  on the validator being correct, which was not independently verified. The
+  validator here is the **DUT's own bundled `tcpdump`**, so the measurable,
+  assumption-free statement is:
+
+    ** two components of the same firmware image disagree about the checksum of
+       its own default VRRPv3 advertisement, and the vendor ships a command that
+       makes them agree. **
+
+  The interop question -- whether a third-party RFC-conformant VRRPv3 router
+  would discard the default-mode advertisements and become a second master -- is
+  **NOT MEASURED**. The instrument it needs is a third-party conformant VRRPv3
+  peer, and this bench has none. It is stated as the open question, not as a
+  result. What IS measured is that a receiver which rejects these frames ends up
+  as a second master, because the mismatched-mode experiment produced exactly
+  that outcome between two AW+ routers.
+
+OPERATIONAL CAUTION THAT FOLLOWS, WHATEVER THE ANSWER
+  `alternate-checksum-mode` must be set on EVERY router in a virtual router or
+  on NONE. Setting it on one -- a staged upgrade, or a mixed-vendor rollout --
+  silently yields two masters for one virtual IP. The guide does not say so:
+  the VRRP Feature Overview and Configuration Guide C613-22049-00 REV E, read in
+  full, contains **zero** occurrences of "alternate" and **zero** of "checksum".
+  The command is undocumented there, and the DUT's own help for it is bare
+  (`alternate-checksum-mode ?` -> `<cr>`, with only the one-line mode-list
+  description "Enable alternate checksum mode for IPv4")  [work/s9-qmark-altcksum.log].
+
+================================================================================
+TEARDOWN AND VERIFICATION -- ALSO THE CAMPAIGN'S FINAL BENCH STATE
+================================================================================
+Order: swi_b first, then the DUT, then ONE DUT reload, then the shared underlay.
+This is the recipe committed in the queue before the group's first command
+(b0bc177), followed as written, with the one correction noted below.
+
+1. `no service vrrp` on BOTH, and the O-24 discriminator produced side by side
+   in one operation                                    [work/s24-nosvc-u*.log]
+     DUT   (BOOTED with `service vrrp`, from the LEG V6 staged boot config):
+       show running-config | include service
+         service ssh / no service telnet / service http /
+         **no service vrrp** / no service dhcp-server      <- STICKY
+     swi_b (never rebooted; the service only ever applied at runtime):
+         service password-encryption / service ssh / no service telnet /
+         service http / no service dhcp-server             <- NOTHING STICKY
+   ** Same command, same minute, two devices, opposite outcomes. The
+      discriminator is the BOOT, exactly as x960.md 7A.2 / O-24 states. T47201
+      produced the negative half on both devices; this produces both halves from
+      a single operation. **
+
+2. swi_b restored                   [work/s25-restore-u3.log .. s25d-restore-u3.log]
+   🔴 CORRECTION TO THE COMMITTED RECIPE: `no interface vlan10` is REFUSED with
+   `% Removal of interface not allowed`, and cfg.py then abandons the rest of the
+   batch. The SVI does not need removing: `no ip address` already leaves
+   `show running-config interface vlan10` EMPTY, and deleting the VLAN from the
+   database removes what is left. The working order is:
+     no ip route 10.38.22.64/27 10.38.22.34
+     interface vlan10 / no ip address ; interface vlan61 / no ip address
+     interface port1.0.16 / switchport mode access / switchport access vlan 1
+     vlan database / no vlan 10 / no vlan 61
+   (group C's swi_a recipe used `no interface vlanN` successfully, so this is
+   not universal -- gate on the output, do not assume either way.)
+   `python3 tools/rcdiff.py T47201/work/pre-u3.log work/final-u3.log` -> **EMPTY**
+
+3. DUT restored by configuration                       [work/s26-restore-u2.log]
+     interface vlan61 / no ip address
+     interface port1.0.16 / switchport mode access / switchport access vlan 1
+     vlan database / no vlan 61
+     interface port1.0.2 / no shutdown ; interface port1.0.14 / no shutdown
+     no spanning-tree priority
+   `rcdiff` against the pre-group capture at this point         [work/preboot-u2.log]
+   printed EXACTLY ONE difference, the predicted one:
+     +no service vrrp
+   -- everything else came back by configuration; only the sticky line needed a
+   reload. That is the cleanest statement of O-24 this campaign has produced.
+
+4. ONE reload onto flash:/default.cfg                  [work/s27-reload2-u2.log]
+   `login:` after **62 s**. Afterwards:
+     show running-config | include service
+       service ssh / no service telnet / service http / no service dhcp-server
+   ** the sticky line is gone. **                       [work/s28-underlay-u2.log]
+
+5. The shared B/C/D underlay re-applied (the reload loses it -- it lives in
+   running-config only)                                [work/s28-underlay-u2.log]
+     vlan database / vlan 10 name ckUNDERLAY-eth3 / vlan 48 name ckUNDERLAY-eth4
+     interface port1.0.10 / switchport access vlan 10
+     interface port1.0.48 / switchport access vlan 48
+     interface vlan10 / ip address 10.38.22.34/27
+     interface vlan48 / ip address 10.38.22.66/27
+
+6. STP back at the campaign baseline, re-measured       [work/final-u2.log]
+     Root Id 8000:0000cd423029   (swi_b is root again)
+     port1.0.2  Rootport   Forwarding      port1.0.4  Alternate Discarding
+     port1.0.14 Alternate  Discarding      port1.0.16 Alternate Discarding
+     port1.0.10 Designated Forwarding      port1.0.48 Designated Forwarding
+   -- identical to the group-D gate reading. NEW-RISK-8 is live again for
+   whoever comes next, which is the state the bench started in.
+   Boot baseline: flash:/x960-tb277.rel + flash:/default.cfg, autoboot disabled,
+   and `dir flash:/*.cfg` holds only default.cfg.
+
+7. Final probe: **exit 0**, no advisories, capture
+   `bench-setup/tb277/captures/2026-10-16T062418Z`, all six inter-switch links
+   and both host-NIC links present. One note it prints and this log must carry:
+     /dev/u2: lldp run was OFF -> switched on, and left on
+   The reload cleared `lldp run` (it is not in flash:/default.cfg) and the probe
+   put it back, which is how the pre-group state had it -- the same sequence
+   group C recorded. It is why the DUT's final diff is empty.
+
+8. FINAL TEARDOWN DIFF, gated on the OUTPUT (rcdiff.py exits 0 regardless):
+     python3 tools/rcdiff.py T47201/work/pre-u2.log  work/final2-u2.log  -> EMPTY
+     python3 tools/rcdiff.py T47201/work/pre-u3.log  work/final-u3.log   -> EMPTY
+     python3 tools/rcdiff.py T47201/work/pre-u5.log  work/final-u5.log   -> EMPTY
+   ** All three devices are byte-identical to the state group D inherited. **
+   swi_a was never configured, never reloaded and never power-cycled by group D;
+   its empty diff confirms that rather than asserting it.
+
+9. THE BENCH FORWARDS -- measured, not asserted  [cap V8-final-sanity-eth3/-eth4]
+     ICMP eth3 10.38.22.33 -> 10.38.22.65 : 5 sent, **5 arrived at eth4, ttl=63**
+     ICMP eth3 -> 10.38.22.34 (the DUT)   : 5 sent, 5 echo replies
+     UDP to the virtual MAC 00:00:5e:00:01:0a : 5 sent, **0 arrived**
+   The last line is the point: the underlay works AND nothing of this case's
+   configuration survives anywhere on the bench.
+
+THE .cfg CAPTURE -- SAID PLAINLY
+  The per-device `.cfg` files must hold the configuration after the case's setup
+  and before its first step. The capture was taken after the failover and
+  reboot-persistence limbs, with the configuration first returned to exactly the
+  setup state (`no circuit-failover`, `transition-mode false`, no
+  `alternate-checksum-mode`) and with `show vrrp brief` confirming DUT = Master
+  prio 150 and swi_b = Backup prio 100 at the moment of capture
+  [work/setupcfg-u2.log, work/setupcfg-u3.log]. Each `.cfg` header line 2 says
+  so. swi_b.cfg carries no `priority 100` line because 100 is the default and
+  AW+ does not render defaults.
+
+FILES SAVED
+  swi_d.cfg, swi_b.cfg                    (deliverables, 138 and 132 config lines)
+  work/run1.log                           (this file)
+  work/pre-u2.log, pre-u3.log             (copies of the group-D restore targets)
+  work/final2-u2.log, final-u3.log, final-u5.log   (the final captures)
+  work/preboot-u2.log                     (the O-24 single-difference capture)
+  work/setupcfg-u2.log, setupcfg-u3.log   (the .cfg sources)
+  work/s0..s28-*.log                      (every console transcript, in order)
+  box-side pcaps: /tmp/ckt1406d/T47873/V{0,1,2,3,4,5,6,7,8}-*-eth{3,4}.pcap
+                  (18 files, tens of KB each, not committed)
+  box-side console transcripts: /tmp/ckt1406d/console-u2.log, -u3.log, -u5.log
+
+TOOLS USED, with their exact arguments
+  tools/tb {precheck,scratch,probe,peek,ckcon,ckyn,cfg,qmark,ckreload,sudotool,
+            tool} tb277 ...
+  tools/ckcase.py AWPTCM-T47873                 (authored text, quoted verbatim)
+  tools/qmark.py -- five CLI-surface probes, no-CR, self-test passed each time
+  tools/ckreload.py -- two reloads, 60 s and 62 s to `login:`
+  tools/arpleg.py -- nine counted legs (V0..V8), all of the form
+       --tag <V> --out /tmp/ckt1406d/T47873 --iface eth3 --watch eth4
+       --sender-ip 10.38.22.33 --gw-mac e0:1a:ea:d4:70:43 --arp 10.38.22.36
+       --udp '10.38.22.65:9999%00:00:5e:00:01:0a,
+              10.38.22.65:9998%02:00:00:00:00:99,
+              10.38.22.65:9997%e0:1a:ea:d4:70:43'
+       --count 5 --show-ttl
+  tools/rcdiff.py, tools/rc2cfg.py
+  the DUT's own `tcpdump` at privileged exec, `-e` for the Ethernet header, for
+  every VRRP advertisement claim
+  No framework run: tb277 has no `.setup` (RISK-6).
+
+================================================================================
+FINDINGS
+================================================================================
+F-17 -- see the full section above. The default VRRPv3-for-IPv4 checksum is not
+  the one the device's own tcpdump accepts, `alternate-checksum-mode` makes it
+  accepted, and a pair with MISMATCHED modes produces two masters for one
+  virtual IP, both answering ARP from the same virtual MAC. Same-vendor
+  default-to-default interop is unaffected and was proven so. Wants a developer:
+  it is a spec-conformance question, like F-14.
+
+O-37 -- `circuit-failover` AND `transition-mode` ARE BOTH REFUSED WHILE THE VRRP
+  SESSION IS ENABLED: `% You must disable this session first`. The guide's
+  procedures do not mention the ordering, and a stop-on-error config driver
+  abandons the rest of its batch at that line. The working order is
+  `disable` -> the command -> `enable`. Same family as O-13 (a trigger's
+  `description` before its `type`). `priority`, `virtual-ip` and `preempt-mode`
+  do NOT need it.     [work/s13-cktfail-u2.log, work/s16-transition-u2.log]
+
+O-38 -- THERE IS NO `version` COMMAND, SO "v3" CANNOT BE CONFIGURED OR READ BACK
+  FROM THE CONFIGURATION. `version ?` in `config-router` mode answers
+  `% Unrecognized command`, and the guide upgrades v2 to v3 by changing the
+  software release and rebooting. Three things do establish v3, all of them
+  measured: the advertisement's version field on the wire; the existence of
+  `transition-mode` and `alternate-checksum-mode`; and `Accept mode: TRUE` by
+  default, which the guide attributes specifically to the AW+ VRRPv3
+  implementation. Grading "v3" from a config line is impossible here, and a
+  tester who looks for one will wrongly report the feature missing.
+
+O-39 -- `accept-mode` IS NOT AN IPv4 `router vrrp` COMMAND on this platform,
+  although `show vrrp` reports `Accept mode: TRUE`. The 14-command router-vrrp
+  list is advertisement-interval, alternate-checksum-mode, circuit-failover,
+  disable, do, enable, exit, help, no, preempt-mode, priority, show,
+  transition-mode, virtual-ip. Accept mode is on, documented as the VRRPv3
+  default, and not configurable for IPv4. Likewise `vrrp vmac` is a GLOBAL
+  command, not a router-mode one, and VMAC is already enabled by default
+  (`show vrrp` -> `VMAC enabled`).
+
+O-40 -- `no interface vlanN` CAN BE REFUSED WITH `% Removal of interface not
+  allowed` once the SVI has no address and no member ports -- there is then
+  nothing to remove, and deleting the VLAN from the database finishes the job.
+  It succeeded on swi_a for group C and was refused on swi_b here, so a restore
+  recipe must gate on the output rather than assume either behaviour. cfg.py
+  stops at the `% ` and abandons the rest of the batch, which is how a teardown
+  silently half-completes.
+
+CONFIRMED, NOT NEW
+  - x960.md 7A.1: `service vrrp` sent alone on each device; no rejection.
+  - x960.md 7A.2 / O-24: both halves produced by ONE operation (teardown step 1).
+  - x960.md 7B.8: `port1.0.48` read `Designated Discarding` on the first
+    post-reload STP read and Forwarding on the second. The LEG V6 far-side count
+    would have read as a persistence failure if measured in that window.
+  - x960.md 6.5 (all SVIs share one MAC) is exactly why the virtual MAC is the
+    only distinguishable address on this segment, and the V1 three-way ARP leg
+    shows all three addresses side by side.
+  - x960.md 7.9: reloads to `login:` at 60 s and 62 s, inside the 60-68 s range.
+  - the staged-boot-config persistence recipe worked cleanly again, and
+    startup-config and flash:/default.cfg were never written.
+
+AUTHORED CLAIMS, ANSWERED
+  (1) "configure a basic VRRP per the FOG document" -- done, and every default
+      the guide states (priority 100, preempt true, master-down ~3x the
+      interval, the master answering ARP with the virtual MAC, accept mode on
+      for v3, INIT on interface down) was checked against the device.    PASS
+  (2) "end device(s) can be reached when either the master or the backup router
+      loses connection" -- BOTH halves measured in the dataplane with a control
+      at zero and an instrument control at 5/5: backup down, 5/5 at ttl 63
+      (LEG V3); master's monitored circuit down, 5/5 at ttl 62 through the new
+      master (LEG V4).                                                   PASS
+  (3) "role transitioning works correctly ... no unexpected errors, crashes" --
+      Master -> Backup -> Master measured end to end, each transition confirmed
+      on both devices and in the dataplane by the TTL. Neither device logged an
+      error or restarted; both answered every console command throughout; the
+      post-run probe is exit 0 with no advisories.                       PASS
+      (The one anomalous state seen, the split master, was DELIBERATELY induced
+      by a mismatched `alternate-checksum-mode` and is written up as F-17; it is
+      not a spontaneous fault and it did not occur in any default-mode leg.)
+
+VERDICT: PASS -- all three authored claims pass, graded on the wire. VRRPv3 read
+off the advertisement's own version field with the virtual MAC 00:00:5e:00:01:0a
+as the Ethernet source; the ARP reply for the virtual IP carries that MAC and the
+same capture proves it is neither router's real address; the role transition
+measured in the dataplane as TTL 63 -> 62 -> 63 on the virtual-MAC flow while the
+instrument flow stayed at 63 and an unowned-MAC control stayed at 0; transition
+mode produced paired v2 and v3 advertisements 26 us apart; the whole thing
+survived a cold boot and was proven gone again after removal. Produced F-17 and
+O-37..O-40. All three devices restored byte-identical, verified.

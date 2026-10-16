@@ -175,7 +175,7 @@ the relevant guide **and** the TPS support matrix before drafting steps
 | A | T43870 IPv4_SNMP - SNMPv3 | snmp-2026-10-16T1406 | **DONE -- PASS** (14:33-14:53) | 🟢 Instrument confirmed: net-snmp 5.7.3 (`snmpwalk/snmpget/snmpset/snmptrap`, `snmptrapd`) + `python3-pysnmp4`, all on the box — **no helper needs writing**. `snmp-server view/group/user/host` all present on the DUT. **ck.db `zephyr_cases` holds a full 9-step authored procedure with exact OIDs** (see Triage result). DUT + host eth3 only. Cheapest and least topology-hungry: run it FIRST to prove the bench and the instrument before the expensive groups. SNMPv3 = USM users, auth/priv, engine ID, views. No SNMP helper exists in `tools/` — one will be needed (`snmpwalk`/`snmpget` on the box, or a scapy/pysnmp helper) |
 | B | T44181 Ping Polling · T44378 UDP Broadcast Helper · T44182 Directed Broadcast Forwarding | ipv4svc-2026-10-16T1406 | **DONE -- 3/3 PASS** (15:04-16:12) | 🟢 `ping-poll <1-100>`, `ip forward-protocol udp`, `ip helper-address`, `ip directed-broadcast [acl]` all confirmed present. T44181 has **11 authored steps**; the other two have none (design from the IP Feature Overview Guide, which we hold). No partner and no STP work needed. DUT + BOTH host NICs; two L3 segments (eth3/vlan10, eth4/vlan48). **Builds the shared L3 underlay** that groups C and D then inherit (STANDING-ORDERS §6: set once per TestSet) |
 | C | T43863 PIM-SM · T43864 PIM-DM · T43865 PIM-SSM · T43866 MulticastRouting VRF-Lite | mcast-2026-10-16T1406 | **DONE -- 4/4 PASS** (16:10-18:05) — partner was **swi_a** (swi_b licence-refuses `service pim` AND `service pdm`, O-20); all three devices restored byte-identical, verified | 🟢 DUT holds `PIM/PIM-100/PIM-1024/PIM6` + `VRF-LITE-FULL`; `service pim`/`service pdm`/`service pim6` all exist; `ip multicast-routing [vrf]`, `ip pim ssm {default|range}`, `ip pim vrf`, `show ip mroute vrf` all present. **A TWO-ROUTER topology IS achievable** despite both NICs being on the DUT — trunk eth4's VLAN to the partner and give the partner the SVI (see Triage result). **FIRST ACTION: `service pim` on swi_b, alone, wait 10 s** — swi_b's Base licence lacks the `PIM` bit, so if it refuses, fall back to swi_a (has `PIM`, RISK-1 care) or single-router. **T43865 needs `tools/igmp.py` extended to IGMPv3** (SSM is defined by the (S,G) join; current tool is v2-only). Needs the NEW-RISK-8 STP remedy. Carry **F-9** into T43866. The big group. Needs `ip multicast-routing` + the PIM service gate, a source on one host NIC and a real IGMP receiver on the other. **Check the licence and the `service ?` surface for pim/pdm BEFORE grading anything UNSUPPORTED.** T43866 is multicast *inside a VRF* — different from the unicast VRF-Lite case already passed (T43859) |
-| D | T47201 IPv4_BFD - With RIP v1/v2 · T47873 VRRP(v3) | bfd-vrrp-2026-10-16T1406 | **RUNNABLE** (triaged 14:24) | 🟠 **T47201 expect UNSUPPORTED, and that is the finding**: BFD is present and NOT licence-gated on all three units, but AW+ has **no RIP↔BFD binding** — `bfd all-interfaces` is OSPF-only, and the DUT's `ip rip ?` offers no `bfd`. Rule the service gate out, quote the refusals, and pair with a working `bfd peer` session so the verdict is "BFD works, no RIP binding". 🟢 **T47873 runnable**: `VRRP` is in swi_b's Base licence so it is a legitimate peer; `service vrrp` is the gate. AW+ has **no `version {2|3}` command** — grade v3 from the advertisement's version field on the wire; `transition-mode`/`alternate-checksum-mode` prove VRRPv3-for-IPv4 exists. Needs the NEW-RISK-8 STP remedy. Both need a partner and the shared underlay. BFD needs `service bfd` + RIP on both ends; swi_b has the `RIP` licence. VRRP(v3) needs DUT and swi_b on one shared VLAN with a host as the client, and is graded on the virtual MAC on the wire |
+| D | T47201 IPv4_BFD - With RIP v1/v2 · T47873 VRRP(v3) | bfd-vrrp-2026-10-16T1406 | **DONE -- T47201 UNSUPPORTED (the finding), T47873 PASS** (17:49-19:33) -- all three devices restored byte-identical, verified; the bench measured FORWARDING at hand-back | 🟠 **T47201 expect UNSUPPORTED, and that is the finding**: BFD is present and NOT licence-gated on all three units, but AW+ has **no RIP↔BFD binding** — `bfd all-interfaces` is OSPF-only, and the DUT's `ip rip ?` offers no `bfd`. Rule the service gate out, quote the refusals, and pair with a working `bfd peer` session so the verdict is "BFD works, no RIP binding". 🟢 **T47873 runnable**: `VRRP` is in swi_b's Base licence so it is a legitimate peer; `service vrrp` is the gate. AW+ has **no `version {2|3}` command** — grade v3 from the advertisement's version field on the wire; `transition-mode`/`alternate-checksum-mode` prove VRRPv3-for-IPv4 exists. Needs the NEW-RISK-8 STP remedy. Both need a partner and the shared underlay. BFD needs `service bfd` + RIP on both ends; swi_b has the `RIP` licence. VRRP(v3) needs DUT and swi_b on one shared VLAN with a host as the client, and is graded on the virtual MAC on the wire |
 
 **Group order is deliberate.** A is a single cheap case that proves console, instrument and
 bench before anything expensive. B builds the **one** L3 underlay; C and D inherit it and layer
@@ -1050,6 +1050,69 @@ Baseline to return to on the DUT: `Current boot config: flash:/default.cfg`,
 `dir flash:/*.cfg` holding **only** `default.cfg`.
 
 
+### 🟢 What group D leaves — THE CAMPAIGN'S FINAL BENCH STATE, MEASURED 2026-10-16 19:33 NZDT (06:33 UTC)
+
+Group D was the last group, so this is the campaign's hand-back. Every line is a
+measurement, not an assertion.
+
+**All three devices are byte-identical to their pre-group state.** `tools/rcdiff.py` against
+each device's group-D pre-capture prints **nothing** for all three (gated on the OUTPUT, not
+the exit code):
+
+| device | pre-group capture | final capture | diff |
+| --- | --- | --- | --- |
+| swi_d (DUT) | `T47201/work/pre-u2.log` | `T47873/work/final2-u2.log` | **empty** |
+| swi_b | `T47201/work/pre-u3.log` | `T47873/work/final-u3.log` | **empty** |
+| swi_a | `T47201/work/pre-u5.log` | `T47873/work/final-u5.log` | **empty** |
+
+Those pre-group captures were themselves verified byte-identical to group C's final captures
+before group D sent its first command, so the chain from group B's underlay to here is unbroken.
+
+- **The shared B/C/D underlay is present and FORWARDING.** `vlan 10` (`port1.0.10`, host `eth3`)
+  SVI **`10.38.22.34/27`**, `vlan 48` (`port1.0.48`, host `eth4`) SVI **`10.38.22.66/27`**. A
+  counted leg at hand-back: ICMP `eth3 10.38.22.33 -> 10.38.22.65` arrives **5 of 5 at eth4 with
+  ttl=63**, the DUT's own SVI answers 5/5, and a frame addressed to the VRRP virtual MAC
+  `00:00:5e:00:01:0a` arrives **0 of 5** — so the underlay works AND nothing of group D's
+  configuration survives. 🔴 It is in **running-config only**; a reload still loses it.
+- **DUT boot baseline restored and verified**: `Current boot image: flash:/x960-tb277.rel`,
+  `Current boot config: flash:/default.cfg`, `Autoboot status: disabled`, and `dir flash:/*.cfg`
+  holds **only** `default.cfg` (the staged `ckT47873.cfg` was deleted). startup-config was never
+  written by this group.
+- **The sticky `no service vrrp` line is GONE.** The DUT booted with `service vrrp` during
+  T47873's persistence limb, so `no service vrrp` stuck (O-24) and was cleared by one end-of-group
+  reload onto `flash:/default.cfg`. `show running-config | include service` now reads only
+  `service ssh, no service telnet, service http, no service dhcp-server`. T47201's `service bfd`
+  and `service rip` left **no** residue on either device, because neither device booted with them —
+  the first deliberate check of O-24's negative half.
+- **STP is back at the campaign baseline**, re-measured from the DUT: `Root Id 8000:0000cd423029`
+  (swi_b is root again), `port1.0.2` Rootport Forwarding, `port1.0.4` / `port1.0.14` /
+  `port1.0.16` Alternate Discarding, `port1.0.10` and `port1.0.48` Designated Forwarding.
+  `spanning-tree priority 0` is removed and `port1.0.2` / `port1.0.14` are un-shut.
+  ⇒ **NEW-RISK-8 is live again** for whoever comes next; the remedy is in the group-D setup
+  section above and it worked first time on both devices.
+- **swi_a was never touched at all** by group D — not configured, not reloaded, not
+  power-cycled. Its empty diff confirms that rather than asserting it. RISK-1 honoured for the
+  whole campaign.
+- **swi_b was configured and restored by configuration alone** — never reloaded, never
+  power-cycled, and its pre-existing RISK-2 config (`vlan 100`, `sa1`, `port1.0.2`/`port1.0.4`
+  in the static channel group, `eth0 169.254.42.42/16`) is untouched.
+- **All three consoles are logged out at `login:`**, confirmed from the box-side transcripts
+  (`/tmp/ckt1406d/console-u{2,3,5}.log`), not from a tool's stdout.
+- Post-run probe: **exit 0**, no advisories, capture
+  `bench-setup/tb277/captures/2026-10-16T062418Z`, all six inter-switch links and both host-NIC
+  links present. ⚠️ The probe reported `/dev/u2: lldp run was OFF -> switched on, and left on`:
+  the end-of-group reload cleared `lldp run` (it is not in `flash:/default.cfg`) and the probe put
+  it back, which is how the pre-group state had it. That is why the DUT's final diff is empty —
+  the same sequence group C recorded.
+- ⚠️ Left on the box: `/tmp/ckt1406d/` holds this group's console transcripts and ~22 small
+  BPF-filtered pcaps (tens of KB each). `tools/tb` has no delete action by design (Ask-CK D6 /
+  STANDING-ORDERS §4), so they were not removed; `/tmp` is tmpfs and clears on a box reboot. The
+  other user's 1.8 GB is untouched.
+- Two non-ours items were present on the box throughout and were never touched: `ser2net` pid 744
+  and the Test Engineer's own `minicom -D /dev/ttyUSB1` pid 10790 (console u1, outside this
+  session's list).
+
+
 ## Results
 
 | case | verdict | reason | graded by | working log |
@@ -1062,6 +1125,8 @@ Baseline to return to on the DUT: `Current boot config: flash:/default.cfg`,
 | T43865 | **PASS** | All THREE authored steps pass, including step 1's "Check IGMP Host Joined the correct multicast source" -- measurable only because `tools/igmp.py` gained an IGMPv3 source-list mode for this case. The defining SSM property proven on the wire: the joined channel forwards 9-10/10 while the SAME group from a DIFFERENT source is 0/10 in the same leg, discriminated at layer 3 with both flows sharing one link-layer address. IGMPv2 (*,G) on the SSM range rejected; table state pure SSM (zero (*,G), one (S,G), SPT bit 1, no RP configured at all); prune on leave clears both tables; interface down/up correct with the two readings distinguished (O-28); source filtering still enforced after a cold boot. Teardown diff EMPTY on BOTH devices. Produced F-14, O-27, O-28. Two authored read-backs do not exist (`show ip pim spare-mode mroute` is a typo, `show ip igmp group` is `groups`) and the substitutions are declared. | tester | mcast-2026-10-16T1406/T43865/work/run1.log |
 | T43866 | **PASS** | **No authored step text exists** -- designed from the VRF-Lite guide C613-22142-00 REV B and x960.md 7B, and said so in the log. DUT-local by a declared scope decision (swi_b has no VRF licence; swi_a is under RISK-1). Multicast routing proven genuinely per-VRF and independent of the global table, which stayed `no ip multicast-routing` throughout; isolation measured source-in-red / receiver-in-blue (0/10 multicast AND 0/10 unicast, on a capture proved live by the DUT's own blue-SVI PIM hello); the A/B closed by moving ONE interface into red and nothing else (0/10 -> 10/10); per-VRF IGMP and mroute tables separate; removal surgical in both dimensions (multicast in red stops while unicast in red keeps working); reboot persistence re-measured in the dataplane. **F-9 answered: its shape does NOT occur in the multicast path.** Produced O-29, O-30. | tester | mcast-2026-10-16T1406/T43866/work/run1.log |
 | T44182 | **PASS** | **No authored step text exists** -- designed from the same guide, p.17. Off by default and dropped; enabled on the DESTINATION subnet's interface the identical frames are forwarded and translated to a link-layer broadcast; enabled on the INGRESS interface it is inert (O-19); the optional standard ACL filters on source and is consulted per packet, proven by INVERTING it; removal and reboot persistence in the dataplane. Teardown diff EMPTY. | tester | ipv4svc-2026-10-16T1406/T44182/work/run1.log |
+| T47201 | **UNSUPPORTED** | **No authored step text exists** (a steps array holding ONE completely empty step) -- designed from the title, the RIP guide and the DUT's CLI surface, and said so. AW+ has no RIP-to-BFD binding: the complete 24-command router-rip list, `ip rip ?`, `bfd ?` in interface AND router-rip mode and `neighbor <a> ?` all lack `bfd`, with bfdd AND ripd running, against `ip ospf ?` -> `bfd` on the SAME interface, and the RIP guide's 0 hits for "bfd" in 1045 lines. BFD itself WORKS: a `bfd peer` session on vlan61, on the wire at UDP/3784 TTL 255, detected a silent neighbour failure in ~1.4 s (v2) / ~1.1 s (v1) with `control detection time expired`, while RIP held the dead prefix as "best" for ~171.6 s and a counted leg read 0/5 with its instrument control at 5/5. v1 vs v2 read off the wire. Produced F-15, O-31..O-36. | tester | bfd-vrrp-2026-10-16T1406/T47201/work/run1.log |
+| T47873 | **PASS** | Authored step text EXISTS and is quoted verbatim; all three of its claims pass, graded on the wire. VRRPv3 read off the advertisement's own version field, Ethernet source = the virtual MAC `00:00:5e:00:01:0a`; the ARP reply for the virtual IP carries that MAC and the same capture proves it is neither router's real address (which matters because all DUT SVIs share one). Role transition measured in the DATAPLANE as TTL 63 -> 62 -> 63 on the virtual-MAC flow while an instrument flow stayed at 63 and an unowned-MAC control stayed at 0, driven by VRRP's own `circuit-failover`; backup-down and master-down both 5/5. `transition-mode true` produced paired v2+v3 advertisements 26 us apart. Survived a cold boot in the dataplane; removal returned it to the measured baseline. Produced F-17 and O-37..O-40. | tester | bfd-vrrp-2026-10-16T1406/T47873/work/run1.log |
 | T47201 | **UNSUPPORTED** | **No authored step text exists** (the steps array holds one completely empty step) -- designed and declared in the log. AW+ has **no RIP-to-BFD binding** on this platform: five CLI probes with both daemons running (`bfd ?` global = echo/peer/profile only; `bfd ?` in config-router = `% Unrecognized command`; the full 24-command `router rip` surface has no bfd; `ip rip ?`; `version ?` = `<1-2>`), the RIP Feature Overview guide 0 hits for "bfd", and an `ip ospf bfd` contrast ACCEPTED on the SAME interface. BFD itself works: a `bfd peer` session over vlan61 ran on the wire at 300 ms and detected a silent neighbour failure in ~1.4 s (RIPv2) and ~1.1 s (RIPv1) with `Diagnostics: control detection time expired`, while RIP kept the dead prefix in the FIB marked **best** for ~171.6 s and the dataplane measured 0/5 with its in-leg instrument control at 5/5. Version-independent. Teardown diff EMPTY on both devices. | tester | bfd-vrrp-2026-10-16T1406/T47201/work/run1.log |
 
 ## Issues
@@ -1119,6 +1184,134 @@ Baseline to return to on the DUT: `Current boot config: flash:/default.cfg`,
     same mechanism — watch for it there.**
   - **F-7**: `show running-config` disagrees with the saved file and the wire about
     `bgp graceful-restart`.
+
+### New from group D (T47201, T47873, 2026-10-16). Next free numbers were F-15 and O-31.
+
+**Two findings worth a developer's eye, and ten observations. Both cases also confirmed
+O-24's discriminator (the BOOT, not the daemon) — T47873's teardown produced BOTH halves from
+a single `no service vrrp` sent to two devices in the same minute.**
+
+- **🔴 F-15 (T47201) — THERE IS NO RIP-to-BFD BINDING ON AW+, while BFD itself is fully
+  functional on the same link between the same two devices.** This is the case's own result and
+  the reason its verdict is UNSUPPORTED rather than FAIL. Proven five ways with **both daemons
+  running** (`bfdd` pid 4391, `ripd` pid 4416), so it is neither the service gate nor a licence:
+  the complete 24-command `config-router` list for RIP has no `bfd`; `ip rip ?` offers six
+  completions and none is `bfd`; `bfd ?` answers `% Unrecognized command` in **both** interface
+  and router-rip mode; `neighbor <addr> ?` offers only `<cr>`. The contrast is on the SAME
+  interface in the same minute: `ip ospf ?` → `bfd  Bidirectional Forwarding Detection (BFD)`.
+  And the product's own RIP Feature Overview Guide contains **zero** occurrences of "bfd" in
+  1045 lines of extracted text.
+  **The operational consequence, measured end to end** on a silent neighbour failure (far-end
+  SVI shut, link and local SVI still up): BFD detected it in **~1.4 s** with
+  `Diagnostics: control detection time expired`, RIP removed the route **~171.6 s** later, and
+  in between a counted dataplane leg read **0/5** on both subjects with its in-leg instrument
+  control at **5/5** while `show ip route 192.168.70.1` called the dead prefix
+  `Known via "rip", distance 120, metric 2, best`. Reproduced under RIP v1 (~1.1 s). Evidence:
+  `T47201/work/s2*-qmark-*.log`, `s8-poll-u2.log`, `s11b-blackhole-state-u2.log`.
+- **🔴 F-17 (T47873) — the DEFAULT VRRPv3-for-IPv4 advertisement checksum is not the one the
+  device's OWN bundled `tcpdump` accepts, and a pair with MISMATCHED checksum modes produces
+  TWO MASTERS for one virtual IP.** The A/B is one capture, one decoder, one window, with
+  `alternate-checksum-mode` set on the DUT only: `10.38.22.34` (alternate) decodes with **no**
+  checksum complaint, `10.38.22.35` (default) decodes `(bad vrrp cksum 4a46)`. Confirmed a third
+  way by the transition-mode capture, where the same daemon's **v2** frame validates clean and
+  its **v3** frame 26 µs later does not. With the modes mismatched swi_b stopped accepting the
+  DUT's advertisements and took over **at priority 100 against the DUT's 150** — both routers
+  then advertising for vrid 10 from the same virtual MAC, and **ten** ARP replies to five
+  requests for the virtual IP.
+  **Bounded by two measured controls, so it is not over-claimed:** default-to-default is FINE
+  (swi_b stayed Backup *and* reported `Master address: 10.38.22.34`, which it can only learn by
+  accepting the frames), and alternate-to-alternate is also fine (the pair re-converged
+  immediately). **It is the mismatch that breaks the pair, not either mode.**
+  **NOT ESTABLISHED, and must not be read in:** which mode is the RFC 5798 §5.2.8-conformant one.
+  That rests on the validator being correct, which was not independently verified. The
+  assumption-free statement is that **two components of one firmware image disagree about the
+  checksum of its own default VRRPv3 advertisement, and the vendor ships a command that makes
+  them agree.** Whether a third-party conformant VRRPv3 router would reject them is
+  **NOT MEASURED** — the instrument it needs is a third-party conformant peer and this bench has
+  none. Operational caution regardless: set `alternate-checksum-mode` on every router in a
+  virtual router or on none; the guide (C613-22049-00 REV E) has **zero** occurrences of
+  "alternate" or "checksum", so it warns of nothing. Evidence:
+  `T47873/work/s8b-altcksum-wire-u2.log`, `s8c-swib-split-u3.log`, `s7b-swib-accepts-u3.log`,
+  `s10b-matched-u3.log`, `s16c-transition-wire-u2.log`.
+- **O-31 (T47201) — `show bfd session` DOES NOT EXIST**; it answers
+  `% Invalid input detected at '^' marker.` The verb is **`show bfd peer`** (also
+  `show bfd peer brief`, `show bfd peer <addr> counters`, `show bfd vrf`). One keystroke away
+  from being read as "BFD is absent".
+- **O-32 (T47201) — the BFD refusal has NO licence clause, and that is information.** Before
+  the service: `% BFD protocol daemon is not running` for BFD, but
+  `% RIP protocol daemon is not running or feature license is not available` for RIP. The
+  missing half of the sentence is how you tell a service-gated-only feature from one that is
+  also licence-gated, without running `show license`.
+- **🔴 O-33 (T47201) — a BFD state change writes NOTHING to the device log.**
+  `show log | include bfd` and `| include BFD` across four measured up/down transitions returned
+  only IMISH command echoes. The ONLY record of when a session failed is the
+  `Uptime:` / `Downtime:` field of `show bfd peer`, at 1-second resolution, and it is lost the
+  moment the session re-establishes. Same family as O-15 (ping polling logs nothing). A
+  deployment that wants an audit trail of BFD failures cannot get one here.
+- **O-34 (T47201) — `no service bfd` silently drops you out of configuration mode.** Reproduced
+  on both devices, twice each: the command is accepted and the prompt goes
+  `awplus(config)#` → `awplus#` with nothing sent in between, so the next command (`end`) fails
+  with `% Invalid input detected at '^' marker.` A stop-on-error driver reads that as a teardown
+  failure and abandons the rest of the batch. **Put `no service bfd` LAST.** Same family as the
+  documented `mls qos enable` / `atmf secure-mode` logout behaviour.
+- **O-35 (T47201) — this build's `tcpdump` mislabels BFD control packets** as
+  `BCM-LI-SHIM: direction unused, pkt-type unknown ... (invalid)`. The frames are correct BFD
+  (UDP/3784, TTL 255, TOS 0xc0, 52 bytes, bidirectional at the negotiated interval); only the
+  dissector is wrong. Do not read "(invalid)" as a malformed packet.
+- **O-36 (T47201) — `ip address <a>/<m> secondary` on a loopback is refused with
+  `% Configure primary first lo`** if `lo` has no primary IPv4 address, **and the two units
+  differed**: the DUT's `lo` needed the address WITHOUT `secondary`, swi_b's needed it WITH. A
+  recipe copied from one unit to the other stops at the `% ` and cfg.py abandons the batch.
+- **🔴 O-37 (T47873) — `circuit-failover` AND `transition-mode` are both REFUSED while the VRRP
+  session is enabled**: `% You must disable this session first`. The guide's procedures do not
+  mention the ordering. The working order is `disable` → the command → `enable`. `priority`,
+  `virtual-ip` and `preempt-mode` do NOT need it. Same family as O-13.
+- **🔴 O-38 (T47873) — there is NO `version` command, so "v3" cannot be configured or read back
+  from the configuration.** `version ?` in `config-router` answers `% Unrecognized command`, and
+  the guide upgrades v2→v3 by changing the software release and rebooting. Three things DO
+  establish v3, all measurable: the advertisement's version field on the wire; the existence of
+  `transition-mode` and `alternate-checksum-mode`; and `Accept mode: TRUE` by default, which the
+  guide attributes specifically to the AW+ VRRPv3 implementation. A tester who looks for a
+  config line will wrongly report the feature missing.
+- **O-39 (T47873) — `accept-mode` is NOT an IPv4 `router vrrp` command** on this platform,
+  although `show vrrp` reports `Accept mode: TRUE`. The 14-command router-vrrp list is
+  `advertisement-interval, alternate-checksum-mode, circuit-failover, disable, do, enable, exit,
+  help, no, preempt-mode, priority, show, transition-mode, virtual-ip`. Likewise `vrrp vmac` is a
+  **global** command, not a router-mode one, and VMAC is already enabled by default
+  (`show vrrp` → `VMAC enabled`). Both correct the command set the dispatch expected.
+- **O-40 (T47873) — `no interface vlanN` can be REFUSED with `% Removal of interface not
+  allowed`** once the SVI has no address and no member ports — there is then nothing to remove,
+  and deleting the VLAN from the database finishes the job. It SUCCEEDED on swi_a for group C and
+  was refused on swi_b here, so a restore recipe must gate on the output rather than assume
+  either behaviour; cfg.py stops at the `% ` and a teardown silently half-completes. The
+  group-D restore recipe in this file carries the correction.
+
+**🟢 Generic tooling extended, with `tools/README.md` entries (committed with T47201):**
+- **`tools/arpleg.py --udp DST[:PORT][@SRC]%L2DST`** — a **per-spec Ethernet destination**.
+  `--l2-dst` applies to every `--udp` spec and therefore cannot carry a subject and a control
+  that differ only in their link-layer address, which is exactly what a first-hop-redundancy
+  case needs: one flow to the VRRP virtual MAC and, in the same capture, a control flow to a MAC
+  nobody owns.
+- **`tools/arpleg.py --show-ttl`** — appends the received IPv4 TTL to each flow in the report.
+  The TTL is the only field on the wire that says **how many routers forwarded** a frame, so
+  when two routers share one virtual MAC the hop count is what attributes a forwarded frame to
+  one of them. It is what graded T47873's role transition (63 → 62 → 63). Off by default.
+Both were self-tested inside a real leg with a known-good instrument control before being used
+for a verdict.
+
+**🟢 Method notes worth reusing:**
+- **The VRRP Feature Overview and Configuration Guide (C613-22049-00 REV E) is now in the repo**
+  at `Feature Overview Guides/`, fetched from the URL the authored step text names. The step text
+  of T47873 is one of the few in this campaign that exists, and it names its own authority.
+- **`ckcase.py` again earned its place**: T47873 had full authored text; T47201's `steps` array
+  held ONE completely empty step, which is a real answer and is declared in the log.
+- **A monitored-circuit failure (`circuit-failover <if> <delta>`) is a better failover stimulus
+  than a priority edit** — it is VRRP's own mechanism, and choosing a monitored interface that is
+  NOT on the measurement path (here `vlan61`) means the stimulus does not also destroy the
+  instrument.
+- **Reloads to `login:` measured at 60 s and 62 s**, inside the 60-68 s range x960.md §7.9 gives.
+  §7B.8 bit again: `port1.0.48` read `Designated Discarding` on the first post-reload STP read
+  and Forwarding on the second. The persistence leg would have read as a failure in that window.
 
 ### New from group C (2026-10-16). Next free numbers were F-13 and O-20.
 
