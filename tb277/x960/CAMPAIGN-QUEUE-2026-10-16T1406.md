@@ -229,6 +229,18 @@ with the runnable cases automatically instead of asking.
 
 - **NOTICE (campaign) — session facts not re-confirmed.** See the UNATTENDED block above.
 - **NOTICE (campaign) — the multi-hour / tmux question was not asked.** See above.
+- **NOTICE (campaign) — the §3 occupancy check returned FOUND (exit 5) and was NOT escalated.**
+  Run 2026-10-16 14:09 NZDT. **All three of this session's consoles are free** (u2/ttyUSB2,
+  u3/ttyUSB3, u5/ttyUSB5). The two FOUND items are outside this session's console list and
+  neither is touched:
+  - `process 744 (root, up 35-02:54:05): /usr/sbin/ser2net` — the box's own serial daemon,
+    infrastructure, not a holder of any of our consoles;
+  - **`process 10790 (root for bidhanc, up 03:18:05): minicom -D /dev/ttyUSB1`** — a minicom on
+    **u1**, which this session does not use. It is the Test Engineer's own session, left open.
+    **Not displaced, not touched.**
+  `/test-mode` §3 would normally stop and hand this back; under the unattended rule it is a
+  notice and the campaign proceeds. **If u1 was meant to be part of this campaign, say so and it
+  will be re-triaged** — nothing has been run against it.
 - **🔴 CARRIED, STILL OPEN FOR THE TEST ENGINEER** (none blocked a case on 2026-10-15, and none
   is expected to block one here):
   - an unrecorded device `10.38.22.41` / `00:0c:25:2a:a5:53` is live on the box's eth3 segment,
