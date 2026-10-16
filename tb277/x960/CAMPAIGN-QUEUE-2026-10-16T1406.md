@@ -173,7 +173,7 @@ the relevant guide **and** the TPS support matrix before drafting steps
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
 | A | T43870 IPv4_SNMP - SNMPv3 | snmp-2026-10-16T1406 | **DONE -- PASS** (14:33-14:53) | 🟢 Instrument confirmed: net-snmp 5.7.3 (`snmpwalk/snmpget/snmpset/snmptrap`, `snmptrapd`) + `python3-pysnmp4`, all on the box — **no helper needs writing**. `snmp-server view/group/user/host` all present on the DUT. **ck.db `zephyr_cases` holds a full 9-step authored procedure with exact OIDs** (see Triage result). DUT + host eth3 only. Cheapest and least topology-hungry: run it FIRST to prove the bench and the instrument before the expensive groups. SNMPv3 = USM users, auth/priv, engine ID, views. No SNMP helper exists in `tools/` — one will be needed (`snmpwalk`/`snmpget` on the box, or a scapy/pysnmp helper) |
-| B | T44181 Ping Polling · T44378 UDP Broadcast Helper · T44182 Directed Broadcast Forwarding | ipv4svc-2026-10-16T1406 | **RUNNABLE** (triaged 14:24) | 🟢 `ping-poll <1-100>`, `ip forward-protocol udp`, `ip helper-address`, `ip directed-broadcast [acl]` all confirmed present. T44181 has **11 authored steps**; the other two have none (design from the IP Feature Overview Guide, which we hold). No partner and no STP work needed. DUT + BOTH host NICs; two L3 segments (eth3/vlan10, eth4/vlan48). **Builds the shared L3 underlay** that groups C and D then inherit (STANDING-ORDERS §6: set once per TestSet) |
+| B | T44181 Ping Polling · T44378 UDP Broadcast Helper · T44182 Directed Broadcast Forwarding | ipv4svc-2026-10-16T1406 | **IN PROGRESS** (started 15:04; gate clean, underlay recorded 15:10) | 🟢 `ping-poll <1-100>`, `ip forward-protocol udp`, `ip helper-address`, `ip directed-broadcast [acl]` all confirmed present. T44181 has **11 authored steps**; the other two have none (design from the IP Feature Overview Guide, which we hold). No partner and no STP work needed. DUT + BOTH host NICs; two L3 segments (eth3/vlan10, eth4/vlan48). **Builds the shared L3 underlay** that groups C and D then inherit (STANDING-ORDERS §6: set once per TestSet) |
 | C | T43863 PIM-SM · T43864 PIM-DM · T43865 PIM-SSM · T43866 MulticastRouting VRF-Lite | mcast-2026-10-16T1406 | **RUNNABLE** (triaged 14:24) | 🟢 DUT holds `PIM/PIM-100/PIM-1024/PIM6` + `VRF-LITE-FULL`; `service pim`/`service pdm`/`service pim6` all exist; `ip multicast-routing [vrf]`, `ip pim ssm {default|range}`, `ip pim vrf`, `show ip mroute vrf` all present. **A TWO-ROUTER topology IS achievable** despite both NICs being on the DUT — trunk eth4's VLAN to the partner and give the partner the SVI (see Triage result). **FIRST ACTION: `service pim` on swi_b, alone, wait 10 s** — swi_b's Base licence lacks the `PIM` bit, so if it refuses, fall back to swi_a (has `PIM`, RISK-1 care) or single-router. **T43865 needs `tools/igmp.py` extended to IGMPv3** (SSM is defined by the (S,G) join; current tool is v2-only). Needs the NEW-RISK-8 STP remedy. Carry **F-9** into T43866. The big group. Needs `ip multicast-routing` + the PIM service gate, a source on one host NIC and a real IGMP receiver on the other. **Check the licence and the `service ?` surface for pim/pdm BEFORE grading anything UNSUPPORTED.** T43866 is multicast *inside a VRF* — different from the unicast VRF-Lite case already passed (T43859) |
 | D | T47201 IPv4_BFD - With RIP v1/v2 · T47873 VRRP(v3) | bfd-vrrp-2026-10-16T1406 | **RUNNABLE** (triaged 14:24) | 🟠 **T47201 expect UNSUPPORTED, and that is the finding**: BFD is present and NOT licence-gated on all three units, but AW+ has **no RIP↔BFD binding** — `bfd all-interfaces` is OSPF-only, and the DUT's `ip rip ?` offers no `bfd`. Rule the service gate out, quote the refusals, and pair with a working `bfd peer` session so the verdict is "BFD works, no RIP binding". 🟢 **T47873 runnable**: `VRRP` is in swi_b's Base licence so it is a legitimate peer; `service vrrp` is the gate. AW+ has **no `version {2|3}` command** — grade v3 from the advertisement's version field on the wire; `transition-mode`/`alternate-checksum-mode` prove VRRPv3-for-IPv4 exists. Needs the NEW-RISK-8 STP remedy. Both need a partner and the shared underlay. BFD needs `service bfd` + RIP on both ends; swi_b has the `RIP` licence. VRRP(v3) needs DUT and swi_b on one shared VLAN with a host as the client, and is graded on the virtual MAC on the wire |
 
@@ -297,6 +297,161 @@ when it prints differences — gate on the OUTPUT.** Keep the bare `snmp-server`
 
 **Nothing is written to startup-config.** `flash:/default.cfg` is never overwritten; the
 persistence limb uses a separate file and puts the pointer back.
+
+## Group B/C/D shared L3 underlay and restore
+
+Written by the group-B tester (bench-runner) at **2026-10-16 15:10 NZDT / 02:10 UTC**, **before
+the first configuration command of group B**, so a fresh tester can restore the bench if this
+one dies mid-group. STANDING-ORDERS §6: bench setup is set ONCE per TestSet, not per case.
+
+**Groups C and D inherit this.** Group B takes down only each *case's* own additions at each
+case teardown; **the underlay itself is left UP** at the end of group B.
+
+### Devices touched by the underlay
+
+**swi_d (DUT, /dev/u2 @115200) ONLY.** swi_b and swi_a are not configured, not reloaded and not
+power-cycled by group B. No host-NIC addressing is changed (STANDING-ORDERS §4), and no
+startup-config is written.
+
+**The restore target is the pre-group DUT running-config**, saved before anything was sent, at
+`tb277/x960/ipv4svc-2026-10-16T1406/T44181/work/pre-u2.log` (a `ckcon.py` stdout, usable
+directly with `tools/rcdiff.py`). It is byte-identical in substance to the campaign baseline:
+`vlan1 ip address dhcp`, all 57 ports untagged in vlan1, `spanning-tree mode rstp`,
+`lacp global-passive-mode enable`, `no ip multicast-routing`, boot config `flash:/default.cfg`.
+
+### 🔴 The addressing differs from the shape the dispatch proposed, and here is why
+
+The dispatch proposed `vlan10 192.168.10.1/24` and `vlan48 192.168.48.1/24`. **Measured against
+the hardware, those cannot carry group B**, so they were not used:
+
+- The box's two usable NICs already own `eth3 10.38.22.33/27` and `eth4 10.38.22.65/27`. A DUT
+  SVI in `192.168.10.0/24` shares no subnet with either, so the box's kernel would neither ARP
+  for it nor answer it.
+- **T44181 Ping Polling needs the DUT to ping a REAL responder** — the poll is generated by the
+  DUT's own IP stack, not by scapy, so a crafted source address cannot stand in for the host.
+- **T44378's helper destination must ARP-resolve** on the egress segment for the relayed unicast
+  to leave the DUT at all.
+- Putting the host on `192.168.x` would need `ip addr add` on the box = a root-level host
+  addressing change = **STANDING-ORDERS §4, never done unattended**. Group A hit the same wall
+  and solved it the same way (it substituted `10.38.22.34/27` for the authored `192.168.1.1/24`).
+
+⇒ The underlay uses the box's own two segments. Crafted scapy traffic still uses whatever source
+addresses a case needs; only the DUT's SVI addresses are pinned to the real subnets.
+
+### The underlay, as sent (DUT, /dev/u2)
+
+```
+configure terminal
+ vlan database
+  vlan 10 name ckUNDERLAY-eth3
+  vlan 48 name ckUNDERLAY-eth4
+  exit
+ interface port1.0.10
+  switchport access vlan 10
+ interface port1.0.48
+  switchport access vlan 48
+ interface vlan10
+  ip address 10.38.22.34/27
+ interface vlan48
+  ip address 10.38.22.66/27
+ end
+```
+
+Resulting topology (all three segments measured at 15:06 NZDT, STP roles from
+`show spanning-tree brief`):
+
+| segment | DUT side | host side | STP role of the DUT port |
+| --- | --- | --- | --- |
+| A | `vlan10` = `10.38.22.34/27`, member `port1.0.10` | `eth3 10.38.22.33/27`, MAC `00:0d:b9:55:77:0e` | **Designated Forwarding** |
+| B | `vlan48` = `10.38.22.66/27`, member `port1.0.48` | `eth4 10.38.22.65/27`, MAC `00:0d:b9:55:77:0f` | **Designated Forwarding** |
+
+- Subnet A = `10.38.22.32/27`, broadcast **`10.38.22.63`**. Subnet B = `10.38.22.64/27`,
+  broadcast **`10.38.22.95`**. Those two broadcast addresses are the subjects of T44182.
+- **All DUT SVIs share one MAC, `e0:1a:ea:d4:70:43`** (x960 §6.5) — that is the `--gw-mac` for
+  every crafted leg, and the DUT's bridge id is `8000:e01aead47043`.
+- ⚠️ The carried open issue **`10.38.22.41` / `00:0c:25:2a:a5:53`** lives on the `eth3`
+  segment. It receives every broadcast group B sends on segment A. Every count is attributed by
+  MAC so its traffic is never confused with the DUT's.
+
+### 🟢 What group B did NOT build, and what C and D must add themselves
+
+- **No partner leg.** None of B's three cases needs swi_b or swi_a, so no transit VLAN was
+  created and **NEW-RISK-8 was never triggered**: `port1.0.10` and `port1.0.48` were already
+  Designated Forwarding at 15:06 and stayed so. `port1.0.2` Rootport Forwarding,
+  `port1.0.4` / `port1.0.14` / `port1.0.16` Alternate Discarding — **unchanged from triage**.
+- ⇒ **Group C and group D each own the NEW-RISK-8 remedy** (`spanning-tree priority 0` on the
+  DUT, `shutdown port1.0.14` and `port1.0.2`, then confirm `show spanning-tree brief` BEFORE
+  measuring), plus their own transit VLAN, e.g. `vlan 61` on `port1.0.16` ↔ swi_b `port1.0.16`
+  with `10.0.61.1/30` ↔ `10.0.61.2/30` and swi_b return routes for `10.38.22.32/27` and
+  `10.38.22.64/27` via `10.0.61.1`. **None of that exists yet.**
+- 🔴 **Group C's two-router multicast design conflicts with `vlan48`'s SVI.** Triage's design
+  wants `port1.0.48` in a VLAN for which the **DUT has no SVI**, trunked to the partner which
+  owns the SVI. Group C must therefore remove `interface vlan48` (or move `port1.0.48`) as its
+  own first setup step, and restore it afterwards. `vlan10` is unaffected and is group C's
+  source segment.
+
+### 🔴 Restore recipe — the EXACT sequence (DUT, /dev/u2 @115200)
+
+Run this, in this order, to put the bench back to the campaign baseline. It is the **whole**
+restore: group B changed nothing on swi_b or swi_a, nothing on the host, and nothing in
+startup-config or the boot pointers.
+
+```
+configure terminal
+ interface vlan10
+  no ip address
+ interface vlan48
+  no ip address
+ exit
+ no interface vlan10
+ no interface vlan48
+ interface port1.0.10
+  switchport access vlan 1
+ interface port1.0.48
+  switchport access vlan 1
+ exit
+ vlan database
+  no vlan 10
+  no vlan 48
+  exit
+ end
+```
+
+Then verify with, and only with, a diff against the saved pre-group config:
+
+```
+tools/tb ckcon tb277 <scratch> u2 115200 "show running-config" > /tmp/post.log
+tools/tb tool tb277 <scratch> rcdiff ...   # or locally: python3 tools/rcdiff.py pre-u2.log post.log
+```
+
+⚠️ **`rcdiff.py` prints differences but exits 0** — gate on its OUTPUT, never on its exit code.
+
+**Per-case additions, each removed by that case's own teardown and NOT part of the underlay:**
+
+| case | what it adds on top of the underlay | removed by |
+| --- | --- | --- |
+| T44181 | `ping-poll <n>` instances, two `trigger` instances, two `.scp` scripts in `flash:`, `debug ping-poll` | its own teardown (`no ping-poll`, `no trigger`, `delete` each `.scp` — the `delete` prompt is `(y/n)[n]` and **aborts if unanswered**, so use `ckyn.py`/`cfg.py` `YN:`) |
+| T44378 | `ip forward-protocol udp <port>` (global), `ip helper-address <a>` on `interface vlan10` | its own teardown |
+| T44182 | `ip directed-broadcast [acl]` on `interface vlan48`, one standard `access-list` | its own teardown |
+
+**Reboot-persistence limbs** stage a named boot config (`copy running-config flash:/ck<ID>.cfg`,
+`boot config-file flash:/ck<ID>.cfg`), reload swi_d, re-measure, then put the pointer back to
+`flash:/default.cfg` and `delete` the file. **Baseline to return to: `Current boot config:
+flash:/default.cfg`, `Current boot image: flash:/x960-tb277.rel`, `Autoboot status: disabled`.**
+Re-read `show spanning-tree brief` after every reload before measuring (Discarding ~17-21 s).
+
+### Group B gate results, 2026-10-16 15:04-15:07 NZDT (02:04-02:07 UTC)
+
+| gate | result |
+| --- | --- |
+| §3 occupancy `precheck u2,u3,u5` | **u2, u3, u5 all free.** FOUND (exit 5) = the same two non-ours items as triage: `ser2net` pid 744 and `minicom -D /dev/ttyUSB1` pid 10790 (the Test Engineer's own u1 session). **Neither touched.** Re-sent to the sentinel as a one-line informational `NEEDS TEST ENGINEER:`; not blocked on (unattended rule) |
+| consoles parked mid-state? | **No.** `peek` gave `awplus login:` (u2), `x960-28YSQ login:` (u3), `awplus login:` (u5) — all at the login prompt, nothing in config mode and no root shell |
+| template | **none** — `no deployed tb277.setup`, as expected (RISK-6). All cases manual; no framework, so no preflight and no post-failure PDU cycle |
+| probe `run --consoles u2,u3,u5 --pdu 10.36.230.212 --outlet u2=1,u3=7 --name u2=swi_d,u3=swi_b,u5=swi_a` | **exit 0**, `diff skipped` (no template), **no advisories**. Capture `bench-setup/tb277/captures/2026-10-16T020647Z` |
+| boot baseline (gate 7) | DUT `Current boot image: flash:/x960-tb277.rel (file exists)`, `Current boot config: flash:/default.cfg (file exists)`, `Autoboot status: disabled` |
+| clocks (RISK-5) | DUT `02:06:04 UTC` against box `02:06:13 UTC` — **DUT ~9 s behind the box**, same as triage. swi_b and swi_a were measured in sync at triage 45 min earlier and are not touched by group B |
+| sentinel | `sentinel: parent` (one-session `/test-mode` shape) — nothing to arm |
+| scratch | `/tmp/ckt1406b/` on the box (48 tools). ⚠️ tb277 `/tmp` is still ~95% full with another user's 1.8 GB of captures — **not ours to delete**; every group-B capture is BPF-filtered, under 1 MB, and deleted after it is read |
 
 ## Results
 
