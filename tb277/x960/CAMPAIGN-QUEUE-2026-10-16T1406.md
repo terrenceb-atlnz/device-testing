@@ -172,7 +172,7 @@ the relevant guide **and** the TPS support matrix before drafting steps
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| A | T43870 IPv4_SNMP - SNMPv3 | snmp-2026-10-16T1406 | **RUNNABLE** (triaged 14:24) | 🟢 Instrument confirmed: net-snmp 5.7.3 (`snmpwalk/snmpget/snmpset/snmptrap`, `snmptrapd`) + `python3-pysnmp4`, all on the box — **no helper needs writing**. `snmp-server view/group/user/host` all present on the DUT. **ck.db `zephyr_cases` holds a full 9-step authored procedure with exact OIDs** (see Triage result). DUT + host eth3 only. Cheapest and least topology-hungry: run it FIRST to prove the bench and the instrument before the expensive groups. SNMPv3 = USM users, auth/priv, engine ID, views. No SNMP helper exists in `tools/` — one will be needed (`snmpwalk`/`snmpget` on the box, or a scapy/pysnmp helper) |
+| A | T43870 IPv4_SNMP - SNMPv3 | snmp-2026-10-16T1406 | **DONE -- PASS** (14:33-14:53) | 🟢 Instrument confirmed: net-snmp 5.7.3 (`snmpwalk/snmpget/snmpset/snmptrap`, `snmptrapd`) + `python3-pysnmp4`, all on the box — **no helper needs writing**. `snmp-server view/group/user/host` all present on the DUT. **ck.db `zephyr_cases` holds a full 9-step authored procedure with exact OIDs** (see Triage result). DUT + host eth3 only. Cheapest and least topology-hungry: run it FIRST to prove the bench and the instrument before the expensive groups. SNMPv3 = USM users, auth/priv, engine ID, views. No SNMP helper exists in `tools/` — one will be needed (`snmpwalk`/`snmpget` on the box, or a scapy/pysnmp helper) |
 | B | T44181 Ping Polling · T44378 UDP Broadcast Helper · T44182 Directed Broadcast Forwarding | ipv4svc-2026-10-16T1406 | **RUNNABLE** (triaged 14:24) | 🟢 `ping-poll <1-100>`, `ip forward-protocol udp`, `ip helper-address`, `ip directed-broadcast [acl]` all confirmed present. T44181 has **11 authored steps**; the other two have none (design from the IP Feature Overview Guide, which we hold). No partner and no STP work needed. DUT + BOTH host NICs; two L3 segments (eth3/vlan10, eth4/vlan48). **Builds the shared L3 underlay** that groups C and D then inherit (STANDING-ORDERS §6: set once per TestSet) |
 | C | T43863 PIM-SM · T43864 PIM-DM · T43865 PIM-SSM · T43866 MulticastRouting VRF-Lite | mcast-2026-10-16T1406 | **RUNNABLE** (triaged 14:24) | 🟢 DUT holds `PIM/PIM-100/PIM-1024/PIM6` + `VRF-LITE-FULL`; `service pim`/`service pdm`/`service pim6` all exist; `ip multicast-routing [vrf]`, `ip pim ssm {default|range}`, `ip pim vrf`, `show ip mroute vrf` all present. **A TWO-ROUTER topology IS achievable** despite both NICs being on the DUT — trunk eth4's VLAN to the partner and give the partner the SVI (see Triage result). **FIRST ACTION: `service pim` on swi_b, alone, wait 10 s** — swi_b's Base licence lacks the `PIM` bit, so if it refuses, fall back to swi_a (has `PIM`, RISK-1 care) or single-router. **T43865 needs `tools/igmp.py` extended to IGMPv3** (SSM is defined by the (S,G) join; current tool is v2-only). Needs the NEW-RISK-8 STP remedy. Carry **F-9** into T43866. The big group. Needs `ip multicast-routing` + the PIM service gate, a source on one host NIC and a real IGMP receiver on the other. **Check the licence and the `service ?` surface for pim/pdm BEFORE grading anything UNSUPPORTED.** T43866 is multicast *inside a VRF* — different from the unicast VRF-Lite case already passed (T43859) |
 | D | T47201 IPv4_BFD - With RIP v1/v2 · T47873 VRRP(v3) | bfd-vrrp-2026-10-16T1406 | **RUNNABLE** (triaged 14:24) | 🟠 **T47201 expect UNSUPPORTED, and that is the finding**: BFD is present and NOT licence-gated on all three units, but AW+ has **no RIP↔BFD binding** — `bfd all-interfaces` is OSPF-only, and the DUT's `ip rip ?` offers no `bfd`. Rule the service gate out, quote the refusals, and pair with a working `bfd peer` session so the verdict is "BFD works, no RIP binding". 🟢 **T47873 runnable**: `VRRP` is in swi_b's Base licence so it is a legitimate peer; `service vrrp` is the gate. AW+ has **no `version {2|3}` command** — grade v3 from the advertisement's version field on the wire; `transition-mode`/`alternate-checksum-mode` prove VRRPv3-for-IPv4 exists. Needs the NEW-RISK-8 STP remedy. Both need a partner and the shared underlay. BFD needs `service bfd` + RIP on both ends; swi_b has the `RIP` licence. VRRP(v3) needs DUT and swi_b on one shared VLAN with a host as the client, and is graded on the virtual MAC on the wire |
@@ -242,10 +242,67 @@ the Triage result) and the **group-C partner probe** (`service pim` on swi_b, ~2
   ~17-21 s after `login:` and Forwarding ~15 s later. A leg measured in that window reads as a
   feature failure.
 
+## Group A (snmp-2026-10-16T1406) — bench setup and its EXACT restore recipe
+
+Written **before** the first configuration command (bench-runner, 2026-10-16 14:40 NZDT), so a
+fresh tester can restore the bench if this one dies mid-group.
+
+**Devices touched: swi_d (DUT, /dev/u2 @115200) ONLY.** swi_b and swi_a are not configured, not
+reloaded and not power-cycled by this group. Host side: box `eth3` (10.38.22.33/27,
+`00:0d:b9:55:77:0e`) is the SNMP manager; no host NIC addressing is changed.
+
+**Pre-case DUT running-config is saved at**
+`tb277/x960/snmp-2026-10-16T1406/T43870/work/pre-u2.log` (a `ckcon.py` stdout, usable directly
+with `tools/rcdiff.py`). **That file is the restore target.**
+
+### What this group changes on the DUT
+
+1. `interface vlan1` — the baseline is **`ip address dhcp`** plus
+   `ipv6 enable`, `ipv6 address dhcp`, `ip dhcp-client vendor-identifying-class`,
+   `ip dhcp-client request vendor-identifying-specific`. The case replaces the address with a
+   **static `10.38.22.34/27`** (substituted for the authored `192.168.1.1/24`, so the box's
+   existing `eth3` segment can be the manager without a root-level host addressing change —
+   STANDING-ORDERS §4).
+2. SNMPv3 objects from the authored precondition: `snmp-server view`, `snmp-server group`,
+   `snmp-server user`, `snmp-server host`. The bare `snmp-server` line is **already present at
+   baseline** and must be LEFT IN PLACE.
+3. One named boot config for the persistence limb: `flash:/ck43870.cfg`, with
+   `boot config-file flash:/ck43870.cfg`, then **one reload of swi_d**.
+
+### Restore recipe (run on /dev/u2 @115200, in this order)
+
+```
+configure terminal
+ no snmp-server host 10.38.22.33 version 3 auth TESTtestTESTtestTEST
+ no snmp-server user TESTtestTESTtestTEST ADMINadminADMINadmin
+ no snmp-server group ADMINadminADMINadmin priv read MOSTmostMOSTmostMOST write MOSTmostMOSTmostMOST notify MOSTmostMOSTmostMOST
+ no snmp-server view MOSTmostMOSTmostMOST 1.3.6.1.2.1.1
+ no snmp-server view MOSTmostMOSTmostMOST 1.3.6.1.2.1.1.5
+ no snmp-server view system 1.3.6.1.2.1.1
+ no boot config-file                      <- only if a `boot config-file` line is left behind
+ interface vlan1
+  no ip address 10.38.22.34/27
+  ip address dhcp
+  ipv6 enable
+  ipv6 address dhcp
+  ip dhcp-client vendor-identifying-class
+  ip dhcp-client request vendor-identifying-specific
+ end
+delete flash:/ck43870.cfg                 <- prompts (y/n)[n]; use ckyn.py `YN:`, it ABORTS if unanswered
+```
+
+Then confirm `show boot` reads `Current boot config: flash:/default.cfg` and
+`tools/rcdiff.py work/pre-u2.log work/post-u2.log` prints nothing. **`rcdiff.py` exits 0 even
+when it prints differences — gate on the OUTPUT.** Keep the bare `snmp-server` line.
+
+**Nothing is written to startup-config.** `flash:/default.cfg` is never overwritten; the
+persistence limb uses a separate file and puts the pointer back.
+
 ## Results
 
 | case | verdict | reason | graded by | working log |
 | --- | --- | --- | --- | --- |
+| T43870 | **PASS** | All 9 authored steps passed, plus baseline-off, auth/priv enforcement, on-the-wire encryption with an in-capture plaintext control, removal and reboot persistence. The authored precondition omits the group's read view (O-9) and was run with that one line supplied. Also produced F-12. | tester | snmp-2026-10-16T1406/T43870/work/run1.log |
 
 ## Issues
 
@@ -277,6 +334,55 @@ the Triage result) and the **group-C partner probe** (`service pim` on swi_b, ~2
     same mechanism — watch for it there.**
   - **F-7**: `show running-config` disagrees with the saved file and the wire about
     `bgp graceful-restart`.
+
+### New from group A (T43870, 2026-10-16). Next free numbers were F-12 and O-9.
+
+- **F-12 (T43870) — an SNMPv3 GetNext at a MIB-view boundary gets NO response at all.** RFC 3416
+  §4.2.2 requires the varbind back with `endOfMibView`. Measured on
+  `sin_x96056-20261012-24` with a 5 s timeout and 3 retries, between two in-view GetNexts
+  answered in milliseconds and permitted GETs answered before and after, so it is not slowness
+  or a dead agent. A **GET** of an out-of-view OID is handled correctly (`noSuchObject`); only
+  **GetNext** is silent. ⇒ `snmpwalk` against any view-restricted SNMPv3 user cannot terminate
+  cleanly — it stalls at the view boundary and ends in a client timeout. **Worth a developer's
+  eye.** Evidence: `T43870/work/s6-outofview-getnext.log`.
+- **O-9 (T43870) — the AUTHORED CASE is defective, not the platform.** T43870's precondition
+  configures `snmp-server group ADMINadminADMINadmin priv read MOSTmostMOSTmostMOST …` but the
+  only view it defines is `system`; `MOSTmostMOSTmostMOST` is never created. Applied verbatim,
+  the DUT accepts it silently and then denies **every** read, so authored step 4 FAILS and the
+  case can demonstrate nothing. Supplying the one missing line
+  `snmp-server view MOSTmostMOSTmostMOST 1.3.6.1.2.1.1 included` makes all nine steps behave
+  exactly as authored. Secondary: step 6's OID is typed `1.3.6.1.1.2.1.1.5`, which is not
+  sysName. **Recommended fix to the case:** rename the view in the config block, correct the
+  step-6 OID. Evidence: `T43870/work/s3-legA-verbatim.log`.
+- **O-10 (T43870) — `no snmp-server view <name>` deletes the WHOLE view.** The positive form is
+  per-OID (`snmp-server view NAME OID included|excluded`) but the negation takes only the name;
+  `no snmp-server view NAME OID` is `% Invalid input`. There is no way to withdraw one OID entry
+  from a view. Same shape for `no snmp-server user <name>` and `no snmp-server group <name>`.
+  A teardown that mirrors its setup line-for-line will fail. Evidence: `work/s20-removal.log`
+  (the rejections) and `work/s21-qmark-no.log` (the `?` probe that settled the syntax).
+- **O-11 (T43870) — `show snmp-server user` has no column separator at maximum name length.**
+  20-character names run together: `TESTtestTESTtestTESTADMINadminADMINadminmd5          des`.
+  Cosmetic, but not parseable by whitespace.
+- **O-12 (T43870) — a message that fails DES decryption gets no response.** RFC 3414 §3.2(8)
+  expects `usmStatsDecryptionErrors` and a report PDU. The access outcome is correct (denied)
+  and silence is a common implementation choice, so this is an observation, not a defect. Same
+  silence family as F-12.
+
+- **🟢 RISK-7 CAN BE CLOSED.** `tools/tb` did not work on tb277 because the box's `python3` is
+  3.6 (`bench_probe.py` dies with `TypeError: __init__() got an unexpected keyword argument
+  'capture_output'`). Fixed generically instead of worked around: `tb277` was added to the
+  wrapper's `BOX_PY` map so it selects `python3.8`, exactly as `tb105` already did. **Every gate
+  and every console step of group A then went through `tools/tb`** (Ask-CK decision D6). Groups
+  B, C and D should use it too — no hand-built `SSH_AUTH_SOCK=… ssh` lines are needed on tb277
+  any more.
+- **🟢 Three new generic tools are in `tools/` with README entries**, for groups B-D and future
+  campaigns: `ckcase.py` (authored case text from ck.db `zephyr_cases` in one command),
+  `snmpq.py` (classifying net-snmp wrapper with `--expect` grading), `snmpwire.py`
+  (dependency-free pcap SNMP decoder: ENCRYPTED vs PLAINTEXT `msgData`).
+- **🔴 PLATFORM TRAP for any later SNMP work:** `show snmp-server` reports **SNMPv3
+  Authentication Max Fail 5 / Lockout Time 300 Seconds**. Every credential-failure probe must be
+  **one attempt** (`--retries 0`); a careless `-r 3` locks the user out for five minutes and
+  every later leg then reads as a product failure.
 
 ## Triage result
 

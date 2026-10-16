@@ -25,7 +25,9 @@ The one way a device-testing session reaches a testbox: `tools/tb <action> <box>
   line can never match a rule.
 - **What it does for you:**
   - sets `SSH_AUTH_SOCK` (the keyring agent);
-  - picks the box's Python (tb105: `python3.8`; or set `TB_PY`);
+  - picks the box's Python (tb105 and tb277: `python3.8`, because their `python3` is 3.6 and
+    `bench_probe.py` dies on it with `TypeError: __init__() got an unexpected keyword argument
+    'capture_output'`; or set `TB_PY`);
   - quotes every argument;
   - runs locally when the host IS the box.
 - **Actions** (`tools/tb --help` gives the full list with arguments):
@@ -375,6 +377,27 @@ config with the echoed command, bare prompts, pager remnants, CRs and blank line
 - **Limits:** it reads the ckcon `HH:MM:SS >>> cmd` stdout format only (as `rcdiff.py` does)
 - **Status:** verified 2026-10-08 on tb470, IE520 stack master (u5): T22650 `stk_a.cfg`, 186 config lines
 
+### `ckcase.py`
+Prints a test case's authored text (objective, precondition, steps) from the Ask-CK database.
+Lookup order: `zephyr_cases` keyed on the AWPTCM id exactly as the Test Engineer writes it
+(`AWPTCM-T43870`), then `testlink_cases` joined on `--title` for the legacy `AWP-nnnn` corpus.
+- **Run:** `ckcase.py <KEY> [KEY ...] [--db PATH] [--title TEXT] [--columns] [--raw-steps]`
+- **Where:** a testbox (ck.db is on the lab NFS home; a dev host cannot reach it);
+  **needs:** nothing beyond Python
+- **Imports:** none
+- **Limits:**
+  - It opens the database read-only (`file:...?mode=ro`); never open it read-write while the CK
+    server is running.
+  - `steps` is usually HTML/JSON and is suppressed unless you pass `--raw-steps`; the readable
+    procedure is normally in `precondition` or `steps_text`.
+  - Exit 1 means the key matched nothing -- which is a real answer, not an error.
+- **Why it matters:** memory `ckdb-case-lookup-by-title` says AWPTCM ids are absent from ck.db
+  and that you must join on title. **That is out of date.** `zephyr_cases` (45k rows) is keyed
+  on `AWPTCM-T<id>`, and five of the ten cases in the 2026-10-16 tb277 campaign had full
+  authored procedures there. Check this before designing a case from scratch.
+- **Status:** verified 2026-10-16 on tb277 (T43870: objective, the verbatim config block and a
+  9-step procedure with exact OIDs)
+
 ### `case_tokens.py`
 Per-case token usage and process metrics from a tester's Claude Code transcript, for
 `/create-logs`' process review (logged-output.md §5). Splits the transcript at the tester's
@@ -709,6 +732,65 @@ literally rather than through a decoder's naming.
   the first option 82 reports an appended second block as "append did not append".
 - **Status:** verified 2026-10-15 on tb277, x960-56YSQ (T43850, Option 82): read both TLV blocks
   of an `append` leg and the single block of `keep` / `replace`.
+
+### `snmpq.py`
+Runs one net-snmp query against an agent and **classifies** the outcome, because a bench verdict
+needs the difference between "the agent returned a value", "the OID is outside my MIB view",
+"my credentials were rejected" and "nothing came back at all" -- and net-snmp returns exit 1 for
+most of those, so a raw exit code cannot grade a step.
+- **Run:** `snmpq.py get|getnext|walk|set <agent> <oid> [<oid>...]`
+  - v3: `--v3 --user U --level noAuthNoPriv|authNoPriv|authPriv [--auth-proto MD5|SHA]
+    [--auth-pass P] [--priv-proto DES|AES] [--priv-pass P] [--context C] [--engine-id E]`
+  - v2c/v1: `--v2c|--v1 --community C`
+  - set: `--set-type i|u|s|x|a|o|t|b --set-value V`
+  - also: `--timeout S` `--retries N` `--port N` `--repeat N --interval S` `--quiet`
+    `--expect VALUE|NOSUCH|DENIED|AUTHFAIL|TIMEOUT`
+- **Where:** testbox; **needs:** net-snmp (`/usr/bin/snmpget` etc.)
+- **Imports:** none
+- **Classes and exit codes:** 0 VALUE, 1 NOSUCH, 2 DENIED, 3 AUTHFAIL, 4 TIMEOUT, 5 ERROR,
+  6 `--expect` mismatch. With `--expect` it prints `GRADE PASS/FAIL`.
+- **Limits:**
+  - `--repeat` exists so a packet capture started in parallel is certain to catch the exchange;
+    the grade is taken from the LAST repetition.
+  - It calls the net-snmp binaries by absolute path; it is not a pure-Python SNMP stack.
+- **Password handling.** It never prints a password. The `CMD` line shows
+  `<PASS len=20 sha1=0eeef6a537>` instead, so two legs can be compared byte-for-byte without
+  disclosing the secret. **That is a measurement, not decoration:** a password containing
+  `!`, `$`, a backtick, `\`, `{}` or `~` can be mangled on its way through a local shell, ssh
+  and a remote shell, and the agent then reports an authentication failure that reads exactly
+  like the feature being broken. Compare the fingerprints before blaming the product. Passing
+  the password through `tools/tb` (which quotes every argument) and letting this tool take it
+  as argv is the safe path; net-snmp's `SNMPCONFPATH` + `defAuthPassphrase` file is the
+  alternative if a password must never appear in an argument list at all.
+- **Status:** verified 2026-10-16 on tb277, x960-56YSQ (T43870): all six classes produced,
+  including the authored include/exclude pair and three distinct credential failures
+
+### `snmpwire.py`
+Decodes the SNMP messages in a libpcap file and says which ones are **encrypted on the wire**.
+This answers the one question no `show` command on a device can: for SNMPv3, are the varbinds
+really unreadable in flight? An SNMPv3 message carries `msgData` as either a plaintext
+`scopedPDU` (ASN.1 tag 0x30) or an `encryptedPDU` (tag 0x04), and that tag with the msgFlags
+auth/priv bits is the proof.
+- **Run:** `snmpwire.py <file.pcap> [--port 161] [--port 162] [--limit N] [--oids]`
+- **Where:** anywhere; **needs:** nothing beyond Python (no scapy)
+- **Imports:** none
+- **Prints per message:** source and destination, SNMP version, and for v3 the msgID, the
+  msgFlags as `a`/`p`/`r`, the USM user name, the authoritative engine ID, and
+  `msgData=ENCRYPTED(n bytes)` or `msgData=PLAINTEXT scopedPDU pdu=<type>`. For v1/v2c it
+  prints the community. With `--oids` it lists the varbind OIDs of every plaintext message --
+  i.e. exactly what an eavesdropper could read. Ends with a `SUMMARY ... ENCRYPTED, ... PLAINTEXT`
+  line.
+- **Limits:**
+  - classic pcap only (`tcpdump -w`), Ethernet link type; it refuses pcapng with a clear message;
+  - it walks 802.1Q/QinQ and IPv4/UDP only -- no IPv6 and no reassembly;
+  - exit 1 means no SNMP message was decoded, 2 means the file could not be read.
+- **Use it with a control.** A capture in which everything is encrypted proves little on its
+  own: the decoder might simply be failing to find varbinds. Put a `noAuthNoPriv` or
+  `authNoPriv` exchange in the same capture -- the decoder must show that one as PLAINTEXT with
+  its OIDs legible. That pairing is what makes the encrypted result a measurement.
+- **Status:** verified 2026-10-16 on tb277, x960-56YSQ (T43870): 18 messages, 6 encrypted
+  authPriv and 12 plaintext (v3 discovery, v2c, and an authNoPriv control with its OID in the
+  clear)
 
 ### `rs.py`
 Sends ICMPv6 Router Solicitations to ff02::2, 2 s apart.
