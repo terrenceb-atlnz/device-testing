@@ -60,8 +60,16 @@ Advisories: none) — the post-campaign probe taken at this morning's wrap:
   (`flash:/x960-tb277.rel`, file exists), boot config `flash:/default.cfg` (file exists).
 - **partner — swi_b, /dev/u3 @9600, AT-x960-28YSQ**, S/N A10737A261700021,
   `sin_x96056-20260921-9`, boots `flash:/backup.rel`, hostname `x960-28YSQ`.
-  **Base licence: `OSPF-64`, `RIP`, no VRF-Lite.** Check its licence before planning any case
-  that needs a feature on the partner side.
+  **Base licence, read in full at triage 2026-10-16 14:15** — `10G_SFP+, AMF-GUEST, AMF-Starter,
+  BASE-AW+, BGP-64, BW-UNLIMITED, CFM, EPSR-MASTER, G8032, IPv6Basic, L3-FORWARDING,
+  **L3-MC-ROUTE**, LAG-FULL, MLDSnoop, MRP, No-License-Lock, OSPF-64, RADIUS-100, RIP, UDLD,
+  UFO, VCStack, **VRRP**`. No VRF-Lite.
+  🔴 **CORRECTION to this queue's first draft**, which said only "OSPF-64, RIP, no VRF-Lite":
+  swi_b **does** hold `L3-MC-ROUTE` and `VRRP`, so it CAN be a real PIM neighbour (group C) and a
+  real VRRP peer (group D). Its refusals at triage — `% BFD protocol daemon is not running`,
+  `% VRRPD protocol daemon is not running or feature license is not available`, `% PIM-SM
+  protocol daemon is not running or feature license is not available` — are the **daemon gate**,
+  not a licence wall; the "or feature license" clause is a catch-all.
 - **partner — swi_a, /dev/u5 @9600, AT-x950 GEN2-52XSTQm**, S/N A10713A262600012,
   `awplus_main-20261008-56`, **netboots**, boot image **Not set**,
   `flash:/default.cfg` **(file NOT found)** — RISK-1 below.
