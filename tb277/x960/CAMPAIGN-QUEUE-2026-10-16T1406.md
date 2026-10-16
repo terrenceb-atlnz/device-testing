@@ -174,7 +174,7 @@ the relevant guide **and** the TPS support matrix before drafting steps
 | --- | --- | --- | --- | --- |
 | A | T43870 IPv4_SNMP - SNMPv3 | snmp-2026-10-16T1406 | **DONE -- PASS** (14:33-14:53) | 🟢 Instrument confirmed: net-snmp 5.7.3 (`snmpwalk/snmpget/snmpset/snmptrap`, `snmptrapd`) + `python3-pysnmp4`, all on the box — **no helper needs writing**. `snmp-server view/group/user/host` all present on the DUT. **ck.db `zephyr_cases` holds a full 9-step authored procedure with exact OIDs** (see Triage result). DUT + host eth3 only. Cheapest and least topology-hungry: run it FIRST to prove the bench and the instrument before the expensive groups. SNMPv3 = USM users, auth/priv, engine ID, views. No SNMP helper exists in `tools/` — one will be needed (`snmpwalk`/`snmpget` on the box, or a scapy/pysnmp helper) |
 | B | T44181 Ping Polling · T44378 UDP Broadcast Helper · T44182 Directed Broadcast Forwarding | ipv4svc-2026-10-16T1406 | **DONE -- 3/3 PASS** (15:04-16:12) | 🟢 `ping-poll <1-100>`, `ip forward-protocol udp`, `ip helper-address`, `ip directed-broadcast [acl]` all confirmed present. T44181 has **11 authored steps**; the other two have none (design from the IP Feature Overview Guide, which we hold). No partner and no STP work needed. DUT + BOTH host NICs; two L3 segments (eth3/vlan10, eth4/vlan48). **Builds the shared L3 underlay** that groups C and D then inherit (STANDING-ORDERS §6: set once per TestSet) |
-| C | T43863 PIM-SM · T43864 PIM-DM · T43865 PIM-SSM · T43866 MulticastRouting VRF-Lite | mcast-2026-10-16T1406 | **RUNNABLE** (triaged 14:24) | 🟢 DUT holds `PIM/PIM-100/PIM-1024/PIM6` + `VRF-LITE-FULL`; `service pim`/`service pdm`/`service pim6` all exist; `ip multicast-routing [vrf]`, `ip pim ssm {default|range}`, `ip pim vrf`, `show ip mroute vrf` all present. **A TWO-ROUTER topology IS achievable** despite both NICs being on the DUT — trunk eth4's VLAN to the partner and give the partner the SVI (see Triage result). **FIRST ACTION: `service pim` on swi_b, alone, wait 10 s** — swi_b's Base licence lacks the `PIM` bit, so if it refuses, fall back to swi_a (has `PIM`, RISK-1 care) or single-router. **T43865 needs `tools/igmp.py` extended to IGMPv3** (SSM is defined by the (S,G) join; current tool is v2-only). Needs the NEW-RISK-8 STP remedy. Carry **F-9** into T43866. The big group. Needs `ip multicast-routing` + the PIM service gate, a source on one host NIC and a real IGMP receiver on the other. **Check the licence and the `service ?` surface for pim/pdm BEFORE grading anything UNSUPPORTED.** T43866 is multicast *inside a VRF* — different from the unicast VRF-Lite case already passed (T43859) |
+| C | T43863 PIM-SM · T43864 PIM-DM · T43865 PIM-SSM · T43866 MulticastRouting VRF-Lite | mcast-2026-10-16T1406 | **IN PROGRESS** (from 16:10) — partner settled 16:19: **swi_a**, swi_b licence-refuses `service pim` AND `service pdm` (O-20) | 🟢 DUT holds `PIM/PIM-100/PIM-1024/PIM6` + `VRF-LITE-FULL`; `service pim`/`service pdm`/`service pim6` all exist; `ip multicast-routing [vrf]`, `ip pim ssm {default|range}`, `ip pim vrf`, `show ip mroute vrf` all present. **A TWO-ROUTER topology IS achievable** despite both NICs being on the DUT — trunk eth4's VLAN to the partner and give the partner the SVI (see Triage result). **FIRST ACTION: `service pim` on swi_b, alone, wait 10 s** — swi_b's Base licence lacks the `PIM` bit, so if it refuses, fall back to swi_a (has `PIM`, RISK-1 care) or single-router. **T43865 needs `tools/igmp.py` extended to IGMPv3** (SSM is defined by the (S,G) join; current tool is v2-only). Needs the NEW-RISK-8 STP remedy. Carry **F-9** into T43866. The big group. Needs `ip multicast-routing` + the PIM service gate, a source on one host NIC and a real IGMP receiver on the other. **Check the licence and the `service ?` surface for pim/pdm BEFORE grading anything UNSUPPORTED.** T43866 is multicast *inside a VRF* — different from the unicast VRF-Lite case already passed (T43859) |
 | D | T47201 IPv4_BFD - With RIP v1/v2 · T47873 VRRP(v3) | bfd-vrrp-2026-10-16T1406 | **RUNNABLE** (triaged 14:24) | 🟠 **T47201 expect UNSUPPORTED, and that is the finding**: BFD is present and NOT licence-gated on all three units, but AW+ has **no RIP↔BFD binding** — `bfd all-interfaces` is OSPF-only, and the DUT's `ip rip ?` offers no `bfd`. Rule the service gate out, quote the refusals, and pair with a working `bfd peer` session so the verdict is "BFD works, no RIP binding". 🟢 **T47873 runnable**: `VRRP` is in swi_b's Base licence so it is a legitimate peer; `service vrrp` is the gate. AW+ has **no `version {2|3}` command** — grade v3 from the advertisement's version field on the wire; `transition-mode`/`alternate-checksum-mode` prove VRRPv3-for-IPv4 exists. Needs the NEW-RISK-8 STP remedy. Both need a partner and the shared underlay. BFD needs `service bfd` + RIP on both ends; swi_b has the `RIP` licence. VRRP(v3) needs DUT and swi_b on one shared VLAN with a host as the client, and is graded on the virtual MAC on the wire |
 
 **Group order is deliberate.** A is a single cheap case that proves console, instrument and
@@ -555,6 +555,240 @@ Re-read `show spanning-tree brief` after every reload before measuring (Discardi
 | sentinel | `sentinel: parent` (one-session `/test-mode` shape) — nothing to arm |
 | scratch | `/tmp/ckt1406b/` on the box (48 tools). ⚠️ tb277 `/tmp` is still ~95% full with another user's 1.8 GB of captures — **not ours to delete**; every group-B capture is BPF-filtered, under 1 MB, and deleted after it is read |
 
+## Group C (mcast-2026-10-16T1406) — bench setup and its EXACT restore recipe
+
+Written by the group-C tester (bench-runner) at **2026-10-16 16:25 NZDT / 03:25 UTC**, **before
+the first configuration command of group C**, so a fresh tester can restore the bench if this
+one dies mid-group.
+
+### 🔴 SETTLED IN THE FIRST FIVE MINUTES: the PIM partner is **swi_a**, not swi_b
+
+The queue left this genuinely open and told group C to measure it. It is now measured, and the
+answer is unambiguous — **O-20** below:
+
+```
+x960-28YSQ(config)#service pim
+% Service is not currently licensed on this platform
+x960-28YSQ(config)#service pdm
+% Service is not currently licensed on this platform
+```
+
+Both sent alone, on swi_b (/dev/u3), 2026-10-16 16:18:48 and 16:19:25 NZDT. Neither was
+accepted, so **nothing was applied to swi_b and its running-config is unchanged** (verified:
+only `service password-encryption` and `service ssh` are present). swi_b's `service ?` list
+*does* offer `pdm`, `pim` and `pim6` — the CLI surface is identical on all three units — so the
+surface probe triage ran could never have settled this. The licence is the gate, and the
+message is a **different and much clearer one** than the `% PIM-SM protocol daemon is not
+running or feature license is not available` that `show ip pim …` gives: it names the licence
+with no daemon ambiguity at all.
+
+⇒ **Partner for all of group C's two-router work: swi_a (/dev/u5 @9600, x950 GEN2, `full`
+ATL-NZ licence, holds `PIM/PIM-100/PIM-1024/PIM6`).** Handled under **RISK-1**: configured
+freely, **never reloaded and never power-cycled**. swi_a netbooted with no config file, so
+`no service pim` leaves no sticky line on it (x960.md §7A.2 applies only to a unit that BOOTED
+with the service) and its teardown comes back clean without a reload.
+
+### Devices touched by group C
+
+| device | console | touched how |
+| --- | --- | --- |
+| **swi_d (DUT)** | /dev/u2 @115200 | STP priority, two ports shut, vlan 61, the vlan48 SVI REMOVED, port1.0.4 trunked, `service pim`/`pdm`, `ip multicast-routing`, PIM, a static route, VRFs (T43866). **One reload at the very END of the group** |
+| **swi_a (partner)** | /dev/u5 @9600 | vlan 48 + vlan 61, port1.0.4 trunked, two SVIs, `service pim`/`pdm`, `ip multicast-routing`, PIM, a static route. **NEVER reloaded or power-cycled (RISK-1)** |
+| **swi_b** | /dev/u3 @9600 | **two refused `service` commands and one read-only `?` probe — nothing applied.** Not configured, not reloaded, not power-cycled |
+
+Host side: box `eth3` (10.38.22.33/27, `00:0d:b9:55:77:0e`) = the multicast **source** segment;
+box `eth4` (10.38.22.65/27, `00:0d:b9:55:77:0f`) = the **receiver** segment. **No host NIC
+addressing is changed** (STANDING-ORDERS §4).
+
+**Restore targets, captured before anything was sent:**
+- DUT: `tb277/x960/mcast-2026-10-16T1406/T43863/work/pre-u2.log`
+- swi_a: `tb277/x960/mcast-2026-10-16T1406/T43863/work/pre-u5.log`
+- swi_b: `tb277/x960/mcast-2026-10-16T1406/T43863/work/pre-u3.log`
+
+All three are `ckcon.py` stdouts, usable directly with `tools/rcdiff.py`. The DUT capture is the
+shared B/C/D underlay exactly as group B left it; swi_a is a bare netboot config (every port
+access vlan1, `no ip multicast-routing`, `spanning-tree mode rstp`, `lacp global-passive-mode
+enable`, no VLANs but 1).
+
+### The two-router topology group C builds
+
+Triage's design, with swi_a substituted for swi_b as the partner. `port1.0.4` is the DUT↔swi_a
+link that survives the NEW-RISK-8 remedy.
+
+```
+host eth3 10.38.22.33/27 ──(DUT port1.0.10 access vlan 10, SVI 10.38.22.34/27 on the DUT)── swi_d
+                                                                                             ║
+                                     port1.0.4 TRUNK, tagged vlan 48 + vlan 61               ║
+                                                                                             ║
+host eth4 10.38.22.65/27 ──(DUT port1.0.48 access vlan 48, NO SVI on the DUT)════════════════╝
+                                                                                             ║
+                                                                                           swi_a
+                                                        vlan 48 SVI 10.38.22.66/27  (receiver's router)
+                                                        vlan 61 SVI 10.0.61.2/30    (transit, PIM adjacency)
+```
+
+- **DUT = the source's first-hop router** (DR on vlan 10) and the upstream PIM router.
+- **swi_a = the receiver's last-hop router** (DR on vlan 48) and, for T43863, **the RP**.
+- `vlan 61` `10.0.61.0/30` carries the PIM adjacency, the Register path and the SPT. It has no
+  host NIC, so it is read with **the DUT's own `tcpdump` at privileged exec** (the queue's
+  techniques block) — that is the instrument for every Hello / Join-Prune / Register claim.
+- `eth4` is **logically behind swi_a while still cabled to the DUT**, which is the whole point:
+  the DUT's vlan 48 is pure L2 and the DUT has no SVI on it.
+
+🔴 **This means the shared underlay's `interface vlan48 / ip address 10.38.22.66/27` is REMOVED
+for the whole of group C** and the address moves to swi_a. `vlan 48` itself, and
+`port1.0.48 switchport access vlan 48`, stay. Group D inherits whatever the group-end restore
+below leaves — see "What group C leaves for group D".
+
+### Setup, as sent
+
+**NEW-RISK-8 remedy first (DUT, /dev/u2), and confirmed with `show spanning-tree brief` BEFORE
+any measurement:**
+```
+configure terminal
+ spanning-tree priority 0
+ interface port1.0.2
+  shutdown
+ interface port1.0.14
+  shutdown
+ end
+```
+(DUT becomes root ⇒ every DUT port Designated Forwarding; shutting the redundant swi_a leg
+`port1.0.14` and the RISK-2 swi_b leg `port1.0.2` forces swi_a's root-port choice onto its
+`port1.0.4` and swi_b's onto its `port1.0.16`, rather than a bridge-ID tie-break.)
+
+**DUT L2/L3:**
+```
+configure terminal
+ vlan database
+  vlan 61 name ckTRANSIT
+  exit
+ no interface vlan48
+ interface port1.0.4
+  switchport mode trunk
+  switchport trunk allowed vlan add 48,61
+ interface vlan61
+  ip address 10.0.61.1/30
+ exit
+ ip route 10.38.22.64/27 10.0.61.2
+ end
+```
+
+**swi_a L2/L3 (/dev/u5 @9600):**
+```
+configure terminal
+ vlan database
+  vlan 48 name ckRECEIVER
+  vlan 61 name ckTRANSIT
+  exit
+ interface port1.0.4
+  switchport mode trunk
+  switchport trunk allowed vlan add 48,61
+ interface vlan48
+  ip address 10.38.22.66/27
+ interface vlan61
+  ip address 10.0.61.2/30
+ exit
+ ip route 10.38.22.32/27 10.0.61.1
+ end
+```
+
+**The service gate — `service <proto>` ALONE, then ~10 s, then everything else** (x960.md
+§7A.1). Per case: `service pim` for T43863/T43865, `service pdm` for T43864. `ip
+multicast-routing` is global and is additionally required before `ip pim sparse-mode` is
+accepted ("IP Multicast Routing not activated").
+
+### 🔴 Restore recipe — the EXACT sequence
+
+Run this to put the bench back to the state group B left (the shared underlay), which is what
+group D expects.
+
+**1. swi_a (/dev/u5 @9600) — config only, NEVER a reload (RISK-1):**
+```
+configure terminal
+ no ip route 10.38.22.32/27 10.0.61.1
+ no ip pim rp-address 10.0.61.2
+ no ip multicast-routing
+ no interface vlan48
+ no interface vlan61
+ interface port1.0.4
+  switchport mode access
+ exit
+ vlan database
+  no vlan 48
+  no vlan 61
+  exit
+ no service pim
+ no service pdm
+ end
+```
+Then `python3 tools/rcdiff.py T43863/work/pre-u5.log <post-u5 capture>` must print **nothing**.
+`rcdiff.py` exits 0 even when it prints differences — **gate on the OUTPUT**.
+
+**2. DUT (/dev/u2 @115200) — configuration, then ONE reload:**
+```
+configure terminal
+ no ip route 10.38.22.64/27 10.0.61.2
+ no ip pim rp-address 10.0.61.2
+ no ip multicast-routing
+ no interface vlan61
+ interface port1.0.4
+  switchport mode access
+ exit
+ vlan database
+  no vlan 61
+  exit
+ interface port1.0.2
+  no shutdown
+ interface port1.0.14
+  no shutdown
+ no spanning-tree priority
+ no service pim
+ no service pdm
+ end
+```
+**Then reload the DUT onto `flash:/default.cfg`.** Two reasons, and the second is the one that
+makes the reload non-optional:
+- it is the only way to clear a **sticky `no service pim` / `no service pdm` line** if any
+  reboot-persistence limb in this group staged a boot config that contained the service
+  (x960.md §7A.2: the line appears on a unit that BOOTED with the service and configuration
+  cannot remove it);
+- it returns the DUT to the campaign baseline `Current boot config: flash:/default.cfg`,
+  `Current boot image: flash:/x960-tb277.rel`, `Autoboot status: disabled`.
+
+**3. 🔴 The reload loses the shared underlay — re-apply it immediately afterwards.**
+`flash:/default.cfg` is the pristine baseline and has never been written, so the DUT comes back
+with no vlan 10, no vlan 48 and no SVIs. Re-send group B's underlay verbatim:
+```
+configure terminal
+ vlan database
+  vlan 10 name ckUNDERLAY-eth3
+  vlan 48 name ckUNDERLAY-eth4
+  exit
+ interface port1.0.10
+  switchport access vlan 10
+ interface port1.0.48
+  switchport access vlan 48
+ interface vlan10
+  ip address 10.38.22.34/27
+ interface vlan48
+  ip address 10.38.22.66/27
+ end
+```
+Then **re-read `show spanning-tree brief` before anything is measured** — a port reads
+Discarding for ~17–21 s after `login:` — and diff the DUT against
+`T43863/work/pre-u2.log`, which must come back empty.
+
+**4. swi_b:** nothing to restore. Two `service` commands were refused and one `?` probe was
+read-only; its running-config was captured before and is unchanged.
+
+### What group C leaves for group D
+
+Recorded here as the group runs; the final state is restated in `## Results` when group C ends.
+**Intended** end state = exactly the group-B shared underlay on the DUT, a bare swi_a, an
+untouched swi_b, and the DUT back on `flash:/default.cfg` after one reload.
+
+
 ## Results
 
 | case | verdict | reason | graded by | working log |
@@ -619,6 +853,23 @@ Re-read `show spanning-tree brief` after every reload before measuring (Discardi
     same mechanism — watch for it there.**
   - **F-7**: `show running-config` disagrees with the saved file and the wire about
     `bgp graceful-restart`.
+
+### New from group C (2026-10-16). Next free numbers were F-13 and O-20.
+
+- **🟢 O-20 (group C setup) — `service <proto>` gives a CLEAN licence verdict; `show ip pim …`
+  does not.** The campaign spent two rounds of reasoning on whether swi_b's Base licence can run
+  PIM, because every read-only instrument available to TRIAGE is ambiguous: the `service ?` list
+  offers `pim`, `pdm` and `pim6` **identically on all three units** regardless of licence, and
+  the refusal `% PIM-SM protocol daemon is not running or feature license is not available`
+  names both causes at once (x960.md §7A.1 warns it is a red herring in both directions).
+  **`service pim` itself answers in one line and names only the licence:**
+  `% Service is not currently licensed on this platform`. Same for `service pdm`. Measured on
+  swi_b 2026-10-16 16:18:48 and 16:19:25 NZDT; **nothing was applied** (a refused `service` line
+  leaves no config). ⇒ **To settle "does this unit hold feature X" on AW+, send `service <x>`
+  alone and read its answer — never the feature's own `show`.** It is a one-line, zero-residue
+  probe, but it IS a device-state change, so it is a RUN-mode action, not a TRIAGE one.
+  Consequence for this campaign: **swi_b cannot be a PIM neighbour and swi_a is group C's
+  partner**, under RISK-1 (config only, never reloaded).
 
 ### New from group A (T43870, 2026-10-16). Next free numbers were F-12 and O-9.
 
