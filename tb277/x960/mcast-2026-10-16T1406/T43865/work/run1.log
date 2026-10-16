@@ -1,0 +1,337 @@
+# T43865 — (42) IPv4_MulticastRouting - PIM-SSM — working log, run 1
+# tester: bench-runner subagent (one-session /test-mode shape; sentinel = parent session)
+# started 2026-10-16 17:21 NZDT (04:21 UTC), finished 17:40 NZDT, tb277, group mcast-2026-10-16T1406
+# run is CLEAN (every zero below is paired with an instrument control that arrived at full count)
+
+## Session facts, devices, links, clocks, host NICs and the pre-run gate
+
+  Identical to, and recorded IN FULL in, **T43863/work/run1.log** (same group, same session,
+  same bench, same gate run).  DUT swi_d /dev/u2 @115200 (SVI MAC e0:1a:ea:d4:70:43); partner
+  swi_a /dev/u5 @9600 (SVI MAC 88:9d:98:df:26:02); host eth3 10.38.22.33/27 = source segment,
+  eth4 10.38.22.65/27 = receiver segment; DUT ~14 s behind the box, swi_a in sync.
+
+  🔴 Devices touched: **swi_d and swi_a**.  swi_b not opened, configured, reloaded or
+  power-cycled.  swi_a configured but **never reloaded or power-cycled** (RISK-1).
+
+## Authored steps — this case has THREE, quoted verbatim from ck.db
+
+  `tools/tb tool tb277 ckt1406c ckcase AWPTCM-T43865` -> `zephyr_cases` id 40185, key
+  AWPTCM-T43865, title "(42) IPv4_MulticastRouting - PIM-SSM", priority High, status Draft,
+  `num_steps` 3.  objective: **"PIM-SMM is entered entries dynamically"** (sic — "SMM").
+
+  STEP 1  description: "Multicast traffic is forwarded and status on multicast table is correct
+          when group was joined:
+          >Check Multicast Table (show ip mroute; show ip pim spare-mode mroute)
+          >Check IGMP Groups (show ip igmp group)
+          >Check IGMP Host Joined the correct multicast source"
+          expected: "Multicast routing table updates accordingly"
+  STEP 2  description: "Multicast traffic was stopped and prune correctly when group was left
+          and multicast table updated correctly:
+          >Check Multicast Table (show ip mroute; show ip pim spare-mode mroute)
+          >Check IGMP Groups (show ip igmp group)
+          >Check when all IGMP Host leave the group"
+          expected: "Multicast routing table updates accordingly"
+  STEP 3  description: "The state when port interface does down/up:
+          >Check Multicast Table (show ip mroute; show ip pim spare-mode mroute)
+          >Check IGMP Groups (show ip igmp group)
+          >Check when no more IGMP Host connected"
+          expected: "Multicast routing table updates accordingly"
+
+  ⚠️ Two authored read-backs do not exist on this platform and the nearest real command was
+  used, with the substitution recorded here rather than silently:
+   - **"show ip pim spare-mode mroute"** is a typo for `sparse-mode`.  The real command is
+     `show ip pim sparse-mode mroute`, and it takes **no group argument** —
+     `show ip pim sparse-mode mroute 232.5.5.5` answers `% Invalid input detected at '^'`.
+   - **"show ip igmp group"** (singular) is `show ip igmp groups` on this build.
+  Step 1's third bullet, "Check IGMP Host Joined the correct multicast SOURCE", is the whole
+  point of SSM and is answered below from `show ip igmp groups detail`.
+
+## Why this case needed a tool written for it
+
+  PIM-SSM is **defined** by the (S,G) join, and IGMPv2 cannot carry a source list, so the
+  subject of this case could not be expressed with the tools the bench had.  `tools/igmp.py`
+  was **extended with an IGMPv3 mode** (generic, in `tools/` with its README entry, not a
+  case-local script): `-3`, `--source A[,B]`, `--record {is-include|is-exclude|to-include|
+  to-exclude|allow|block}`, defaulting to `to-include` on join — what a real host sends when it
+  joins an SSM channel — and to `to-include` with an EMPTY source list on leave, which is how
+  IGMPv3 leaves an include-mode group.  Reports go to 224.0.0.22, v2 reports to the group and
+  v2 leaves to 224.0.0.2; the tool picks the right destination and link-layer address for each.
+  The v2 path is unchanged and was re-verified in T43863/T43864.
+
+## Setup
+
+  Group C's shared two-router topology (diagram, STP remedy and their proofs in T43863's log),
+  starting from the multicast-OFF bench T43864's teardown left.  PIM-SSM needs no RP.
+
+    swi_d/swi_a(config)#service pim                          accepted on both
+    awplus(config)#ip pim ssm  ?          <- read-only probe, tools/qmark.py, no CR
+      default  Use 232/8 group range for SSM
+      range    ACL for group range to be used for SSM
+    DUT   : ip multicast-routing / ip pim ssm default / ip pim sparse-mode on vlan10 + vlan61
+    swi_a : ip multicast-routing / ip pim ssm default / ip pim sparse-mode on vlan48 + vlan61
+            / ip igmp / ip igmp version 3            <- `ip igmp` per F-13, from T43863
+    swi_a#show ip igmp interface vlan48
+     IGMP Enabled, Active, Querier, Configured for version 3
+    swi_a#show ip pim sparse-mode neighbor
+    10.0.61.1  vlan61  00:00:06/00:01:39  v2                 <- adjacency across a real wire
+
+  Measurement stance as T43863/T43864: `tools/arpleg.py` legs from eth3 counted on eth4, each
+  with a control that must not arrive and an **instrument control** (routed ICMP
+  10.38.22.40 -> 10.38.22.65) that must.  The instrument control arrived at FULL count in all
+  10 counted legs.  `arpleg.py`'s per-spec source override (`--udp DST:PORT@SRC`) is what lets
+  the joined channel and a **wrong-source** flow to the SAME group ride one leg.
+
+## LEG 1 (designed) — BASELINE: an SSM group with no join at all
+
+    cap s1-ssm-nojoin-eth4.pcap: 10 frame(s)
+      x10 ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours]      (10/10 instrument control)
+  => 0 of 10 for 232.5.5.5.  VERDICT leg 1: PASS.
+
+## LEG 2 (queue-mandated) — an IGMPv2 (*,G) join on the SSM range is REJECTED
+
+    tools/tb sudotool tb277 ckt1406c igmp eth4 join 232.5.5.5 10.38.22.70 00:11:22:33:44:77 3 0.5
+    swi_a#show ip igmp groups   -> (header only; NO group listed)
+    swi_a#show ip mroute        -> IP Multicast Routing Table   (empty)
+    cap s2-ssm-v2join-rejected-eth4.pcap: 11 frame(s)
+      x10 ICMP t8/c0 ... (10/10 instrument control)   x1 PIM hello
+  => the v2 any-source join was not admitted at all — no IGMP entry, no mroute entry, 0 of 10
+     in the dataplane.  Contrast: the identical v2 join created an IGMP entry every time it was
+     used on 239.x groups in T43863 and T43864.
+  VERDICT leg 2: PASS.
+
+## LEG 3 — AUTHORED STEP 1: traffic forwarded, tables correct, and the SOURCE is the subject
+
+  The (S,G) include join, with the new tool:
+
+    tools/tb sudotool tb277 ckt1406c igmp eth4 join 232.5.5.5 10.38.22.70 00:11:22:33:44:77 \
+         3 0.5 -3 --source 10.38.22.40
+    -> IGMPv3 join 232.5.5.5 rtype=to-include(3) sources=[10.38.22.40] x3 ... -> 224.0.0.22
+
+  **>Check IGMP Groups** and **>Check IGMP Host Joined the correct multicast source**:
+
+    swi_a#show ip igmp groups
+    Group Address    Interface            Uptime   Expires  Last Reporter
+    232.5.5.5        vlan48               00:00:07  stopped 10.38.22.70
+    swi_a#show ip igmp groups detail
+    Interface:      vlan48          Group: 232.5.5.5
+    Group mode:     Include ()                      <- INCLUDE mode, not exclude
+    Last reporter:  10.38.22.70
+    Include Source List :
+      Source Address  Uptime    v3 Exp    Fwd  Flags
+      10.38.22.40     00:00:08  stopped   Yes  <- the correct source, and it is FORWARDING
+
+  **>Check Multicast Table** (both authored read-backs, the second with its name corrected):
+
+    swi_a#show ip mroute
+    (10.38.22.40, 232.5.5.5), uptime 00:00:37, stat expires 00:02:53
+    Owner PIM-SM, Flags: TF
+      Incoming interface: vlan61        Outgoing interface list: vlan48 (1)
+    swi_a#show ip pim sparse-mode mroute
+    (*,*,RP) Entries: 0    (*,G) Entries: 0    (S,G) Entries: 1    (S,G,rpt) Entries: 0
+    (10.38.22.40, 232.5.5.5)
+    RPF nbr: 10.0.61.1     RPF idx: vlan61     SPT bit: 1
+    Upstream State: JOINED      Local 1      Joined 0      Outgoing 1
+
+  That is textbook SSM and it is what distinguishes this case from T43863: **zero (*,G) entries
+  and zero (S,G,rpt) entries**, one (S,G), SPT bit set, RPF straight at the source's router —
+  no shared tree, no RP, no Register, in a case where no RP is configured at all.
+
+  **Traffic forwarded**, with the two controls that make it an SSM measurement rather than a
+  multicast one, all three flows in ONE leg:
+
+    tools/tb sudotool tb277 ckt1406c arpleg --tag s3-ssm-sg --out /tmp/ckt1406c/T43865 \
+      --iface eth3 --watch eth4 \
+      --udp '232.5.5.5:5001@10.38.22.40,232.5.5.5:5001@10.38.22.44,232.9.9.9:5001@10.38.22.40' \
+      --icmp 10.38.22.65 --gw-mac e0:1a:ea:d4:70:43 \
+      --sender-ip 10.38.22.40 --sender-mac 00:11:22:33:44:01 \
+      --count 10 --gap 0.25 --settle 3 --wait 7 --filter "ip"
+
+    cap s3-ssm-sg-eth3.pcap: 40 frame(s)      (all four flows delivered to the DUT)
+      x10 UDP 10.38.22.40 -> 232.5.5.5 :5001 [ours] [eth ... -> 01:00:5e:05:05:05]
+      x10 UDP 10.38.22.44 -> 232.5.5.5 :5001 [ours] [eth ... -> 01:00:5e:05:05:05]
+      x10 UDP 10.38.22.40 -> 232.9.9.9 :5001 [ours] [eth ... -> 01:00:5e:09:09:09]
+      x10 ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours]
+    cap s3-ssm-sg-eth4.pcap: 21 frame(s)
+      x10 ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours] [eth 88:9d:98:df:26:02 -> 00:0d:b9:55:77:0f]
+      x9  UDP 10.38.22.40 -> 232.5.5.5 :5001 [ours] [eth 88:9d:98:df:26:02 -> 01:00:5e:05:05:05]
+
+  => the JOINED CHANNEL (10.38.22.40, 232.5.5.5): **9 of 10** (1 consumed by the tree build;
+     later legs measured 10 of 10 steady).
+  => the SAME GROUP from a DIFFERENT SOURCE (10.38.22.44, 232.5.5.5): **0 of 10**.  This is the
+     defining property of SSM and it cannot be shown by any (*,G) test.  Note both flows share
+     the link-layer address 01:00:5e:05:05:05, so the discrimination is at layer 3, by source.
+  => a DIFFERENT GROUP from the joined source (10.38.22.40, 232.9.9.9): **0 of 10**.
+  VERDICT authored step 1: **PASS** — "Multicast routing table updates accordingly", and the
+  host joined, and was served by, the correct multicast source only.
+
+## LEG 4 — AUTHORED STEP 2: left group, prune, tables updated
+
+    tools/tb sudotool tb277 ckt1406c igmp eth4 leave 232.5.5.5 10.38.22.70 00:11:22:33:44:77 2 0.5 -3
+    -> IGMPv3 leave 232.5.5.5 rtype=to-include(3) sources=[-]   (empty include list = leave)
+
+    cap s5-ssm-leave-eth4.pcap: 10 frame(s)
+      x10 ICMP t8/c0 ... (10/10 instrument control)      <- and 0 of 10 for the channel
+    swi_a#show ip igmp groups -> (header only; empty)
+    swi_a#show ip mroute      -> IP Multicast Routing Table   (empty)
+  => traffic stopped, the IGMP group is gone and the multicast table is empty.
+  VERDICT authored step 2: **PASS** on all three bullets.
+
+## LEG 5 — AUTHORED STEP 3: interface down/up.  TWO readings, because they differ
+
+  Re-joined first and confirmed forwarding (cap s6-rejoin-eth4.pcap: 9/10 channel + 10/10
+  instrument control).  Then:
+
+  (a) **the RECEIVER'S PORT down** — DUT `port1.0.48`, the host's own access port:
+      awplus(config-if)#shutdown
+      awplus#show interface port1.0.48 status -> port1.0.48 ... disabled
+      swi_a#show ip igmp groups
+      232.5.5.5        vlan48               00:00:45  stopped 10.38.22.70   <- STILL THERE
+      swi_a#show ip mroute
+      (10.38.22.40, 232.5.5.5) ... Incoming interface: vlan61
+        Outgoing interface list: vlan48 (1)                                 <- STILL THERE
+      => **the multicast table does NOT update.**  That is correct, not a fault, and the reason
+      is the topology: `port1.0.48` is an L2 access port **on the DUT**, while the multicast
+      router is swi_a, whose `vlan48` SVI is still up over the trunk.  swi_a has no way to learn
+      that a host two switches away unplugged, and the membership is soft state that must time
+      out.  Worth stating because the authored expectation ("Multicast routing table updates
+      accordingly") is only met for the reading in (b) — a tester who shuts the host's port and
+      expects the table to clear will record a false failure.  Recorded as **O-28**.
+      (`no shutdown` restored it: `port1.0.48 ... connected a-full a-1000`.)
+
+  (b) **the ROUTER'S INTERFACE down** — swi_a `interface vlan48`, the multicast interface:
+      swi_a(config-if)#shutdown
+      swi_a#show ip igmp groups -> (header only; empty)
+      swi_a#show ip mroute      -> IP Multicast Routing Table   (empty)
+      swi_a#show ip pim sparse-mode interface
+      Total configured interfaces: 2   Maximum allowed: 1024
+      Total active interfaces:     1                      <- only vlan61 left
+      10.0.61.2        vlan61    4        v2/S   1
+      => **both tables update immediately**, and PIM drops the interface from its active set.
+
+  (c) **and back UP**, with a re-join:
+      swi_a(config-if)#no shutdown
+      cap s7-ifup-recovered-eth4.pcap: 20 frame(s)
+        x10 ICMP t8/c0 ... (10/10 instrument control)
+        x9  UDP 10.38.22.40 -> 232.5.5.5 :5001 [ours] [eth 88:9d:98:df:26:02 -> 01:00:5e:05:05:05]
+        (and 0 of 10 for the wrong source 10.38.22.44, carried in the same leg)
+      swi_a#show ip mroute
+      (10.38.22.40, 232.5.5.5), uptime 00:00:22 ... Outgoing interface list: vlan48 (1)
+      => state and dataplane both recover, and **SSM source filtering is still enforced after
+         the interface flap**.
+  VERDICT authored step 3: **PASS**, with the two readings distinguished.
+
+## LEG 6 (designed, satisfactory-level) — removal.  It produced finding F-14
+
+  First the syntax, because the negation is asymmetric (same family as group A's O-10):
+    awplus(config)#no ip pim ssm default
+    % Invalid input detected at '^' marker.
+    awplus(config)#no ip pim ssm  ?        <- read-only probe
+      <cr>
+  i.e. the positive form takes `default|range <acl>` and **the negation takes neither** — bare
+  `no ip pim ssm`.  Recorded as **O-27**.
+
+  With `no ip pim ssm` applied on BOTH routers and `ip pim ssm default` verifiably gone:
+    awplus#show running-config | include pim
+    service pim
+     ip pim sparse-mode
+     ip pim sparse-mode                    <- no `ip pim ssm` line anywhere
+  the existing channel kept forwarding 10 of 10 and the (S,G) survived.  That is **not** a
+  defect: an IGMPv3 (S,G) include join is legitimate in plain PIM-SM too and joins the SPT
+  directly, so removing the SSM range need not tear it down.  But it means the dataplane cannot
+  show the removal on 232/8 — so the removal was proved a different way, and that attempt is
+  what found F-14:
+
+    (with NO SSM range configured at all)
+    v2 (*,G) join on 232.7.7.7     -> swi_a#show ip igmp groups : NOT listed.  Still rejected.
+    (then `access-list 20 permit 239.20.20.20 0.0.0.0` + `ip pim ssm range 20` on BOTH)
+    v2 (*,G) join on 239.20.20.20  -> 239.20.20.20  vlan48  00:00:07  00:04:14  0.0.0.0
+                                      ACCEPTED, inside the configured SSM range
+    v2 (*,G) join on 232.7.7.7     -> still NOT listed, 40 s later, same table read:
+    swi_a#show ip igmp groups
+    Group Address    Interface            Uptime   Expires  Last Reporter
+    239.20.20.20     vlan48               00:01:07 00:03:14 0.0.0.0        <- configured range
+    (232.7.7.7 absent)                                                     <- IANA range
+
+  => **F-14: the IGMPv2 any-source-join rejection is bound to the hardcoded IANA 232/8 range
+     only, and is NOT applied to a range configured with `ip pim ssm range <acl>`.**  Measured
+     on one router, one interface, two groups, in a single `show ip igmp groups`, and the
+     rejection on 232/8 persists even with no SSM configuration at all — so `ip pim ssm default`
+     is not what enforces it.  RFC 4607 §4.2 expects a router to apply SSM semantics to its
+     configured range too.  **Impact is limited and was measured**: the accepted (*,G)
+     membership is inert — traffic from an arbitrary source to 239.20.20.20 was **0 of 10** in
+     the dataplane (cap s10-ssmrange-starg-eth4.pcap, 10/10 instrument control), because no RP
+     is configured, so nothing leaks.  It is a spec-conformance gap that makes
+     `ip pim ssm range` weaker than `ip pim ssm default`, not a forwarding hole.
+     **Worth a developer's eye.**
+  (The ACL and the range were then removed and `ip pim ssm default` restored.)
+  VERDICT leg 6: PASS as a measurement; produced F-14 and O-27.
+
+## LEG 7 (designed, satisfactory-level) — persistence across a reboot
+
+    awplus#copy running-config flash:/ck43865.cfg  -> Successful operation
+    awplus(config)#boot config-file flash:/ck43865.cfg
+    tools/tb ckreload tb277 ckt1406c u2 115200 480  -> 'reboot system? (y/n):' y; login after 61 s
+  swi_a NOT reloaded (RISK-1).  Before measuring:
+    awplus#show boot -> Current boot config: flash:/ck43865.cfg (file exists)
+    awplus#show running-config | include ssm -> ip pim ssm default
+    awplus#show spanning-tree brief -> port1.0.48 Designated **Discarding**  (the 17-21 s window)
+    awplus#show spanning-tree brief -> port1.0.48 Designated Forwarding       (re-read)
+  Then a channel never used before the reload, with its wrong-source control in the same leg:
+    cap s11-postreload-eth4.pcap: 18 frame(s)
+      x10 ICMP t8/c0 ... (10/10 instrument control)
+      x8  UDP 10.38.22.40 -> 232.6.6.6 :5001 [ours] [eth 88:9d:98:df:26:02 -> 01:00:5e:06:06:06]
+  => **8 of 10** for (10.38.22.40, 232.6.6.6) and **0 of 10** for (10.38.22.44, 232.6.6.6).
+     The configuration survived, the dataplane works, and **SSM's source filtering is still
+     enforced after a cold boot** — which is the half that matters and that a config read cannot
+     show.
+  Boot pointer restored to `flash:/default.cfg` and `flash:/ck43865.cfg` deleted (the
+  `(y/n)[n]` prompt answered with `tools/ckyn.py`).
+  VERDICT leg 7: PASS.
+
+## Teardown and its proof
+
+    DUT   : no ip pim ssm, no ip pim sparse-mode (vlan10, vlan61), no ip multicast-routing,
+            then `no service pim` alone
+    swi_a : no ip pim ssm, no ip pim sparse-mode (vlan48), no ip igmp, no ip igmp version,
+            no ip pim sparse-mode (vlan61), no ip multicast-routing, then `no service pim` alone
+  `no service pim` again answered `% Save the config and restart for this change to take
+  effect.` on both — an advisory, not a rejection.
+
+  `python3 tools/rcdiff.py work/pre-u2.log work/post-u2.log` and the same for u5, gated on the
+  OUTPUT:
+  - **DUT: the diff is EMPTY.**  (The `no service pim` line T43863 left was already in the
+    pre-case capture, so this case added nothing and removed nothing.)
+  - **swi_a: the diff is EMPTY.**
+  Both devices are byte-identical to their pre-case state.  Group C's shared topology is
+  untouched and still up for T43866.  swi_b: nothing to tear down.
+
+## Tools used, with the exact arguments
+
+  - `tools/tb` for every step on the box; scratch `/tmp/ckt1406c/`.
+  - **`tools/igmp.py`, extended in this case with IGMPv3** — the (S,G) joins and leaves above;
+    README entry updated, including a pointer to F-13 for the "the join worked but nothing
+    arrives" failure mode.
+  - `tools/arpleg.py` via `tools/tb sudotool` — 10 counted legs; the `--udp DST:PORT@SRC`
+    per-spec source override is what carries the wrong-source control in the same leg.
+  - `tools/qmark.py` — the read-only `ip pim ssm ?` and `no ip pim ssm ?` probes (no CR).
+  - `tools/cfg.py`, `ckcon.py`, `ckyn.py`, `ckreload.py`, `rc2cfg.py`, `rcdiff.py` via `tools/tb`.
+  🟢 The `tools/console.py` prompt-splice fix made in T43863 (O-23) was **validated on hardware
+  in this case**: `interface port1.0.48 / shutdown` produced the splice
+  `awplus(config-if)#switch: port 48(port1.0.48) entered disabled state` and the batch
+  **continued** through `end` and `show interface port1.0.48 status` instead of stalling 90 s
+  and abandoning the rest.
+
+## Files saved
+
+  - `../swi_d.cfg`, `../swi_a.cfg` — per-device running-config after setup, before step 1
+    (17:30 NZDT), complete for this case including `ip pim ssm default` and swi_a's `ip igmp`.
+  - `work/pre-u2.log`, `work/pre-u5.log` (= T43864's post-teardown state), `work/setup-u*.log`,
+    `work/post-u*.log`, `work/s4-tables-u5.log`, `work/s4b-pimmroute-u5.log`
+  - pcaps on the box in `/tmp/ckt1406c/T43865/` (deleted at group end)
+
+## Steps skipped
+
+  None.  All three authored steps were run, with the two non-existent authored read-backs
+  substituted and the substitution declared.
+
+VERDICT: PASS -- all three authored steps pass, including step 1's "IGMP Host joined the correct multicast source", which was measurable only because tools/igmp.py gained an IGMPv3 source-list mode for this case. The defining SSM property is proven on the wire: the joined channel forwards 9-10/10 while the SAME group from a DIFFERENT source is 0/10 in the same leg, at layer 3, both sharing one link-layer address. An IGMPv2 (*,G) join on the SSM range is rejected; the table state is pure SSM (zero (*,G), one (S,G), SPT bit set, no RP); prune on leave clears both tables; interface down/up behaves correctly with the two readings distinguished (O-28); and source filtering still holds after a cold boot. Produced F-14, O-27, O-28.

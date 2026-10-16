@@ -798,6 +798,7 @@ untouched swi_b, and the DUT back on `flash:/default.cfg` after one reload.
 | T44378 | **PASS** | **No authored step text exists** -- designed from the IP Feature Overview Guide C613-22007-00 REV I p.16 and the DUT's CLI surface, and said so in the log. Nothing relayed by default; both all-ones and subnet-directed broadcasts relayed on helped ports while an unhelped control port never was; the forward-protocol port list and the helper address proven independent; multiple helper addresses each produce a copy; a helper address that is a connected subnet's broadcast is forwarded as a true link-layer broadcast; removal and reboot persistence in the dataplane. Teardown diff EMPTY. Produced O-17, O-18 and a real `arpleg.py` marker defect. | tester | ipv4svc-2026-10-16T1406/T44378/work/run1.log |
 | T43863 | **PASS** | **No authored step text exists** -- designed from RFC 4601 and the DUT's CLI surface, and said so in the log. Two-router topology (DUT = source DR, swi_a = last-hop DR and RP) built after O-20 settled that swi_b cannot run PIM. Baseline off with a JOINED receiver 0/10; forwarding 5/5 with a never-joined control group 0/5 and an instrument control in all 9 legs; Register / RP Join-Prune / Register-Stop / SPT decoded on the transit wire with the DUT's own tcpdump; prune-on-leave proven group-specific (left group 0/5, still-joined group 5/5, same leg); the RP isolated by A/B on one group (0/10 -> 8/10); removal and reboot persistence both proven in the dataplane. Produced F-13, O-20..O-24 and two generic tool fixes. | tester | mcast-2026-10-16T1406/T43863/work/run1.log |
 | T43864 | **PASS** | Authored objective and authored topology both satisfied -- the group-C two-router bench IS `IXIA -- DUT -- sw1(running PIM-DM) -- IXIA` with swi_a as a real PIM-DM sw1 -- and the authored step measured 10/10 then 30/30. Plus baseline off with `pdmd` already running (0/10), a branch with no receiver pruned (0/40, 0/50, 0/25, empty OIF), the PIM-DM-specific State Refresh and Join/Prune decoded on the transit wire, a Graft/Graft-Ack handshake 206 us apart turning the SAME group from 0/50 to 20/20, group-specific prune on leave, removal and reboot persistence in the dataplane. Initial flood declared NOT MEASURED (O-25). Produced O-25, O-26 and the F-13 addendum. | tester | mcast-2026-10-16T1406/T43864/work/run1.log |
+| T43865 | **PASS** | All THREE authored steps pass, including step 1's "Check IGMP Host Joined the correct multicast source" -- measurable only because `tools/igmp.py` gained an IGMPv3 source-list mode for this case. The defining SSM property proven on the wire: the joined channel forwards 9-10/10 while the SAME group from a DIFFERENT source is 0/10 in the same leg, discriminated at layer 3 with both flows sharing one link-layer address. IGMPv2 (*,G) on the SSM range rejected; table state pure SSM (zero (*,G), one (S,G), SPT bit 1, no RP configured at all); prune on leave clears both tables; interface down/up correct with the two readings distinguished (O-28); source filtering still enforced after a cold boot. Teardown diff EMPTY on BOTH devices. Produced F-14, O-27, O-28. Two authored read-backs do not exist (`show ip pim spare-mode mroute` is a typo, `show ip igmp group` is `groups`) and the substitutions are declared. | tester | mcast-2026-10-16T1406/T43865/work/run1.log |
 | T44182 | **PASS** | **No authored step text exists** -- designed from the same guide, p.17. Off by default and dropped; enabled on the DESTINATION subnet's interface the identical frames are forwarded and translated to a link-layer broadcast; enabled on the INGRESS interface it is inert (O-19); the optional standard ACL filters on source and is consulted per packet, proven by INVERTING it; removal and reboot persistence in the dataplane. Teardown diff EMPTY. | tester | ipv4svc-2026-10-16T1406/T44182/work/run1.log |
 
 ## Issues
@@ -901,6 +902,33 @@ untouched swi_b, and the DUT back on `flash:/default.cfg` after one reload.
   known families from a COPY of the buffer and retry. Self-tested on 6 buffers before being
   pushed. **Any campaign that shuts or unshuts ports through `cfg.py` was losing the rest of its
   batch to this.**
+- **🔴 F-14 (T43865) — the IGMPv2 any-source-join rejection is bound to the hardcoded IANA
+  232/8 range ONLY, and is not applied to a range configured with `ip pim ssm range <acl>`.**
+  Measured on one router, one interface, two groups, in a single `show ip igmp groups`: with
+  `access-list 20 permit 239.20.20.20 0.0.0.0` + `ip pim ssm range 20` active on both routers,
+  an IGMPv2 (*,G) join on **239.20.20.20 was ACCEPTED** (`00:00:07  00:04:14`), while the same
+  v2 join on **232.7.7.7 was REJECTED** (absent from the table) 40 s later. The 232/8 rejection
+  also persists with **no SSM configuration at all**, so `ip pim ssm default` is not what
+  enforces it. RFC 4607 §4.2 expects SSM semantics on the configured range too.
+  **Impact measured, and it is limited**: the accepted (*,G) membership is inert — traffic from
+  an arbitrary source to 239.20.20.20 was **0 of 10** in the dataplane (no RP is configured),
+  so nothing leaks. It is a spec-conformance gap that makes `ip pim ssm range` weaker than
+  `ip pim ssm default`, not a forwarding hole. **Worth a developer's eye.**
+  Evidence: `mcast-2026-10-16T1406/T43865/work/run1.log` leg 6.
+- **O-27 (T43865)** `ip pim ssm` has an **asymmetric negation**: the positive form takes
+  `default` or `range <acl>`, the negation takes **neither** — `no ip pim ssm default` is
+  `% Invalid input detected`, and the working form is bare `no ip pim ssm` (settled with a
+  read-only `no ip pim ssm ?` probe). Same family as group A's O-10. A teardown that mirrors
+  its setup line-for-line fails.
+- **O-28 (T43865) — "interface down" has two readings and only one updates the multicast
+  table.** Shutting the RECEIVER'S L2 access port on the DUT left swi_a's IGMP group and its
+  mroute entry fully populated, because the multicast router is swi_a and its `vlan48` SVI is
+  still up over the trunk — it cannot see a host unplug two switches away, and the membership
+  is soft state that must time out. Shutting swi_a's own `interface vlan48` cleared both tables
+  immediately and dropped the interface from `show ip pim sparse-mode interface`
+  (`Total active interfaces: 1`). T43865's authored step 3 expects "the multicast routing table
+  updates accordingly", which is **only true for the router-interface reading** — a tester who
+  shuts the host's port and expects the table to clear will record a false failure.
 - **O-25 (T43864) — the FLOOD half of PIM-DM flood-and-prune was NOT observable at 4-5
   frames/s.** Three never-joined groups were streamed (40, 50, 25 frames) with a capture armed
   on the transit VLAN before two of them; **not one data frame of any reached the transit
