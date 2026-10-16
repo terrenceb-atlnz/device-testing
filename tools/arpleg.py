@@ -18,6 +18,7 @@ Must run as root (raw sockets + tcpdump). Outputs are chowned back to SUDO_UID.
 Run:
   sudo python3 arpleg.py --tag NAME --out DIR --iface eth3 [--watch eth4 ...]
        [--arp TARGET[,TARGET...]] [--probe DST[,DST...]] [--icmp DST[,DST...]]
+       [--udp DST[:PORT][,DST[:PORT]...]] [--l2-dst MAC|broadcast] [--sport N] [--ttl N]
        [--sender-ip IP] [--sender-mac MAC] [--gw-mac MAC]
        [--count N] [--settle S] [--wait S] [--filter BPF] [--vlan V]
        [--sniff-only]
@@ -32,6 +33,12 @@ Examples:
   sudo arpleg.py --tag static-on --out /tmp/ck/T33248 --iface eth3 --watch eth4 \
       --probe 192.168.48.9,192.168.48.10 --sender-ip 192.168.10.2 \
       --sender-mac 00:11:22:33:44:01 --gw-mac ee:ee:6b:xx:xx:xx --count 5
+
+  # UDP broadcast helper: a helped port and an unhelped control port in ONE leg,
+  # sent as a true link-layer broadcast, counted on the far segment
+  sudo arpleg.py --tag helper-on --out /tmp/ck/T44378 --iface eth3 --watch eth4 \
+       --udp 255.255.255.255:69,255.255.255.255:7777 --l2-dst broadcast \
+       --sender-ip 10.38.22.40 --sender-mac 00:11:22:33:44:01 --count 5
 
   # passive: watch a NIC for 60 s (ARP polling, gratuitous ARP, a deauth)
   sudo arpleg.py --tag poll --out /tmp/ck/T33246 --iface eth3 --sniff-only --wait 60
@@ -187,14 +194,29 @@ def build(args):
         a = ARP(op=1, hwsrc=smac, psrc=sip, hwdst="00:00:00:00:00:00", pdst=t)
         f = eth / Dot1Q(vlan=args.vlan) / a if args.vlan else eth / a
         out.append(("arp who-has %s tell %s" % (t, sip), f))
+    l2 = args.l2_dst or args.gw_mac      # --l2-dst applies to --udp only
     for d in args.probe:
         if not args.gw_mac:
-            sys.exit("--probe needs --gw-mac (the L2 next hop, i.e. the DUT SVI MAC)")
+            sys.exit("--probe needs --gw-mac (the L2 next hop, i.e. the DUT SVI MAC)"
+                     " or an explicit --l2-dst")
         eth = Ether(src=smac, dst=args.gw_mac)
-        ip = IP(src=sip, dst=d, ttl=64) / UDP(sport=40000, dport=9) / Raw(
+        ip = IP(src=sip, dst=d, ttl=64) / UDP(sport=args.sport, dport=9) / Raw(
             load=b"CKARPLEG-" + args.tag.encode())
         f = eth / Dot1Q(vlan=args.vlan) / ip if args.vlan else eth / ip
-        out.append(("udp %s -> %s (eth dst %s)" % (sip, d, args.gw_mac), f))
+        out.append(("udp %s -> %s:9 (eth dst %s)" % (sip, d, args.gw_mac), f))
+    for spec in args.udp:
+        d, _, p = spec.partition(":")
+        port = int(p) if p else 9
+        if not l2:
+            sys.exit("--udp needs --gw-mac or --l2-dst (use 'broadcast' for a true"
+                     " link-layer broadcast, which a UDP-helper or directed-broadcast"
+                     " case needs)")
+        eth = Ether(src=smac, dst=l2)
+        ip = IP(src=sip, dst=d, ttl=args.ttl) / UDP(sport=args.sport, dport=port) / Raw(
+            load=b"CKARPLEG-" + args.tag.encode() + b"-p%d" % port)
+        f = eth / Dot1Q(vlan=args.vlan) / ip if args.vlan else eth / ip
+        out.append(("udp %s -> %s:%d (eth dst %s, ttl %d)"
+                    % (sip, d, port, l2, args.ttl), f))
     for d in args.icmp:
         if not args.gw_mac:
             sys.exit("--icmp needs --gw-mac")
@@ -224,7 +246,11 @@ def classify(pkt):
         return (k + vtxt, e.src, e.dst)
     if pkt.haslayer(IP):
         ip = pkt[IP]
-        mine = b"CKARPLEG" in bytes(pkt[Raw].load) if pkt.haslayer(Raw) else False
+        # Scan the WHOLE frame, not pkt[Raw]: scapy dissects well-known UDP ports into
+        # their own layer (69 -> TFTP, 67/68 -> BOOTP, 53 -> DNS ...), so the marker is
+        # not in Raw and the tool's own frames would read as foreign. Measured on tb277
+        # 2026-10-16: a --udp ...:69 burst reported 0 of 5 as [ours].
+        mine = b"CKARPLEG" in bytes(pkt)
         mark = " [ours]" if mine else ""
         if pkt.haslayer(ICMP):
             ic = pkt[ICMP]
@@ -250,7 +276,7 @@ def report(path, limit):
                 c = classify(pkt)
                 if c is None:
                     continue
-                if pkt.haslayer(Raw) and b"CKARPLEG" in bytes(pkt[Raw].load):
+                if b"CKARPLEG" in bytes(pkt):   # whole frame -- see classify()
                     ours += 1
                 groups[c] = groups.get(c, 0) + 1
     except Exception as exc:  # noqa: BLE001
@@ -274,7 +300,17 @@ def main():
                     help="extra NIC to capture on (repeatable)")
     ap.add_argument("--arp", default="", help="comma list of ARP targets to ask for")
     ap.add_argument("--probe", default="",
-                    help="comma list of IPv4 dsts for routed UDP probes")
+                    help="comma list of IPv4 dsts for routed UDP probes (dport 9)")
+    ap.add_argument("--udp", default="",
+                    help="comma list of DST[:PORT] UDP probes with a CHOSEN dport "
+                         "(default 9); pair a matched port with an unmatched one in "
+                         "the same leg as the control")
+    ap.add_argument("--l2-dst", default="",
+                    help="Ethernet destination for --udp ONLY (--probe and --icmp keep "
+                         "--gw-mac, so one leg can carry a broadcast flow and a unicast "
+                         "control). Use 'broadcast' for a true link-layer broadcast")
+    ap.add_argument("--sport", type=int, default=40000, help="UDP source port")
+    ap.add_argument("--ttl", type=int, default=64, help="IPv4 TTL of --udp frames")
     ap.add_argument("--icmp", default="", help="comma list of IPv4 dsts for ICMP echo")
     ap.add_argument("--sender-ip", default="192.168.10.2")
     ap.add_argument("--sender-mac", default="00:11:22:33:44:01")
@@ -307,6 +343,9 @@ def main():
 
     args.arp = [x for x in args.arp.split(",") if x]
     args.probe = [x for x in args.probe.split(",") if x]
+    args.udp = [x for x in args.udp.split(",") if x]
+    if args.l2_dst.lower() in ("broadcast", "bcast"):
+        args.l2_dst = "ff:ff:ff:ff:ff:ff"
     args.icmp = [x for x in args.icmp.split(",") if x]
     os.makedirs(args.out, exist_ok=True)
     chown_back([args.out])   # a root-owned --out dir blocks later non-root tools writing into it

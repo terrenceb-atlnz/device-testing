@@ -1,0 +1,323 @@
+# T44378 — (52) IPv4 - UDP Broadcast Helper — working log, run 1
+# tester: bench-runner subagent (one-session /test-mode shape; sentinel = parent session)
+# started 2026-10-16 15:48 NZDT (02:48 UTC), tb277, group ipv4svc-2026-10-16T1406
+
+## Session facts, devices, links, clocks, host NICs and the pre-run gate
+
+  Identical to, and recorded in full in, **T44181/work/run1.log** (same group, same
+  session, same bench, measured once per the "keep the context small" rule). In short:
+  tb277; DUT swi_d AT-x960-56YSQ S/N A2WQS700B, sin_x96056-20261012-24, /dev/u2 @115200,
+  SVI MAC e0:1a:ea:d4:70:43; host eth3 10.38.22.33/27 (00:0d:b9:55:77:0e) and eth4
+  10.38.22.65/27 (00:0d:b9:55:77:0f); DUT clock 9 s behind the box; gate all green
+  (consoles free and at `login:`, no template -- RISK-6, probe exit 0 with no advisories).
+
+  🔴 THIS CASE TOUCHES ONE DEVICE: swi_d. swi_b and swi_a were not opened, not configured,
+  not reloaded and not power-cycled. No host-NIC addressing or other root-level host change.
+
+## 🔴 NO AUTHORED STEP TEXT EXISTS FOR THIS CASE
+
+  `tools/tb tool tb277 ckt1406b ckcase AWPTCM-T44378` -> ck.db `zephyr_cases` id 40676,
+  title "(52) IPv4 - UDP Broadcast Helper", folder /New Platform Test (MASTER)/New Platform
+  Template/IPv4, status Draft. **`has_objective` 0, no `objective`, no `precondition`, no
+  `steps_text`, `num_steps` 1 and a 53-character (empty) `steps` column.** There is no
+  authored procedure and no authored expected result. Nothing below is quoted as authored,
+  and no quotation was invented.
+
+  The steps below were designed from two sources, both named so the next run can check them:
+   1. **"Internet Protocol (IP) Addressing and Protocols Feature Overview and Configuration
+      Guide" C613-22007-00 REV I, p.16, "IP Helper (UDP Broadcast Helper)"**, in the repo's
+      `Feature Overview Guides/`. The five sentences that became the test legs:
+        - "allows the switch to receive UDP broadcasts on one subnet, and forward them as
+           broadcasts or unicasts into another subnet";
+        - "The command to enable the forwarding of UDP broadcasts received on a given
+           interface is ip helper-address (entered in interface configuration mode). The ip
+           forward-protocol udp command specifies types of broadcast packets to forward.";
+        - "Multiple different destination addresses can be specified by using multiple
+           instances of the ip helper-address command under the same interface.";
+        - "If a destination address is specified that is actually the broadcast address of
+           one of the subnets directly connected to the switch, then the UDP packets will be
+           forwarded as broadcasts onto that subnet.";
+        - "Note: The types of UDP broadcast packets that the switch will forward are only
+           those specified by the ip forward-protocol command(s). The IP Helper process does
+           not forward any other UDP packet types by default."
+   2. The DUT's own CLI surface, read with `tools/qmark.py` (step 0 below).
+  No product TPS for the x960 exists in the repo (triage), so the support matrix a TPS
+  would give was substituted by the `?` probes and `show license`.
+
+## Measurement stance (STANDING-ORDERS §7)
+
+  The subject is **which** UDP broadcasts the DUT relays, so it cannot be graded on a ping
+  or on `show running-config`. Every leg sends crafted frames with `tools/arpleg.py` from
+  host eth3 (ingress segment) and counts what arrives on host eth4 (the far segment),
+  decoding the IP source, IP destination, UDP destination port AND both MAC addresses of
+  every frame.
+
+  **Two controls in EVERY counted leg:**
+   - a UDP flow on port **7777**, which is never in `ip forward-protocol`: it must NEVER
+     be relayed. It is the discriminator that stops "a broadcast arrived" being mistaken
+     for "the helper relayed it";
+   - a routed **ICMP** unicast 10.38.22.40 -> 10.38.22.65, which must ALWAYS arrive on
+     eth4: it proves in the same capture that the DUT is routing between the two segments
+     and that the eth4 instrument is alive, so a zero for the UDP flows is a measurement.
+
+  🔴 **Foreign-host exposure, handled.** 10.38.22.41 / 00:0c:25:2a:a5:53 is live on the
+  INGRESS segment (10.38.22.32/27) and is not ours. The counted side of every leg is
+  **eth4 / 10.38.22.64/27, which has no known foreign host**, so a stray cannot inflate a
+  count. Every frame is additionally attributed by source and destination MAC, and the
+  30 s background baseline taken for this group (T44181, same session) measured **0 ICMP
+  and 0 UDP on eth4** and 2 ARP frames on eth3, none of them from the foreign host.
+
+## STEP 0 (designed) — prove the commands exist, read-only
+
+  `tools/qmark.py`, no trailing CR (work/s0-qmark-global.log, work/s0-qmark-if.log):
+
+    awplus(config)#ip forward-protocol  ?
+      udp  User Datagram Protocol(UDP)
+    awplus(config)#ip forward-protocol udp  ?
+      PORT  UDP Port number
+    awplus(config-if)#ip helper-address  ?
+      A.B.C.D  Forwarding destination address for IP Helper
+
+  🟠 O-17 — `ip forward-protocol udp` takes a **numeric port only**. There are no named
+  keywords on this platform (no `tftp`, `domain`, `netbios-ns`, `time`, ...), and `udp` is
+  the only protocol the command accepts -- there is no `ip forward-protocol nd` or similar.
+  A case written against the Cisco-style named forms would fail at its first command.
+  `ip helper-address` takes exactly one `A.B.C.D` -- no interface form, no VRF keyword.
+  VERDICT step 0: PASS, nothing UNSUPPORTED.
+
+## Bench setup
+
+  The shared B/C/D underlay only (queue, `## Group B/C/D shared L3 underlay and restore`).
+  Nothing case-specific was configured before step 1. Pre-case running-config saved to
+  work/pre-u2.log; `rcdiff` against T44181's pre-group capture showed the 31 underlay lines
+  and nothing else, so this case started from a clean underlay-only DUT.
+  Post-setup config saved to ../swi_d.cfg (3 header + 99 config lines) before step 1.
+
+    ingress segment  vlan10  10.38.22.34/27   port1.0.10  <- host eth3, broadcasts sent here
+    far segment      vlan48  10.38.22.66/27   port1.0.48  <- host eth4, relayed frames counted here
+    subnet broadcast of the ingress subnet = 10.38.22.63
+    subnet broadcast of the far subnet     = 10.38.22.95
+
+## LEG 1 (designed) — BASELINE OFF: no helper, no forward-protocol
+
+    tools/tb sudotool tb277 ckt1406b arpleg --tag s1-baseline-off \
+      --out /tmp/ckt1406b/T44378 --iface eth3 --watch eth4 \
+      --udp 255.255.255.255:69,10.38.22.63:37,255.255.255.255:7777 --l2-dst broadcast \
+      --icmp 10.38.22.65 --gw-mac e0:1a:ea:d4:70:43 \
+      --sender-ip 10.38.22.40 --sender-mac 00:11:22:33:44:01 \
+      --count 5 --gap 0.3 --settle 3 --wait 8 --filter "udp or icmp or arp"
+
+    cap s1-baseline-off-eth3.pcap: 20 frame(s)        (what was put on the ingress wire)
+      x5  UDP  10.38.22.40 -> 255.255.255.255 :69   [ours] [eth 00:11:22:33:44:01 -> ff:ff:ff:ff:ff:ff]
+      x5  UDP  10.38.22.40 -> 10.38.22.63     :37   [ours] [eth 00:11:22:33:44:01 -> ff:ff:ff:ff:ff:ff]
+      x5  UDP  10.38.22.40 -> 255.255.255.255 :7777 [ours] [eth 00:11:22:33:44:01 -> ff:ff:ff:ff:ff:ff]
+      x5  ICMP t8/c0 10.38.22.40 -> 10.38.22.65     [ours] [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    cap s1-baseline-off-eth4.pcap: 5 frame(s)
+      x5  ICMP t8/c0 10.38.22.40 -> 10.38.22.65     [ours] [eth e0:1a:ea:d4:70:43 -> 00:0d:b9:55:77:0f]
+
+  => All 15 broadcasts were genuinely on the ingress wire as link-layer broadcasts, and
+     **not one of them reached the far segment**. The routed ICMP control arrived 5/5 with
+     the DUT's MAC as the L2 source, so the DUT was routing and the eth4 capture was alive.
+  => Matches the guide's "does not forward any other UDP packet types by default".
+  VERDICT leg 1: PASS (baseline OFF established before any positive claim).
+
+## LEG 2 (designed) — helper ON: two helped ports, one unhelped control
+
+    awplus(config)#ip forward-protocol udp 69
+    awplus(config)#ip forward-protocol udp 37
+    awplus(config)#interface vlan10
+    awplus(config-if)#ip helper-address 10.38.22.65
+    awplus#show running-config | include forward-protocol
+    ip forward-protocol udp 69
+    ip forward-protocol udp 37
+    awplus#show running-config interface vlan10
+    interface vlan10
+     ip address 10.38.22.34/27
+     ip helper-address 10.38.22.65
+
+  Same send, same counts (work/s2-helper-on.log):
+
+    cap s2-helper-on-eth4.pcap: 15 frame(s)
+      x5  UDP  10.38.22.40 -> 10.38.22.65 :69   [ours] [eth e0:1a:ea:d4:70:43 -> 00:0d:b9:55:77:0f]
+      x5  UDP  10.38.22.40 -> 10.38.22.65 :37   [ours] [eth e0:1a:ea:d4:70:43 -> 00:0d:b9:55:77:0f]
+      x5  ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours] [eth e0:1a:ea:d4:70:43 -> 00:0d:b9:55:77:0f]
+
+  => 5/5 of the **all-ones broadcast** (255.255.255.255:69) and 5/5 of the **ingress
+     subnet's directed broadcast** (10.38.22.63:37) were relayed into the far subnet,
+     rewritten to the unicast helper address, with the DUT's MAC as L2 source.
+  => **0/5 of the control on port 7777** — the port that is not in `ip forward-protocol`.
+     In the SAME capture 15 frames did arrive, so the zero is a measurement.
+  => 🟠 O-18, measured and not in the guide: the relay **preserves the original IP source
+     address (10.38.22.40) and both UDP ports**; only the IP destination and the Ethernet
+     header are rewritten. There is no giaddr-style rewrite and no relay-agent option --
+     IP Helper is a plain forwarder, unlike `ip dhcp-relay` (x960 §6).
+  => Both broadcast FORMS are relayed. The guide says only "UDP broadcasts received on the
+     interface" without distinguishing all-ones from a subnet-directed broadcast; measured,
+     both are.
+  VERDICT leg 2: PASS.
+
+## LEG 3 (designed) — the port list is the discriminator, independently of the helper address
+
+    awplus(config)#no ip forward-protocol udp 37
+    awplus#show running-config | include forward-protocol
+    ip forward-protocol udp 69                          <- 37 gone, helper address untouched
+
+    cap s3-port-removed-eth4.pcap: 10 frame(s)
+      x5  UDP  10.38.22.40 -> 10.38.22.65 :69   [ours] [eth e0:1a:ea:d4:70:43 -> 00:0d:b9:55:77:0f]
+      x5  ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours] [eth e0:1a:ea:d4:70:43 -> 00:0d:b9:55:77:0f]
+
+  => Removing ONE port from `ip forward-protocol` stopped that port's relaying immediately
+     and left the other port relaying, with the helper address unchanged. The two commands
+     are independent and the port list really is the filter, exactly as the guide's Note
+     says. (Port 37 went from 5/5 to 0/5 between two otherwise identical legs.)
+  VERDICT leg 3: PASS.
+
+## LEG 4 (designed) — a helper address that IS a connected subnet's broadcast address
+
+  The guide: "If a destination address is specified that is actually the broadcast address
+  of one of the subnets directly connected to the switch, then the UDP packets will be
+  forwarded as broadcasts onto that subnet."
+
+    awplus(config)#ip forward-protocol udp 37                  (restored)
+    awplus(config-if)#ip helper-address 10.38.22.95            (ADDED alongside .65)
+    awplus#show running-config interface vlan10
+    interface vlan10
+     ip address 10.38.22.34/27
+     ip helper-address 10.38.22.65
+     ip helper-address 10.38.22.95
+
+    cap s4-bcast-helper-eth4.pcap: 25 frame(s)
+      x5  UDP  10.38.22.40 -> 10.38.22.65 :69   [ours] [eth e0:1a:ea:d4:70:43 -> 00:0d:b9:55:77:0f]
+      x5  UDP  10.38.22.40 -> 10.38.22.95 :69   [ours] [eth e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+      x5  UDP  10.38.22.40 -> 10.38.22.65 :37   [ours] [eth e0:1a:ea:d4:70:43 -> 00:0d:b9:55:77:0f]
+      x5  UDP  10.38.22.40 -> 10.38.22.95 :37   [ours] [eth e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+      x5  ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours] [eth e0:1a:ea:d4:70:43 -> 00:0d:b9:55:77:0f]
+
+  => BOTH guide sentences hold, and the difference is visible in the Ethernet header, not
+     only the IP header:
+       - multiple `ip helper-address` lines on one interface each get their own copy, so
+         each helped ingress broadcast produced TWO relayed frames (10 sent in, 20 out);
+       - the helper address 10.38.22.95 -- the broadcast address of the directly-connected
+         vlan48 subnet -- was forwarded **as a link-layer broadcast**
+         (`eth ... -> ff:ff:ff:ff:ff:ff`), while 10.38.22.65 was a unicast to the host's
+         own MAC. Two different L2 treatments from one ingress frame, in one capture.
+       - the 7777 control was still relayed 0 times.
+  VERDICT leg 4: PASS.
+
+## LEG 5 (not authored, required anyway) — persistence across a reload
+
+    awplus#copy running-config flash:/ck44378.cfg      -> Successful operation
+    awplus(config)#boot config-file flash:/ck44378.cfg
+    awplus#show boot -> Current boot config: flash:/ck44378.cfg (file exists)
+  startup-config and flash:/default.cfg were never written.
+
+  Reload: `reboot system? (y/n): -> y`, **login seen after 61 s** (x960 §7.9: 60-68 s).
+  STP re-read BEFORE measuring: port1.0.10 Designated Forwarding, port1.0.48 Designated
+  Forwarding -- nothing was measured inside the settle window.
+
+    awplus#show running-config | include forward-protocol
+    ip forward-protocol udp 69
+    ip forward-protocol udp 37
+    awplus#show running-config interface vlan10
+     ip address 10.38.22.34/27
+     ip helper-address 10.38.22.65
+     ip helper-address 10.38.22.95
+
+  Dataplane after the reboot (work/s5-postreload-wire.log), identical to leg 4:
+    cap s5-postreload-eth4.pcap: 25 frame(s)
+      x5 UDP -> 10.38.22.95 :69 [eth ... -> ff:ff:ff:ff:ff:ff]   x5 UDP -> 10.38.22.65 :69
+      x5 UDP -> 10.38.22.95 :37 [eth ... -> ff:ff:ff:ff:ff:ff]   x5 UDP -> 10.38.22.65 :37
+      x5 ICMP control
+  => Both forward-protocol ports, both helper addresses AND the broadcast-vs-unicast L2
+     distinction survived the reboot, in the dataplane and not only in the config text.
+     The 7777 control was still 0.
+  VERDICT leg 5: PASS.
+
+## LEG 6 (not authored, required anyway) — removal, in the config AND in the dataplane
+
+    awplus(config)#boot config-file flash:/default.cfg
+    awplus(config-if)#no ip helper-address 10.38.22.65
+    awplus(config-if)#no ip helper-address 10.38.22.95
+    awplus(config)#no ip forward-protocol udp 69
+    awplus(config)#no ip forward-protocol udp 37
+    awplus#delete flash:/ck44378.cfg      -> (y/n)[n]:y  Successful operation
+    awplus#dir flash:/*.cfg -> 1049 -rw- Oct 15 2026 10:49:02  flash:/default.cfg   (only)
+    awplus#show boot -> Current boot image : flash:/x960-tb277.rel (file exists)
+                        Current boot config: flash:/default.cfg (file exists)
+    awplus#show running-config interface vlan10
+     ip address 10.38.22.34/27                                   <- no helper lines left
+  No `% ` line anywhere in the removal batch: every negation was accepted exactly as typed,
+  including the per-address `no ip helper-address <A.B.C.D>` form.
+
+    cap s6-removed-eth4.pcap: 5 frame(s)
+      x5  ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours] [eth e0:1a:ea:d4:70:43 -> 00:0d:b9:55:77:0f]
+
+  => **Zero relayed UDP** on the far segment, while the routed ICMP control arrived 5/5 in
+     the same capture. Removal is real in the dataplane, not only in the text.
+  VERDICT leg 6: PASS.
+
+## Teardown verification
+
+    python3 tools/rcdiff.py work/pre-u2.log work/post-u2.log   (exit 0 means nothing; read it)
+  **The diff is EMPTY.** The DUT's running-config is byte-for-byte the pre-case
+  underlay-only config: no helper address, no forward-protocol line, no flash file, boot
+  pointers back to flash:/x960-tb277.rel + flash:/default.cfg, autoboot still disabled.
+  The shared underlay is left UP deliberately for groups C and D.
+  Six `arpleg.py` legs ran and all exited; nothing of this case is still running on the box.
+  File: work/s7-teardown-diff.log (empty).
+
+## Findings and observations
+
+  **No F-level defect.** Every sentence of the guide's IP Helper section that this bench
+  can reach was confirmed in the dataplane. Two observations:
+
+  🟠 O-17 — `ip forward-protocol` accepts only `udp`, and `ip forward-protocol udp` accepts
+     only a numeric `PORT`. No named service keywords exist on this platform, and
+     `ip helper-address` takes a bare `A.B.C.D` with no interface or VRF form. A test
+     written against the named forms fails at its first command. Evidence:
+     work/s0-qmark-global.log, work/s0-qmark-if.log.
+
+  🟠 O-18 — a relayed frame keeps the ORIGINAL IP source address and BOTH UDP ports; only
+     the IP destination and the Ethernet header are rewritten. IP Helper is a plain
+     forwarder with no relay-agent semantics (no giaddr, no option insertion), which is the
+     opposite of `ip dhcp-relay` on the same box (x960 §6). Worth stating because a server
+     behind the helper sees the client's real address, and because a tester looking for a
+     giaddr rewrite will think the relay is broken. Evidence: work/s2-helper-on.log.
+
+  **Tool trap found and fixed generically (this one will bite the next case that uses a
+  well-known port).** `arpleg.py` marked its own frames by looking for `CKARPLEG` in
+  `pkt[Raw].load`. scapy dissects well-known UDP ports into their OWN layer -- 69 becomes
+  TFTP, 67/68 BOOTP, 53 DNS -- so for the `:69` burst there is no `Raw` layer at all: all
+  five of the tool's own frames reported as foreign and the leg exited 7 with
+  "COUNTER DISAGREEMENT: sent 20 marked frame(s), capture on eth3 holds 15". The
+  measurement was unaffected but the self-check was wrong, which is worse. Both the
+  `classify()` mark and the `report()` counter now scan `bytes(pkt)`, the whole frame.
+  Same family as the documented `dhcp4.py` BOOTP trap. Re-ran the baseline leg after the
+  fix: all four flows `[ours]`, exit 0.
+
+  **New generic capability in `tools/arpleg.py`** (README updated), needed by this case and
+  by T44182 and reusable by anything that must send a specific UDP broadcast:
+    `--udp DST[:PORT][,...]`  UDP probes with a CHOSEN destination port (the old `--probe`
+                              hardcodes dport 9), so a matched port and an unmatched
+                              control port ride in one leg;
+    `--l2-dst MAC|broadcast`  the Ethernet destination for `--udp` ONLY -- `--probe` and
+                              `--icmp` keep `--gw-mac`, which is what lets one leg carry a
+                              link-layer broadcast flow AND a routed unicast control;
+    `--sport N`, `--ttl N`.
+
+## Run quality
+
+  CLEAN. No confounder. Baseline OFF measured before any positive claim; two controls in
+  every counted leg (an unhelped UDP port that must not be relayed, and a routed ICMP
+  unicast that must arrive); the counted side deliberately placed on the segment with no
+  foreign host; removal and reboot persistence both proven in the dataplane; teardown diff
+  empty.
+
+VERDICT: PASS -- no authored step text exists, so the case was designed from the IP Feature
+Overview Guide (C613-22007-00 REV I p.16) and the DUT's CLI surface, and every guide claim
+reachable on this bench was confirmed on the wire: nothing relayed by default; both
+all-ones and subnet-directed UDP broadcasts relayed on a helped port while an unhelped port
+was never relayed; the port list and the helper address proven independent; multiple helper
+addresses each producing their own copy; a helper address that is a connected subnet's
+broadcast address forwarded as a true link-layer broadcast; and removal and reboot
+persistence both proven in the dataplane. No platform defect; two observations (O-17, O-18).

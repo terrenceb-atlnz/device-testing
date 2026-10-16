@@ -576,6 +576,19 @@ campaign's single largest avoidable cost.
   exits **7** when the sending NIC's capture holds fewer of its own marked frames than it sent.
   Marked frames carry `CKARPLEG-<tag>` in the payload and are flagged `[ours]` in the report, so
   the tool's traffic is never confused with the bench's.
+- **`--udp DST[:PORT]` + `--l2-dst broadcast` is how you test a broadcast-forwarding feature.**
+  `--probe` hardcodes dport 9 and sends to `--gw-mac`; a UDP-helper or directed-broadcast case
+  needs a CHOSEN destination port and a true link-layer broadcast. `--l2-dst` applies to
+  `--udp` only, so one leg can carry the broadcast flow AND a routed unicast `--icmp` control
+  that must arrive. Pair a matched port with an unmatched one in the same leg (added 2026-10-16
+  for T44378/T44182).
+- **🔴 scapy marker trap (measured on tb277 2026-10-16):** the tool marks its own frames with
+  `CKARPLEG-<tag>` in the payload. scapy dissects well-known UDP ports into their OWN layer --
+  69 becomes TFTP, 67/68 BOOTP, 53 DNS -- so for those ports there is **no `Raw` layer at all**
+  and a check of `pkt[Raw].load` finds nothing: a `--udp ...:69` burst reported 0 of 5 frames
+  as `[ours]` and the leg exited 7 with a false COUNTER DISAGREEMENT. Both the mark and the
+  counter now scan `bytes(pkt)`, the whole frame. Same family as the `dhcp4.py` BOOTP trap;
+  any other scapy tool that marks payloads needs the same treatment.
 - **Limits:**
   - `--probe` / `--icmp` need `--gw-mac` (the L2 next hop, i.e. the DUT's SVI MAC); `--arp` does not.
   - Output goes to `--out`, which should be a **local `/tmp` path on the box**: tcpdump runs as
