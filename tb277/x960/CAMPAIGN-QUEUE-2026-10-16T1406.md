@@ -65,11 +65,23 @@ Advisories: none) — the post-campaign probe taken at this morning's wrap:
   **L3-MC-ROUTE**, LAG-FULL, MLDSnoop, MRP, No-License-Lock, OSPF-64, RADIUS-100, RIP, UDLD,
   UFO, VCStack, **VRRP**`. No VRF-Lite.
   🔴 **CORRECTION to this queue's first draft**, which said only "OSPF-64, RIP, no VRF-Lite":
-  swi_b **does** hold `L3-MC-ROUTE` and `VRRP`, so it CAN be a real PIM neighbour (group C) and a
-  real VRRP peer (group D). Its refusals at triage — `% BFD protocol daemon is not running`,
-  `% VRRPD protocol daemon is not running or feature license is not available`, `% PIM-SM
-  protocol daemon is not running or feature license is not available` — are the **daemon gate**,
-  not a licence wall; the "or feature license" clause is a catch-all.
+  swi_b **does** hold `L3-MC-ROUTE` and `VRRP`, so it is a legitimate **VRRP** peer (group D) and
+  a legitimate RIP peer.
+  🔴🔴 **AND A CORRECTION TO THAT CORRECTION — the sentinel's, caught by triage.** The first
+  version of this note went on to say swi_b "CAN be a real PIM neighbour". **That was an
+  inference stated as a measurement, and it is withdrawn.** swi_b's feature list has **no `PIM`
+  bit**; `L3-MC-ROUTE` is held by all three units *including* ones whose PIM comes from a
+  separate licence bit, so it is **not** the PIM gate. Only **swi_d (atlnz)** and **swi_a
+  (ATL-NZ full)** are proven to hold `PIM`/`PIM6`.
+  Whether swi_b can still run PIM is **genuinely unsettled** and needs a state change to answer:
+  group C's first action is `service pim` on swi_b alone, wait ~10 s, then
+  `show ip pim sparse-mode interface`. If refused, the PIM partner is **swi_a** — permitted under
+  RISK-1, which forbids reloading and power-cycling it, not configuring it.
+  Its triage refusals (`% BFD protocol daemon is not running`, `% VRRPD … not running or feature
+  license is not available`, `% PIM-SM … not running or feature license is not available`) are
+  the **daemon gate** for BFD and VRRP, where the licence bits are present. For PIM the "or
+  feature license" clause may be the operative half — that is exactly why it must be measured,
+  not inferred, in **either** direction (`platforms/x960.md` §7A.1).
 - **partner — swi_a, /dev/u5 @9600, AT-x950 GEN2-52XSTQm**, S/N A10713A262600012,
   `awplus_main-20261008-56`, **netboots**, boot image **Not set**,
   `flash:/default.cfg` **(file NOT found)** — RISK-1 below.
