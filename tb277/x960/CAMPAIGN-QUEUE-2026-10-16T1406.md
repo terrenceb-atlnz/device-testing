@@ -799,6 +799,7 @@ untouched swi_b, and the DUT back on `flash:/default.cfg` after one reload.
 | T43863 | **PASS** | **No authored step text exists** -- designed from RFC 4601 and the DUT's CLI surface, and said so in the log. Two-router topology (DUT = source DR, swi_a = last-hop DR and RP) built after O-20 settled that swi_b cannot run PIM. Baseline off with a JOINED receiver 0/10; forwarding 5/5 with a never-joined control group 0/5 and an instrument control in all 9 legs; Register / RP Join-Prune / Register-Stop / SPT decoded on the transit wire with the DUT's own tcpdump; prune-on-leave proven group-specific (left group 0/5, still-joined group 5/5, same leg); the RP isolated by A/B on one group (0/10 -> 8/10); removal and reboot persistence both proven in the dataplane. Produced F-13, O-20..O-24 and two generic tool fixes. | tester | mcast-2026-10-16T1406/T43863/work/run1.log |
 | T43864 | **PASS** | Authored objective and authored topology both satisfied -- the group-C two-router bench IS `IXIA -- DUT -- sw1(running PIM-DM) -- IXIA` with swi_a as a real PIM-DM sw1 -- and the authored step measured 10/10 then 30/30. Plus baseline off with `pdmd` already running (0/10), a branch with no receiver pruned (0/40, 0/50, 0/25, empty OIF), the PIM-DM-specific State Refresh and Join/Prune decoded on the transit wire, a Graft/Graft-Ack handshake 206 us apart turning the SAME group from 0/50 to 20/20, group-specific prune on leave, removal and reboot persistence in the dataplane. Initial flood declared NOT MEASURED (O-25). Produced O-25, O-26 and the F-13 addendum. | tester | mcast-2026-10-16T1406/T43864/work/run1.log |
 | T43865 | **PASS** | All THREE authored steps pass, including step 1's "Check IGMP Host Joined the correct multicast source" -- measurable only because `tools/igmp.py` gained an IGMPv3 source-list mode for this case. The defining SSM property proven on the wire: the joined channel forwards 9-10/10 while the SAME group from a DIFFERENT source is 0/10 in the same leg, discriminated at layer 3 with both flows sharing one link-layer address. IGMPv2 (*,G) on the SSM range rejected; table state pure SSM (zero (*,G), one (S,G), SPT bit 1, no RP configured at all); prune on leave clears both tables; interface down/up correct with the two readings distinguished (O-28); source filtering still enforced after a cold boot. Teardown diff EMPTY on BOTH devices. Produced F-14, O-27, O-28. Two authored read-backs do not exist (`show ip pim spare-mode mroute` is a typo, `show ip igmp group` is `groups`) and the substitutions are declared. | tester | mcast-2026-10-16T1406/T43865/work/run1.log |
+| T43866 | **PASS** | **No authored step text exists** -- designed from the VRF-Lite guide C613-22142-00 REV B and x960.md 7B, and said so in the log. DUT-local by a declared scope decision (swi_b has no VRF licence; swi_a is under RISK-1). Multicast routing proven genuinely per-VRF and independent of the global table, which stayed `no ip multicast-routing` throughout; isolation measured source-in-red / receiver-in-blue (0/10 multicast AND 0/10 unicast, on a capture proved live by the DUT's own blue-SVI PIM hello); the A/B closed by moving ONE interface into red and nothing else (0/10 -> 10/10); per-VRF IGMP and mroute tables separate; removal surgical in both dimensions (multicast in red stops while unicast in red keeps working); reboot persistence re-measured in the dataplane. **F-9 answered: its shape does NOT occur in the multicast path.** Produced O-29, O-30. | tester | mcast-2026-10-16T1406/T43866/work/run1.log |
 | T44182 | **PASS** | **No authored step text exists** -- designed from the same guide, p.17. Off by default and dropped; enabled on the DESTINATION subnet's interface the identical frames are forwarded and translated to a link-layer broadcast; enabled on the INGRESS interface it is inert (O-19); the optional standard ACL filters on source and is consulted per packet, proven by INVERTING it; removal and reboot persistence in the dataplane. Teardown diff EMPTY. | tester | ipv4svc-2026-10-16T1406/T44182/work/run1.log |
 
 ## Issues
@@ -902,6 +903,36 @@ untouched swi_b, and the DUT back on `flash:/default.cfg` after one reload.
   known families from a COPY of the buffer and retry. Self-tested on 6 buffers before being
   pushed. **Any campaign that shuts or unshuts ports through `cfg.py` was losing the rest of its
   batch to this.**
+- **🟢 F-9 ANSWERED for the multicast path (T43866) — it does NOT happen there.** The queue
+  asked group C to watch for F-9's shape (a removed inter-VRF *unicast* route left the dataplane
+  forwarding from a stale ARP-derived entry until `clear arp-cache vrf`). Tested in the sharpest
+  form: with `(10.38.22.40, 239.30.30.30)` actively forwarding and its OIF holding `vlan48 (1)`,
+  `vlan48` was moved straight out of VRF red and the leg re-run **immediately, with no re-join
+  and no `clear` of anything**. The outgoing-interface list **emptied in the same instant** and
+  the dataplane went to **0 of 10**, confirmed by a 40 s re-run whose far-side capture held two
+  of the DUT's own PIM hellos (so the capture was live) and zero subject frames. ⇒ the multicast
+  OIF is torn down with the interface; the F-9 hazard is specific to an ARP-derived unicast host
+  entry outliving its route.
+- **⚠️ O-29 (T43866) — `show ip mroute` with NO `vrf` keyword prints the VRF sections too.**
+  Its output was identical to `show ip mroute vrf red`, headed `[VRF: red]`, while the global
+  table was empty (global multicast routing was off for the whole case). A reader skimming
+  `show ip mroute` would reasonably but wrongly conclude the entries are global. **Read the
+  `[VRF: ...]` heading.** Differs from the unicast `show ip route`, which per x960.md §7B.7
+  prints the global table proper plus `[VRF: name]` sections.
+- **🔴 O-30 (T43866) — three AW+ advisories added to `tools/console.py`'s shared `ADVISORY`
+  list, each with a transcript showing the command took effect.** `cfg.py` stops at the first
+  `% ` line, and each of these silently truncated a VRF setup or teardown batch before it was
+  added:
+  `% All IP addresses configured on interface vlan10 have been removed` (an interface VRF move),
+  `% All IP addresses configured on interfaces in VRF red have been removed` (`no ip vrf <name>`
+  — note the DIFFERENT wording, which a single pattern misses), and
+  `% Save the config and restart for this change to take effect.` (`no service <proto>` and
+  `no ip vrf <name>`). Classification re-tested on six lines afterwards: the three above are
+  advisories and `% Invalid input detected`, `% vlan48: VRF is already associated` and
+  `% Service is not currently licensed on this platform` are still errors. **Every campaign
+  that configures VRFs or stops a service through `cfg.py` was losing its batch tails to these.**
+  Also reconfirmed on a second campaign: a DIRECT VRF-to-VRF interface move is refused
+  (`% vlan48: VRF is already associated`, x960.md §7B.7) — go via the global domain.
 - **🔴 F-14 (T43865) — the IGMPv2 any-source-join rejection is bound to the hardcoded IANA
   232/8 range ONLY, and is not applied to a range configured with `ip pim ssm range <acl>`.**
   Measured on one router, one interface, two groups, in a single `show ip igmp groups`: with

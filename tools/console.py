@@ -44,7 +44,21 @@ BAUD = 115200
 ADVISORY = re.compile(
     r"is currently configured as a mirror-port"          # altering a mirror destination port
     r"|This access-list is attached to an interface"     # re-entering a bound hardware ACL sub-mode
-    r"|does not exist\. Please ensure it is created",    # trigger `script N <file>`: the reference IS stored
+    r"|does not exist\. Please ensure it is created"     # trigger `script N <file>`: the reference IS stored
+    # `ip vrf forwarding <name>` / `no ip vrf forwarding <name>` on an interface that has an
+    # address: the move SUCCEEDS and this reports the side effect.  The address must then be
+    # re-applied (platforms/x960.md 7B.7).  Measured again on tb277 2026-10-16 (T43866): the
+    # VRF membership was in place immediately afterwards, so this is an advisory, not a
+    # rejection, and without it cfg.py abandons the rest of every VRF setup batch.
+    # Two wordings: "...on interface vlan10..." for an interface move, and "...on
+    # interfaces in VRF red..." for `no ip vrf <name>`.  Match the common prefix.
+    r"|All IP addresses configured on interface"
+    # `no service <proto>`, `no ip vrf <name>`: the command TAKES EFFECT now; this
+    # reports that a reboot is needed for the change to be complete.  Measured on
+    # tb277 2026-10-16 across `no service pim`, `no service pdm` and `no ip vrf red`,
+    # each verified by the running-config afterwards.  Without it cfg.py abandons
+    # every command after a service or VRF removal.
+    r"|Save the config and restart for this change to take effect",
     re.I)
 
 def is_advisory(line):
