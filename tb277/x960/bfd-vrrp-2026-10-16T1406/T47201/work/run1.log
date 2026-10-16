@@ -1,0 +1,742 @@
+================================================================================
+T47201  (48) IPv4_BFD - With RIP v1/v2        tb277 / AT-x960-56YSQ  -- run 1
+================================================================================
+Run label: CLEAN.
+Group: bfd-vrrp-2026-10-16T1406 (group D, the campaign's last group).
+
+SESSION FACTS (from the queue's Session facts block; given, not measured)
+  Test Engineer : bidhanc@bidhanc-dl -- UNATTENDED, cannot answer prompts
+  Testbox       : tb277
+  Consoles      : u2 = swi_d (DUT, 115200), u3 = swi_b (9600), u5 = swi_a (9600)
+  PDU           : 10.36.230.212 outlets u2=1, u3=7; 10.36.230.35 outlet u5=3
+  Constraints   : none (full authority within tests; power cycles allowed)
+  Sentinel      : parent session (/test-mode one-session shape)
+  Session dir   : tb277/x960/ , stamp 2026-10-16T1406
+  Scratch       : /tmp/ckt1406d/ on the box
+
+DEVICES
+  swi_d  DUT     /dev/u2 @115200  AT-x960-56YSQ   S/N A2WQS700B
+                 sin_x96056-20261012-24, build Mon Oct 12 06:38:00 UTC 2026
+                 licences Base + atlnz; boots flash:/x960-tb277.rel, config flash:/default.cfg
+                 all SVIs share MAC e0:1a:ea:d4:70:43; bridge id 8000:e01aead47043
+  swi_b  partner /dev/u3 @9600    AT-x960-28YSQ   S/N A10737A261700021
+                 sin_x96056-20260921-9, Base licence only (holds RIP, VRRP; no PIM, no VRF)
+                 bridge id 8000:0000cd423029, device MAC 00:00:cd:42:30:29
+  swi_a          /dev/u5 @9600    NOT TOUCHED BY THIS CASE OR THIS GROUP (RISK-1)
+
+HOST NICs (recorded once for group D; T47873 points here)
+  eth3  10.38.22.33/27  00:0d:b9:55:77:0e  -> DUT port1.0.10, access vlan 10
+  eth4  10.38.22.65/27  00:0d:b9:55:77:0f  -> DUT port1.0.48, access vlan 48
+  (no host NIC addressing was changed -- STANDING-ORDERS section 4)
+
+CLOCKS (RISK-5, read at the group gate)
+  DUT   05:16:33 UTC   vs box 05:16:51 UTC
+  swi_b 05:20:08 UTC   vs box 05:20:18 UTC
+  Both are within console round-trip latency of the box, so device log times and
+  box/host times in this log are directly comparable to within ~1 s. RISK-5's
+  13-hour swi_b offset is GONE.
+  NOTE: every epoch/UTC timestamp quoted for a measurement below comes from the
+  BOX (poll.py stamps, arpleg, `date`), so they are one clock throughout.
+
+--------------------------------------------------------------------------------
+AUTHORED TEXT -- THERE IS NONE
+--------------------------------------------------------------------------------
+`tools/ckcase.py AWPTCM-T47201` (ck.db `zephyr_cases`, row id 43482) returns:
+
+    title      : (48) IPv4_BFD - With RIP v1/v2
+    folder     : /New Platform Test (MASTER)/New Platform Template/IPv4
+    has_objective : 0
+    num_steps  : 1
+    steps      : [{"description": "", "testData": "", "expected": ""}]
+
+The single step is COMPLETELY EMPTY -- no description, no test data, no expected
+result -- and there is no objective and no precondition. **No authored step text
+exists for this case.** Nothing below is quoted as authored; no quotation is
+invented. The case was designed from:
+  - the case TITLE, which names the two subjects: BFD, and RIP v1/v2;
+  - the RIP Feature Overview and Configuration Guide held in the repo
+    (`Feature Overview Guides/... RIP_Feature_Overview_Guide.pdf`);
+  - the DUT's own CLI surface, read with the no-CR help probe `tools/qmark.py`;
+  - `platforms/x960.md` 7A.1 (the service gate) and 7A.5 (RIP v1/v2 on the wire).
+
+--------------------------------------------------------------------------------
+WHAT THIS CASE HAD TO ANSWER
+--------------------------------------------------------------------------------
+"IPv4_BFD - With RIP v1/v2" asks whether BFD can be bound to RIP so that RIP
+reacts to a BFD failure detection instead of to its own 180 s timeout. Three
+things had to be separated, because a careless run grades all three the same way:
+  A. is BFD absent / licence-gated on this platform?        (it is NOT)
+  B. is the RIP-to-BFD binding absent?                      (it IS)
+  C. does BFD itself work here at all?                      (it DOES)
+A verdict of UNSUPPORTED is only honest if B is proven while A and C are
+DISPROVEN, so the log must carry a working BFD session beside the refusals.
+
+================================================================================
+GROUP SETUP (shared with T47873; sent once, STANDING-ORDERS section 6)
+================================================================================
+The full recipe, its restore, and the gate results are in the queue file under
+"## Group D (bfd-vrrp-2026-10-16T1406) -- bench setup and its EXACT restore
+recipe", committed BEFORE the first configuration command (b0bc177).
+
+Restore targets, captured before anything was sent:
+  DUT   T47201/work/pre-u2.log      swi_b T47201/work/pre-u3.log
+  swi_a T47201/work/pre-u5.log      (all three are ckcon.py stdouts for rcdiff.py)
+`tools/rcdiff.py` of each against group C's final capture printed NOTHING, so
+group D started from exactly the state group C handed over.
+
+NEW-RISK-8 remedy, sent on the DUT (/dev/u2) as group D's first configuration:
+
+    awplus# configure terminal
+    awplus(config)# spanning-tree priority 0
+    awplus(config)# interface port1.0.2
+    awplus(config-if)# shutdown
+    awplus(config-if)# interface port1.0.14
+    awplus(config-if)# shutdown
+    awplus(config-if)# end                                  [work/setup-u2.log]
+
+Transit and VRRP VLANs, DUT (/dev/u2):
+
+    awplus(config)# vlan database
+    awplus(config-vlan)# vlan 61 name ckTRANSIT
+    awplus(config-vlan)# exit
+    awplus(config)# interface port1.0.16
+    awplus(config-if)# switchport mode trunk
+    awplus(config-if)# switchport trunk allowed vlan add 10,61
+    awplus(config-if)# exit
+    awplus(config)# interface vlan61
+    awplus(config-if)# ip address 10.0.61.1/30
+    awplus(config-if)# end                                  [work/setup-u2.log]
+
+swi_b (/dev/u3):
+
+    x960-28YSQ(config)# vlan database
+    x960-28YSQ(config-vlan)# vlan 10 name ckVRRP
+    x960-28YSQ(config-vlan)# vlan 61 name ckTRANSIT
+    x960-28YSQ(config-vlan)# exit
+    x960-28YSQ(config)# interface port1.0.16
+    x960-28YSQ(config-if)# switchport mode trunk
+    x960-28YSQ(config-if)# switchport trunk allowed vlan add 10,61
+    x960-28YSQ(config-if)# exit
+    x960-28YSQ(config)# interface vlan10
+    x960-28YSQ(config-if)# ip address 10.38.22.35/27
+    x960-28YSQ(config-if)# exit
+    x960-28YSQ(config)# interface vlan61
+    x960-28YSQ(config-if)# ip address 10.0.61.2/30
+    x960-28YSQ(config-if)# exit
+    x960-28YSQ(config)# ip route 10.38.22.64/27 10.38.22.34
+    x960-28YSQ(config)# end                                 [work/setup-u3.log]
+
+No command on either device was rejected (cfg.py exit 0 both times; no `% ` line
+in either transcript).
+
+STP CONFIRMED FORWARDING BEFORE ANY MEASUREMENT (the NEW-RISK-8 gate):
+
+  DUT   `show spanning-tree brief`          [work/stp1-u2.log]
+        Root Id   0000:e01aead47043     Bridge Id 0000:e01aead47043   (DUT IS root)
+        port1.0.2    Disabled     Discarding      <- shut on purpose
+        port1.0.4    Designated   Forwarding
+        port1.0.10   Designated   Forwarding      <- host eth3
+        port1.0.14   Disabled     Discarding      <- shut on purpose
+        port1.0.16   Designated   Forwarding      <- THE LINK BOTH CASES NEED
+        port1.0.48   Designated   Forwarding      <- host eth4
+  swi_b `show spanning-tree brief`          [work/stp1-u3.log]
+        Root Id   0000:e01aead47043     Bridge Id 8000:0000cd423029
+        port1.0.16   Rootport     Forwarding      <- forced onto the clean link
+
+  Reachability on the new segments, from the DUT   [work/stp1-u2.log]
+        ping 10.0.61.2  repeat 5 -> 5 received, 0% packet loss
+        ping 10.38.22.35 repeat 5 -> 5 received, 0% packet loss
+  The bench is not merely configured, it forwards.
+
+================================================================================
+MEASUREMENTS
+================================================================================
+
+LEG 0 -- BASELINE, BEFORE ANY `service` COMMAND                            [done]
+--------------------------------------------------------------------------------
+  `tools/tb ckcon tb277 ckt1406d u2 115200 ...`             [work/s0-baseline-u2.log]
+
+    awplus# show bfd peer
+    % BFD protocol daemon is not running
+    awplus# show bfd peer brief
+    % BFD protocol daemon is not running
+    awplus# show bfd session
+                     ^
+    % Invalid input detected at '^' marker.
+    awplus# show ip rip
+    % RIP protocol daemon is not running or feature license is not available
+    awplus# show ip rip database
+    % RIP protocol daemon is not running or feature license is not available
+    awplus# show running-config | include service
+    service ssh
+    no service telnet
+    service http
+    no service dhcp-server
+    awplus# show process | include bfd        (no output -- no bfd process)
+    awplus# show process | include rip        (no output -- no rip process)
+
+  Two things are already settled here:
+  - `show bfd session` DOES NOT EXIST on this build; the verb is `show bfd peer`.
+    Confirms the triage note. A tester who runs `show bfd session`, reads
+    `% Invalid input` and grades BFD absent is wrong.
+  - the BFD refusal carries NO licence clause ("% BFD protocol daemon is not
+    running") while the RIP one does ("...or feature license is not available").
+    So BFD on this platform is service-gated ONLY -- there is no BFD licence bit
+    to be missing, which matches `show license` at triage.
+
+LEG 1 -- THE SERVICE GATE, RULED OUT FOR BOTH PROTOCOLS                    [done]
+--------------------------------------------------------------------------------
+  Each `service` line was sent ALONE in its own batch (x960.md 7A.1: the daemon
+  start is asynchronous, ~7 s, and a rejection mid-batch makes cfg.py abandon the
+  tail). Neither was rejected.
+
+    awplus(config)# service bfd                             [work/s1-svc-bfd-u2.log]
+    awplus# show process | include bfd                      [work/s1b-bfd-up-u2.log]
+     4391 bfdd                5   0.0   0.1    20 sleep
+     4393 frr-bfdd            1   0.0   0.0    20 sleep
+    awplus# show bfd peer
+    BFD Peers:                       <- empty list, NO `% ` line. Gate cleared.
+
+    awplus(config)# service rip                             [work/s1c-svc-rip-u2.log]
+    awplus# show process | include rip                      [work/s1d-rip-up-u2.log]
+     4416 ripd                3   0.0   0.1    20 sleep
+    awplus# show ip rip                                     (empty, no `% ` line)
+
+  => Both daemons are running on the DUT at the same moment. Everything measured
+     below is therefore NOT the service gate and NOT a licence.
+
+LEG 2 -- THE CLI SURFACE: THERE IS NO RIP-TO-BFD BINDING                   [done]
+--------------------------------------------------------------------------------
+  All probes are `tools/qmark.py` -- it types `PREFIX ?` with NO carriage return
+  and clears the line with Ctrl-U, and it self-tests first. (Never `<cmd> ?`
+  through a CR driver: a trailing CR executes the command when `<cr>` is valid.)
+  Every probe below printed "self-test OK: 'show clock ?' then Ctrl-U then CR
+  executed nothing" before it ran.
+
+  2a. BFD IS configurable standalone -- global config mode    [work/s2-qmark-global.log]
+      awplus(config)# bfd ?
+        echo     Echo mode
+        peer     Configure a BFD peer
+        profile  Create a profile
+      awplus(config)# ip ?          -> 32 completions, NONE of them `bfd`
+
+      awplus(config)# bfd peer ?                           [work/s2b-qmark-bfdpeer.log]
+        A.B.C.D   IPv4 peer address
+        X:X::X:X  IPv6 peer address
+      awplus(config)# bfd peer 10.0.61.2 ?
+        interface      Select an interface
+        local-address  Source address for the BFD session
+        multihop       Enable BFD session across multiple network hops
+        vrf            VRF instance
+        <cr>
+      awplus(config)# bfd profile ?
+        WORD  Profile name
+
+  2b. INTERFACE MODE on the very interface RIP is running on  [work/s2c-qmark-if.log]
+      awplus(config)# interface vlan61
+      awplus(config-if)# ip rip ?
+        authentication  Authentication control
+        receive         Advertisement reception
+        receive-packet  Enable receiving packet through the specified interface
+        send            Advertisement transmission
+        send-packet     Enable sending packets through the specified interface
+        split-horizon   Perform split horizon
+      ** six completions, NO `bfd` **
+      awplus(config-if)# bfd ?
+      % Unrecognized command
+      awplus(config-if)# ip ?       -> 20 completions, NONE of them `bfd`
+
+  2c. THE CONTRAST, SAME INTERFACE, SAME MODE, SAME MINUTE   [work/s2d-qmark-ipospf.log]
+      awplus(config-if)# ip ospf ?
+        A.B.C.D              Address of interface
+        authentication       Enable authentication
+        authentication-key   Authentication password (key)
+        bfd                  Bidirectional Forwarding Detection (BFD)    <<<<<<
+        cost                 Interface cost
+        ... (16 more)
+      ** `ip ospf bfd` EXISTS on vlan61. `ip rip bfd` does not. This is an A/B,
+         not an absence: the same parser, the same interface, 21 seconds apart. **
+
+  2d. ROUTER-RIP MODE, the complete command list              [work/s2e-qmark-routerrip.log]
+      awplus(config)# router rip
+      awplus(config-router)# ?
+      Router configuration commands:
+        address-family  alliedware-behavior  cisco-metric-behavior
+        default-information  default-metric  distance  distribute-list  do
+        exit  fullupdate  help  maximum-prefix  neighbor  network  no
+        offset-list  passive-interface  recv-buffer-size  redistribute  route
+        show  timers  version
+      ** 24 commands. NO `bfd`. **
+      awplus(config-router)# bfd ?
+      % Unrecognized command
+      awplus(config-router)# neighbor 10.0.61.2 ?
+        <cr>                        ** no bfd suffix either **
+
+  2e. THE DOCUMENTATION AGREES. The RIP Feature Overview and Configuration Guide
+      held in this repo extracts to 1045 lines of text and contains ZERO matches
+      for "bfd" or "bidirectional", case-insensitive. The product's own RIP
+      document never mentions BFD.
+
+  => The RIP-to-BFD binding does not exist on this platform, established five
+     independent ways plus the documentation, with BOTH daemons running.
+
+
+LEG 3 -- RIP v2 FORWARDS, MEASURED IN THE DATAPLANE WITH AN A/B           [done]
+--------------------------------------------------------------------------------
+  Topology for the RIP part: DUT 10.0.61.1/30 <-> swi_b 10.0.61.2/30 on vlan61.
+  Each device owns a loopback prefix the other can only reach through RIP.
+
+    DUT (/dev/u2)                            swi_b (/dev/u3)
+      interface lo                             interface lo
+       ip address 192.168.80.1/24               ip address 192.168.70.1/24
+      router rip                                ip address 192.168.71.1/24 secondary
+       network 10.0.61.0/30                    router rip
+       network 192.168.80.0/24                  network 10.0.61.0/30
+                                                network 192.168.70.0/24
+      [work/s3b-rip-u2.log]                    [work/s3c-rip-u3.log, s3d-lo2-u3.log]
+
+  ** 192.168.71.0/24 was deliberately CONFIGURED on swi_b and NOT advertised. **
+  It is the baseline-off subject: a prefix that exists and is connected on the
+  neighbour, and is still unreachable because nothing advertises it. That makes
+  the "off" measurement live inside the same capture as the "on" one.
+
+  NOTE on the DUT's `lo`: `ip address 192.168.80.1/24 secondary` was REFUSED with
+  `% Configure primary first lo` [work/s3-rip-u2.log], so the DUT's loopback took
+  the address as its PRIMARY. swi_b's `lo` already had a primary, so its second
+  address needed `secondary`. The two devices differ; do not copy one recipe to
+  the other blind.
+
+  Adjacency, 20 s after `router rip`:
+    DUT   `show ip rip`                                [work/s4-riproutes-u2.log]
+      Rc  10.0.61.0/30                 1          vlan61
+      R   192.168.70.0/24  10.0.61.2   2  10.0.61.2  vlan61  02:45
+      Rc  192.168.80.0/24              1          lo
+    DUT   `show ip route rip`
+      R  192.168.70.0/24 [120/2] via 10.0.61.2, vlan61, 00:00:45
+    DUT   `show ip rip interface vlan61`
+      vlan61 is up, line protocol is up
+        Receive RIPv1 and RIPv2 packets
+        Send RIPv2 packets only
+        Split horizon: Enabled with Poisoned Reverse
+    swi_b `show ip rip`                                [work/s3d-lo2-u3.log]
+      R   192.168.80.0/24  10.0.61.1   2  10.0.61.1  vlan61  03:00
+    ** bidirectional, and the defaults match x960.md 7A.5 exactly. **
+
+  COUNTED LEG L1 -- RIP on, 192.168.71.0/24 not yet advertised
+    tools/tb sudotool tb277 ckt1406d arpleg --tag L1-rip-on \
+      --out /tmp/ckt1406d/T47201 --iface eth3 --gw-mac e0:1a:ea:d4:70:43 \
+      --sender-ip 10.38.22.33 \
+      --icmp 192.168.70.1,192.168.71.1,203.0.113.9,10.38.22.34 \
+      --count 5 --filter ip
+    cap L1-rip-on-eth3.pcap: 32 frames
+      x5 ICMP t8 10.38.22.33 -> 192.168.70.1   [ours]
+      x5 ICMP t0 192.168.70.1 -> 10.38.22.33   [eth 00:00:cd:42:30:29 -> ...:0e]
+      x5 ICMP t8 10.38.22.33 -> 192.168.71.1   [ours]        (no reply)
+      x5 ICMP t8 10.38.22.33 -> 203.0.113.9    [ours]        (no reply)
+      x5 ICMP t8 10.38.22.33 -> 10.38.22.34    [ours]
+      x5 ICMP t0 10.38.22.34 -> 10.38.22.33    [eth e0:1a:ea:d4:70:43 -> ...:0e]
+      x2 ICMP t3/c0 10.38.22.34 -> 10.38.22.33   (rate-limited unreachables)
+
+      192.168.70.1 (SUBJECT, advertised) : 5 sent, 5 echo replies
+      192.168.71.1 (BASELINE-OFF)        : 5 sent, 0 echo replies
+      203.0.113.9  (CONTROL, no route)   : 5 sent, 0 echo replies
+      10.38.22.34  (INSTRUMENT, DUT SVI) : 5 sent, 5 echo replies -- alive
+    FAR-SIDE ATTRIBUTION: the replies for 192.168.70.1 carry Ethernet source
+    00:00:cd:42:30:29, which is swi_b's own MAC. The frame really crossed the
+    DUT and was answered by the other router.
+
+  THE A/B, CLOSED BY ONE COMMAND         [work/s5-adv71-u3.log, s5b-route71-u2.log]
+    x960-28YSQ(config-router)# network 192.168.71.0/24      (05:32:51 UTC)
+    DUT, 12 s later:
+      R  192.168.71.0/24 [120/2] via 10.0.61.2, vlan61, 00:00:12   (triggered update)
+    COUNTED LEG L2, nothing else changed:
+      192.168.70.1  : 5 sent, 5 echo replies     (unchanged)
+      192.168.71.1  : 5 sent, 5 echo replies     ** 0/5 -> 5/5 **
+      203.0.113.9   : 5 sent, 0 echo replies     (control still zero)
+      10.38.22.34   : 5 sent, 5 echo replies     (instrument still alive)
+  => RIP v2 forwarding PROVEN on the wire, with the control and the instrument
+     both behaving, and the A/B turned by a single `network` statement.
+
+LEG 4 -- BFD WORKS ON THIS PLATFORM, AND IT IS ON THE WIRE                [done]
+--------------------------------------------------------------------------------
+  BFD is configurable with NO routing protocol at all (leg 2a):
+
+    awplus(config)# bfd peer 10.0.61.2 interface vlan61    [work/s6b-bfdpeer-u2.log]
+    awplus(config-bfd-peer)# end
+    awplus# show bfd peer
+    BFD Peers:
+        peer 10.0.61.2 vrf default interface vlan61
+            ID: 2691434186
+            Remote ID: 0
+            Active mode
+            Status: down                  <- far end not configured yet
+            ...
+            Local timers:
+                Detect-multiplier: 3
+                Receive interval: 300ms
+                Transmission interval: 300ms
+                Echo receive interval: 50ms
+                Echo transmission interval: disabled
+
+    x960-28YSQ(config)# bfd peer 10.0.61.1 interface vlan61 [work/s6c-bfdpeer-u3.log]
+    x960-28YSQ# show bfd peer brief
+    Session count: 1
+    SessionId  LocalAddress  PeerAddress  Status
+    1702072268 10.0.61.2     10.0.61.1    up
+
+    awplus# show bfd peer                                   [work/s7-bfdup-u2.log]
+        peer 10.0.61.2 vrf default interface vlan61
+            ID: 2691434186      Remote ID: 1702072268
+            Status: up          Uptime: 17 second(s)
+            Local timers : Detect-multiplier 3, RX 300ms, TX 300ms
+            Remote timers: Detect-multiplier 3, RX 300ms, TX 300ms
+    => negotiated detection time = 3 x 300 ms = 900 ms.
+
+  ON THE WIRE, read with the DUT's own tcpdump (x960.md 7B.2):
+    awplus# tcpdump -i vlan61 -c 4 -nn -v udp port 3784     [work/s7-bfdup-u2.log]
+    05:34:23.074407 IP (tos 0xc0, ttl 255, id 12857, flags [DF], proto UDP, length 52)
+        10.0.61.1.49152 > 10.0.61.2.3784:
+    05:34:23.314464 IP (tos 0xc0, ttl 255, ... length 52)
+        10.0.61.1.49152 > 10.0.61.2.3784:
+    05:34:23.327195 IP (tos 0xc0, ttl 255, ... length 52)
+        10.0.61.2.49152 > 10.0.61.1.3784:
+    05:34:23.567202 IP (tos 0xc0, ttl 255, ... length 52)
+        10.0.61.2.49152 > 10.0.61.1.3784:
+    4 packets captured
+    - bidirectional UDP/3784, TTL 255, TOS 0xc0 (CS6), 52-byte payload: BFD control.
+    - spacing 240 ms in BOTH directions = 300 ms with RFC 5880 jitter (300 x 0.8).
+    - this build's tcpdump mislabels the BFD payload "BCM-LI-SHIM ... (invalid)".
+      The port, the TTL-255 and the length are what identify it; the decoder line
+      is a dissector artefact and must not be read as a malformed packet.
+  => C IS DISPROVEN: BFD is present, startable, configurable without any routing
+     protocol, and genuinely running on the wire between these two devices.
+
+LEG 5 -- THE DECISIVE MEASUREMENT: BFD DETECTS IN ~1.4 s, RIP IN ~171.6 s [done]
+--------------------------------------------------------------------------------
+  Stimulus: a SILENT NEIGHBOUR FAILURE -- `shutdown` on swi_b's vlan61 SVI. The
+  physical port and the DUT's own vlan61 stay UP, so the DUT cannot learn of the
+  failure from interface state; its only recourses are BFD and RIP's own timers.
+  This is precisely the failure BFD exists for.
+
+  Instrument: `tools/poll.py` on the DUT, 3 s interval, 250 s, sampling
+  `show bfd peer brief` and `show ip route rip`, every sample epoch-stamped by
+  the BOX.                                                  [work/s8-poll-u2.log]
+
+    tools/tb poll tb277 ckt1406d u2 115200 3 250 \
+        /tmp/ckt1406d/T47201/poll1.done "show bfd peer brief" "show ip route rip"
+
+    event                                        box epoch        offset
+    -------------------------------------------- ---------------  ---------
+    `shutdown` echoed on swi_b                   1792128922.638   t0
+    last DUT sample reading BFD **up**           1792128922.022   t0 - 0.6 s
+    first DUT sample reading BFD **down**        1792128925.022   t0 + 2.4 s
+    last sample with 192.168.70.0/24 in the FIB  1792129091.237   t0 + 168.6 s
+    first sample with it GONE from the FIB       1792129094.238   t0 + 171.6 s
+
+    BFD's own 1-second-resolution counter pins it finer. Read at 05:39:50 UTC
+    (epoch 1792129190):                           [work/s9-after-timeout-u2.log]
+      awplus# show bfd peer
+          Status: down
+          Downtime: 4 minute(s), 26 second(s)        -> transition at 1792128924
+          Diagnostics: control detection time expired
+    1792128924 - 1792128922.638 = **1.4 s**, consistent with the 900 ms detect
+    time plus the time for `shutdown` to take effect on the far device. And the
+    diagnostic says the session died of its OWN detect timer, not of an admin
+    down -- so the 1.4 s is BFD detecting, not BFD being switched off.
+
+    ** BFD: ~1.4 s.   RIP: ~171.6 s.   A factor of about 120. **
+    (171.6 s is RIP's documented 180 s route timeout counted from the last update
+    actually received, which arrived ~8 s before the shutdown.)
+
+    After the timeout:                            [work/s9-after-timeout-u2.log]
+      awplus# show ip route rip
+      No entries in route table
+      awplus# show ip rip database
+      R  192.168.70.0/24  10.0.61.2  16  10.0.61.2  vlan61  00:18
+      R  192.168.71.0/24  10.0.61.2  16  10.0.61.2  vlan61  00:18
+    -- the FIB is clean and the RIP database holds both prefixes at metric 16 in
+    the garbage-collect state, exactly the shape x960.md 7A.5 documents.
+
+  THE BLACK HOLE, MEASURED IN THE DATAPLANE. The poll proves the two timers are
+  different; it does not by itself prove traffic is lost in between. So the
+  stimulus was repeated and a counted leg taken INSIDE the window.
+                            [work/s10*, s11-shut2-u3.log, s11b-blackhole-state-u2.log]
+
+    swi_b vlan61 `no shutdown` (1792129250.9) -> BFD up, both routes back in 12 s
+    swi_b vlan61 `shutdown`    (1792129287.1) = t0
+    COUNTED LEG L3, taken a few seconds after t0:
+      cap L3-blackhole-eth3.pcap: 27 frames
+      192.168.70.1 (SUBJECT)    : 5 sent, **0** echo replies   (was 5/5)
+      192.168.71.1 (SUBJECT)    : 5 sent, **0** echo replies   (was 5/5)
+      203.0.113.9  (CONTROL)    : 5 sent, 0 echo replies
+      10.38.22.34  (INSTRUMENT) : 5 sent, **5** echo replies -- capture alive,
+                                  so the two zeros are measurements
+    DUT state at epoch 1792129322, i.e. t0 + 35 s:
+      awplus# show bfd peer brief
+      2691434186 10.0.61.1  10.0.61.2  **down**
+      awplus# show ip route rip
+      R  192.168.70.0/24 [120/2] via 10.0.61.2, vlan61, 00:01:07     <- STILL THERE
+      R  192.168.71.0/24 [120/2] via 10.0.61.2, vlan61, 00:01:07
+      awplus# show ip route 192.168.70.1
+      Routing entry for 192.168.70.0/24
+        Known via "rip", distance 120, metric 2, **best**
+        Last update 00:01:08 ago
+        * via 10.0.61.2, vlan61
+
+  ** Three instruments at one instant: BFD says the path is dead, the routing
+     table says the prefix is reachable and best, and the dataplane is dropping
+     every frame. BFD had known for ~34 seconds and RIP did not act on it,
+     because on this platform there is nothing to carry the knowledge across. **
+
+LEG 6 -- RIP v1: SAME RESULT, AND v1 CONFIRMED ON THE WIRE                [done]
+--------------------------------------------------------------------------------
+  The case title says "v1/v2", so both were exercised, and the version was read
+  off the wire rather than off a config line.
+
+  v2 FIRST, for the contrast     [work/s13-ripv2-wire-u2.log]
+    awplus# tcpdump -i vlan61 -c 2 -nn -v udp port 520
+    05:42:34.523390 IP (tos 0xc0, **ttl 1**, ... length 112)
+        10.0.61.1.520 > **224.0.0.9**.520:
+        RIPv2, Response, length: 84, routes: 4 or less
+          AFI IPv4,    10.0.61.0/30,    tag 0x0000, metric: 16, next-hop: self
+          AFI IPv4, 192.168.70.0/24,    tag 0x0000, metric: 16, next-hop: self
+          AFI IPv4, 192.168.71.0/24,    tag 0x0000, metric: 16, next-hop: self
+          AFI IPv4, 192.168.80.0/24,    tag 0x0000, metric:  1, next-hop: self
+    05:42:42.894385 IP (tos 0xc0, ttl 1, ...)
+        10.0.61.2.520 > 224.0.0.9.520:  RIPv2, Response, routes: 4 or less
+          ... 192.168.70.0/24 metric 1 ... 192.168.80.0/24 metric 16
+    (split horizon with poisoned reverse visible in both directions.)
+
+  THEN v1, on both devices  [work/s14-v1-u3.log, s14b-v1-u2.log, s15-ripv1-wire-u2.log]
+    awplus(config-router)# version 1          (and the same on swi_b)
+    awplus# tcpdump -i vlan61 -c 2 -nn -v udp port 520
+    05:43:30.525660 IP (tos 0xc0, **ttl 64**, ... length 112)
+        10.0.61.1.520 > **10.0.61.3**.520:
+        **RIPv1**, Response, length: 84, routes: 4
+          10.0.61.0,    metric: 16
+          192.168.70.0, metric: 16
+          192.168.71.0, metric: 16
+          192.168.80.0, metric:  1
+    05:43:40.899248 IP (tos 0xc0, ttl 64, ...)
+        10.0.61.2.520 > 10.0.61.3.520:  RIPv1, Response, routes: 4
+    awplus# show ip rip interface vlan61
+      Receive RIPv1 packets only
+      Send RIPv1 packets only
+
+    Every v1/v2 discriminator x960.md 7A.5 lists is reproduced:
+      IP destination  224.0.0.9        ->  10.0.61.3 (the subnet broadcast)
+      TTL             1                ->  64
+      prefix length   on every entry   ->  ABSENT
+      tag / next-hop  present          ->  absent
+    (the prefixes here are 10.0.61.0/30 and two class-C /24s, so no classful
+     collapse is expected and none occurred.)
+
+  v1 FORWARDS, in the dataplane       [work/s16-v1routes-u2.log, L4-ripv1-eth3.pcap]
+    awplus# show ip route rip
+      R  192.168.70.0/24 [120/2] via 10.0.61.2, vlan61, 00:03:25
+      R  192.168.71.0/24 [120/2] via 10.0.61.2, vlan61, 00:03:25
+    COUNTED LEG L4 (arpleg, same arguments as L1/L2/L3):
+      192.168.70.1 (SUBJECT)    : 5 sent, 5 echo replies  [from 00:00:cd:42:30:29]
+      192.168.71.1 (SUBJECT)    : 5 sent, 5 echo replies  [from 00:00:cd:42:30:29]
+      203.0.113.9  (CONTROL)    : 5 sent, 0 echo replies
+      10.38.22.34  (INSTRUMENT) : 5 sent, 5 echo replies
+
+  AND THE BINDING IS STILL ABSENT UNDER v1           [work/s17-qmark-v1.log]
+    awplus(config-router)# bfd ?
+    % Unrecognized command
+    awplus(config-router)# version ?
+      <1-2>  version                 ** v1 and v2 are the only two versions **
+
+  AND BFD IS UNAFFECTED BY THE VERSION CHANGE        [work/s15-ripv1-wire-u2.log]
+    awplus# show bfd peer brief
+    2691434186 10.0.61.1  10.0.61.2  up         ** still up across v2 -> v1 **
+
+  THE SAME SILENT FAILURE, UNDER v1      [work/s18*, s18b, s18c]
+    swi_b vlan61 `shutdown` echoed at 1792129519.856 = t0
+    DUT at 18:45:27 (t0 + ~7 s):   BFD **down**;
+                                   R 192.168.70.0/24 [120/2] ... 00:04:35  (present)
+    DUT at 18:45:35 (t0 + ~15 s):  show bfd peer ->
+                                     Status: down
+                                     Downtime: 14 second(s)   -> t0 + 1.1 s
+                                     Diagnostics: control detection time expired
+                                   R 192.168.70.0/24 [120/2] ... 00:04:44  (present,
+                                     and its age is still CLIMBING)
+  => identical behaviour under RIP v1: BFD detects in ~1.1 s, RIP carries on.
+
+================================================================================
+TEARDOWN AND VERIFICATION
+================================================================================
+Removed on both devices, in this order:
+  swi_b : interface vlan61 / no shutdown ; no bfd peer 10.0.61.1 interface vlan61 ;
+          no router rip ; interface lo / no ip address 192.168.71.1/24 secondary /
+          no ip address 192.168.70.1/24                        [work/s19-td-u3.log]
+  DUT   : no bfd peer 10.0.61.2 interface vlan61 ; no router rip ;
+          interface lo / no ip address 192.168.80.1/24         [work/s19b-td-u2.log]
+  both  : no service rip ; no service bfd             [work/s20*, s25-nosvc2-*.log]
+
+`no service rip` emits `% Save the config and restart for this change to take
+effect.` -- an ADVISORY that `tools/console.py` already recognises; cfg.py printed
+"(advisory, not an error -- continuing)" and carried on.
+
+NO O-24 RESIDUE ON EITHER DEVICE.                        [work/s22-svcchk-u*.log]
+  awplus# show running-config | include service
+    service ssh / no service telnet / service http / no service dhcp-server
+  x960-28YSQ# show running-config | include service
+    service password-encryption / service ssh / no service telnet / service http /
+    no service dhcp-server
+  Both are exactly their pre-case sets: no sticky `no service rip`, no sticky
+  `no service bfd`. Neither device BOOTED with either service, which is exactly
+  the discriminator x960.md 7A.2 / O-24 names. `bfdd` is gone from both; `ripd`
+  lingers as a process until a reload, with no config line, which is what the
+  advisory above says will happen.
+
+TEARDOWN DIFF (gated on the OUTPUT, never on rcdiff.py's exit code)
+  python3 tools/rcdiff.py work/pre-u2.log work/post-u2.log
+  python3 tools/rcdiff.py work/pre-u3.log work/post-u3.log
+  Both diffs contain ONLY the group-D bench setup, which T47873 still needs and
+  which the queue's restore recipe removes at the end of the group:
+    DUT   : spanning-tree priority 0 ; port1.0.2 shutdown ; port1.0.14 shutdown ;
+            vlan 61 name ckTRANSIT ; port1.0.16 trunk allowed vlan add 10,61 ;
+            interface vlan61 ip address 10.0.61.1/30
+    swi_b : vlan 10 name ckVRRP ; vlan 61 name ckTRANSIT ;
+            port1.0.16 trunk allowed vlan add 10,61 ;
+            interface vlan10 ip address 10.38.22.35/27 ;
+            interface vlan61 ip address 10.0.61.2/30 ;
+            ip route 10.38.22.64/27 10.38.22.34
+  NOTHING from T47201 survives on either device.
+
+THE .cfg CAPTURE -- SAID PLAINLY
+  The per-device `.cfg` files are required to hold the configuration AFTER the
+  case's setup and BEFORE its first step. That capture was not taken at the time.
+  Rather than reconstruct it by hand, the case's setup was RE-APPLIED verbatim on
+  both devices after the measurements and the running-configs captured then
+  [work/s23*, work/setupcfg-u2.log, work/setupcfg-u3.log], with the BFD session
+  confirmed `up` and both RIP routes confirmed installed at the moment of capture,
+  so the state is the same state. Each `.cfg` header line 2 says so. The teardown
+  was then repeated and `rcdiff.py` of the second post-teardown capture against
+  the first printed NOTHING on both devices [work/final-u*.log], so the two
+  teardowns are byte-identical and the re-application left nothing behind.
+
+FILES SAVED
+  swi_d.cfg, swi_b.cfg                      (deliverables, 143 and 140 config lines)
+  work/run1.log                             (this file)
+  work/pre-u2.log  pre-u3.log  pre-u5.log   (group-D restore targets)
+  work/post-u2.log post-u3.log              (after teardown 1)
+  work/final-u2.log final-u3.log            (after teardown 2)
+  work/setupcfg-u2.log setupcfg-u3.log      (the .cfg sources)
+  work/s0..s25-*.log                        (every console transcript, in order)
+  box-side pcaps: /tmp/ckt1406d/T47201/{L1-rip-on,L2-rip-71-advertised,
+                  L3-blackhole,L4-ripv1}-eth3.pcap  (tens of KB each, not committed)
+  box-side console transcripts: /tmp/ckt1406d/console-u2.log, console-u3.log
+
+TOOLS USED, with their exact arguments
+  tools/tb {precheck,scratch,template,probe,peek,ckcon,cfg,qmark,poll,sudotool,
+            waitfor,tool} tb277 ...       -- every step on the box went through it
+  tools/ckcase.py AWPTCM-T47201 [--raw-steps]        (no authored text; see above)
+  tools/qmark.py  -- all six CLI-surface probes, no-CR, self-test passed each time
+  tools/poll.py   -- 3 s x 250 s, two commands, epoch-stamped
+  tools/arpleg.py -- four counted legs, identical arguments apart from --tag:
+       --tag <L> --out /tmp/ckt1406d/T47201 --iface eth3
+       --gw-mac e0:1a:ea:d4:70:43 --sender-ip 10.38.22.33
+       --icmp 192.168.70.1,192.168.71.1,203.0.113.9,10.38.22.34
+       --count 5 --filter ip
+  tools/rcdiff.py, tools/rc2cfg.py
+  the DUT's own `tcpdump` at privileged exec (x960.md 7B.2) for BFD/3784 and
+  RIP/520 -- vlan61 has no host NIC, so nothing else could read it
+  No framework run: tb277 has no `.setup` (RISK-6), so there is no framework log
+  and no exit code, and no post-failure PDU cycle exists to mention.
+
+================================================================================
+FINDINGS
+================================================================================
+F-15 (new, the case's own result) -- THERE IS NO RIP-TO-BFD BINDING ON AW+,
+  while BFD itself is fully functional on the same link between the same two
+  devices. Proven by: the complete 24-command router-rip list with no `bfd`;
+  `ip rip ?`'s six completions with no `bfd`; `bfd ?` -> `% Unrecognized command`
+  in BOTH interface and router-rip mode; `neighbor <addr> ?` -> `<cr>` only; the
+  SAME-interface contrast `ip ospf ?` -> `bfd  Bidirectional Forwarding
+  Detection (BFD)`; and the product's own RIP Feature Overview Guide, which
+  contains zero occurrences of "bfd" in 1045 lines. Measured with BOTH daemons
+  running (bfdd pid 4391, ripd pid 4416) so it is neither the service gate nor a
+  licence. Operational consequence, measured end to end: on a silent neighbour
+  failure BFD knows in ~1.4 s and RIP still forwards into the black hole for
+  ~171.6 s, with `show ip route` calling the dead prefix "best" the whole time.
+
+O-31 -- `show bfd session` DOES NOT EXIST; the verb is `show bfd peer`
+  (`brief`, `<addr> counters`, `vrf`). `show bfd session` answers `% Invalid
+  input detected at '^' marker.`, which is one keystroke away from being read as
+  "BFD is absent".
+
+O-32 -- THE BFD REFUSAL HAS NO LICENCE CLAUSE, AND THAT IS INFORMATION.
+  Before `service bfd`: `% BFD protocol daemon is not running`. Before
+  `service rip`: `% RIP protocol daemon is not running or feature license is not
+  available`. The missing half of the sentence is how you tell a service-gated-
+  only feature from one that is also licence-gated, without running
+  `show license`.
+
+O-33 -- A BFD STATE CHANGE WRITES NOTHING TO THE DEVICE LOG.
+  `show log | include bfd` and `| include BFD` across four measured up/down
+  transitions returned only IMISH command echoes -- no state-change line at all.
+  The ONLY record of when a BFD session failed is the `Uptime:` / `Downtime:`
+  field of `show bfd peer`, which is 1-second resolution and is lost the moment
+  the session re-establishes. Same family as O-15 (ping polling logs nothing).
+  A deployment that wants an audit trail of BFD failures cannot get one here.
+
+O-34 -- `no service bfd` SILENTLY DROPS YOU OUT OF CONFIGURATION MODE.
+  Reproduced on both devices, twice each: the command is accepted, and the very
+  next command (`end`) fails with `% Invalid input detected at '^' marker.`
+  because the session is already at exec. The transcript shows the prompt going
+  `awplus(config)#` -> `awplus#` with nothing sent in between
+  [work/s20b-nosvcbfd-u2.log, work/s25-nosvc2-u2.log]. A stop-on-error config
+  driver reads the failed `end` as a failure of the teardown and abandons
+  whatever follows it -- so put `no service bfd` LAST in any batch. Same family
+  as the documented `mls qos enable` / `atmf secure-mode` logout behaviour.
+
+O-35 -- THIS BUILD'S `tcpdump` MISLABELS BFD CONTROL PACKETS as
+  `BCM-LI-SHIM: direction unused, pkt-type unknown ... (invalid)`. The packets
+  are correct BFD (UDP/3784, TTL 255, TOS 0xc0, 52-byte payload, bidirectional at
+  the negotiated interval); only the dissector is wrong. Do not read "(invalid)"
+  as a malformed packet.
+
+O-36 -- `ip address <a>/<m> secondary` ON A LOOPBACK IS REFUSED WITH
+  `% Configure primary first lo` IF `lo` HAS NO PRIMARY IPv4 ADDRESS, and the
+  two units differed: the DUT's `lo` needed the address WITHOUT `secondary`,
+  swi_b's needed it WITH. A recipe copied from one unit to the other stops at a
+  `% ` line and cfg.py abandons the rest of the batch.
+
+CONFIRMED, NOT NEW
+  - x960.md 7A.1 service gate: `service <proto>` sent alone, ~10 s apart; no
+    rejection on either device, either protocol.
+  - x960.md 7A.2 / O-24: NO sticky `no service` line on a unit that did not BOOT
+    with the service. Both devices came back to their exact pre-case `service`
+    set with no reload. This is the first time the NEGATIVE half of O-24 has been
+    checked deliberately, and it holds.
+  - x960.md 7A.5: RIP defaults (send v2 only / receive v1 and v2, split horizon
+    with poisoned reverse, AD 120, metric 2 one hop away, ~180 s timeout, the
+    metric-16 garbage-collect state) and every v1-vs-v2 wire discriminator.
+  - 7B.2: the DUT's own `tcpdump` is the instrument for a segment with no host
+    NIC. It decoded RIP fully and BFD by port/size.
+  - 7.10 / NEW-RISK-8: the `spanning-tree priority 0` + shut-the-spares remedy
+    put port1.0.16 Designated Forwarding on the DUT and Rootport Forwarding on
+    swi_b, confirmed on both devices BEFORE anything was measured.
+
+================================================================================
+WHY THE VERDICT IS UNSUPPORTED AND NOT FAIL
+================================================================================
+logged-output.md section 1: UNSUPPORTED is "the platform does not support what
+the case tests"; FAIL is "it ran unsuccessfully: a check failed, or the platform
+prevented it from running". Nothing here failed. BFD ran, RIP ran in both
+versions, every counted leg behaved, every control was zero and every instrument
+control answered. What the case asks for -- BFD *with* RIP -- is a capability the
+platform does not have, and that was established with both daemons running, five
+independent CLI probes, a same-interface A/B against OSPF, the vendor's own RIP
+documentation, and an end-to-end dataplane measurement of the consequence. That
+is a platform gap, measured, which is UNSUPPORTED.
+
+VERDICT: UNSUPPORTED -- AW+ has no RIP-to-BFD binding on this platform (five CLI
+probes + the RIP guide + an `ip ospf bfd` contrast on the same interface), while
+BFD itself works: a `bfd peer` session came up over the same vlan61, ran on the
+wire at 300 ms, and detected a silent neighbour failure in ~1.4 s (v2) and ~1.1 s
+(v1) with `Diagnostics: control detection time expired` -- during which RIP kept
+the dead prefix in the FIB and marked it "best" for ~171.6 s while the dataplane
+measured 0/5 with its in-leg instrument control at 5/5.

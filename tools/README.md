@@ -587,7 +587,7 @@ local proxy ARP, web-auth ARP polling) but it is generic: any case that needs "s
 there, tell me what came back".
 It replaces the per-case `runleg.sh` heredocs that the 2026-10-15 process reviews named as the
 campaign's single largest avoidable cost.
-- **Run:** `sudo arpleg.py --tag NAME --out DIR --iface eth3 [--watch eth4 ...] [--arp TGT[,TGT]] [--probe DST[,DST]] [--icmp DST[,DST]] [--answer IP=MAC[,IP=MAC]] [--answer-iface eth3,eth4] [--announce] [--sender-ip IP] [--sender-mac MAC] [--gw-mac MAC] [--count N] [--vlan V] [--settle S] [--wait S] [--filter BPF] [--sniff-only] [--no-promisc] [--top N]`
+- **Run:** `sudo arpleg.py --tag NAME --out DIR --iface eth3 [--watch eth4 ...] [--show-ttl] [--arp TGT[,TGT]] [--probe DST[,DST]] [--icmp DST[,DST]] [--answer IP=MAC[,IP=MAC]] [--answer-iface eth3,eth4] [--announce] [--sender-ip IP] [--sender-mac MAC] [--gw-mac MAC] [--count N] [--vlan V] [--settle S] [--wait S] [--filter BPF] [--sniff-only] [--no-promisc] [--top N]`
 - **Where:** testbox (root — raw sockets + tcpdump); **needs:** scapy, tcpdump
 - **Imports:** none
 - **`--answer IP=MAC` makes the DUT learn a DYNAMIC entry.** A background responder answers ARP
@@ -616,6 +616,18 @@ campaign's single largest avoidable cost.
   still wins, so a deliberately MISMATCHED L2 address stays testable. Added 2026-10-16 for the
   tb277 PIM group; verified in-leg (239.1.1.1 -> 01:00:5e:01:01:01 beside
   239.9.9.9 -> 01:00:5e:09:09:09).
+- **A PER-SPEC Ethernet destination: `--udp DST[:PORT][@SRC][%L2DST]`.** `--l2-dst` applies to
+  **every** `--udp` spec, so it cannot carry a subject and a control that differ only in their
+  link-layer address. `%L2DST` can: a first-hop-redundancy case sends one flow to the VRRP
+  virtual MAC and, in the SAME capture, a control flow to a MAC nobody owns, which must be 0.
+  `%broadcast` works too, and an explicit `%L2DST` beats both `--l2-dst` and the derived
+  multicast address. Added 2026-10-16 for tb277 T47873.
+- **`--show-ttl` appends the received IPv4 TTL to every flow in the report.** The TTL is the
+  only field on the wire that says **how many routers forwarded** a frame, so when two routers
+  share one virtual MAC (VRRP, or any first-hop redundancy) the hop count is what attributes a
+  forwarded frame to ONE of them -- the Ethernet and IP headers are identical either way. It is
+  equally the check for a TTL-rewriting or extra-hop defect. Off by default, so existing legs
+  read exactly as before. Added 2026-10-16 for tb277 T47873.
 - **🔴 scapy marker trap (measured on tb277 2026-10-16):** the tool marks its own frames with
   `CKARPLEG-<tag>` in the payload. scapy dissects well-known UDP ports into their OWN layer --
   69 becomes TFTP, 67/68 BOOTP, 53 DNS -- so for those ports there is **no `Raw` layer at all**
