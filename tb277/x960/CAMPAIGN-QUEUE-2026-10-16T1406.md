@@ -458,6 +458,7 @@ Re-read `show spanning-tree brief` after every reload before measuring (Discardi
 | case | verdict | reason | graded by | working log |
 | --- | --- | --- | --- | --- |
 | T43870 | **PASS** | All 9 authored steps passed, plus baseline-off, auth/priv enforcement, on-the-wire encryption with an in-capture plaintext control, removal and reboot persistence. The authored precondition omits the group's read view (O-9) and was run with that one line supplied. Also produced F-12. | tester | snmp-2026-10-16T1406/T43870/work/run1.log |
+| T44181 | **PASS** | All 11 authored steps exercised, plus baseline-off, wire-measured intervals, removal and reboot persistence. **Max ping polls measured directly at 100** (0 and 101 rejected). The down/up transitions were read off the wire with a **never-muted second poll as the in-leg control**, and corroborated by the DUT's own trigger log to within 1 s across a 9 s clock offset. No platform defect; four observations O-13..O-16, of which **O-14** is the one to carry. One limb NOT measurable unattended: the CONTENT of a trigger script (needs a root write to the box's /tftproot, STANDING-ORDERS §4) — the ping-poll side of the trigger contract was measured in full. | tester | ipv4svc-2026-10-16T1406/T44181/work/run1.log |
 
 ## Issues
 
@@ -475,6 +476,18 @@ Re-read `show spanning-tree brief` after every reload before measuring (Discardi
   `/test-mode` §3 would normally stop and hand this back; under the unattended rule it is a
   notice and the campaign proceeds. **If u1 was meant to be part of this campaign, say so and it
   will be re-triaged** — nothing has been run against it.
+- **🟠 NEEDS YOU (T44181, informational — did not block the case).** The one limb that could not
+  be measured unattended is the **content of a trigger script**: putting an `.scp` on the DUT's
+  flash needs a root-level write to the box's `/tftproot`, which is STANDING-ORDERS §4 and is
+  never done unattended. The **ping-poll side of the trigger contract was measured in full**
+  (both transitions, timestamped, with an in-leg control). If you want the script-execution limb
+  covered, stage an `.scp` on tb277 and the case can be re-run for that step alone.
+- **🟠 O-14 (T44181, carry this one) — the ping-poll PERIOD is `timeout + interval`, not
+  `interval`.** With `timeout 2`, `normal-interval 5`, `critical-interval 2` the measured period
+  was **5.0-5.2 s while Up** and **3.7-4.6 s, mean 4.14 s, while Down** (= timeout 2 +
+  critical-interval 2), over 36 gaps on the host's own packet record and confirmed by the DUT's
+  debug lines. **A tester expecting the bare `critical-interval` would read this as a broken
+  timer.**
 - **🔴 CARRIED, STILL OPEN FOR THE TEST ENGINEER** (none blocked a case on 2026-10-15, and none
   is expected to block one here):
   - an unrecorded device `10.38.22.41` / `00:0c:25:2a:a5:53` is live on the box's eth3 segment,
