@@ -84,6 +84,33 @@ that bites.** On `sin_x96056-20261012-24`:
   configuration cannot remove it; both partners given identical commands have no such line. Only a
   reload onto a config that never contained it clears the line. Verified on tb277 2026-10-15.
 
+**2026-10-16, x960-56YSQ on tb277 — the sticky `no service` rule, now proven in BOTH directions
+in one session, and three more gates.**
+
+- **O-24, the discriminator is the BOOT, not the daemon and not the protocol.** A
+  `no service <proto>` line is written into running-config **only on a unit that BOOTED with the
+  service**, and configuration cannot remove it. The sharpest proof: `no service vrrp` sent to
+  the DUT and to swi_b **in the same minute** left a sticky line on the DUT (which had booted
+  from a config containing `service vrrp` for a persistence test) and **nothing at all** on
+  swi_b (runtime-only). Confirmed sticky for `pim` and `pdm`, and absent for `rip`, `bfd` and
+  `vrrp` applied at runtime. **It clears only by booting a config that never contained the
+  service** — on this bench, pointing `boot config-file` back at `flash:/default.cfg`, deleting
+  the staged config and reloading.
+- **`no service rip` leaves `ripd` RUNNING; `no service bfd` actually stops `bfdd`.** Both emit
+  the same reassuring `% Save the config and restart for this change to take effect.` — so **the
+  advisory text does not tell you whether the daemon has gone.** `show process | include <daemon>`
+  does, and is the only instrument that does.
+- **`no service bfd` silently drops the console OUT of configuration mode**, so a following
+  `end` answers `% Invalid input detected at '^' marker.` Put it **last** in any stop-on-error
+  batch. (Seen on the IE520 in September; reproduced on the x960, so it is cross-platform.)
+- **`service vrrp` is the VRRP gate** and swi_b's Base licence carries `VRRP`, so a Base-licensed
+  unit is a legitimate VRRP peer.
+- **The `service ?` surface does NOT reflect licensing (O-20).** `service ?` lists `pim`, `pdm`
+  and `pim6` identically on a unit that cannot run any of them; only issuing `service <x>` names
+  it: `% Service is not currently licensed on this platform`. A read-only surface probe can
+  therefore never settle a licence question — which is why a whole group's partner selection
+  hung on one accept/reject probe.
+
 **How to apply:** when an AW+ protocol command says "daemon is not running", check
 `show running-config | include service` and the corpus for `service <daemon>` BEFORE concluding
 anything about licences or the image; verify with one accept/reject probe. Never build a triage

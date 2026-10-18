@@ -39,7 +39,7 @@
 - [AW+ config prompts abort and log you out](awplus-config-prompts-abort-and-logout.md) — `mls qos enable`/`no mls qos`/`atmf secure-mode enable-all` PROMPT (y/n)
 - [IE520 MAC-auth username format](ie520-mac-auth-username-format.md) — the DUT sends `00-f0-4d-00-77-17` (lowercase, hyphenated); no auth-mac username-format command exists
 - [AW+ CLI wiki on the share](awplus-cli-wiki-on-the-share.md) — 3437 command pages with syntax, MODE and platform tables; NO IE520 pages (cousins IE560/IE360/x230v2/IE340 absent too) → read x230; the IE520 mode can differ
-- [ck.db: cross-reference a case by TITLE](ckdb-case-lookup-by-title.md) — it IS reachable, in terrenceb's lab home not yours; AWPTCM-T<id> numbers do NOT exist in ck.db (it keys on AWP-nnnn) so join on `title` in `testlink_cases`; empty `steps_text` → read `summary`
+- [ck.db: look a case up by its AWPTCM id](ckdb-case-lookup-by-title.md) — CORRECTED 10-16: `zephyr_cases` IS keyed on AWPTCM-T<id>, so run `tools/ckcase.py <KEY>` FIRST; title-join is the legacy fallback
 - [tb470 bench structural limits](tb470-bench-structural-limits.md) — CORRECTED 09-23 (ports) + 09-24: tcpreplay gives LINE RATE (~983 Mbps/NIC); left: no MRP, TACACS+, SFP+ link faulty
 - [Campaign measurement discipline](campaign-measurement-discipline.md) — baseline the feature OFF first, make traffic TRANSIT the DUT, split PROVEN from NOT MEASURABLE
 - [Traffic tests use scapy, not ping](scapy-for-traffic-tests.md) — Test Engineer 2026-10-15, ALL cases: craft the exact frame + a control flow that must NOT match, count both; ping proves reachability only. STANDING-ORDERS §7; tools/ already has 10 scapy helpers
@@ -53,6 +53,7 @@
 - [IE520 AWPTCM campaign 2026-09-22](ie520-awptcm-campaign-2026-09-22.md) — 72-case run + 09-23/24 re-runs: now 52 PASS / 3 FAIL / 3 UNSUPP / 7 UNMEASURED / 5 SKIPPED (+2 STP 3-of-4)
 - [tb277 x960 DHCP campaign 2026-10-15](tb277-x960-dhcp-campaign-2026-10-15.md) — 6 cases, 6 PASS; 5 had NO step text so each was designed from TFS+TPS+the DUT's CLI surface; product facts in platforms/x960.md §6; the DNS cache limb needs a developer
 - [tb277 x960 routing+ARP campaign 2026-10-15](tb277-x960-routing-arp-campaign-2026-10-15.md) — 13 cases, 13 PASS, unattended overnight; keeper is F-9: a REMOVED inter-VRF route keeps forwarding (stale ARP-derived entry) while config+RIB say it's gone — wants a developer
+- [tb277 x960 mcast/BFD/VRRP campaign 2026-10-16](tb277-x960-mcast-bfd-vrrp-campaign-2026-10-16.md) — 10 cases, 9 PASS + 1 UNSUPPORTED; two-router multicast works here (swi_a); keepers F-15 and F-17
 - [Act on Terrence-stated live faults](act-on-terrence-stated-live-faults.md) — "there is a loop, just fix it": shut a leg and configure, verify AFTER; run literal commands literally
 - [Bench cannot open TCP to office PCs](bench-cannot-open-tcp-to-office-pcs.md) — lab→10.33.22.x TCP is dropped (ping passes); servers the bench connects TO go on tb470, never the dev PC; test the transport first
 - [IE520 master ignores remote backup server](ie520-master-ignores-remote-backup-server.md) — accepts `atmf backup server`, never mounts it; use the AR4050S as master (x230 lacks AMF-MASTER-X)

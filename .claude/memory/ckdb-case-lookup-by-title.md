@@ -1,6 +1,6 @@
 ---
 name: ckdb-case-lookup-by-title
-description: "ck.db IS reachable — at /home/terrenceb/claude/Test-cases/ask-ck/db/ck.db, not your own lab home; AWPTCM-T<id> numbers do NOT exist in it, so cross-reference a case by its TITLE in testlink_cases"
+description: "ck.db IS reachable — at /home/terrenceb/claude/Test-cases/ask-ck/db/ck.db, not your own lab home. CORRECTED 2026-10-16: `zephyr_cases` IS keyed on the AWPTCM-T<id> directly — use tools/ckcase.py. The title-join on testlink_cases is the LEGACY fallback, not the first move"
 metadata: 
   node_type: memory
   type: reference
@@ -25,12 +25,20 @@ c = sqlite3.connect("file:/home/terrenceb/claude/Test-cases/ask-ck/db/ck.db?mode
 
 The dev host cannot reach it — it mounts only bidhanc's home — so run this **on a testbox**.
 
-**🔥 THE IDs DO NOT MATCH, AND THAT IS THE WHOLE TRAP.** A case called `AWPTCM-T44967` has
-**no row anywhere in ck.db under that number**. ck.db keys `testlink_cases` on `id` =
-`AWP-<nnnn>` plus a separate `internal_id`. Searching for the AWPTCM number returns nothing and
-reads exactly like "the case is not in the database".
+**🔴 CORRECTED 2026-10-16 — THE FIRST MOVE IS `zephyr_cases`, NOT A TITLE JOIN.** This memory
+previously said the AWPTCM numbers "do NOT exist in ck.db". **That is wrong, and following it
+wastes a lookup on every case.** ck.db has a **`zephyr_cases` table keyed on `key` = the AWPTCM
+id exactly as the Test Engineer writes it** (`AWPTCM-T43870`), holding `objective`,
+`precondition` and `steps`. Use **`tools/ckcase.py <KEY>`**, which reads it directly; it was
+built and used across the whole 2026-10-16 campaign (10 cases) and settled the authored-text
+question for every one of them.
 
-**Join on `title` instead.** Measured 2026-10-07, all five checked titles were unique in
+What the original note got right, and what it is still for: **`testlink_cases` is the LEGACY
+`AWP-<nnnn>` corpus and is NOT keyed on the AWPTCM number.** When a case has no `zephyr_cases`
+row, fall back to joining `testlink_cases` on `title` (`ckcase.py --title`). Both tables matter;
+the order was the error.
+
+**The legacy title join, when you need it.** Measured 2026-10-07, all five checked titles were unique in
 `testlink_cases` (verify per lookup — uniqueness is not guaranteed, and derived duplicates exist,
 e.g. `AWP-17615  "AWP-5316:CLI show mirror interface direction set to transmit"`):
 
@@ -63,7 +71,10 @@ steps and one inverted expectation across five cases — each caught only by che
 DUT. One query would have avoided all of them. Related: [[log-is-the-deliverable]],
 [[awplus-cli-wiki-on-the-share]] (the wiki has no IE520/x960 pages; ck.db does have the cases).
 
-**How to apply:** before drafting or grading any case from its title, look the title up in
-`testlink_cases` and quote the real `steps_text` / `summary` in the queue file and in every
-final log. If the lookup is genuinely impossible, say so explicitly in the log, as that
+**How to apply:** before drafting or grading any case, run **`tools/ckcase.py <AWPTCM-T…>`**
+first and quote whatever authored text it returns in the queue file and in every final log; only
+if that is empty, fall back to the `--title` join on `testlink_cases`. **An empty result is
+itself a finding to record** — five of the ten cases in the 2026-10-16 campaign had no authored
+step text at all (one had a steps array holding a single completely empty step), and each log
+says so explicitly rather than implying the steps were authored. If the lookup is genuinely impossible, say so explicitly in the log, as that
 campaign did — but check the other lab homes first.
