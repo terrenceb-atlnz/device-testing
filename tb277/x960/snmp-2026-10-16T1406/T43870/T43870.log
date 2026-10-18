@@ -1,0 +1,764 @@
+================================================================================
+TEST T43870 -- IPv4_SNMP - SNMPv3
+================================================================================
+Run:      2026-10-16 14:31-14:53 NZDT. The DUT's clock reads UTC: `show clock` gave
+          "UTC Time: Fri, 16 Oct 2026 01:35:09 +0000, Timezone UTC, offset +00:00, no
+          summer time" against a dev-host wall clock of 2026-10-16 14:35:13 NZDT
+          (NZDT = UTC+13, so 01:35:13 UTC) -- the two agree to within the console round
+          trip. Every device timestamp quoted below is the DUT's own UTC; every tool
+          time is NZDT. Subtract 13 h to compare.
+Bench:    tb277, consoles u2 = swi_d (DUT), u3 = swi_b, u5 = swi_a; Test Engineer
+          bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T43870 "(46) IPv4_SNMP - SNMPv3", authored step text present and used
+          (ck.db `zephyr_cases`, row key AWPTCM-T43870, id 40190, folder /New Platform
+          Test (MASTER)/New Platform Template/IPv4).
+          Objective, verbatim as authored:
+            SNMPv3でsnmp-server view設定のフィルタリング動作を確認する。
+            [= "Confirm the filtering behaviour of the snmp-server view setting under
+            SNMPv3."]
+          9 authored steps, each quoted on its STEP heading below, plus a baseline and
+          five steps beyond the authored procedure (auth/privacy enforcement, the wire,
+          persistence, removal).
+          Bench adaptations, declared:
+            - ADDRESSES. The authored `interface vlan1 / ip address 192.168.1.1/24` with
+              a manager at 192.168.1.100 was run as `ip address 10.38.22.34/27` with the
+              manager at 10.38.22.33, the box's own eth3. The subject under test does not
+              depend on the address.
+            - "DUT2" / Toplogy_A2 and its shutdown ports. The subject is MIB-view
+              filtering between ONE agent and ONE manager; no second device takes part in
+              any of the nine steps, and none was configured.
+            - The authored step-6 OID `1.3.6.1.1.2.1.1.5` is not a valid path to sysName.
+              Steps 7 and the case's own OID glossary both say `1.3.6.1.2.1.1.5`, so that
+              is what was used (finding O-9, STEP 6).
+            - The authored keyword is "exclude"; this platform's parser accepts
+              "excluded" (confirmed read-only before use, STEP 6).
+Build:    swi_d  sin_x96056-20261012-24  (flash:/x960-tb277.rel, build date Mon Oct 12
+          2026), AT-x960-56YSQ, S/N A2WQS700B, standalone, console u2 @115200
+Configs:  swi_d.cfg (running-config after setup; saved to startup: no -- nothing was
+          written to startup-config and flash:/default.cfg was never overwritten; the
+          reboot of STEP 12 ran from a named boot config that was removed afterwards)
+
+VERDICT: PASS -- SNMPv3 MIB-view filtering works on this platform exactly as the case
+specifies: an OID inside the group's read view returns a value, an OID outside it is
+refused, an `excluded` entry removes exactly one OID and nothing else, and the whole
+discriminator survives a reboot. The authored precondition itself is defective (O-9) and
+the run also found an RFC 3416 GetNext deviation at the view boundary (F-12).
+      authored step 3, view registered ..... ViewName system / OID 1.3.6.1.2.1.1 /
+                                             Type included, all three printed
+      authored step 4, in-view read ........ .1.3.6.1.2.1.1.5.0 = STRING: awplus
+      authored step 5, out-of-view read .... .1.3.6.1.2.1.2.1.0 = No Such Object,
+                                             same user and credentials, seconds apart
+      authored step 6, exclude registered .. both views show 1.3.6.1.2.1.1.5 excluded
+      authored step 7, excluded OID ........ .1.3.6.1.2.1.1.5.0 = No Such Object
+      authored step 8, the rest of 1.1.x ... sysDescr, sysLocation, sysObjectID and
+                                             sysUpTime all still return values
+      authored step 9, log ................. three SNMPv2c probes logged as
+                                             "illegal server 10.38.22.33", in `show log`
+                                             and in `show log permanent`
+      baseline before any object ........... v2c TIMEOUT, v3 "Unknown user name", ICMP
+                                             100% over the same link
+      authentication bites ................. wrong auth password -> Authentication
+                                             failure; unknown user -> Unknown user name
+      privacy bites ........................ authNoPriv from a priv group ->
+                                             authorizationError
+      encryption on the wire ............... 6 authPriv messages carry an ASN.1 OCTET
+                                             STRING encryptedPDU, no OID visible; the
+                                             authNoPriv control in the same capture is
+                                             plaintext with its OID legible
+      persistence .......................... all four view entries, the group, the user
+                                             and the engine ID survive a reload, and the
+                                             four reads re-grade identically
+      removal .............................. gone from running-config AND from the wire
+      finding F-12 ......................... GetNext whose successor OID is outside the
+                                             view gets NO response (RFC 3416 §4.2.2
+                                             requires endOfMibView)
+      finding O-9 .......................... the authored precondition's group reads a
+                                             view the block never defines
+CAVEAT:  Proven for READS with md5/des authPriv over IPv4, one user, one group, two view
+         names carrying one subtree. NOT exercised, deliberately and declared: trap
+         delivery (the authored `snmp-server host ... version 3 auth` line was applied
+         and accepted, but nothing was sent to a receiver), SNMP WRITE access (the group
+         grants `write MOSTmostMOSTmostMOST` and no write was issued), and the sha / aes
+         alternatives the CLI offers. The DUT enforces "SNMPv3 Authentication Max Fail 5
+         / Lockout Time 300 Seconds", so every credential-failure limb below was run as
+         ONE attempt (`--retries 0`), four failures in the whole case; the lockout
+         behaviour itself was therefore not triggered or measured. A third station,
+         10.38.22.41 / 00:0c:25:2a:a5:53, is live on the eth3 segment and is not ours; it
+         cannot confound anything here because every measurement is a unicast exchange
+         between 10.38.22.33 and 10.38.22.34 and the wire decode in STEP 11 accounts for
+         all 18 SNMP packets in its window, every one of them between those two
+         addresses.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+    tb277 eth3   00:0d:b9:55:77:0e   10.38.22.33/27      THE SNMP MANAGER
+                                                         net-snmp snmpget / snmpgetnext /
+          |   ^                                          snmpwalk, driven by
+          |   |                                          tools/snmpq.py; tcpdump on this
+          |   |                                          same NIC for STEP 11
+          |   |
+          |   |  (1) SNMPv3 authPriv GET / GETNEXT, UDP 161  -- the "must match" flow
+          |   |      (in-view OIDs) and the control flow (out-of-view OIDs), same user,
+          |   |      same engine, same credentials, in the same leg
+          |   |  (2) SNMPv3 authNoPriv GET, and SNMPv2c community "public" GET -- the
+          |   |      negative controls
+          v   |
+          |   |  (3) responses: a value, "No Such Object", authorizationError,
+          |   |      "Unknown user name", or silence (F-12)
+          |   |
+    +--------------------------------------------------------------------+
+    |  swi_d   AT-x960-56YSQ        D U T                                 |
+    |  port1.0.10 -- the box eth3 leg, default VLAN 1, no per-port        |
+    |                configuration; Designated/Forwarding before and      |
+    |                after the reload                                     |
+    |  interface vlan1   10.38.22.34/27                                   |
+    |                                                                     |
+    |  snmp-server                                   (agent, on at        |
+    |  snmp-server group ADMINadminADMINadmin priv    baseline)           |
+    |        read/write/notify MOSTmostMOSTmostMOST                       |
+    |  snmp-server view MOSTmostMOSTmostMOST 1.3.6.1.2.1.1 included       |
+    |  snmp-server view system             1.3.6.1.2.1.1 included         |
+    |        (+ ...1.1.5 excluded on BOTH views, from STEP 6 on)          |
+    |  snmp-server user TESTtestTESTtestTEST ADMINadminADMINadmin         |
+    |        auth md5 / priv des                                          |
+    |  snmp-server host 10.38.22.33 version 3 auth TESTtestTESTtestTEST   |
+    |  SNMPv3 Engine ID (actual) 0x80001f88808e3cab4244f4d83800000000     |
+    +--------------------------------------------------------------------+
+                                  ^
+                                  |  a third station shares this segment:
+                                  |  10.38.22.41 / 00:0c:25:2a:a5:53. It is not ours and
+                                  |  appears in no counted flow; the STEP 11 decode lists
+                                  |  every SNMP packet in its window and all 18 are
+                                  |  between 10.38.22.33 and 10.38.22.34.
+
+  DUT     : swi_d (AT-x960-56YSQ) console u2 @115200, S/N A2WQS700B, standalone Active
+            Master, sin_x96056-20261012-24, boot image flash:/x960-tb277.rel (file
+            exists), autoboot disabled. Bridge MAC e0:1a:ea:d4:70:43. SNMPv3 engine ID
+            (actual) 0x80001f88808e3cab4244f4d83800000000, configured: Not set.
+            Agent defaults read off the DUT: SNMP Server Enabled; IP Protocol IPv4,IPv6;
+            VRF None; Startup Trap Delay 30 s; SNMPv3 Authentication Max Fail 5; SNMPv3
+            Authentication Lockout Time 300 Seconds.
+  link    : tb277 eth3 <-> swi_d port1.0.10  (copper, untagged VLAN 1)
+  host    : tb277 eth3 00:0d:b9:55:77:0e, 10.38.22.33/27 -> swi_d port1.0.10. NO HOST
+            NETWORKING WAS CHANGED: rather than add an address to a host NIC, the DUT's
+            vlan1 was addressed into the box's EXISTING eth3 subnet as 10.38.22.34/27,
+            verified free before use and withdrawn afterwards. eth2 (10.38.22.1/27) and
+            eth4 (10.38.22.65/27) were not used by this case.
+  tools   : tools/snmpq.py on tb277 runs each net-snmp query and classifies it as
+            VALUE / NOSUCH / DENIED / AUTHFAIL / TIMEOUT / ERROR, grading it against
+            `--expect` (net-snmp returns exit 1 for most of those, so a raw exit code
+            cannot grade a step); tools/snmpwire.py decodes the pcap with no dependencies
+            and reports per SNMP message the version, msgFlags, USM user, engine ID and
+            whether msgData is a plaintext scopedPDU or an encryptedPDU; tools/ckcase.py
+            pulled the authored case text from ck.db; tools/ckcon.py and tools/cfg.py
+            drove the console, tools/ckyn.py answered the `(y/n)` prompts and
+            tools/ckreload.py drove the reload; tools/qmark.py ran the read-only `?`
+            probes; tools/rc2cfg.py produced swi_d.cfg; all of them through the tools/tb
+            wrapper on the box.
+
+  Method: this is a request/response protocol, so every counted leg carries BOTH flows --
+  the OID the view must permit and the OID the view must refuse, read by the SAME user
+  against the SAME engine with the SAME credentials in the same leg -- and no verdict
+  rests on one of them alone. Every leg also carries an INSTRUMENT CONTROL (an ICMP
+  exchange over the same link, or a read that must succeed) so that a refusal is a
+  measurement and not a dead path, a mangled credential or a locked-out user. The case's
+  passwords are 20 characters of shell-live punctuation (`!#$%&'()*+,-./[\]^_`` and
+  `:;<=@{}~0123456789ab`); the host-side commands below print a non-disclosing
+  fingerprint, `<PASS len=20 sha1=0eeef6a537>` for auth and `<PASS len=20 sha1=a587e0b9da>`
+  for priv, and those two fingerprints are identical in every leg, so the client used the
+  same bytes throughout. The decisive proof that nothing was eaten in transit is
+  behavioural: an authPriv request the agent ANSWERS WITH A VALUE has already passed the
+  MD5 digest check and the DES decryption at the agent, which a mangled password cannot
+  produce. What no `show` command can establish -- whether the varbinds are really
+  encrypted in flight -- is taken off the wire in STEP 11.
+
+STEP 0 -- baseline (feature OFF): nothing is readable before any SNMP object exists  done
+--------------------------------------------------------------------------------
+  The agent itself is ON at baseline on this build -- the bare `snmp-server` line is
+  already in running-config before this case touches anything. "Feature off" here
+  therefore means no community, no v3 user, no group and no view.
+
+awplus# configure terminal
+awplus(config)# interface vlan1
+awplus(config-if)# no ip address dhcp
+awplus(config-if)# ip address 10.38.22.34/27
+awplus(config-if)# end
+awplus# show ip interface brief
+  Interface             IP-Address         Status          Protocol
+  eth0                  unassigned         admin up        running
+  lo                    unassigned         admin up        running
+  vlan1                 10.38.22.34/27     admin up        running
+
+  INSTRUMENT CONTROL -- the path must be alive before any silence is read as a result:
+
+box$ ping -c 5 10.38.22.34 (from eth3)
+  5 packets transmitted, 5 received, 0% packet loss,
+  rtt min/avg/max/mdev = 0.425/0.462/0.584/0.066 ms
+
+  E1a  SNMPv2c, community "public":
+
+box$ /usr/bin/snmpget -On -t 3.0 -r 1 -v 2c -c public 10.38.22.34 1.3.6.1.2.1.1.5.0
+  | Timeout: No Response from 10.38.22.34.
+  RESULT TIMEOUT    GRADE PASS -- expected TIMEOUT, got TIMEOUT
+
+  E1b  SNMPv3, the case's user, before that user exists:
+
+box$ /usr/bin/snmpget -On -t 3.0 -r 1 -v 3 -u TESTtestTESTtestTEST -l authPriv -a MD5 \
+       -A <PASS len=20 sha1=0eeef6a537> -x DES -X <PASS len=20 sha1=a587e0b9da> \
+       10.38.22.34 1.3.6.1.2.1.1.5.0
+  | snmpget: Unknown user name
+  RESULT AUTHFAIL                        <-- a stronger zero than a timeout: the agent
+                                             answered the RFC 3414 engine discovery and
+                                             then reported usmStatsUnknownUserNames, so
+                                             it is listening and the instrument reaches
+                                             it; the only thing missing is the user
+
+  => STEP 0 done: with the agent enabled but no community, user, group or view, nothing
+     is readable by either version, while ICMP over the same link is 100%. Anything read
+     successfully below is new, and attributable to the configuration that follows.
+
+STEP 1 -- "Initilalize DUT1 and 2"                                        done
+--------------------------------------------------------------------------------
+  Method: DUT1 (swi_d) only -- no second device participates in any step of this case.
+  The initial state was read, not assumed, and it is also the state the case had to
+  return to:
+
+awplus# show boot
+  Current boot config: flash:/default.cfg (file exists)
+  Current boot image: flash:/x960-tb277.rel (file exists)
+  Autoboot disabled
+awplus# show running-config        (relevant baseline lines)
+  snmp-server                            <-- the agent-enable line is present at baseline
+  interface vlan1
+   ip address dhcp
+   ipv6 enable
+   ipv6 address dhcp
+                                         <-- vlan1 held no IPv4 address
+                                         <-- no `boot config-file` line: the pointer is
+                                             the implicit default
+awplus# show snmp-server
+  SNMP Server .......................... Enabled
+  SNMPv3 Authentication Max Fail ....... 5
+  SNMPv3 Authentication Lockout Time ... 300 Seconds
+  SNMPv3 Engine ID (actual) ............ 0x80001f88808e3cab4244f4d83800000000
+
+  => STEP 1 done: the DUT starts from its default boot config and boot image with the
+     SNMP agent enabled and no SNMP objects configured. The Max-Fail / Lockout pair read
+     here shaped the method for every credential-failure limb below.
+
+STEP 2 -- "Set configuration. Pls refer precondition."                    PASS
+--------------------------------------------------------------------------------
+  Sent exactly as authored, in the authored order, with only the address adaptation:
+
+awplus# configure terminal
+awplus(config)# snmp-server
+awplus(config)# snmp-server group ADMINadminADMINadmin priv read MOSTmostMOSTmostMOST write MOSTmostMOSTmostMOST notify MOSTmostMOSTmostMOST
+awplus(config)# snmp-server view system 1.3.6.1.2.1.1 included
+awplus(config)# snmp-server user TESTtestTESTtestTEST ADMINadminADMINadmin auth md5 !#$%&'()*+,-./[\]^_` priv des :;<=@{}~0123456789ab
+awplus(config)# snmp-server host 10.38.22.33 version 3 auth TESTtestTESTtestTEST
+awplus(config)# end
+
+  EVERY LINE WAS ACCEPTED. No `% ` line anywhere. In particular the three 20-character
+  names and both 20-character punctuation-heavy passwords went through the parser
+  unaltered. The DUT stored the user with localized keys:
+
+awplus# show running-config | include snmp-server user
+  snmp-server user TESTtestTESTtestTEST ADMINadminADMINadmin encrypted auth md5 0x071020b34855247c4708d62fbc81675a66 priv des 0x05f888ea77233b0d3b84169301d6500de2
+
+  => STEP 2 PASS: the authored precondition is accepted verbatim by this platform's
+     parser, including the maximum-length names and the punctuation-heavy md5 and des
+     passwords. Whether it is self-consistent is a different question, answered in
+     STEP 3A.
+
+STEP 3 -- "Check "show snmp-server view" setting. - ViewName,OID,Type status check"  PASS
+--------------------------------------------------------------------------------
+awplus# show snmp-server view
+  SNMP view information:
+    View Name ............... system
+      OID .................... 1.3.6.1.2.1.1
+      Type ................... included
+                                         <-- ViewName, OID and Type are all present and
+                                             carry the authored values
+
+  Read in the same batch, and they must be read TOGETHER with the view above:
+
+awplus# show snmp-server group
+  SNMP group information:
+    Group name .............. ADMINadminADMINadmin
+      Security Level ........ priv
+      Read View ............. MOSTmostMOSTmostMOST
+      Write View ............ MOSTmostMOSTmostMOST
+      Notify View ........... MOSTmostMOSTmostMOST
+      Access-list ........... -        IPv6 Access-list ...... -
+awplus# show snmp-server user
+  Name                Group name          Auth         Privacy
+  -------             -------------       -------      ----------
+  TESTtestTESTtestTESTADMINadminADMINadminmd5          des
+
+  The group's read view is MOSTmostMOSTmostMOST. The only view that exists is `system`.
+  The authored configuration block never defines MOSTmostMOSTmostMOST anywhere, and the
+  DUT accepted the group regardless -- no warning, no error. (The `show snmp-server user`
+  row above also shows a cosmetic platform limit: at maximum name length the columns run
+  together with no separator, so the output is unambiguous to a reader who knows the
+  field widths but is not parseable by whitespace.)
+
+  => STEP 3 PASS: the view is registered and `show snmp-server view` reports ViewName,
+     OID and Type as the step requires. The same batch establishes the premise of
+     STEP 3A: the group reads a view name that does not exist.
+
+STEP 3A -- the authored precondition applied VERBATIM refuses every read (finding O-9)  done
+--------------------------------------------------------------------------------
+  Method: before supplying anything, the authored steps 4 and 5 were run against the
+  authored configuration exactly as written, to record what it actually does on this
+  platform.
+
+  A1 = authored step 4, authored expectation "Can get 1.3.6.1.2.1.1.5 info":
+
+box$ /usr/bin/snmpget -On -t 3 -r 1 -v 3 -u TESTtestTESTtestTEST -l authPriv -a MD5 \
+       -A <PASS len=20 sha1=0eeef6a537> -x DES -X <PASS len=20 sha1=a587e0b9da> \
+       10.38.22.34 1.3.6.1.2.1.1.5.0
+  | .1.3.6.1.2.1.1.5.0 = No Such Object available on this agent at this OID
+  RESULT NOSUCH                          <-- authored step 4 would FAIL here
+
+  A2 = authored step 5, authored expectation "Cannot get 1.3.6.1.2.1.2.1 info":
+
+box$ /usr/bin/snmpget ... 10.38.22.34 1.3.6.1.2.1.2.1.0
+  | .1.3.6.1.2.1.2.1.0 = No Such Object available on this agent at this OID
+  RESULT NOSUCH                          <-- authored step 5 "passes", but vacuously
+
+  Both reads are refused, so the authored precondition as written can demonstrate
+  nothing: it denies EVERYTHING, and the include/exclude discriminator the case exists to
+  test has no contrast left in it. The refusal is NOT a credential problem -- neither
+  reply is an authentication error, so the MD5 digest and the DES decryption both
+  succeeded at the agent and the group matched. The denial is view access: the group's
+  read view name resolves to nothing, and a view that is undefined permits no OID.
+
+  The one missing line was supplied, and nothing else:
+
+awplus# configure terminal
+awplus(config)# snmp-server view MOSTmostMOSTmostMOST 1.3.6.1.2.1.1 included
+awplus(config)# end
+awplus# show snmp-server view
+  SNMP view information:
+    View Name ............... MOSTmostMOSTmostMOST
+      OID .................... 1.3.6.1.2.1.1
+      Type ................... included
+    View Name ............... system
+      OID .................... 1.3.6.1.2.1.1
+      Type ................... included
+
+  The added view carries exactly the subtree the authored `system` view carries, under
+  the name the authored group actually reads. The authored group, user, host and `system`
+  view are untouched. swi_d.cfg is this configuration, and it is what every graded step
+  below was measured under.
+
+  => STEP 3A done, and recorded as finding O-9 (a defect in the TEST CASE, not in the
+     platform): AWPTCM-T43870's precondition is internally inconsistent -- the group
+     reads view MOSTmostMOSTmostMOST, the block defines only a view called `system`, and
+     nothing ever defines MOSTmostMOSTmostMOST, so applied verbatim every read is refused
+     and authored step 4 fails. Supplying that single line makes all nine authored steps
+     behave exactly as authored, as the steps below show. Secondary: the step-6 OID is
+     typed `1.3.6.1.1.2.1.1.5`, which is not a path to sysName -- step 7 and the case's
+     own OID glossary say `1.3.6.1.2.1.1.5`. Recommended fix to the case: rename the view
+     in the configuration block to MOSTmostMOSTmostMOST, and correct the step-6 OID.
+
+STEP 4 -- "Try to get 1.3.6.1.2.1.1.5 info. - Can get 1.3.6.1.2.1.1.5 info."  PASS
+--------------------------------------------------------------------------------
+box$ /usr/bin/snmpget -On -t 3 -r 1 -v 3 -u TESTtestTESTtestTEST -l authPriv -a MD5 \
+       -A <PASS len=20 sha1=0eeef6a537> -x DES -X <PASS len=20 sha1=a587e0b9da> \
+       10.38.22.34 1.3.6.1.2.1.1.5.0
+  | .1.3.6.1.2.1.1.5.0 = STRING: awplus
+  RESULT VALUE      GRADE PASS -- expected VALUE, got VALUE
+
+  => STEP 4 PASS: sysName sits inside the group's read view 1.3.6.1.2.1.1 and the agent
+     returns it. The value also proves the credentials end to end -- an authPriv response
+     carrying a value means the MD5 digest and the DES decryption both succeeded at the
+     agent, so nothing on the host-side path mangled the 20-character passwords.
+
+STEP 5 -- "Try to get 1.3.6.1.2.1.2.1 info. - Cannot get 1.3.6.1.2.1.2.1 info."  PASS
+--------------------------------------------------------------------------------
+box$ /usr/bin/snmpget ... 10.38.22.34 1.3.6.1.2.1.2.1.0
+  | .1.3.6.1.2.1.2.1.0 = No Such Object available on this agent at this OID
+  RESULT NOSUCH     GRADE PASS -- expected NOSUCH, got NOSUCH
+
+  Steps 4 and 5 are each other's control and were taken back to back -- same user, same
+  engine, same credentials, seconds apart. ifNumber sits outside 1.3.6.1.2.1.1 and is
+  refused while sysName inside it returns a value.
+
+  The whole permitted subtree, not just the one OID:
+
+box$ snmpwalk ... 10.38.22.34 1.3.6.1.2.1.1     -> 32 varbinds, every one of them real:
+  .1.3.6.1.2.1.1.1.0 = STRING: Allied Telesis router/switch, Software (AlliedWare Plus) Version sin_x96056-20261012-24
+  .1.3.6.1.2.1.1.2.0 = OID: .1.3.6.1.4.1.207.1.14.204
+  .1.3.6.1.2.1.1.3.0 = Timeticks: (5359150) 14:53:11.50
+  .1.3.6.1.2.1.1.5.0 = STRING: awplus
+  .1.3.6.1.2.1.1.7.0 = INTEGER: 6
+  .1.3.6.1.2.1.1.9.1.2.1 = OID: .1.3.6.1.6.3.10.3.1.1   ... through .9.1.4.8
+box$ snmpwalk ... 10.38.22.34 1.3.6.1.2.1.2     -> ZERO varbinds
+
+  Both walks ended in a client TIMEOUT rather than an end-of-view marker. That is
+  investigated in STEP 5A and does not affect this step's reading: the GET results above
+  are each a single unambiguous reply.
+
+  => STEP 5 PASS: an OID outside the group's read view is refused with noSuchObject while
+     an OID inside it returns a value under identical conditions, and the whole permitted
+     subtree reads out (32 varbinds) while the excluded interfaces subtree yields none.
+     That is the filtering behaviour the case's objective names.
+
+STEP 5A -- GetNext at the MIB-view boundary gets no response (finding F-12)  done
+--------------------------------------------------------------------------------
+  Method: a walk that times out could be a broken instrument, a throttled agent or a
+  product defect. Four controlled probes separate them, the two silences bracketed by
+  reads that must succeed.
+
+box$ /usr/bin/snmpget -On -t 3 -r 1 -v 3 -u TESTtestTESTtestTEST -l authPriv -a MD5 \
+       -A <PASS len=20 sha1=0eeef6a537> -x DES -X <PASS len=20 sha1=a587e0b9da> \
+       10.38.22.34 1.3.6.1.2.1.1.5.0
+  | .1.3.6.1.2.1.1.5.0 = STRING: awplus
+  RESULT VALUE -- GRADE PASS -- expected VALUE, got VALUE        (instrument alive)
+
+box$ /usr/bin/snmpgetnext -On -t 5.0 -r 2 -v 3 -u TESTtestTESTtestTEST -l authPriv ... \
+       10.38.22.34 1.3.6.1.2.1.1.9.1.4.8      <-- the LAST in-view OID; its lexical
+  | Timeout: No Response from 10.38.22.34.        successor falls outside the view
+  RESULT TIMEOUT    rc=4
+
+box$ /usr/bin/snmpgetnext -On -t 5.0 -r 2 -v 3 ... 10.38.22.34 1.3.6.1.2.1.1.1.0
+  | .1.3.6.1.2.1.1.2.0 = OID: .1.3.6.1.4.1.207.1.14.204
+  RESULT VALUE      rc=0                     <-- a GetNext INSIDE the view is answered,
+                                                 in milliseconds, between the silences
+
+box$ /usr/bin/snmpgetnext -On -t 5.0 -r 3 -v 3 ... 10.38.22.34 1.3.6.1.2.1.2.1
+  | Timeout: No Response from 10.38.22.34.
+  RESULT TIMEOUT    rc=4                     <-- 5 s timeout, 3 retries, still nothing
+
+box$ /usr/bin/snmpget -On -t 3 -r 1 -v 3 ... 10.38.22.34 1.3.6.1.2.1.1.5.0
+  | .1.3.6.1.2.1.1.5.0 = STRING: awplus
+  RESULT VALUE -- GRADE PASS                 (still alive after both silences)
+
+  => STEP 5A done, and recorded as finding F-12 (PRODUCT): an SNMPv3 GetNext whose
+     successor OID falls outside the requesting user's MIB view receives NO RESPONSE AT
+     ALL from this build. RFC 3416 §4.2.2 requires the varbind to be returned with the
+     value endOfMibView. It is not slowness, throttling or a dead agent: an in-view
+     GetNext is answered in milliseconds between the two silences, and a permitted GET
+     succeeds immediately before and immediately after, with 5 s timeouts and up to 3
+     retries on the silent probes. A GET of an out-of-view OID is handled correctly
+     (noSuchObject) -- only GetNext is silent. Operator-visible consequence: `snmpwalk`
+     against any view-restricted SNMPv3 user cannot terminate cleanly on this build; it
+     stalls at the view boundary and ends in a client timeout, which reads as an
+     unreachable device.
+
+STEP 6 -- "Configure snmp-server view 1.3.6.1.1.2.1.1.5 exclude - Check "show snmp-server view" setting"  PASS
+--------------------------------------------------------------------------------
+  Method: OID `1.3.6.1.2.1.1.5` was used, not the authored `1.3.6.1.1.2.1.1.5`, which is
+  not a path to sysName (O-9, STEP 3A). The keyword is `excluded`, confirmed against the
+  DUT's own parser with a read-only help probe before anything was sent:
+
+awplus(config)# snmp-server view MOSTmostMOSTmostMOST 1.3.6.1.2.1.1 ?
+  excluded
+  included
+
+  The exclusion was applied to BOTH view names -- MOSTmostMOSTmostMOST is the one the
+  group actually reads, `system` is the one the authored block names:
+
+awplus# configure terminal
+awplus(config)# snmp-server view MOSTmostMOSTmostMOST 1.3.6.1.2.1.1.5 excluded
+awplus(config)# snmp-server view system 1.3.6.1.2.1.1.5 excluded
+awplus(config)# end
+awplus# show snmp-server view
+  SNMP view information:
+    View Name ............... MOSTmostMOSTmostMOST
+      OID .................... 1.3.6.1.2.1.1          Type ... included
+    View Name ............... MOSTmostMOSTmostMOST
+      OID .................... 1.3.6.1.2.1.1.5        Type ... excluded
+    View Name ............... system
+      OID .................... 1.3.6.1.2.1.1          Type ... included
+    View Name ............... system
+      OID .................... 1.3.6.1.2.1.1.5        Type ... excluded
+
+  => STEP 6 PASS: the excluded entries are registered and shown with the right ViewName,
+     OID and Type, alongside the included entries they override, which is what the step
+     asks `show snmp-server view` to confirm.
+
+STEP 7 -- "Try to get 1.3.6.1.2.1.1.5 info. - Cannot get 1.3.6.1.2.1.1.5 info."  PASS
+--------------------------------------------------------------------------------
+box$ /usr/bin/snmpget -On -t 3 -r 1 -v 3 -u TESTtestTESTtestTEST -l authPriv -a MD5 \
+       -A <PASS len=20 sha1=0eeef6a537> -x DES -X <PASS len=20 sha1=a587e0b9da> \
+       10.38.22.34 1.3.6.1.2.1.1.5.0
+  | .1.3.6.1.2.1.1.5.0 = No Such Object available on this agent at this OID
+  RESULT NOSUCH     GRADE PASS -- expected NOSUCH, got NOSUCH
+
+  => STEP 7 PASS: the OID that returned "STRING: awplus" in STEP 4 is refused after the
+     `excluded` entry, with no other change to the user, the group or the credentials.
+     The exclusion takes effect on reads, not merely in `show`.
+
+STEP 8 -- "Try to get 1.3.6.1.2.1.1.x( arbitrary info ). - Can get info"   PASS
+--------------------------------------------------------------------------------
+  Three other OIDs in the SAME subtree, read by the SAME user with the SAME credentials
+  seconds after STEP 7:
+
+box$ snmpget ... 1.3.6.1.2.1.1.1.0       (sysDescr)
+  | .1.3.6.1.2.1.1.1.0 = STRING: Allied Telesis router/switch, Software (AlliedWare Plus) Version sin_x96056-20261012-24
+  RESULT VALUE      GRADE PASS
+box$ snmpget ... 1.3.6.1.2.1.1.6.0       (sysLocation)
+  | .1.3.6.1.2.1.1.6.0 = STRING:
+  RESULT VALUE      GRADE PASS
+box$ snmpget ... 1.3.6.1.2.1.1.2.0 1.3.6.1.2.1.1.3.0    (both in ONE request)
+  | .1.3.6.1.2.1.1.2.0 = OID: .1.3.6.1.4.1.207.1.14.204
+  | .1.3.6.1.2.1.1.3.0 = Timeticks: (5372061) 14:55:20.61
+  RESULT VALUE      GRADE PASS
+
+  => STEP 8 PASS, and with STEP 7 this is the pair the case exists to prove: after the
+     exclude, the ONE excluded OID is refused while THREE other OIDs of the same subtree
+     still return values to the same user seconds apart. The exclusion is surgical -- it
+     removes exactly 1.3.6.1.2.1.1.5 from the view and nothing else. Steps 7 and 8 are
+     each other's control, so neither result can be a dead instrument.
+
+STEP 9 -- "Confirm Log - send "show log", "show log permanet""            PASS
+--------------------------------------------------------------------------------
+awplus# show log | include SNMP
+  2026 Oct 16 01:39:00 kern.err awplus snmpd[1896]: Received SNMP Packet from illegal server 10.38.22.33
+  2026 Oct 16 01:39:31 kern.err awplus snmpd[527]: Last message 'Received SNMP Packet' repeated 1 times, suppressed by syslog-ng on awplus
+  2026 Oct 16 01:44:30 kern.err awplus snmpd[1896]: Received SNMP Packet from illegal server 10.38.22.33
+  2026 Oct 16 01:45:35 kern.err awplus snmpd[527]: Last message 'Received SNMP Packet' repeated 2 times, suppressed by syslog-ng on awplus
+  2026 Oct 16 01:45:40 kern.err awplus snmpd[1896]: Received SNMP Packet from illegal server 10.38.22.33
+  2026 Oct 16 01:46:12 user.notice awplus IMISH[12395]: [manager@ttyS0]show log | include SNMP
+awplus# show log permanent | include SNMP
+  (the same five snmpd lines -- they are in permanent storage too)
+
+  The log is consistent with the measurements and dates them. 01:39:00 UTC is the STEP 0
+  SNMPv2c probe; 01:44:30 and 01:45:40 are the two SNMPv2c controls of STEP 11. Those are
+  the only three SNMPv2c requests in the whole run, and each is logged as dropped from an
+  unauthorised manager. No successful SNMPv3 read produced a log entry, and neither did
+  any authentication failure -- the four failures of STEP 10, at about 01:45-01:46 UTC,
+  are absent from both logs.
+
+  => STEP 9 PASS: `show log` and `show log permanent` both carry the SNMP events, and
+     what they carry matches what was measured on the wire -- the agent records a request
+     from a manager it has no credentials for, by source address, and survives into
+     permanent storage.
+
+STEP 10 -- beyond the authored procedure: do authentication and privacy actually bite?  PASS
+--------------------------------------------------------------------------------
+  Method: one attempt per limb (`--retries 0`), because the agent locks a user out for
+  300 s after 5 authentication failures. Four failures were spent in total, under the
+  threshold.
+
+  E3a  authNoPriv request from a user whose group requires priv, CORRECT auth password:
+box$ snmpget ... -l authNoPriv -a MD5 -A <PASS len=20 sha1=0eeef6a537> 10.38.22.34 ...
+  | Error in packet
+  | Reason: authorizationError (access denied to that object)
+  RESULT DENIED                          <-- the PRIVACY requirement bites: same user,
+                                             same correct auth password, one notch down
+                                             in security level, and the read is refused
+
+  E3b  WRONG auth password (20 chars, 'WRONGwrongWRONGwrong'), correct priv password:
+  | snmpget: Authentication failure (incorrect password, community or key)
+  RESULT AUTHFAIL                        <-- the AUTHENTICATION requirement bites
+
+  E3c  correct auth password, WRONG priv password:
+  | Timeout: No Response from 10.38.22.34.
+  RESULT TIMEOUT                         <-- denied, but SILENTLY. RFC 3414 §3.2(8)
+                                             expects usmStatsDecryptionErrors and a
+                                             report PDU. The access outcome is correct
+                                             and this is a common implementation choice,
+                                             so it is recorded as observation O-12, in
+                                             the same silence family as F-12
+
+  E3d  unknown user name 'NOSUCHUSER':
+  | snmpget: Unknown user name
+  RESULT AUTHFAIL
+
+  E3e  INSTRUMENT CONTROL, immediately after the failures:
+  | .1.3.6.1.2.1.1.1.0 = STRING: Allied Telesis router/switch, Software (AlliedWare Plus) Version sin_x96056-20261012-24
+  RESULT VALUE      GRADE PASS
+
+  => STEP 10 PASS: each of the three security properties is refused when its condition is
+     broken and granted when it is not -- privacy, authentication and user identity -- and
+     the closing control proves the user is not locked out and the correct credential
+     still works, so every refusal is attributable to the one thing that was changed and
+     to nothing else.
+
+STEP 11 -- beyond the authored procedure: what is actually on the wire     PASS
+--------------------------------------------------------------------------------
+  Method: no `show` command can establish whether the varbinds are really encrypted in
+  flight, so they were captured on the manager's own NIC and decoded. tcpdump printed
+  "18 packets captured / 18 packets received by filter / 0 packets dropped by kernel" and
+  the writer EXITED BEFORE THE FILE WAS READ, so the decode is of a flushed capture.
+  Traffic driven into the 45 s window, all with the credentials used throughout:
+    3 x authPriv GET of .1.3.6.1.2.1.1.1.0  -> VALUE each time (GRADE PASS)
+    2 x SNMPv2c GET, community public       -> TIMEOUT each time (GRADE PASS)
+    1 x authNoPriv GET                      -> DENIED (the E3a limb, same window)
+
+box$ tools/snmpwire.py /tmp/<capture>.pcap --oids
+  #1  +0.000s 10.38.22.33:54239 -> 10.38.22.34:161 SNMPv3 msgID=1718703672 flags=--r user='' engineID=(none)  msgData=PLAINTEXT scopedPDU pdu=GetRequest
+  #2  +0.001s 10.38.22.34:161 -> 10.38.22.33:54239 SNMPv3 msgID=1718703672 flags=--- user='' engineID=80001f88808e3cab4244f4d83800000000 msgData=PLAINTEXT scopedPDU pdu=Report
+        varbind OIDs in the clear: 1.3.6.1.6.3.15.1.1.4.0
+  #3  +0.001s 10.38.22.33:54239 -> 10.38.22.34:161 SNMPv3 msgID=1718703671 flags=apr user='TESTtestTESTtestTEST' engineID=80001f88...  msgData=ENCRYPTED(56 bytes, ASN.1 OCTET STRING)
+  #4  +0.002s 10.38.22.34:161 -> 10.38.22.33:54239 SNMPv3 msgID=1718703671 flags=ap- user='TESTtestTESTtestTEST' engineID=80001f88...  msgData=ENCRYPTED(144 bytes, ASN.1 OCTET STRING)
+  #5-#8   the same four-packet shape again at +6.292s   (ENCRYPTED 56 / 144)
+  #9-#12  the same four-packet shape again at +12.570s  (ENCRYPTED 56 / 144)
+  #13 +14.360s 10.38.22.33:38976 -> 10.38.22.34:161 SNMPv2c community='public' pdu=GetRequest  msgData=PLAINTEXT
+        varbind OIDs in the clear: 1.3.6.1.2.1.1.1.0
+  #14 +20.607s  same, community='public', OID 1.3.6.1.2.1.1.1.0 in the clear
+  #15 +37.272s discovery GetRequest, flags=--r, user='', PLAINTEXT
+  #16 +37.272s Report, PLAINTEXT, varbind OID 1.3.6.1.6.3.15.1.1.4.0 in the clear
+  #17 +37.273s 10.38.22.33:35354 -> 10.38.22.34:161 SNMPv3 msgID=826779854 flags=a-r user='TESTtestTESTtestTEST' engineID=80001f88...  msgData=PLAINTEXT scopedPDU pdu=GetRequest
+        varbind OIDs in the clear: 1.3.6.1.2.1.1.1.0
+  #18 +37.273s 10.38.22.34:161 -> 10.38.22.33:35354 SNMPv3 msgID=826779854 flags=a-- user='TESTtestTESTtestTEST' engineID=80001f88...  msgData=PLAINTEXT scopedPDU pdu=Response
+        varbind OIDs in the clear: 1.3.6.1.2.1.1.1.0
+  SUMMARY 18 SNMP message(s): 6 ENCRYPTED, 12 PLAINTEXT
+
+  Reading, and the controls are what make it sound:
+    - the six authPriv messages (#3/#4, #7/#8, #11/#12) carry msgFlags auth+priv and
+      their msgData is an ASN.1 OCTET STRING, an encryptedPDU. No OID and no value is
+      visible in any of them;
+    - #17/#18 are the IN-CAPTURE CONTROL: same user, same engine, same auth password, one
+      notch down to authNoPriv -- and msgData is a PLAINTEXT scopedPDU with
+      1.3.6.1.2.1.1.1.0 legible on the wire. The decoder CAN see varbinds in this traffic
+      when they are there; it saw none in the priv messages because there are none to
+      see. The encryption is real, not a decoder artifact;
+    - #13/#14 are a second control from another angle: SNMPv2c puts community='public'
+      and the OID in the clear, exactly as expected;
+    - #1/#2 and #15/#16 are the RFC 3414 engine-discovery exchange, correctly
+      noAuthNoPriv and plaintext, carrying usmStatsUnknownEngineIDs
+      (1.3.6.1.6.3.15.1.1.4.0). The engine ID the DUT puts on the wire,
+      80001f88808e3cab4244f4d83800000000, is byte-identical to the one `show snmp-server`
+      prints.
+    - all 18 packets are between 10.38.22.33 and 10.38.22.34; the third station on the
+      segment contributed nothing to this window.
+
+  => STEP 11 PASS: authPriv is not merely configured, it is honoured on the wire -- the
+     varbinds of every priv message are encrypted and unreadable, while an authNoPriv
+     message from the same user in the same capture exposes its OID in the clear. The
+     control is what proves it: the measurement would be worthless if the decoder simply
+     could not find varbinds, and it found them whenever they were present.
+
+STEP 12 -- beyond the authored procedure: persistence across a reboot      PASS
+--------------------------------------------------------------------------------
+  Method: nothing is written to startup-config and flash:/default.cfg is not touched. The
+  configuration is staged in a NAMED boot config, the unit is reloaded from it, and the
+  boot pointer is restored afterwards.
+
+awplus# copy running-config flash:/ck43870.cfg
+  Copying...
+  Successful operation
+awplus(config)# boot config-file flash:/ck43870.cfg
+awplus# show boot -> Current boot config: flash:/ck43870.cfg (file exists)
+awplus# dir flash:/ck43870.cfg
+  1548 -rw- Oct 16 2026 01:47:05  flash:/ck43870.cfg
+
+  Reload driven on /dev/u2 @115200:
+  reboot question: 'reboot system? (y/n):' -> y
+  login seen after 60 s (14:48:28 NZDT); the save-config question was not asked and none
+  was answered y.
+
+  State re-read BEFORE measuring anything (14:48:44 NZDT):
+
+awplus# show boot               -> Current boot config: flash:/ck43870.cfg (file exists)
+awplus# show ip interface brief -> vlan1  10.38.22.34/27  admin up  running
+awplus# show snmp-server view   -> all FOUR entries present (both views, included and
+                                   excluded)
+awplus# show snmp-server group  -> ADMINadminADMINadmin, priv, read/write/notify
+                                   MOSTmostMOSTmostMOST
+awplus# show snmp-server user   -> TESTtestTESTtestTEST / ADMINadminADMINadmin / md5 / des
+awplus# show snmp-server        -> SNMPv3 Engine ID (actual)
+                                   0x80001f88808e3cab4244f4d83800000000
+                                                   <-- byte-identical to the pre-reload
+                                                       engine ID
+awplus# show spanning-tree brief
+  port1.0.10 Designated Forwarding        <-- the measuring leg, re-confirmed Forwarding
+  port1.0.2  Rootport Forwarding              before any packet was sent; measurement
+  port1.0.4 / 1.0.14 / 1.0.16 Alternate Discarding   began at 14:49, 81 s after login
+  Root Id 8000:0000cd423029   Bridge Id 8000:e01aead47043
+
+  Re-measured, with the path proven alive first:
+
+  instrument control, ICMP -> 4 packets transmitted, 4 received, 0% packet loss
+  P1  excluded   .1.3.6.1.2.1.1.5.0  -> No Such Object                   GRADE PASS
+  P2  permitted  .1.3.6.1.2.1.1.1.0  -> STRING: Allied Telesis ...       GRADE PASS
+  P3  out-of-view .1.3.6.1.2.1.2.1.0 -> No Such Object                   GRADE PASS
+  P4  wrong auth password            -> Authentication failure           GRADE PASS
+
+  => STEP 12 PASS: the whole discriminator survives a reboot unchanged -- all four view
+     entries, the group, the user, and the three read outcomes plus the authentication
+     refusal, each re-grading exactly as before. P2 and P4 together prove something
+     further: the user is stored as LOCALIZED keys (`encrypted auth md5 0x071020b3...
+     priv des 0x05f888ea...`), localization is a function of the engine ID, the engine ID
+     came back byte-identical, and the original plaintext passwords still authenticate
+     afterwards while a wrong one still does not.
+
+STEP 13 -- beyond the authored procedure: removal                          PASS
+--------------------------------------------------------------------------------
+  The boot pointer and the staged file first, so nothing of this case outlives it:
+
+awplus(config)# no boot config-file
+awplus# show boot -> Current boot config: flash:/default.cfg (file exists)
+awplus# delete flash:/ck43870.cfg
+  Delete flash:/ck43870.cfg?  (y/n)[n]:y
+  Deleting...
+  Successful operation
+awplus# dir flash:/*.cfg
+  1049 -rw- Oct 15 2026 10:49:02  flash:/default.cfg     <-- only the baseline file
+                                                             remains; default.cfg was
+                                                             never written to
+
+  The negative form of these commands is NOT the mirror of the positive form on this
+  platform. Mirroring the setup lines is rejected:
+
+awplus(config)# no snmp-server user TESTtestTESTtestTEST ADMINadminADMINadmin          -> % Invalid input
+awplus(config)# no snmp-server group ADMINadminADMINadmin priv read MOSTmostMOSTmostMOST write ...  -> % Invalid input
+awplus(config)# no snmp-server view MOSTmostMOSTmostMOST 1.3.6.1.2.1.1.5               -> % Invalid input
+awplus(config)# no snmp-server view MOSTmostMOSTmostMOST 1.3.6.1.2.1.1                 -> % Invalid input
+awplus(config)# no snmp-server view system 1.3.6.1.2.1.1.5                             -> % Invalid input
+awplus(config)# no snmp-server view system 1.3.6.1.2.1.1                               -> % Invalid input
+  (`no snmp-server host 10.38.22.33 version 3 auth TESTtestTESTtestTEST` WAS accepted.)
+
+  The accepted syntax, read off the DUT's own parser with a read-only help probe:
+
+awplus(config)# no snmp-server view ?    -> <cr>      (no OID argument is accepted)
+awplus(config)# no snmp-server user ?    -> <cr>
+awplus(config)# no snmp-server group ?   -> <cr>
+
+  Recorded as observation O-10 (PLATFORM CLI): `snmp-server view <name> <oid>
+  {included|excluded}` is per-OID, but `no snmp-server view <name>` takes only the name
+  and deletes the WHOLE view -- there is no way to withdraw a single OID entry from a
+  view; it must be deleted and rebuilt. The same shape applies to `no snmp-server user
+  <name>` and `no snmp-server group <name>`.
+
+awplus# configure terminal
+awplus(config)# no snmp-server user TESTtestTESTtestTEST
+awplus(config)# no snmp-server group ADMINadminADMINadmin
+awplus(config)# no snmp-server view MOSTmostMOSTmostMOST
+awplus(config)# no snmp-server view system
+awplus(config)# end
+awplus# show snmp-server view
+  SNMP view information:
+                                         <-- and nothing else
+awplus# show snmp-server group
+  SNMP group information:
+                                         <-- and nothing else
+awplus# show snmp-server user
+  Name                Group name          Auth         Privacy
+  -------             -------------       -------      ----------
+                                         <-- header row only, no users
+awplus# show running-config | include snmp
+  snmp-server                            <-- the baseline agent line, and ONLY that
+
+  And on the wire, with the path proven alive:
+
+  instrument control, ICMP -> 4 packets transmitted, 4 received, 0% packet loss
+  R1  .1.3.6.1.2.1.1.1.0, the read that worked a minute earlier, same credentials
+      | snmpget: Unknown user name                       GRADE PASS (expected AUTHFAIL)
+  R2  SNMPv2c, community public
+      | Timeout: No Response from 10.38.22.34.           GRADE PASS (expected TIMEOUT)
+
+  => STEP 13 PASS: every object this case created is gone from running-config and the
+     agent's behaviour is back to the STEP 0 baseline exactly -- the same two refusals,
+     with ICMP still 100% over the same link. Removal is proven in configuration AND on
+     the wire, and the baseline `snmp-server` line that was there before the case is
+     still there, untouched.
+================================================================================
