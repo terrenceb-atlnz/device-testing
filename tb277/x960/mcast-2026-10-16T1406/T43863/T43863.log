@@ -1,0 +1,514 @@
+================================================================================
+TEST T43863 -- (40) IPv4_MulticastRouting - PIM-SM
+================================================================================
+Run:      2026-10-16 16:10-16:54 NZDT (the DUT's clock reads UTC and runs ~14 s behind
+          the box's; swi_a's and swi_b's are in sync with it. Device timestamps quoted
+          below are the device's own UTC; capture times are the box's.)
+Bench:    tb277, consoles u2 = swi_d (DUT), u3 = swi_b, u5 = swi_a; Test Engineer
+          bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T43863 "(40) IPv4_MulticastRouting - PIM-SM". No authored step text
+          exists for this case. ck.db `zephyr_cases` id 40183, key AWPTCM-T43863,
+          folder /New Platform Test (MASTER)/New Platform Template/IPv4, status Draft,
+          carries NO objective, NO precondition and NO steps_text (`num_steps` 1 and an
+          empty `steps` column), so there are no authored steps and no authored expected
+          results. The headings below say what was actually exercised. The procedure was
+          designed from:
+            - the PIM-SM protocol itself (RFC 4601). The mechanisms a PIM-SM verdict
+              must show are the PIM neighbour adjacency, the group-to-RP mapping, the
+              Register path from the first-hop DR to the RP, the RP's Join toward the
+              source, Register-Stop, the tree carrying data, and prune on leave;
+            - the DUT's own CLI surface, read read-only with tools/qmark.py: global
+              `ip multicast-routing [border|ssm-only-hw|vrf]`, `ip pim rp-address|ssm|
+              bsr-candidate|rp-candidate|spt-threshold|register-*|vrf`; interface
+              `ip pim sparse-mode|dense-mode|dr-priority|hello-interval|neighbor-filter|
+              state-refresh`; `show ip pim sparse-mode ...`, `show ip mroute [sparse|
+              dense|static|count|summary|vrf]`;
+            - the rule that a multicast verdict may NOT rest on `show ip mroute`. Every
+              claim below is a counted far-side result on a host NIC, or a packet decode
+              from the DUT's own tcpdump on the routed-only transit VLAN. The `show`
+              reads are corroboration only.
+          There is no multicast Feature Overview Guide on this share, and ck.db's
+          `cli_commands` corpus holds no x960 pages, so no document is quoted for this
+          platform either. 8 steps as executed, plus a baseline.
+Build:    swi_d  sin_x96056-20261012-24  (flash:/x960-tb277.rel, build date Mon Oct 12 2026)
+          AT-x960-56YSQ, S/N A2WQS700B, standalone, console u2 @115200
+          swi_a  awplus_main-20261008-56
+          AT-x950 GEN2-52XSTQm, S/N A10713A262600012, standalone, console u5 @9600
+Configs:  swi_d.cfg, swi_a.cfg (running-config after setup, captured 16:37 NZDT; saved
+          to startup: no). PROVENANCE: both files were captured after the PLANNED setup.
+          The single line `ip igmp` on swi_a `interface vlan48` was added at 16:41:25, as
+          STEP 2 below records, and is therefore NOT in swi_a.cfg. Every step from STEP 3
+          onwards ran with it.
+
+VERDICT: PASS -- PIM-SM routes IPv4 multicast between two routers on this build. The
+proof is counted traffic at a far-side host NIC with an in-leg control group that must
+not arrive, plus the Register state machine decoded frame by frame on the transit wire;
+the table reads only corroborate.
+      baseline, multicast routing OFF ..... joined receiver, 0 of 10 group frames
+                                            forwarded; routed unicast control 5/5
+      PIM-SM forwarding ................... 5 of 5 for the joined group in steady
+                                            state, egress MAC 88:9d:98:df:26:02
+                                            (= swi_a's, so both routers forwarded it)
+      never-joined control group .......... 0 of 5 in the SAME leg, every leg
+      Register -> RP Join -> data ......... Register at 03:43:39.659544, RP Join/Prune
+                                            0.6 ms later, native data 340 ms after that
+      Register-Stop ....................... 03:45:03.355179, once the SPT is up; null
+                                            Registers (28 B) continue as keepalives
+      prune on leave ...................... the LEFT group 0 of 5 while a still-joined
+                                            group is 5 of 5 in the same leg
+      the RP is load-bearing .............. A/B on ONE group: RP mapping removed 0 of
+                                            10, RP mapping restored 8 of 10
+      router-side IGMP .................... `ip pim sparse-mode` alone does NOT enable
+                                            it; see STEP 2 (finding F-13)
+      reboot persistence .................. a group first used AFTER the reload forwards
+                                            8 of 10; control 0 of 10
+      removal ............................. `no ip pim sparse-mode` -> 0 of 10 for a
+                                            group that was forwarding 8/10 minutes before
+CAVEAT:  Two PIM-SM limbs this bench cannot reach, named rather than silently omitted.
+         ASSERT needs two PIM routers on ONE shared segment and the only multi-router
+         segment here is a /30. BSR / candidate-RP election needs a third PIM router;
+         `ip pim bsr-candidate` and `ip pim rp-candidate` exist on the DUT but only two
+         units on this bench hold the PIM licence, so a STATIC RP was used throughout --
+         which does exercise the Register path in full. swi_a was configured but never
+         reloaded or power-cycled, so reboot persistence is proven for the DUT only.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+   tb277 eth3  10.38.22.33/27  00:0d:b9:55:77:0e           SOURCE segment
+   (every frame crafted from 10.38.22.40 / 00:11:22:33:44:01)
+        |
+        |  (1) UDP <group>:5001  and  ICMP 10.38.22.40 -> 10.38.22.65
+        |      (the latter is the instrument control: it must always arrive)
+        v
+   swi_d port1.0.10   access vlan 10
+ +===================================================================+
+ |  swi_d   AT-x960-56YSQ          D U T                             |
+ |  = the SOURCE's first-hop router / DR                             |
+ |     interface vlan10  10.38.22.34/27   ip pim sparse-mode         |
+ |     interface vlan61  10.0.61.1/30     ip pim sparse-mode         |
+ |     interface vlan48  NO address (it was moved to swi_a for this  |
+ |                       case), so port1.0.48 is pure L2 here        |
+ |     ip pim rp-address 10.0.61.2   ip route 10.38.22.64/27 10.0.61.2
+ |     spanning-tree priority 0  ->  the DUT is root                 |
+ |        port1.0.2   SHUT  Disabled/Discarding  (leg to swi_b)      |
+ |        port1.0.14  SHUT  Disabled/Discarding  (2nd leg to swi_a)  |
+ +===================================================================+
+    ^  port1.0.48                 |  port1.0.4  TRUNK, tagged vlan 48 + vlan 61
+    |  access vlan 48             |             Designated/Forwarding
+    |  (L2 only -- no SVI         |  (2) routed out of vlan 10 into vlan 61:
+    |   on the DUT)               |      the transit hop, and the ONLY segment
+    |                             v      carrying the PIM control plane
+    |                      swi_a port1.0.4   Rootport/Forwarding
+    |   +=================================================================+
+    |   |  swi_a   AT-x950 GEN2-52XSTQm        PARTNER                    |
+    |   |  = the RECEIVER's last-hop router / DR,  AND THE RP             |
+    |   |     interface vlan61  10.0.61.2/30  ip pim sparse-mode          |
+    |   |                       <- the PIM adjacency, and the RP address  |
+    |   |     interface vlan48  10.38.22.66/27  ip pim sparse-mode        |
+    |   |                       + `ip igmp` (added in STEP 2)             |
+    |   |     ip pim rp-address 10.0.61.2   ip route 10.38.22.32/27 10.0.61.1
+    |   |        port1.0.1 / port1.0.11  Alternate/Discarding (to swi_b)  |
+    |   |        port1.0.14  Disabled/Discarding (DUT end shut)           |
+    |   +=================================================================+
+    |          |  (3) routed into vlan 48 and bridged back over the SAME
+    |          |      trunk, now with swi_a's MAC as the Ethernet source
+    +----------+
+        |
+        v  (4) EVERY COUNT IN THIS LOG IS TAKEN HERE
+   tb277 eth4  10.38.22.65/27  00:0d:b9:55:77:0f           RECEIVER segment
+   (the IGMP receiver is 10.38.22.70 / 00:11:22:33:44:77, injected by tools/igmp.py)
+
+  DUT     : swi_d (AT-x960-56YSQ) console u2 @115200, S/N A2WQS700B, standalone,
+            sin_x96056-20261012-24, boot image flash:/x960-tb277.rel (file exists),
+            boot config flash:/default.cfg (file exists), autoboot disabled. All of its
+            SVIs share MAC e0:1a:ea:d4:70:43; bridge id 0000:e01aead47043 after
+            `spanning-tree priority 0`.
+  partner : swi_a (AT-x950 GEN2-52XSTQm) console u5 @9600, S/N A10713A262600012,
+            awplus_main-20261008-56. SVI MAC 88:9d:98:df:26:02, bridge id
+            8000:889d98df2602. The RP lives HERE on purpose: with the RP on the DUT the
+            source would be directly attached to it and the Register path would not
+            exist to be measured.
+  not used: swi_b (AT-x960-28YSQ) console u3 @9600, S/N A10737A261700021,
+            sin_x96056-20260921-9. It cannot be the PIM partner -- see STEP 1. Nothing
+            was applied to it and its legs to both other units are STP-blocked or shut.
+  link    : swi_d port1.0.4 <-> swi_a port1.0.4 (trunk, tagged vlan 48 + vlan 61).
+            This single trunk carries BOTH the transit hop and the return path.
+  link    : vlan 61 = 10.0.61.0/30, the transit segment. It has NO host NIC, so every
+            control-plane claim on it is read with the DUT's own tcpdump.
+  host    : tb277 eth3 00:0d:b9:55:77:0e 10.38.22.33/27 -> swi_d port1.0.10 (source)
+  host    : tb277 eth4 00:0d:b9:55:77:0f 10.38.22.65/27 -> swi_d port1.0.48 (receiver,
+            and the only place frames are counted)
+  tools   : tools/arpleg.py on tb277 drives every counted leg -- it starts tcpdump on
+            each NIC named, sends a known count of crafted frames, stops, decodes and
+            prints a grouped count WITH the Ethernet source and destination of every
+            flow. tools/igmp.py sends the IGMPv2 joins and leaves. tools/cfg.py,
+            tools/ckcon.py, tools/ckyn.py and tools/console.py drive the consoles;
+            tools/qmark.py ran the read-only `?` probes; tools/ckreload.py drove the
+            reload; tools/rc2cfg.py produced the .cfg files. The DUT's own
+            `tcpdump -i vlan61 -nn` at privileged exec decodes the transit wire.
+
+  Method: every leg carries THREE flows at once -- the subject group, a control group
+  that was never joined and must NOT arrive, and an instrument control (routed ICMP
+  unicast 10.38.22.40 -> 10.38.22.65) that must always arrive. The instrument control
+  arrived at its full count in every one of the 9 counted legs, so every zero in this
+  log is a measurement and not a dead capture. It also arrives with Ethernet source
+  88:9d:98:df:26:02 = swi_a's MAC, which is itself the proof that the two-router path is
+  real: the frame was routed by the DUT, crossed the trunk, and was routed again by the
+  partner before reaching eth4. One foreign host, 10.38.22.41 / 00:0c:25:2a:a5:53, lives
+  on the eth3 (source) segment; every count below is taken on eth4 and attributed by
+  source address AND by both MACs, so its traffic cannot be mistaken for a measurement.
+
+STEP 0 -- baseline (feature OFF): a JOINED receiver still gets nothing           done
+--------------------------------------------------------------------------------
+  Method: the topology above is up, the receiver has ALREADY joined, and the only thing
+  missing is the feature -- `ip multicast-routing` is configured nowhere and there is no
+  PIM anywhere. The STP state the diagram shows was confirmed from BOTH ends first,
+  because a root bridge never blocks its own ports and the blocking decision therefore
+  moves to the partner, where the DUT's own `show` cannot see it:
+
+  DUT   16:29  Root Id 0000:e01aead47043  Bridge Id 0000:e01aead47043  (the DUT IS root)
+        port1.0.2 Disabled Discarding     port1.0.4 Designated Forwarding
+        port1.0.14 Disabled Discarding    port1.0.10 / port1.0.16 / port1.0.48
+                                          Designated Forwarding
+  swi_a 16:30  Root Id 0000:e01aead47043  Bridge Id 8000:889d98df2602
+        port1.0.4  Rootport  Forwarding   <- the leg this case uses, Forwarding at ITS end
+        port1.0.1  Alternate Discarding   port1.0.11 Alternate Discarding  (both to swi_b)
+        port1.0.14 Disabled  Discarding   (DUT end shut)
+
+  swi_a# ping 10.0.61.1 repeat 3
+    3 packets transmitted, 3 received, 0% packet loss
+
+  tools/tb sudotool tb277 ckt1406c igmp eth4 join 239.1.1.1 10.38.22.70 \
+    00:11:22:33:44:77 2 0.5
+  tools/tb sudotool tb277 ckt1406c arpleg --tag s1-baseline-off \
+    --out /tmp/ckt1406c/T43863 --iface eth3 --watch eth4 \
+    --udp 239.1.1.1:5001,239.9.9.9:5001 --icmp 10.38.22.65 \
+    --gw-mac e0:1a:ea:d4:70:43 --sender-ip 10.38.22.40 \
+    --sender-mac 00:11:22:33:44:01 --count 5 --gap 0.3 --settle 3 --wait 8 --filter "ip"
+
+cap s1-baseline-off-eth3.pcap: 15 frame(s)
+  x5  UDP  10.38.22.40 -> 239.1.1.1 :5001 [ours] [eth 00:11:22:33:44:01 -> 01:00:5e:01:01:01]
+  x5  UDP  10.38.22.40 -> 239.9.9.9 :5001 [ours] [eth 00:11:22:33:44:01 -> 01:00:5e:09:09:09]
+  x5  ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours] [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+cap s1-baseline-off-eth4.pcap: 5 frame(s)
+  x5  ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours] [eth 88:9d:98:df:26:02 -> 00:0d:b9:55:77:0f]
+                                      <-- arrived with swi_a's MAC: the two-router
+                                          routed path is live BEFORE any multicast
+
+  => STEP 0 done: all 10 multicast frames were delivered to the DUT -- they are in the
+     eth3 capture, correctly addressed at layer 2 -- and 0 of 10 were forwarded to a
+     receiver that had already joined. The routed unicast control arrived 5 of 5 through
+     the partner in the same leg, so the capture and the path are both proven alive.
+     Anything counted from here on is new, and is attributable to the feature.
+
+STEP 1 -- PIM-SM brought up on both routers: service gate, adjacency, group-to-RP mapping  PASS
+--------------------------------------------------------------------------------
+  Method: AW+ gates the routing daemons twice -- once on a licensed `service`, once on
+  `ip multicast-routing`. Both gates were captured rather than worked around. The
+  partner question was settled the same way, before any measurement: swi_b holds
+  `L3-MC-ROUTE` but no PIM licence bit, and its `service ?` list offers `pdm`, `pim` and
+  `pim6` identically to the other two units, so a read-only surface probe could never
+  have settled it. Sending the command does:
+
+x960-28YSQ(config)#service pim
+% Service is not currently licensed on this platform
+x960-28YSQ(config)#service pdm
+% Service is not currently licensed on this platform
+                                      <-- swi_b cannot be a PIM router. Nothing was
+                                          applied to it: its running-config before and
+                                          after holds only `service password-encryption`
+                                          and `service ssh`
+
+swi_d(config)#service pim                             accepted 16:32:59
+swi_a(config)#service pim                             accepted 16:33:08
+swi_d#show process | include pim
+ 4353 pimd                5   0.0   0.1    20 sleep   <-- the daemon IS running
+
+  The second gate, captured by deliberately configuring PIM before enabling multicast
+  routing:
+
+awplus(config-if)#ip pim sparse-mode
+% IP Multicast Routing not activated
+
+  `ip multicast-routing` was then sent and `ip pim sparse-mode` accepted. (Note that
+  `show ip multicast-routing` is NOT a command on this build: `% Invalid input
+  detected`.) The adjacency and the mapping, across a real wire:
+
+awplus#show ip pim sparse-mode neighbor
+Neighbor          Interface        Uptime/Expires            Ver   DR
+10.0.61.2         vlan61           00:00:57/00:01:18         v2    1 / DR
+awplus#show ip pim sparse-mode rp mapping
+PIM Group-to-RP Mappings
+Group(s): 224.0.0.0/4, Static
+    RP: 10.0.61.2
+
+  => STEP 1 PASS: a PIM v2 adjacency is established over the transit VLAN between two
+     physically separate routers, and both ends resolve 224.0.0.0/4 to the RP at
+     10.0.61.2. The licence gate is exact rather than inferred -- swi_b's refusal is a
+     one-line verdict, and it is why swi_a is the partner.
+
+STEP 2 -- with PIM-SM fully up the joined group STILL did not forward: router-side IGMP must be enabled explicitly  PASS
+--------------------------------------------------------------------------------
+  Method: PIM-SM configured on both routers, adjacency up, RP mapping present on both,
+  RPF route present on both. The receiver re-joined and the leg was re-measured:
+
+cap s2-pimsm-on-eth4.pcap: 6 frame(s)
+  x5  ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours] [eth 88:9d:98:df:26:02 -> 00:0d:b9:55:77:0f]
+  x1  IP p103 10.38.22.66 -> 224.0.0.13 [eth 88:9d:98:df:26:02 -> 01:00:5e:00:00:0d]
+                                      <-- 0 of 5 for the joined group, and a PIM Hello
+                                          from swi_a on the receiver segment
+
+  The diagnosis, in the order it was done, because the mechanism is the result:
+
+swi_a#show ip igmp groups
+Group Address    Interface            Uptime   Expires  Last Reporter
+239.1.1.1        vlan48               00:00:39 00:03:41 0.0.0.0     <-- the group IS known
+swi_a#show ip pim sparse-mode local-members
+PIM Local membership information
+vlan48:                                                             <-- and PIM knows NOTHING
+vlan61:
+swi_a#show ip pim sparse-mode mroute
+(*,G) Entries: 0        (S,G) Entries: 2        (S,G,rpt) Entries: 2
+(10.38.22.40, 239.1.1.1)   RPF nbr: 0.0.0.0  RPF idx: None  Upstream State: NOT JOINED
+
+  Both candidate preconditions were ruled out ON the device, not assumed:
+
+swi_a#show ip pim sparse-mode rp mapping
+Group(s): 224.0.0.0/4, Static  RP: 10.0.61.2
+Uptime: 00:04:38                      <-- the mapping predates the failure
+swi_a#show ip route 10.38.22.40
+Routing entry for 10.38.22.32/27
+  Known via "static", * via 10.0.61.1, vlan61
+
+  And the report itself was confirmed correct ON THE WIRE, not inferred from the tool --
+  a 16 s sniff of eth4:
+
+  x2  IP p2 10.38.22.70 -> 239.1.1.1 [eth 00:11:22:33:44:77 -> 01:00:5e:01:01:01]
+                                      <-- a well-formed IGMPv2 report from a real
+                                          on-subnet source
+
+swi_a#show ip igmp interface vlan48
+Interface vlan48 (Index 348)
+ IGMP Disabled, Active(Snoop Only), Non-Querier, Version 3 (default)   <-- THE CAUSE
+ IGMP interface has 1 group-record states
+ IGMP activity: 2 joins, 0 leaves
+ IGMP querying router is 0.0.0.0
+
+  One command fixed it:
+
+swi_a(config-if)#ip igmp
+swi_a#show ip igmp interface vlan48
+ IGMP Enabled, Active, Querier, Version 3 (default)
+swi_a#show ip pim sparse-mode local-members
+vlan48:
+  (*, 239.1.1.1) : Include                                            <-- PIM sees it now
+
+  => STEP 2 PASS as a measurement, and it is the step that produced finding F-13: on
+     this build a receiver interface needs BOTH `ip pim sparse-mode` and an explicit
+     `ip igmp`. Until `ip igmp` is given, `show ip igmp groups` lists the group with a
+     live expiry timer -- learned by IGMP SNOOPING, which is on by default and does not
+     feed PIM -- while `show ip pim sparse-mode local-members` is empty and the dataplane
+     forwards nothing. Two read-backs disagree at the same instant and the dataplane
+     follows the second. A related cosmetic defect is visible above and is recorded as
+     O-21: `show ip igmp groups` prints `Last Reporter 0.0.0.0` even though the report
+     on the wire carries a correct on-subnet source (10.38.22.70, confirmed by capture),
+     both before and after `ip igmp` was enabled.
+
+STEP 3 -- PIM-SM forwards the joined group, and only the joined group               PASS
+--------------------------------------------------------------------------------
+  tools/tb sudotool tb277 ckt1406c arpleg --tag s3-pimsm-forwarding \
+    --out /tmp/ckt1406c/T43863 --iface eth3 --watch eth4 \
+    --udp 239.1.1.1:5001,239.9.9.9:5001 --icmp 10.38.22.65 \
+    --gw-mac e0:1a:ea:d4:70:43 --sender-ip 10.38.22.40 \
+    --sender-mac 00:11:22:33:44:01 --count 5 --gap 0.3 --settle 3 --wait 8 --filter "ip"
+
+cap s3-pimsm-forwarding-eth4.pcap: 9 frame(s)
+  x5  ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours] [eth 88:9d:98:df:26:02 -> 00:0d:b9:55:77:0f]
+  x4  UDP  10.38.22.40 -> 239.1.1.1 :5001 [ours] [eth 88:9d:98:df:26:02 -> 01:00:5e:01:01:01]
+
+  4 of 5 subject frames, 0 of 5 for the never-joined control group 239.9.9.9, 5 of 5
+  instrument control. The one missing frame is the tree build: STEP 4 shows the first
+  data packet being consumed as the Register that CREATES the tree. Immediately repeated
+  with nothing changed:
+
+cap s4-pimsm-steady-eth4.pcap: 10 frame(s)
+  x5  UDP  10.38.22.40 -> 239.1.1.1 :5001 [ours] [eth 88:9d:98:df:26:02 -> 01:00:5e:01:01:01]
+  x5  ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours] [eth 88:9d:98:df:26:02 -> 00:0d:b9:55:77:0f]
+
+  => STEP 3 PASS: steady state is 5 of 5 for the joined group while the never-joined
+     control group stays at 0 of 5 in the same leg, on the same wire, at the same
+     instant. The egress MAC on every delivered frame is swi_a's, so each one was routed
+     by the DUT, crossed the trunk and was routed again by the partner -- this is
+     inter-router PIM-SM forwarding, not local bridging.
+
+STEP 4 -- the PIM-SM mechanism itself, decoded frame by frame on the transit wire   PASS
+--------------------------------------------------------------------------------
+  Method: vlan 61 carries no host NIC, so the control plane is read with the DUT's own
+  tcpdump at privileged exec. A fresh group (239.2.2.2) was joined first so the whole
+  tree build could be watched from cold.
+
+awplus#tcpdump -i vlan61 -c 18 -nn
+03:43:38.943301 IP 10.0.61.1    > 224.0.0.13: PIMv2, Hello, length 34
+03:43:39.659544 IP 10.38.22.34  > 10.0.61.2 : PIMv2, Register, length 62
+03:43:39.660110 IP 10.0.61.2    > 224.0.0.13: PIMv2, Join / Prune, length 34
+03:43:39.999623 IP 10.38.22.40.40000 > 239.2.2.2.5001: UDP, length 26
+03:43:39.999965 IP 10.38.22.34  > 10.0.61.2 : PIMv2, Register, length 62
+18 packets captured
+  (far side, same leg: 18 of 20 subject frames on eth4, 20 of 20 instrument control)
+
+  Read in order: the DUT -- as 10.38.22.34, its DR address on the SOURCE interface, not
+  its transit address -- unicasts a Register to the RP; 0.6 ms later the RP sends a
+  Join/Prune toward the source; 340 ms after that the group's data is flowing NATIVELY
+  on vlan 61. Repeated with a PIM-only filter and a third group (239.3.3.3) to catch the
+  end of the handshake:
+
+awplus#tcpdump -i vlan61 -c 10 -nn proto 103
+03:44:53.378341 IP 10.0.61.2   > 224.0.0.13 : PIMv2, Hello, length 34
+03:44:54.283754 IP 10.38.22.34 > 10.0.61.2  : PIMv2, Register, length 28   <-- NULL register
+03:44:54.284280 IP 10.0.61.2   > 10.38.22.34: PIMv2, Register Stop, length 18
+03:45:02.675409 IP 10.38.22.34 > 10.0.61.2  : PIMv2, Register, length 66   <-- data register
+03:45:02.676041 IP 10.0.61.2   > 224.0.0.13 : PIMv2, Join / Prune, length 34
+03:45:03.011682 IP 10.38.22.34 > 10.0.61.2  : PIMv2, Register, length 66
+03:45:03.354785 IP 10.38.22.34 > 10.0.61.2  : PIMv2, Register, length 66
+03:45:03.355179 IP 10.0.61.2   > 10.38.22.34: PIMv2, Register Stop, length 18
+03:45:08.943538 IP 10.0.61.1   > 224.0.0.13 : PIMv2, Hello, length 34
+03:45:17.064200 IP 10.38.22.34 > 10.0.61.2  : PIMv2, Register, length 28   <-- null keepalive
+  (far side, same leg: 38 of 40 subject frames on eth4, 40 of 40 instrument control)
+
+  The resulting tables, with two trees up at once, read on the RP / last-hop router:
+
+swi_a#show ip mroute
+IP Multicast Routing Table
+Flags: I - Immediate Stat, T - Timed Stat, F - Forwarder installed
+Timers: Uptime/Stat Expiry
+Interface State: Interface (TTL)
+
+(10.38.22.40, 239.2.2.2), uptime 00:02:19, stat expires 00:01:11
+Owner PIM-SM, Flags: TF
+  Incoming interface: vlan61
+  Outgoing interface list:
+    vlan48 (1)
+
+(10.38.22.40, 239.3.3.3), uptime 00:00:56, stat expires 00:02:34
+Owner PIM-SM, Flags: TF
+  Incoming interface: vlan61
+  Outgoing interface list:
+    vlan48 (1)
+
+  => STEP 4 PASS: the complete Register state machine of RFC 4601, observed on the wire
+     rather than inferred -- Register (28 bytes = null, 62/66 bytes = data-encapsulated),
+     the RP's Join toward the source, Register-Stop once the shortest-path tree is up,
+     and the null-register keepalive afterwards. The 340 ms gap between the Register and
+     native data on vlan 61 is the shared-tree-to-SPT transition, measured. This is also
+     what accounts for the 1-2 frames each group loses while its tree is built.
+
+STEP 5 -- prune on leave, with a still-joined group as the in-leg control           PASS
+--------------------------------------------------------------------------------
+  tools/tb sudotool tb277 ckt1406c igmp eth4 leave 239.3.3.3 10.38.22.70 \
+    00:11:22:33:44:77 2 0.5
+  (then one arpleg leg carrying BOTH 239.3.3.3 -- left -- and 239.2.2.2 -- still joined)
+
+cap s8-prune-on-leave-eth4.pcap: 10 frame(s)
+  x5  UDP  10.38.22.40 -> 239.2.2.2 :5001 [ours] [eth 88:9d:98:df:26:02 -> 01:00:5e:02:02:02]
+  x5  ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours] [eth 88:9d:98:df:26:02 -> 00:0d:b9:55:77:0f]
+
+  => STEP 5 PASS: the group that was LEFT drops to 0 of 5 while the still-joined group
+     holds 5 of 5 -- in the same leg, the same instant and the same wire. The prune is
+     real and it is group-specific: the membership is what stopped the traffic, not
+     anything about the path, which the second group proves is still working.
+
+STEP 6 -- the RP's role isolated by A/B on a single group                           PASS
+--------------------------------------------------------------------------------
+  Method: one group, nothing changed between the two halves except the RP mapping.
+
+  (a) `no ip pim rp-address 10.0.61.2` on BOTH routers -- `show ip pim sparse-mode rp
+      mapping` on swi_a then prints its header and no mapping -- THEN join 239.4.4.4 and
+      measure:
+
+cap s9-no-rp-eth4.pcap: 12 frame(s)
+  x10 ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours] [eth 88:9d:98:df:26:02 -> 00:0d:b9:55:77:0f]
+  x1  IP p103 10.38.22.66 -> 224.0.0.13   (swi_a PIM Hello)
+  x1  IP p2   10.38.22.66 -> 224.0.0.1   (swi_a IGMP general query -- it IS the querier now)
+                                      <-- 0 of 10 for a group that is JOINED, while the
+                                          instrument control is 10 of 10
+
+  (b) `ip pim rp-address 10.0.61.2` restored on both, same group, membership untouched:
+
+cap s10-rp-restored-eth4.pcap: 19 frame(s)
+  x10 ICMP t8/c0 ... 10/10
+  x8  UDP 10.38.22.40 -> 239.4.4.4 :5001 [ours] [eth 88:9d:98:df:26:02 -> 01:00:5e:04:04:04]
+                                      <-- 8 of 10 (the usual 2 frames consumed building
+                                          the tree, cf. STEP 4)
+
+  => STEP 6 PASS: 0 of 10 becomes 8 of 10 with the RP mapping as the only variable, on
+     one group, with the membership and the whole path untouched between the halves. The
+     RP is load-bearing in this build's PIM-SM, which is what separates sparse mode from
+     any-source flooding.
+
+STEP 7 -- persistence across a reboot, re-measured in the dataplane                 PASS
+--------------------------------------------------------------------------------
+  Method: nothing is written to startup-config. The configuration is staged in a NAMED
+  boot config, the DUT is reloaded from it, and the boot pointer is put back afterwards.
+  swi_a was NOT reloaded or power-cycled and stayed up throughout.
+
+awplus#copy running-config flash:/ck43863.cfg        -> Successful operation
+awplus(config)#boot config-file flash:/ck43863.cfg
+awplus#show boot -> Current boot config: flash:/ck43863.cfg (file exists)
+  tools/tb ckreload tb277 ckt1406c u2 115200 480
+    reboot question: 'reboot system? (y/n):' -> y ;  login seen after 61 s
+
+  After the reload, BEFORE measuring:
+
+awplus#show boot -> Current boot config: flash:/ck43863.cfg (file exists)
+awplus#show ip pim sparse-mode neighbor
+10.0.61.2 vlan61 00:00:14/00:01:31 v2 1 / DR      <-- the adjacency re-formed by itself
+awplus#show ip interface brief
+  vlan10 10.38.22.34/27, vlan48 unassigned, vlan61 10.0.61.1/30
+awplus#show spanning-tree brief          (first read, ~30 s after login)
+  port1.0.4 Designated Forwarding   port1.0.10 Designated Forwarding
+  port1.0.48 Designated Discarding  <-- the known 17-21 s post-reload window; measuring
+                                        here would have produced a false zero
+awplus#show spanning-tree brief          (re-read)
+  port1.0.4 / port1.0.10 / port1.0.48 all Designated Forwarding   <-- only now is it safe
+
+  A group never used before the reload (239.5.5.5) was then joined and measured:
+
+cap s11-postreload-eth4.pcap: 20 frame(s)
+  x10 ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours]  (10/10 instrument control)
+  x8  UDP 10.38.22.40 -> 239.5.5.5 :5001 [ours] [eth 88:9d:98:df:26:02 -> 01:00:5e:05:05:05]
+  x1  IP p103 10.38.22.66 -> 224.0.0.13     x1  IP p2 10.38.22.66 -> 224.0.0.1
+
+  The boot pointer was put back and the staged file removed:
+
+awplus(config)#boot config-file flash:/default.cfg
+awplus#delete flash:/ck43863.cfg
+  Delete flash:/ck43863.cfg? (y/n)[n]:y -> Successful operation
+awplus#show boot -> Current boot config: flash:/default.cfg (file exists)
+awplus#dir flash:/*.cfg
+  1049 -rw- Oct 15 2026 10:49:02  flash:/default.cfg        <-- only that
+
+  => STEP 7 PASS: 8 of 10 for a group that did not exist before the reboot, 0 of 10 for
+     the never-joined control in the same leg, 10 of 10 instrument control. The
+     configuration survived the reboot AND the dataplane works after it -- the half that
+     a `show running-config` read cannot prove.
+
+STEP 8 -- removal, in running-config AND in the dataplane                           PASS
+--------------------------------------------------------------------------------
+awplus(config-if)#no ip pim sparse-mode            (on interface vlan10, the ingress SVI)
+awplus#show running-config interface vlan10
+interface vlan10
+ ip address 10.38.22.34/27                         <-- the pim line is GONE
+
+cap s12-removed-eth4.pcap: 11 frame(s)
+  x10 ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours]  (10/10 instrument control)
+  x1  IP p103 10.38.22.66 -> 224.0.0.13
+
+  => STEP 8 PASS: 0 of 10 for group 239.5.5.5, whose membership was still live and which
+     had been forwarding 8 of 10 minutes earlier, while the instrument control on the
+     same wire was unaffected. Removal is proven in running-config AND on the wire, and
+     the unicast path is shown to be untouched by it.
+================================================================================

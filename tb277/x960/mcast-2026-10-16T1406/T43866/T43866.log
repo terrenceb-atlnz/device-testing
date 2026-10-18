@@ -1,0 +1,413 @@
+================================================================================
+TEST T43866 -- (43) IPv4_MulticastRouting - VRF-Lite
+================================================================================
+Run:      2026-10-16 17:42-17:58 NZDT (the DUT's clock reads UTC and runs ~14 s behind
+          the box's. Device timestamps quoted below are the device's own; capture times
+          are the box's.)
+Bench:    tb277, consoles u2 = swi_d (DUT), u3 = swi_b, u5 = swi_a; Test Engineer
+          bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T43866 "(43) IPv4_MulticastRouting - VRF-Lite". No authored step text
+          exists for this case. ck.db `zephyr_cases` id 40186, key AWPTCM-T43866,
+          folder /New Platform Test (MASTER)/New Platform Template/IPv4, priority
+          Normal, status Draft, carries NO objective, NO precondition and NO steps_text
+          (`num_steps` 1 and an empty `steps` column), so there are no authored steps
+          and no authored expected results. The headings below say what was actually
+          exercised. The procedure was designed from:
+            - the VRF-Lite Feature Overview and Configuration Guide C613-22142-00 REV B,
+              whose central claim is "securely isolated" routing domains;
+            - platforms/x960.md sections 7B.6-7B.7, the UNICAST VRF-Lite behaviours
+              measured on this same DUT, so this case tests the MULTICAST path against a
+              known unicast baseline;
+            - the DUT's own CLI surface: `ip multicast-routing vrf`, `ip pim vrf`,
+              `show ip mroute vrf`, `show ip igmp vrf`, `show ip pim vrf`;
+            - finding F-9, a recorded inter-VRF UNICAST behaviour of this DUT, which this
+              case deliberately re-tests on the multicast path (STEP 5).
+          SCOPE, DECLARED: this case is DUT-LOCAL and uses ONE device. swi_b has no
+          VRF-Lite licence at all (Base only; `VRF-LITE-FULL/63/8` absent), so it cannot
+          be a VRF peer; swi_a holds the licence but was under a standing instruction
+          never to be reloaded or power-cycled, and a second-router limb would add
+          nothing this case needs. VRF-Lite isolation is a property of ONE router's
+          forwarding tables, and the sharpest test of it is two segments on one router
+          that can and cannot reach each other depending only on VRF membership. That is
+          what is measured below, and it is why swi_d.cfg is the only config file.
+          7 steps as executed, plus a baseline.
+Build:    swi_d  sin_x96056-20261012-24  (flash:/x960-tb277.rel, build date Mon Oct 12 2026)
+          AT-x960-56YSQ, S/N A2WQS700B, standalone, console u2 @115200
+Configs:  swi_d.cfg (running-config after setup, captured 17:53 NZDT; saved to startup:
+          no). DECLARED: this case's central A/B is moving `vlan48` between VRFs, so the
+          configuration legitimately changes during the run. swi_d.cfg captures the
+          BOTH-INTERFACES-IN-RED state, which is the one the persistence and removal
+          steps ran on; the isolation state differs from it by exactly the three lines
+          quoted in STEP 3.
+
+VERDICT: PASS -- multicast routing on this build is genuinely per-VRF, and VRF-Lite
+isolates the multicast path as it isolates the unicast one. The proof is counted traffic
+between two host NICs on one router, with the capture proved live by the DUT's own
+frames, and an A/B whose only variable is one interface's VRF membership.
+      multicast routing is per-VRF ........ `no ip multicast-routing` globally while
+                                            `ip multicast-routing vrf red` and `vrf
+                                            blue` are both on and both working
+      isolation, source in red /
+      receiver in blue .................... 0 of 10 MULTICAST and 0 of 10 UNICAST
+                                            crossed the boundary
+      the capture was proved live ......... by the DUT's own blue-SVI PIM hello
+                                            `IP p103 10.38.22.66 -> 224.0.0.13` landing
+                                            on eth4 in the same zero-count leg
+      the A/B .............................. 0 of 10 -> 10 of 10 with vlan48's VRF
+                                            membership as the ONLY variable
+      never-joined control group .......... 0 of 10 in the same leg, with an EMPTY
+                                            outgoing interface list beside the joined
+                                            group's `vlan48 (1)`
+      per-VRF tables ...................... `show ip igmp vrf blue groups` and
+                                            `show ip mroute vrf red|blue` are separate
+      F-9 does NOT recur here ............. the outgoing interface list EMPTIED the
+                                            instant vlan48 left the VRF and the
+                                            dataplane stopped in the same instant --
+                                            nothing stale, nothing to clear
+      reboot persistence .................. VRFs, loopbacks, memberships, addresses,
+                                            per-VRF multicast, PIM and per-VRF RPs all
+                                            survive; a group first used AFTER the reload
+                                            is 9 of 10
+      removal is surgical ................. `no ip multicast-routing vrf red` -> 0 of 10
+                                            multicast in red while UNICAST in red keeps
+                                            working at 10 of 10, and blue's line is
+                                            untouched
+CAVEAT:  One router, two VRFs, two directly attached segments. No inter-VRF route
+         leaking, no VRF-aware routing protocol and no second-router VRF peering were
+         exercised -- the first because this case tests isolation, the others because
+         the bench cannot reach them (see the scope note above). The `ip pim vrf
+         <name> rp-address` RPs are both local to the DUT, so no inter-router Register
+         path exists in this case; that path is measured in T43863 instead.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  ONE router, TWO host NICs, TWO VRFs. There is no partner switch in this case.
+
+   tb277 eth3  10.38.22.33/27  00:0d:b9:55:77:0e        SOURCE segment
+   (every frame crafted from 10.38.22.40 / 00:11:22:33:44:01)
+        |
+        |  (1) UDP <group>:5001   and   ICMP 10.38.22.40 -> 10.38.22.65
+        |      BOTH of them have to cross the VRF boundary to be delivered
+        v
+   swi_d port1.0.10   access vlan 10
+ +=========================================================================+
+ |  swi_d   AT-x960-56YSQ                D U T   (the only device)         |
+ |                                                                         |
+ |   +--------------------- VRF red (rd 1) ---------------------+          |
+ |   |  interface vlan10   10.38.22.34/27                       |          |
+ |   |    ip vrf forwarding red / ip pim sparse-mode / ip igmp  |          |
+ |   |  lo1  (auto-created with the VRF)                        |          |
+ |   |  ip multicast-routing vrf red                            |          |
+ |   |  ip pim vrf red rp-address 10.38.22.34                   |          |
+ |   +----------------------------------------------------------+          |
+ |                                                                         |
+ |   +--------------------- VRF blue (rd 2) --------------------+          |
+ |   |  interface vlan48   10.38.22.66/27                       |          |
+ |   |    ip vrf forwarding blue / ip pim sparse-mode / ip igmp |          |
+ |   |  lo2  (auto-created with the VRF)                        |          |
+ |   |  ip multicast-routing vrf blue                           |          |
+ |   |  ip pim vrf blue rp-address 10.38.22.66                  |          |
+ |   +----------------------------------------------------------+          |
+ |                                                                         |
+ |   GLOBAL table:  no ip multicast-routing    <- OFF for the whole case   |
+ |                                                                         |
+ |   STP baseline (triage state, restored before this case and unchanged   |
+ |   by it): Root Id 8000:0000cd423029 = swi_b; port1.0.2 Rootport         |
+ |   Forwarding; port1.0.4 / port1.0.14 / port1.0.16 Alternate Discarding; |
+ |   port1.0.10 and port1.0.48 -- the two ports this case uses --          |
+ |   Designated Forwarding. No inter-switch leg carries anything here.     |
+ +=========================================================================+
+        |
+        |  (2) STEP 2: vlan48 is in BLUE, so NOTHING may cross and nothing
+        |      does. STEP 3 moves vlan48 into RED and the same leg is
+        |      delivered -- that move is the whole experiment.
+        v
+   swi_d port1.0.48   access vlan 48
+        |
+        v  (3) EVERY COUNT IN THIS LOG IS TAKEN HERE
+   tb277 eth4  10.38.22.65/27  00:0d:b9:55:77:0f        RECEIVER segment
+   (the IGMP receiver is 10.38.22.70 / 00:11:22:33:44:77, injected by tools/igmp.py)
+
+  DUT     : swi_d (AT-x960-56YSQ) console u2 @115200, S/N A2WQS700B, standalone,
+            sin_x96056-20261012-24. All of its SVIs share MAC e0:1a:ea:d4:70:43, so a
+            frame delivered here carries the DUT's own MAC and not a partner's -- which
+            is itself the signature of a single-router path.
+  not used: swi_a (AT-x950 GEN2-52XSTQm, console u5, S/N A10713A262600012) and swi_b
+            (AT-x960-28YSQ, console u3, S/N A10737A261700021). Neither was opened,
+            configured, reloaded or power-cycled by this case.
+  host    : tb277 eth3 00:0d:b9:55:77:0e 10.38.22.33/27 -> swi_d port1.0.10 (source,
+            VRF red)
+  host    : tb277 eth4 00:0d:b9:55:77:0f 10.38.22.65/27 -> swi_d port1.0.48 (receiver,
+            VRF blue in STEP 2, VRF red in STEP 3, and the only place frames are
+            counted)
+  tools   : tools/arpleg.py drives every counted leg; tools/igmp.py sends the joins;
+            tools/cfg.py, tools/ckcon.py, tools/ckyn.py and tools/console.py drive the
+            console; tools/ckreload.py drove the reload; tools/rc2cfg.py produced
+            swi_d.cfg.
+
+  Method, and the one thing this case had to do differently: under VRF isolation
+  NOTHING from eth3 may reach eth4 -- including the routed-ICMP instrument control the
+  rest of this group used -- so "a flow that must arrive on the far NIC" is unavailable
+  by construction. An ICMP aimed at the DUT's own red SVI was tried and produced no
+  reply, because the DUT would have to ARP for the crafted sender 10.38.22.40 and
+  nothing answers that ARP. The liveness proof actually used is better suited to the
+  case: THE DUT'S OWN PIM HELLOS. With PIM enabled per VRF, the red SVI sends hellos on
+  eth3's wire and the BLUE SVI sends them on eth4's wire, so an isolation leg that
+  captures `IP p103 10.38.22.66 -> 224.0.0.13` on eth4 while counting zero subject
+  frames has proved its own capture alive from traffic the DUT generated. Every
+  isolation leg below carries that proof. The second control is the A/B itself: the
+  identical leg run again with vlan48's VRF membership as the only change.
+
+STEP 0 -- baseline (feature OFF)                                                 done
+--------------------------------------------------------------------------------
+  Both VRFs created and the interfaces moved into them, but no multicast routing and no
+  PIM anywhere:
+
+cap v1-baseline-off-eth3.pcap: 20 frame(s)   (10 group + 10 ICMP, all delivered to the DUT)
+cap v1-baseline-off-eth4.pcap: 0 frame(s)
+
+  => STEP 0 done: 0 of 10. Every frame reached the DUT and none left it on the far
+     segment, before any multicast feature was configured at all.
+
+STEP 1 -- two VRFs, and multicast routing enabled PER VRF with the global table OFF  PASS
+--------------------------------------------------------------------------------
+swi_d(config)#service pim                         (sent alone)
+swi_d(config)#ip vrf red 1
+swi_d(config)#ip vrf blue 2
+swi_d(config-if)#interface vlan10 / ip vrf forwarding red  / ip address 10.38.22.34/27
+swi_d(config-if)#interface vlan48 / ip vrf forwarding blue / ip address 10.38.22.66/27
+awplus#show ip vrf
+red                     --                    lo1
+                                              vlan10
+blue                    --                    lo2
+                                              vlan48
+awplus#show ip interface brief
+[VRF: red]    vlan10   10.38.22.34/27  admin up  running
+[VRF: blue]   vlan48   10.38.22.66/27  admin up  running
+
+  (`ip vrf <name>` with no LO number auto-creates lo1/lo2, and `ip vrf forwarding`
+  removes the interface's addresses, so they must be re-applied -- both confirmed again
+  here, and both are why the address lines follow the membership lines above.)
+
+swi_d(config)#ip multicast-routing vrf red
+swi_d(config)#ip multicast-routing vrf blue
+swi_d(config-if)#interface vlan10 / ip pim sparse-mode / ip igmp
+swi_d(config-if)#interface vlan48 / ip pim sparse-mode / ip igmp
+swi_d(config)#ip pim vrf red  rp-address 10.38.22.34
+swi_d(config)#ip pim vrf blue rp-address 10.38.22.66
+awplus#show running-config | include multicast
+no ip multicast-routing              <-- the GLOBAL table stays OFF ...
+ip multicast-routing vrf red         <-- ... while two VRFs have it ON
+ip multicast-routing vrf blue
+awplus#show ip pim vrf red sparse-mode interface
+Total configured interfaces: 2   Maximum allowed: 1024
+Total active interfaces:     2
+
+Address          Interface VIFindex Ver/   Nbr    DR         DR
+                                    Mode   Count  Prior
+10.38.22.34      vlan10    1        v2/S   0      1          10.38.22.34
+10.38.22.66      vlan48    2        v2/S   0      1          10.38.22.66
+
+  => STEP 1 PASS: that three-line read-back is itself a result. Multicast routing on
+     this build is genuinely PER-VRF and independent of the global table --
+     `ip multicast-routing vrf <name>` is not a modifier on a global switch, and the
+     global switch remained `no ip multicast-routing` for the whole of this case while
+     both VRFs forwarded. (The `show ip pim vrf red` read above is taken after the STEP
+     3 move, with both interfaces in red; in the isolation state each VRF holds one of
+     them.)
+
+STEP 2 -- ISOLATION: source in VRF red, receiver in VRF blue                      PASS
+--------------------------------------------------------------------------------
+  The receiver joined 239.30.30.30 on eth4, which is in BLUE; the source sends from
+  eth3, which is in RED. Per-VRF IGMP confirms where the membership is held:
+
+awplus#show ip igmp vrf blue groups
+Group Address    Interface            Uptime   Expires  Last Reporter
+239.30.30.30     vlan48               00:00:06 00:04:15 10.38.22.70
+awplus#show ip mroute vrf blue
+IP Multicast Routing Table [VRF: blue]      (empty)
+awplus#show ip mroute vrf red
+IP Multicast Routing Table [VRF: red]       (empty)
+
+cap v2-vrf-isolation-eth3.pcap: 21 frame(s)
+  x10 UDP  10.38.22.40 -> 239.30.30.30 :5001 [ours] [eth ... -> 01:00:5e:1e:1e:1e]
+  x10 ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours]
+  x1  IP p103 10.38.22.34 -> 224.0.0.13   <-- the RED SVI's own PIM hello
+cap v2-vrf-isolation-eth4.pcap: 1 frame(s)
+  x1  IP p103 10.38.22.66 -> 224.0.0.13   <-- the BLUE SVI's own PIM hello: the capture
+                                              IS live, and both VRFs are running PIM
+                                              independently at the same instant
+
+  Repeated later with a 40 s window, after the STEP 5 check, to catch more hellos:
+
+cap v6-f9-confirm-eth4.pcap: 2 frame(s)
+  x2  IP p103 10.38.22.66 -> 224.0.0.13     and 0 of 10 group, 0 of 10 ICMP
+
+  => STEP 2 PASS: 0 of 10 MULTICAST and 0 of 10 UNICAST crossed the VRF boundary, on a
+     capture proved live by the DUT's own blue-SVI hello arriving in the same leg. The
+     zero is therefore a measurement and not a dead instrument -- which matters more
+     here than anywhere else in this group, because an isolation case is a case whose
+     result IS a zero. The membership exists and is held in blue; the traffic exists and
+     is in red; nothing joins them.
+
+STEP 3 -- the A/B: move ONE interface into the other VRF and change nothing else   PASS
+--------------------------------------------------------------------------------
+  A direct VRF-to-VRF move is refused, which was reconfirmed verbatim:
+
+awplus(config-if)#ip vrf forwarding red          (while vlan48 was in blue)
+% vlan48: VRF is already associated
+
+  So the move went via the global domain:
+
+awplus(config-if)#no ip vrf forwarding blue
+% All IP addresses configured on interface vlan48 have been removed
+awplus(config-if)#ip vrf forwarding red
+awplus(config-if)#ip address 10.38.22.66/27
+awplus(config-if)#ip pim sparse-mode
+awplus(config-if)#ip igmp
+awplus#show ip interface brief
+[VRF: red]   vlan10 10.38.22.34/27   vlan48 10.38.22.66/27
+[VRF: blue]  (no interfaces)
+
+  Re-joined -- the interface changed VRF, so the membership has to be re-sent -- and the
+  identical leg was run again:
+
+cap v3-same-vrf-eth4.pcap: 20 frame(s)
+  x10 UDP  10.38.22.40 -> 239.30.30.30 :5001 [ours] [eth e0:1a:ea:d4:70:43 -> 01:00:5e:1e:1e:1e]
+  x10 ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours] [eth e0:1a:ea:d4:70:43 -> 00:0d:b9:55:77:0f]
+
+  => STEP 3 PASS: 10 of 10 for the joined group and 10 of 10 for the unicast control,
+     against 0 of 10 and 0 of 10 for the identical leg in STEP 2, with vlan48's VRF
+     MEMBERSHIP as the only variable in the whole bench -- same cabling, same addresses,
+     same group, same source, same ports. A never-joined control group 239.31.31.31
+     carried in the same leg stayed at 0 of 10, so what crossed is what was asked for
+     and not everything. That pair of legs is the entire claim of VRF-Lite, measured on
+     the wire for the multicast path.
+
+STEP 4 -- per-VRF tables, and one read-back worth knowing about                    PASS
+--------------------------------------------------------------------------------
+awplus#show ip mroute vrf red
+IP Multicast Routing Table
+Flags: I - Immediate Stat, T - Timed Stat, F - Forwarder installed
+Timers: Uptime/Stat Expiry
+Interface State: Interface (TTL)
+
+[VRF: red]
+(10.38.22.40, 239.30.30.30), uptime 00:02:12, stat expires 00:01:18
+Owner PIM-SM, Flags: TF
+  Incoming interface: vlan10
+  Outgoing interface list:
+    vlan48 (1)
+
+(10.38.22.40, 239.31.31.31), uptime 00:00:34, stat expires 00:02:56
+Owner PIM-SM, Flags: TF
+  Incoming interface: vlan10
+  Outgoing interface list:              <-- the never-joined control group: EMPTY
+
+awplus#show ip mroute                   (no vrf keyword)
+[VRF: red]
+(10.38.22.40, 239.30.30.30), uptime 00:02:13, stat expires 00:01:17
+Owner PIM-SM, Flags: TF
+  Incoming interface: vlan10
+  Outgoing interface list:
+    vlan48 (1)
+
+(10.38.22.40, 239.31.31.31), uptime 00:00:35, stat expires 00:02:55
+Owner PIM-SM, Flags: TF
+  Incoming interface: vlan10
+  Outgoing interface list:
+
+[VRF: blue]
+
+  => STEP 4 PASS: the per-VRF tables hold exactly what the dataplane did -- the joined
+     group with `vlan48 (1)` in its outgoing interface list and the never-joined control
+     group with an empty one, in the same table at the same instant. The read-back worth
+     knowing about is recorded as O-29: `show ip mroute` with NO `vrf` keyword prints
+     the VRF sections too, headed `[VRF: red]`, and its output here was identical to
+     `show ip mroute vrf red`. The global table was empty, because global multicast
+     routing is off, so a reader skimming `show ip mroute` would reasonably but wrongly
+     conclude these entries are in the global table. Read the `[VRF: ...]` heading.
+
+STEP 5 -- the F-9 check: does a stale entry keep forwarding after the VRF changes?  PASS
+--------------------------------------------------------------------------------
+  Method: F-9 is a recorded behaviour of this DUT on the UNICAST path -- removing an
+  inter-VRF static route left the dataplane forwarding across the VRF boundary from a
+  stale ARP-derived per-host entry until `clear arp-cache vrf` was run, configuration
+  and route table both saying closed while traffic flowed. The multicast path was tested
+  for the same shape in the sharpest form available: with (10.38.22.40, 239.30.30.30)
+  ACTIVELY forwarding and its outgoing interface list holding `vlan48 (1)`, vlan48 was
+  moved straight back into blue and the leg re-run IMMEDIATELY, with no re-join and no
+  `clear` of anything.
+
+awplus(config-if)#no ip vrf forwarding red
+awplus(config-if)#ip vrf forwarding blue
+awplus(config-if)#ip address 10.38.22.66/27
+
+cap v5-f9-check-eth4.pcap: 0 frame(s)
+awplus#show ip mroute vrf red
+(10.38.22.40, 239.30.30.30), uptime 00:03:18   Owner PIM-SM, Flags: TF
+  Incoming interface: vlan10
+  Outgoing interface list:              <-- EMPTIED immediately
+(10.38.22.40, 239.31.31.31) ...
+  Outgoing interface list:
+
+  => STEP 5 PASS, and F-9's shape does NOT occur in the multicast path. The outgoing
+     interface list emptied the moment the interface left the VRF and the dataplane
+     stopped in the same instant -- no stale forwarding and nothing to clear -- and the
+     40 s re-run quoted in STEP 2 confirms it with two of the DUT's own PIM hellos and
+     zero subject frames. This is a useful negative: the multicast outgoing interface is
+     torn down with the interface, whereas the unicast hazard of F-9 lives in an
+     ARP-derived host entry that outlives its route.
+
+STEP 6 -- persistence across a reboot, re-measured in the dataplane                PASS
+--------------------------------------------------------------------------------
+  Method: vlan48 returned to red (the working state), then the configuration was staged
+  in a NAMED boot config and the DUT reloaded from it; nothing was written to
+  startup-config and the boot pointer was put back afterwards.
+
+awplus#copy running-config flash:/ck43866.cfg -> Successful operation
+awplus(config)#boot config-file flash:/ck43866.cfg
+  tools/tb ckreload tb277 ckt1406c u2 115200 480
+    -> 'reboot system? (y/n):' y;  login after 60 s
+
+awplus#show ip vrf -> red: lo1, vlan10, vlan48   |   blue: lo2
+awplus#show ip interface brief
+[VRF: red] vlan10 10.38.22.34/27, vlan48 10.38.22.66/27
+awplus#show spanning-tree brief
+  port1.0.10 and port1.0.48 both Designated Forwarding
+
+  Then a group never used before the reload:
+
+cap v7-postreload-eth4.pcap: 21 frame(s)
+  x10 ICMP t8/c0 ... (10/10 unicast control)
+  x9  UDP 10.38.22.40 -> 239.32.32.32 :5001 [ours] [eth e0:1a:ea:d4:70:43 -> 01:00:5e:20:20:20]
+  x1  IP p103 10.38.22.66 -> 224.0.0.13     x1  IP p2 10.38.22.66 -> 224.0.0.1
+
+  The boot pointer was restored to flash:/default.cfg and flash:/ck43866.cfg deleted,
+  its `(y/n)[n]` prompt answered with tools/ckyn.py.
+
+  => STEP 6 PASS: 9 of 10 for a group that did not exist before the reboot -- one frame
+     to the tree build -- and 0 of 10 for the never-joined control 239.33.33.33 in the
+     same leg. The VRFs, their loopbacks, their interface memberships, their addresses,
+     per-VRF multicast routing, PIM and the per-VRF RPs all survived, AND the dataplane
+     works after the reboot, which is the half a config read cannot prove.
+
+STEP 7 -- removal, per VRF and per feature                                         PASS
+--------------------------------------------------------------------------------
+awplus(config)#no ip multicast-routing vrf red
+awplus#show running-config | include multicast
+no ip multicast-routing
+ip multicast-routing vrf blue          <-- red's line is GONE, blue's is untouched
+
+cap v8-removed-eth4.pcap: 10 frame(s)
+  x10 ICMP t8/c0 10.38.22.40 -> 10.38.22.65 [ours]   <-- unicast in RED still 10/10
+
+  => STEP 7 PASS: 0 of 10 for group 239.32.32.32, which had been forwarding 9 of 10 a
+     minute earlier with a live membership, WHILE unicast routing inside the same VRF
+     kept working at 10 of 10. The removal is proven in running-config and in the
+     dataplane, and it is surgical in both dimensions at once: only multicast, and only
+     in red.
+================================================================================
