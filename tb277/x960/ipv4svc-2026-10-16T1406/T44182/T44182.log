@@ -1,0 +1,463 @@
+================================================================================
+TEST T44182 -- (53) IPv4 - Directed Broadcast Forwarding
+================================================================================
+Run:      2026-10-16 15:59-16:08 NZDT (the DUT's clock reads UTC and runs ~9 s
+          behind the box's. Device times below are swi_d's own; host, capture and
+          leg times are box time.)
+Bench:    tb277, consoles u2 = swi_d (DUT), u3 = swi_b, u5 = swi_a; Test Engineer
+          bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T44182 "(53) IPv4 - Directed Broadcast Forwarding", ck.db
+          `zephyr_cases` id 40490, folder /New Platform Test (MASTER)/New Platform
+          Template/IPv4, status Draft. NO AUTHORED STEP TEXT EXISTS FOR THIS CASE,
+          in AWPTCM or in ck.db: the record carries no objective, no precondition,
+          no steps_text and an empty `steps` column, so there is no authored
+          procedure and no authored expected result. Nothing below is quoted as
+          authored and no quotation was invented; the STEP headings say what was
+          actually exercised. The case was designed from, and is graded against:
+            - "Internet Protocol (IP) Addressing and Protocols Feature Overview
+              and Configuration Guide" C613-22007-00 REV I, p.17, "IP Directed
+              Broadcast". Its four claims became the first four legs:
+                "IP directed-broadcast is enabled and disabled per VLAN interface.
+                 When enabled, a directed broadcast packet is forwarded to an
+                 enabled VLAN interface if received on another subnet.";
+                "An IP directed broadcast is an IP packet whose destination
+                 address is a broadcast address for some IP subnet, but originates
+                 from a node that is not itself part of that destination subnet.";
+                "When a directed broadcast packet reaches a switch that is
+                 directly connected to its destination subnet, and IP
+                 directed-broadcast is enabled on the interface via which the
+                 switch connects to that destination subnet, the packet is flooded
+                 as a broadcast on the destination subnet.";
+                "If the no ip directed-broadcast command is configured for an
+                 interface, directed broadcasts destined for the subnet where the
+                 interface is attached will be dropped instead of broadcast.";
+            - the DUT's own CLI surface, read off by a read-only `?` probe
+              (STEP 0). No product TPS for the x960 exists in the repo, so the
+              support matrix a TPS would give was substituted by those probes.
+          7 steps as executed, including the baseline.
+Build:    swi_d  sin_x96056-20261012-24  (flash:/x960-tb277.rel, build date Mon Oct 12 2026)
+          AT-x960-56YSQ, S/N A2WQS700B, standalone, console u2 @115200
+Configs:  swi_d.cfg (running-config after setup; saved to startup: no -- startup-config
+          and flash:/default.cfg were never written; the reload limb used a named
+          boot config instead)
+
+VERDICT: PASS -- every claim in the guide's IP Directed Broadcast section was
+confirmed in the dataplane, including the one that is visible only in the Ethernet
+header, with the SAME frames dropped and then forwarded so that nothing rests on
+comparing different stimuli.
+      default ............................ 10 directed broadcasts delivered to the
+                                           DUT, 0 forwarded
+      enabled on the INGRESS interface ... still 0/10 forwarded -- the command is
+                                           inert there, and `show running-config`
+                                           gives no hint
+      enabled on the DESTINATION subnet's
+      interface .......................... the identical frames 10/10 forwarded
+      translated to a link-layer
+      broadcast .......................... egress Ethernet destination
+                                           ff:ff:ff:ff:ff:ff while the IP
+                                           destination stays 10.38.22.95
+      header preserved ................... the IP source and both UDP ports are
+                                           unchanged; only the Ethernet
+                                           destination changes
+      optional standard ACL .............. permitted source 5/5 forwarded, denied
+                                           source 0/5, in ONE capture
+      the ACL is consulted per packet .... inverting the permit mirrored the
+                                           result exactly, with nothing else
+                                           changed
+      removal ............................ 0/10 forwarded, control still 5/5
+      reboot ............................. the interface command, the ACL binding,
+                                           the ACL contents AND the link-layer
+                                           translation all survived
+CAVEAT:  Proven with one ingress subnet, one destination subnet directly connected
+         to the DUT, two UDP flows at 5 frames each and a standard numbered ACL.
+         The named-ACL and expanded-range forms that `ip directed-broadcast ?`
+         offers were read off the CLI but not exercised. No station on the
+         destination subnet consumed the flooded frames: the far side is a
+         capture, so what is proven is what the DUT emits onto that subnet. The
+         case was not run across more than one routed hop, and the DUT was the
+         switch directly connected to the destination subnet throughout.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+    tb277 eth3  00:0d:b9:55:77:0e  10.38.22.33/27     THE INGRESS SEGMENT
+    (untagged VLAN 10)
+    tools/arpleg.py SENDS three flows, all L2-UNICAST to the DUT's SVI MAC --
+    the correct shape for a directed broadcast, which the DUT must ROUTE
+    before it can flood it:
+        UDP 10.38.22.40 -> 10.38.22.95 :7777    the far subnet's broadcast addr
+        UDP 10.38.22.42 -> 10.38.22.95 :7778    a SECOND source, for the ACL legs
+        ICMP 10.38.22.40 -> 10.38.22.65         CONTROL, routed, must always arrive
+          |
+          |  (1) ingress: verified present on this wire in every leg by a
+          |      capture on eth3 itself, addressed to e0:1a:ea:d4:70:43
+          v     port1.0.10 (vlan 10 access, Designated Forwarding)
+    +--------------------------------------------------------------------------+
+    |  swi_d   AT-x960-56YSQ        D U T                                       |
+    |  interface vlan10  10.38.22.34/27                                         |
+    |      ip directed-broadcast          <- STEP 2 puts it HERE, on the        |
+    |                                        INGRESS interface: INERT           |
+    |                                                                           |
+    |  interface vlan48  10.38.22.66/27                                         |
+    |      ip directed-broadcast          <- STEP 3 puts it HERE, on the        |
+    |      ip directed-broadcast 1           interface attached to the          |
+    |                                        DESTINATION subnet: THIS is the    |
+    |                                        one that works                     |
+    |  access-list 1 permit 10.38.22.40 0.0.0.0   (inverted to .42 in STEP 5)   |
+    +--------------------------------------------------------------------------+
+          |     port1.0.48 (vlan 48, Designated Forwarding)
+          |  (2) egress: counted HERE, decoded by IP source, IP destination,
+          |      UDP destination port and BOTH MACs. The point of the case is
+          |      the EGRESS ETHERNET DESTINATION: ff:ff:ff:ff:ff:ff
+          v
+    tb277 eth4  00:0d:b9:55:77:0f  10.38.22.65/27     THE DESTINATION SUBNET
+    (untagged VLAN 48)                                subnet broadcast 10.38.22.95
+    tools/arpleg.py --watch eth4 : capture only, nothing injected
+
+    The counted side was placed on eth4 deliberately. A foreign station,
+    10.38.22.41 / 00:0c:25:2a:a5:53, is live on the INGRESS segment and is not
+    ours; the eth4 segment has no known foreign host. The denied source used in
+    the ACL legs is 10.38.22.42 -- deliberately NOT .41 -- so no leg can be
+    confused with the foreign station's own traffic, and every frame is
+    attributed by source address and by both MACs in any case.
+
+  DUT     : swi_d (AT-x960-56YSQ) console u2 @115200, S/N A2WQS700B, standalone,
+            sin_x96056-20261012-24, boot image flash:/x960-tb277.rel (file exists),
+            boot config flash:/default.cfg (file exists), autoboot disabled.
+            Bridge/SVI MAC e0:1a:ea:d4:70:43.
+  link    : tb277 eth3 <-> swi_d port1.0.10  (copper, untagged VLAN 10, ingress)
+            tb277 eth4 <-> swi_d port1.0.48  (copper, untagged VLAN 48, counted)
+  host    : tb277 eth3 00:0d:b9:55:77:0e, 10.38.22.33/27 -> swi_d port1.0.10
+            tb277 eth4 00:0d:b9:55:77:0f, 10.38.22.65/27 -> swi_d port1.0.48
+            No host-NIC addressing, route or other root-level host change was made.
+  tools   : tools/arpleg.py on tb277, sending on eth3 and watching eth4 in one leg
+            (`--udp DST:PORT` for each crafted flow, `--gw-mac` so the UDP frames
+            are L2-unicast to the DUT, `--icmp` for the routed control);
+            tools/qmark.py for the read-only `?` probes. Both on tb277, through
+            the tools/tb wrapper.
+
+  Measurement stance: the subject is whether a specific frame is forwarded and
+  TRANSLATED TO A LINK-LAYER BROADCAST on egress. That cannot be seen from a ping
+  or from `show running-config`; it is visible only in the Ethernet destination of
+  the egress frame (STANDING-ORDERS §7). Every leg crafts the frame on eth3 and
+  decodes what arrives on eth4, both MACs included, and carries a routed ICMP
+  unicast control which arrived 5/5 in all seven counted legs -- so every zero in
+  this log is a measurement and not a dead capture.
+
+STEP 0 -- baseline: prove the commands exist, read-only                           done
+--------------------------------------------------------------------------------
+  Method: tools/qmark.py, no trailing carriage return, so nothing is executed. The
+  driver's self-test ran first: "self-test OK: 'show clock ?' then Ctrl-U then CR
+  executed nothing".
+
+awplus(config-if)#ip directed-broadcast  ?
+  <1-99>       IP standard access-list number
+  <1300-1999>  IP standard access-list number (expanded range)
+  WORD         IP standard named access-list
+  <cr>
+awplus(config)#access-list 1  ?
+  deny    Specify packets to reject
+  permit  Specify packets to forward
+  <cr>
+
+  => STEP 0 done: `ip directed-broadcast` exists in interface configuration mode
+     with a bare form and an optional standard access-list argument in three
+     flavours (numbered, expanded-range and named), and the standard numbered ACL
+     takes `permit` and `deny`. Nothing in this case is UNSUPPORTED, and the
+     optional-ACL limb exercised in STEPs 4 and 5 is a real part of the command
+     rather than an assumption.
+
+STEP 1 -- baseline, feature OFF: the default drops directed broadcasts            done
+--------------------------------------------------------------------------------
+  Method: no `ip directed-broadcast` anywhere; it is absent from the
+  running-config by default. The same crafted flows every later leg sends.
+
+  tools/tb sudotool tb277 ckt1406b arpleg --tag s1-baseline-off \
+    --out /tmp/ckt1406b/T44182 --iface eth3 --watch eth4 \
+    --udp 10.38.22.95:7777,10.38.22.95:7778 --gw-mac e0:1a:ea:d4:70:43 \
+    --icmp 10.38.22.65 --sender-ip 10.38.22.40 --sender-mac 00:11:22:33:44:01 \
+    --count 5 --gap 0.3 --settle 3 --wait 8 --filter "udp or icmp"
+
+LEG s1-baseline-off  iface=eth3 watch=eth4 count=5
+  sent: udp 10.38.22.40 -> 10.38.22.95:7777 (eth dst e0:1a:ea:d4:70:43, ttl 64)  x5
+  sent: udp 10.38.22.40 -> 10.38.22.95:7778 (eth dst e0:1a:ea:d4:70:43, ttl 64)  x5
+  sent: icmp 10.38.22.40 -> 10.38.22.65 (eth dst e0:1a:ea:d4:70:43)  x5
+  sent total: 15 frame(s)
+  cap s1-baseline-off-eth3.pcap: 15 frame(s)
+    x5     UDP  10.38.22.40     -> 10.38.22.95     :7777 [ours]   [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x5     UDP  10.38.22.40     -> 10.38.22.95     :7778 [ours]   [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x5     ICMP t8/c0 10.38.22.40     -> 10.38.22.65     [ours]   [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+  cap s1-baseline-off-eth4.pcap: 5 frame(s)
+    x5     ICMP t8/c0 10.38.22.40     -> 10.38.22.65     [ours]   [eth e0:1a:ea:d4:70:43 -> 00:0d:b9:55:77:0f]
+                                           <-- only the routed control crossed
+
+  => STEP 1 done: all 10 directed broadcasts were DELIVERED TO THE DUT -- they are
+     in the eth3 capture, addressed to its SVI MAC, so the DUT had them and chose
+     not to forward them -- and none reached the destination subnet. The routed
+     ICMP control arrived 5/5 in the same capture, so the DUT was routing between
+     the two subnets throughout and the eth4 instrument was alive. That is the
+     guide's default, and it makes every count in the following steps attributable
+     to the feature being enabled.
+
+STEP 2 -- the direction discriminator: enabled on the WRONG (ingress) interface   PASS
+--------------------------------------------------------------------------------
+  Method: the easiest way to get this feature wrong. The command is applied to the
+  interface the frames arrive on, not the one attached to the destination subnet,
+  and nothing else changes.
+
+awplus(config)#interface vlan10
+awplus(config-if)#ip directed-broadcast
+awplus(config-if)#end
+awplus#show running-config interface vlan10
+!
+interface vlan10
+ ip address 10.38.22.34/27
+ ip directed-broadcast                    <-- present, and completely inert here
+!
+awplus#show running-config interface vlan48
+!
+interface vlan48
+ ip address 10.38.22.66/27                <-- nothing
+!
+
+LEG s2-wrong-if  iface=eth3 watch=eth4 count=5
+  sent total: 15 frame(s)
+  cap s2-wrong-if-eth3.pcap: 15 frame(s)
+    x5     UDP  10.38.22.40     -> 10.38.22.95     :7777 [ours]   [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x5     UDP  10.38.22.40     -> 10.38.22.95     :7778 [ours]   [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x5     ICMP t8/c0 10.38.22.40     -> 10.38.22.65     [ours]   [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+  cap s2-wrong-if-eth4.pcap: 5 frame(s)
+    x5     ICMP t8/c0 10.38.22.40     -> 10.38.22.65     [ours]   [eth e0:1a:ea:d4:70:43 -> 00:0d:b9:55:77:0f]
+                                           <-- still 0/10 forwarded
+
+  => STEP 2 PASS: the feature is correctly scoped to the EGRESS interface. With
+     `ip directed-broadcast` on the ingress interface the identical frames are
+     still dropped, byte for byte the same stimulus that STEP 3 forwards 10/10
+     with the command moved and nothing else changed. A configuration that reads
+     as enabled can therefore be entirely without effect, and no `show` command
+     reveals it -- recorded as an observation, because a wrong configuration of
+     this kind reads as a product failure.
+
+STEP 3 -- enabled on the DESTINATION subnet's interface                           PASS
+--------------------------------------------------------------------------------
+awplus(config)#interface vlan10
+awplus(config-if)#no ip directed-broadcast
+awplus(config-if)#interface vlan48
+awplus(config-if)#ip directed-broadcast
+awplus(config-if)#end
+awplus#show running-config interface vlan10
+!
+interface vlan10
+ ip address 10.38.22.34/27
+!
+awplus#show running-config interface vlan48
+!
+interface vlan48
+ ip address 10.38.22.66/27
+ ip directed-broadcast
+!
+
+LEG s3-right-if  iface=eth3 watch=eth4 count=5
+  sent total: 15 frame(s)
+  cap s3-right-if-eth4.pcap: 15 frame(s)
+    x5     UDP  10.38.22.40     -> 10.38.22.95     :7777 [ours]   [eth e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+    x5     UDP  10.38.22.40     -> 10.38.22.95     :7778 [ours]   [eth e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+    x5     ICMP t8/c0 10.38.22.40     -> 10.38.22.65     [ours]   [eth e0:1a:ea:d4:70:43 -> 00:0d:b9:55:77:0f]
+                                           <-- the egress Ethernet destination is
+                                               ff:ff:ff:ff:ff:ff, while the IP
+                                               destination is still 10.38.22.95
+
+  => STEP 3 PASS: 10/10 forwarded, and -- the point of the case -- FLOODED AS A
+     BROADCAST on the destination subnet. The frames are the same ones legs 1 and
+     2 dropped; the only change is which interface carries the command. The IP
+     source (10.38.22.40) and both UDP ports are unchanged and the IP destination
+     is still the subnet broadcast, so the translation is in the Ethernet header
+     alone, which is the only place it is visible. A tester looking for a
+     rewritten IP destination will not find one.
+
+STEP 4 -- the optional standard ACL, permitted and denied sources in ONE capture  PASS
+--------------------------------------------------------------------------------
+  Method: same destination, same port pair, two different SOURCES sent in the same
+  leg -- one permitted by the ACL, one not -- so the comparison needs no second
+  measurement and no assumption that the two legs were alike.
+
+awplus(config)#access-list 1 permit 10.38.22.40 0.0.0.0
+awplus(config)#interface vlan48
+awplus(config-if)#ip directed-broadcast 1
+awplus(config-if)#end
+awplus#show running-config interface vlan48
+!
+interface vlan48
+ ip address 10.38.22.66/27
+ ip directed-broadcast 1
+!
+awplus#show access-list 1
+Standard IP access list 1
+    4 permit 10.38.22.40
+
+LEG s4-acl  iface=eth3 watch=eth4 count=5
+  sent: udp 10.38.22.40 -> 10.38.22.95:7777 (eth dst e0:1a:ea:d4:70:43, ttl 64)  x5
+  sent: udp 10.38.22.42 -> 10.38.22.95:7778 (eth dst e0:1a:ea:d4:70:43, ttl 64)  x5
+  sent: icmp 10.38.22.40 -> 10.38.22.65 (eth dst e0:1a:ea:d4:70:43)  x5
+  sent total: 15 frame(s)
+  cap s4-acl-eth3.pcap: 15 frame(s)
+    x5     UDP  10.38.22.40     -> 10.38.22.95     :7777 [ours]   [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x5     UDP  10.38.22.42     -> 10.38.22.95     :7778 [ours]   [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x5     ICMP t8/c0 10.38.22.40     -> 10.38.22.65     [ours]   [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+                                           <-- both flows really were sent
+  cap s4-acl-eth4.pcap: 10 frame(s)
+    x5     UDP  10.38.22.40     -> 10.38.22.95     :7777 [ours]   [eth e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+    x5     ICMP t8/c0 10.38.22.40     -> 10.38.22.65     [ours]   [eth e0:1a:ea:d4:70:43 -> 00:0d:b9:55:77:0f]
+                                           <-- .42 is ABSENT
+
+  => STEP 4 PASS: the permitted source was forwarded 5/5 as a link-layer
+     broadcast and the denied source 0/5, in one capture, with the routed control
+     also present. The ACL filters on the packet's SOURCE address, and the
+     standard ACL's implicit deny applies to everything the list does not permit.
+
+STEP 5 -- invert the ACL: is it consulted per packet, or merely present?          PASS
+--------------------------------------------------------------------------------
+  Method: a permitted-versus-denied pair alone cannot separate "the ACL is
+  enforced" from "this particular source happens to work". Inverting the permit,
+  with the interface command, the flows and everything else unchanged, answers it.
+
+awplus(config)#no access-list 1
+awplus(config)#access-list 1 permit 10.38.22.42 0.0.0.0
+awplus(config)#end
+awplus#show access-list 1
+Standard IP access list 1
+    4 permit 10.38.22.42
+
+LEG s5-acl-inverted  iface=eth3 watch=eth4 count=5
+  sent total: 15 frame(s)
+  cap s5-acl-inverted-eth3.pcap: 15 frame(s)
+    x5     UDP  10.38.22.40     -> 10.38.22.95     :7777 [ours]   [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x5     UDP  10.38.22.42     -> 10.38.22.95     :7778 [ours]   [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x5     ICMP t8/c0 10.38.22.40     -> 10.38.22.65     [ours]   [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+  cap s5-acl-inverted-eth4.pcap: 10 frame(s)
+    x5     UDP  10.38.22.42     -> 10.38.22.95     :7778 [ours]   [eth e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+    x5     ICMP t8/c0 10.38.22.40     -> 10.38.22.65     [ours]   [eth e0:1a:ea:d4:70:43 -> 00:0d:b9:55:77:0f]
+                                           <-- the exact mirror of STEP 4: .42
+                                               now passes 5/5, .40 is 0/5
+
+  => STEP 5 PASS: the result follows the ACL and not the source. With only the
+     permitted address changed, the forwarded flow and the dropped flow swap
+     places exactly, so the list is consulted per packet and the match really is
+     on the source address.
+
+STEP 6 -- persistence across a reload                                             PASS
+--------------------------------------------------------------------------------
+  Method: the ACL was restored to `permit 10.38.22.40` so the post-reload result
+  is directly comparable with STEP 4. Nothing was written to startup-config: the
+  configuration was staged in a NAMED boot config, the unit reloaded from it, and
+  the boot pointer put back afterwards (STEP 7).
+
+awplus(config)#no access-list 1
+awplus(config)#access-list 1 permit 10.38.22.40 0.0.0.0
+awplus#copy running-config flash:/ck44182.cfg
+Copying...
+Successful operation
+awplus(config)#boot config-file flash:/ck44182.cfg
+awplus#show boot
+Current boot image : flash:/x960-tb277.rel (file exists)
+Default boot config: flash:/default.cfg
+Current boot config: flash:/ck44182.cfg (file exists)
+Autoboot status    : disabled
+
+awplus#reload
+reboot question: 'reboot system? (y/n):' -> y
+login seen after 60 s
+
+  Spanning tree read immediately after login still showed port1.0.48 at
+  `Designated Learning` -- inside the settle window -- so nothing was measured on
+  that read. The measurement below was taken afterwards, with arpleg's own 3 s
+  settle on top, and a CONFIRMING read was taken so that no result here rests on a
+  port in Learning state:
+
+awplus#show spanning-tree brief          (the confirming read)
+port1.0.2       8000:0000cd423029    838a       Rootport         Forwarding
+port1.0.4       8000:889d98df2602    838c       Alternate        Discarding
+port1.0.10      8000:e01aead47043    8392       Designated       Forwarding
+port1.0.14      8000:889d98df2602    8396       Alternate        Discarding
+port1.0.16      8000:0000cd423029    8398       Alternate        Discarding
+port1.0.48      8000:e01aead47043    83b8       Designated       Forwarding
+                                           <-- identical to the pre-case baseline
+
+awplus#show running-config interface vlan48
+!
+interface vlan48
+ ip address 10.38.22.66/27
+ ip directed-broadcast 1
+!
+awplus#show access-list 1
+Standard IP access list 1
+    4 permit 10.38.22.40
+
+LEG s6-postreload  iface=eth3 watch=eth4 count=5
+  sent total: 15 frame(s)
+  cap s6-postreload-eth4.pcap: 10 frame(s)
+    x5     UDP  10.38.22.40     -> 10.38.22.95     :7777 [ours]   [eth e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+    x5     ICMP t8/c0 10.38.22.40     -> 10.38.22.65     [ours]   [eth e0:1a:ea:d4:70:43 -> 00:0d:b9:55:77:0f]
+
+  => STEP 6 PASS: the interface command, the ACL binding, the ACL contents AND the
+     link-layer broadcast translation all survived the reboot -- the capture is
+     identical to STEP 4, with the permitted source forwarded 5/5 to
+     ff:ff:ff:ff:ff:ff and the denied source still 0/5. Persistence is proven in
+     the dataplane, not only by the lines reappearing in `show running-config`.
+
+STEP 7 -- removal, in the running-config AND in the dataplane                     PASS
+--------------------------------------------------------------------------------
+awplus(config)#boot config-file flash:/default.cfg
+awplus(config)#interface vlan48
+awplus(config-if)#no ip directed-broadcast
+awplus(config-if)#exit
+awplus(config)#no access-list 1
+awplus(config)#end
+awplus#delete flash:/ck44182.cfg
+Delete flash:/ck44182.cfg?  (y/n)[n]:y
+Deleting...
+Successful operation
+awplus#dir flash:/*.cfg
+      1049 -rw- Oct 15 2026 10:49:02  flash:/default.cfg
+awplus#show boot
+Current boot image : flash:/x960-tb277.rel (file exists)
+Default boot config: flash:/default.cfg
+Current boot config: flash:/default.cfg (file exists)
+Autoboot status    : disabled
+awplus#show running-config interface vlan48
+!
+interface vlan48
+ ip address 10.38.22.66/27
+!
+                                           <-- nothing else. Note the negation:
+                                               the configured form was
+                                               `ip directed-broadcast 1`, with the
+                                               ACL number, and the plain
+                                               `no ip directed-broadcast` removed
+                                               it with no `% ` line -- the
+                                               negation does not have to mirror
+                                               the positive form's argument
+
+LEG s7-removed  iface=eth3 watch=eth4 count=5
+  sent total: 15 frame(s)
+  cap s7-removed-eth3.pcap: 16 frame(s)
+    x5     UDP  10.38.22.40     -> 10.38.22.95     :7777 [ours]   [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x5     UDP  10.38.22.42     -> 10.38.22.95     :7778 [ours]   [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x5     ICMP t8/c0 10.38.22.40     -> 10.38.22.65     [ours]   [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x1     ETH 0x86dd   [eth 00:0c:25:2a:a5:53 -> 33:33:00:01:00:02]
+                                           <-- the foreign station on the ingress
+                                               segment: a different MAC, an IPv6
+                                               multicast frame, not part of any
+                                               counted flow and not on eth4
+  cap s7-removed-eth4.pcap: 5 frame(s)
+    x5     ICMP t8/c0 10.38.22.40     -> 10.38.22.65     [ours]   [eth e0:1a:ea:d4:70:43 -> 00:0d:b9:55:77:0f]
+
+  => STEP 7 PASS: with the interface command and the ACL removed, the destination
+     subnet is back to the STEP 1 baseline exactly -- 0/10 forwarded from 10
+     directed broadcasts still proven present on the ingress wire, while the
+     routed ICMP control arrived 5/5 in the same capture. Removal is real in the
+     dataplane and not only in the text of the configuration.
+================================================================================

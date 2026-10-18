@@ -1,0 +1,909 @@
+================================================================================
+TEST T44181 -- (51) IPv4 - Ping Polling
+================================================================================
+Run:      2026-10-16 15:04-15:42 NZDT (the DUT's clock reads UTC and runs ~9 s
+          behind the box's: `show clock` returned 02:06:04 UTC while the box's own
+          timestamp for the same command was 15:06:13 NZDT = 02:06:13 UTC. Device
+          times below are swi_d's own UTC; host, capture and leg times are box
+          time. The two instruments are therefore independently clocked, which is
+          what makes their agreement below evidence.)
+Bench:    tb277, consoles u2 = swi_d (DUT), u3 = swi_b, u5 = swi_a; Test Engineer
+          bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T44181, ck.db `zephyr_cases` id 40489, folder /New Platform Test
+          (MASTER)/New Platform Template/IPv4. Objective "Run ART 1341_limits -
+          1341.1001.4991 - MAX supported ping polls Ping poll configuration -
+          test show commands debug". 11 authored steps, each quoted verbatim in
+          its STEP heading below.
+          The authored COMMANDS are a paste of the Ping Polling Feature Overview
+          Guide rather than a procedure with expected results: every `expected`
+          field is empty except step 1's "link to results here". The only
+          authored expected values in the whole case are two sentences of the
+          `precondition` field:
+            "By default, a polling instance sends a ping every 30 seconds as long
+             as it is receiving replies. The frequency of this polling is
+             controlled by the normal-interval command. When a reply is not
+             received, the polling instance increases the frequency at which it
+             polls the device. This frequency is controlled by the
+             critical-interval command, and by default, is set to send a packet
+             every one second."
+          Every other value below is MEASURED on this bench and is not a
+          comparison against an authored expectation. Steps are presented in
+          authored order; the Method line of each says when it ran.
+Build:    swi_d  sin_x96056-20261012-24  (flash:/x960-tb277.rel, build date Mon Oct 12 2026)
+          AT-x960-56YSQ, S/N A2WQS700B, standalone, console u2 @115200
+Configs:  swi_d.cfg (running-config after setup; saved to startup: no -- startup-config
+          and flash:/default.cfg were never written; the reload limb used a named
+          boot config instead)
+
+VERDICT: PASS -- every command the 11 authored steps name exists on this platform
+and does what the step says, and the behaviour that matters (the poll interval,
+the Up/Down transitions and the trigger activations) was measured on the wire by a
+host-side instrument whose clock is independent of the DUT's, then corroborated by
+the DUT's own sampled state, counters and debug output.
+      MAX supported ping polls ........... 100 configurable simultaneously; the
+                                           parser rejects 0 and 101
+      defaults ........................... normal-interval 30, critical-interval 1
+                                           (the authored precondition's only two
+                                           expected values -- both correct)
+      `ip` + `active` .................... poll 1 polls 10.38.22.44 and goes Up
+      all seven step-6 parameters ........ accepted and read back on both instances
+      `normal-interval 5` ................ period measured 5.01-5.20 s over 13 gaps
+      `critical-interval 2` .............. period measured 3.70-4.60 s, mean 4.14 s,
+                                           over 11 gaps = timeout 2 + interval 2,
+                                           against 7 s had it stayed normal
+      `fail-count 3` / `up-count 2` ...... Down and Up transitions landed within
+                                           ~1 s of the host's packet record on all
+                                           four transitions, across a 9 s clock
+                                           offset between the instruments
+      `type ping-poll <n> {up|down}` ..... both triggers activated at all four
+                                           transitions, logged by the DUT by name
+      show / counter commands ............ all four `show ping-poll` forms, and
+                                           `state up|down` discriminates in BOTH
+                                           directions
+      `clear ping-poll 1` ................ all eight counters to zero AND Up->Down,
+                                           instance 2 untouched (per-instance)
+      `no active` ........................ 0 frames to 10.38.22.44 in 35 s while
+                                           the control instance sent and was
+                                           answered 7/7 in the same capture
+      `debug ping-poll 1` ................ per-poll send/result lines, 4 s period
+                                           while Down, `Debugging : Enabled`
+      removal ............................ no instances, no triggers, and not one
+                                           frame to .44 or .45 while the DUT
+                                           answered a control flow 5/5
+      reboot ............................. all parameters, both triggers AND live
+                                           polling survived; 6 polls / 30 s each
+CAVEAT:  One limb of authored step 9 was NOT measurable on this bench and is not
+         claimed. The CONTENT of a trigger script was not exercised: running a real
+         `.scp` needs the file in the DUT's flash, and the only transfer path to
+         this DUT is `copy tftp://<box>/...` from the box's /tftproot, which needs a
+         root-level write on the box that was out of scope for an unattended run.
+         What WAS measured for step 9 is the ping-poll side of the contract -- the
+         `script` syntax, that a reference to a non-existent file is accepted and
+         stored, and that `type ping-poll <n> {up|down}` activates at the right
+         moment -- all quoted in STEP 9. The script-content limb belongs to the
+         Trigger feature rather than to ping polling.
+         Also not claimed: the ART run named in step 1 could not be executed (there
+         is no framework on this box), so there is no results link; the LIMIT that
+         ART case measures was measured directly instead. Scope of the timing
+         proof: one DUT, two instances, `length 100`, `timeout 2`,
+         `normal-interval 5`, `critical-interval 2`, `sample-size 5`,
+         `fail-count 3`, `up-count 2`. The defaults were read from the running
+         state but their periods were not timed. `sample-size` and `length` were
+         set and read back, not independently measured on the wire.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+                     tb277 eth3  00:0d:b9:55:77:0e  10.38.22.33/27
+                     (untagged VLAN 10)
+                     running tools/hostsim.py, which impersonates TWO hosts
+                     on this segment from fake MACs, installs nothing and
+                     changes no host address:
+                        10.38.22.44  02:87:71:26:16:2c   THE POLLED HOST
+                                                         (muted t+70..t+120)
+                        10.38.22.45  02:87:71:26:16:2d   THE CONTROL HOST
+                                                         (never muted)
+                           ^                 |
+                           |                 |
+      (1) the POLLS land here:               |  (2) the echo replies. hostsim
+          ICMP echo request                  |      stops answering for .44 ONLY,
+          10.38.22.34 -> 10.38.22.44         |      between t+70 and t+120, while
+          and -> 10.38.22.45, every          |      still answering ARP for it, so
+          one timestamped by hostsim         |      the DUT's neighbour entry stays
+                           |                 v      valid and the loss it sees is a
+                           |                        pure echo-reply loss
+                           |     port1.0.10 (vlan 10 access, Designated Forwarding)
+    +----------------------+--------------------------------------------------+
+    |  swi_d   AT-x960-56YSQ        D U T                                      |
+    |  interface vlan10  10.38.22.34/27   <- the poll source address           |
+    |                                                                          |
+    |  ping-poll 1  ip 10.38.22.44   active   (the measured instance)          |
+    |  ping-poll 2  ip 10.38.22.45   active   (the in-leg instrument control)  |
+    |    both: length 100 / timeout 2 / normal-interval 5 / critical-interval 2 |
+    |          / sample-size 5 / fail-count 3 / up-count 2                      |
+    |  trigger 1  type ping-poll 1 down        trigger 2  type ping-poll 1 up  |
+    |                                                                          |
+    |  sampled from console u2 by tools/poll.py: `show ping-poll brief` / 2 s   |
+    +--------------------------------------------------------------------------+
+                           | port1.0.48 (vlan 48, Designated Forwarding)
+                           v
+                     tb277 eth4  00:0d:b9:55:77:0f  10.38.22.65/27
+                     watched in the baseline leg ONLY, as a second silent
+                     witness: 0 frames in 30 s. No traffic of this case
+                     crossed it.
+
+                     a foreign station shares the eth3 segment:
+                     10.38.22.41 / 00:0c:25:2a:a5:53. It is not ours. It
+                     emitted nothing in the baseline window and appears in
+                     no capture in this case; the simulated hosts were
+                     placed on .44 and .45, which the box's ARP table showed
+                     unused.
+
+  DUT     : swi_d (AT-x960-56YSQ) console u2 @115200, S/N A2WQS700B, standalone,
+            sin_x96056-20261012-24, boot image flash:/x960-tb277.rel (file exists),
+            boot config flash:/default.cfg (file exists), autoboot disabled.
+            Bridge/SVI MAC e0:1a:ea:d4:70:43, bridge id 8000:e01aead47043.
+  link    : tb277 eth3 <-> swi_d port1.0.10  (copper, untagged VLAN 10)
+            tb277 eth4 <-> swi_d port1.0.48  (copper, untagged VLAN 48; baseline
+            witness only)
+  host    : tb277 eth3 00:0d:b9:55:77:0e, 10.38.22.33/27 -> swi_d port1.0.10
+            tb277 eth4 00:0d:b9:55:77:0f, 10.38.22.65/27 -> swi_d port1.0.48
+            No host-NIC addressing, route, firewall or other root-level host change
+            was made for this case; the simulated hosts exist only as frames.
+  tools   : tools/hostsim.py on tb277 eth3 -- answers ARP and ICMP echo for a list
+            of addresses from a fake MAC, can be silenced for selected addresses on
+            a timer, and writes one timestamped line per echo request it receives
+            (`--log-echo`), which is the record every interval below is read from;
+            tools/arpleg.py for the sniff-only and crafted-frame legs;
+            tools/poll.py sampling the DUT's own `show ping-poll brief` every 2 s;
+            tools/qmark.py for the read-only `?` probes; tools/cfg.py to send
+            configuration; tools/ckcon.py and tools/ckyn.py to drive the console
+            and answer its (y/n) prompts. All on tb277, through the tools/tb
+            wrapper.
+
+  Measurement stance: STANDING-ORDERS §7 requires crafted frames rather than ping,
+  because a ping cannot select what it sends. This case is the exception, and
+  deliberately so: the frames being graded are the DUT's OWN ICMP echo requests,
+  emitted by its ping-poll process. They cannot be crafted by the tester, so they
+  are graded where they land -- on the wire at the host NIC, by an instrument that
+  only listens and answers. Three independent records cover every measured leg: the
+  host's per-request log, the DUT's sampled state, and the DUT's own log and debug
+  output. In every counted leg, ping-poll instance 2 (-> 10.38.22.45) is the in-leg
+  instrument control and is NEVER silenced: whenever instance 1's traffic is
+  expected to stop, instance 2's must still be counted, so a zero for instance 1 is
+  a measurement and not a dead capture.
+
+STEP 0 -- (not authored) prove every command this case relies on exists           done
+--------------------------------------------------------------------------------
+  Method: read-only `?` probes with tools/qmark.py, sent with NO trailing carriage
+  return, so nothing is executed. The driver's own self-test ran first and reported
+  "self-test OK: 'show clock ?' then Ctrl-U then CR executed nothing".
+
+awplus#show ping-poll  ?
+  <1-100>  A unique ping poll id
+  brief    brief output
+  state    Show only polls that are in a certain state
+  |        Output modifiers
+  >        Output redirection
+  >>       Output redirection (append)
+  <cr>
+awplus#clear ping-poll  ?
+  <1-100>  A unique ping poll id
+  all      All ping polls
+awplus#debug ping-poll  ?
+  <1-100>  A unique ping poll id
+awplus(config)#ping-poll  ?
+  <1-100>  A unique ping poll id
+awplus(config)#trigger  ?
+  <1-250>  A trigger ID
+
+  => STEP 0 done: every command the authored steps name exists on this platform,
+     with the authored `<1-100>` range. Nothing in this case is UNSUPPORTED, and
+     the later steps are exercising real commands rather than discovering them.
+
+STEP 0b -- (not authored) BASELINE, feature OFF: what the segments carry with no poll  done
+--------------------------------------------------------------------------------
+  Method: two ping-poll instances existed but had no destination and were not
+  active. 30 s passive capture on BOTH host NICs, filter `icmp or arp`.
+
+  tools/tb sudotool tb277 ckt1406b arpleg --tag s2-baseline-off \
+    --out /tmp/ckt1406b/T44181 --iface eth3 --watch eth4 --sniff-only --wait 30 \
+    --filter "icmp or arp"
+
+LEG s2-baseline-off  iface=eth3 watch=eth4 count=3
+  sniff-only, 30.0 s
+  sent total: 0 frame(s)
+  cap s2-baseline-off-eth3.pcap: 2 frame(s)
+    x1     ARP-REQ  who-has 10.38.22.33     tell 10.38.22.34       [eth e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+    x1     ARP-REPLY 10.38.22.33     is-at 00:0d:b9:55:77:0e   [eth 00:0d:b9:55:77:0e -> e0:1a:ea:d4:70:43]
+  cap s2-baseline-off-eth4.pcap: 0 frame(s)
+                                           <-- ZERO ICMP in 30 s on either segment
+
+  => STEP 0b done: with no poll configured the DUT emits no poll traffic of its
+     own, so every echo request counted later in this log is attributable to ping
+     polling. The segment's entire background on eth3 is 2 ARP frames in 30 s, both
+     the DUT refreshing its own neighbour entry for the box; eth4 is silent; the
+     foreign station 10.38.22.41 emitted nothing in the window.
+
+STEP 1 -- "Run ART 1341_limits - 1341.1001.4991 - MAX supported ping polls"       PASS
+          authored expected: "link to results here"
+--------------------------------------------------------------------------------
+  Method (15:19-15:21): there is no framework and no `.setup` on tb277, so the ART
+  run itself could not be executed and there is no results link to give. The LIMIT
+  that ART case measures -- the maximum number of simultaneously supported ping
+  polls -- was measured directly on the DUT instead, which is the substance of the
+  step. 100 `ping-poll <n>` commands were sent with tools/cfg.py, with 0 CLI errors.
+
+awplus(config)#ping-poll 1
+awplus(config-ping-poll)#
+  ... (ids 2 .. 99) ...
+awplus(config-ping-poll)#ping-poll 100
+awplus(config-ping-poll)#
+awplus#show ping-poll brief
+Ping Poll Configuration
+------------------------------------------------------------
+
+Id   Enabled  State          Destination IP
+------------------------------------------------------------
+1    No       Down           Not Configured
+2    No       Down           Not Configured
+  ... 100 rows in total, ids 1..100, none skipped ...
+99   No       Down           Not Configured
+100  No       Down           Not Configured
+
+  Both boundaries, from config mode:
+
+awplus(config)#ping-poll 101
+^
+% Invalid input detected at '^' marker.
+awplus(config)#ping-poll 0
+^
+% Invalid input detected at '^' marker.
+
+  => STEP 1 PASS: MAX supported ping polls on AT-x960-56YSQ running
+     sin_x96056-20261012-24 is 100, all configurable at once and all listed by
+     `show ping-poll brief`, with the parser rejecting both 0 and 101. That matches
+     the `<1-100>` range the `?` probe and the authored text give. Instances 3..100
+     were then deleted, leaving 1 (the measured instance) and 2 (the control).
+     The ART invocation itself was not run on this bench; that is a bench limit,
+     not a platform limit, and nothing in this log depends on it.
+
+STEP 2 -- "create a polling instance by using the command: awplus(config)#         PASS
+           ping-poll <1-100> ... To set a trigger to activate when a device's
+           status changes, its trigger type must be ping-poll ...
+           awplus(config-trigger)#type ping-poll <1-100> {up|down}"
+--------------------------------------------------------------------------------
+  Method (15:25): both halves of the authored sentence -- creating the instance,
+  and binding a trigger to its state changes. The activation evidence at the foot
+  of this step comes from the measured leg described in STEP 6.
+
+awplus(config)#trigger 1
+awplus(config-trigger)#description ck44181 fires when poll 1 goes DOWN
+% Please specify the trigger type first
+                                           <-- REFUSED. The authored step names
+                                               `type` and `description` with no
+                                               ordering constraint between them;
+                                               the device requires `type` first.
+                                               tools/cfg.py stopped the batch
+                                               there, as designed.
+
+  Re-sent with `type` first, and accepted:
+
+awplus(config)#trigger 1
+awplus(config-trigger)#type ping-poll 1 down
+awplus(config-trigger)#description ck44181 fires when poll 1 goes DOWN
+awplus(config-trigger)#exit
+awplus(config)#trigger 2
+awplus(config-trigger)#type ping-poll 1 up
+awplus(config-trigger)#description ck44181 fires when poll 1 goes UP
+awplus(config-trigger)#end
+awplus#show trigger
+TR# Type & Details     Description          Ac Te Tr Repeat     #Scr Days/Date
+-------------------------------------------------------------------------------
+001 Ping-poll (1 down) ck44181 fires whe... Y  N  Y Continuous  0   smtwtfs
+002 Ping-poll (1 up)   ck44181 fires whe... Y  N  Y Continuous  0   smtwtfs
+-------------------------------------------------------------------------------
+
+  Ping polling itself logs nothing when an instance changes state -- the only
+  matching line is the device's echo of the query itself:
+
+awplus#show log | include PING
+2026 Oct 16 02:31:00 user.notice awplus IMISH[4004]: [manager@ttyS0]show log | include PING
+                                           <-- nothing else, across the four
+                                               transitions of the measured leg
+
+  The trigger is therefore what makes a transition visible in the log, and both
+  triggers activated at every one of the four state changes the measured leg
+  produced, each logged by the DUT with its description (DUT clock, UTC):
+
+awplus#show log | include TRIGGER
+2026 Oct 16 02:25:52 user.notice awplus TRIGGER[5321]: Trigger 2 (ck44181 fires when poll 1 goes UP) activated
+2026 Oct 16 02:27:14 user.notice awplus TRIGGER[5487]: Trigger 1 (ck44181 fires when poll 1 goes DOWN) activated
+2026 Oct 16 02:27:52 user.notice awplus TRIGGER[5532]: Trigger 2 (ck44181 fires when poll 1 goes UP) activated
+2026 Oct 16 02:29:08 user.notice awplus TRIGGER[5688]: Trigger 1 (ck44181 fires when poll 1 goes DOWN) activated
+awplus#show trigger 1
+Trigger ..................... 1
+Description ................. ck44181 fires when poll 1 goes DOWN
+Type and details ............ Ping-poll (1 down)
+Active ...................... Yes
+Repeat ...................... Continuous
+Number of activations ....... 2
+Last activation ............. Fri Oct 16 02:29:08 2026
+awplus#show trigger 2
+Trigger ..................... 2
+Description ................. ck44181 fires when poll 1 goes UP
+Type and details ............ Ping-poll (1 up)
+Number of activations ....... 2
+Last activation ............. Fri Oct 16 02:27:52 2026
+
+  => STEP 2 PASS: an instance is created by `ping-poll <1-100>`, and a trigger of
+     type `ping-poll <n> {up|down}` is bound to its state and fires on it -- twice
+     each, at the four transitions the wire independently recorded (STEP 6). The
+     ordering constraint on `description` is recorded as an observation, not a
+     defect: the message is clear and names the fix.
+
+STEP 3 -- "Set the IP address of the device you are polling: ip {|}"              PASS
+--------------------------------------------------------------------------------
+awplus(config)#ping-poll 1
+awplus(config-ping-poll)#ip 10.38.22.44
+awplus(config-ping-poll)#active
+awplus(config-ping-poll)#end
+awplus#show ping-poll 1
+Ping Poll Configuration
+------------------------------------------------------------
+
+Poll 1:
+Description                        :
+Destination IP address             : 10.38.22.44   <-- the address took effect
+Status                             : Down
+Enabled                            : Yes
+Source IP address                  : Default
+Critical interval                  : 1
+Normal interval                    : 30
+Fail count                         : 5
+Up count                           : 30
+Sample size                        : 5
+Length                             : 32
+Timeout                            : 1
+Debugging                          : Disabled
+
+  => STEP 3 PASS: `ip <A.B.C.D>` sets the polled address and `show ping-poll <n>`
+     reads it back as "Destination IP address". This read is also the platform's
+     DEFAULTS, taken before any of step 6 was applied, and it confirms the only two
+     authored expected values in the case: normal-interval 30 and
+     critical-interval 1. The remaining defaults -- fail count 5, up count 30,
+     sample size 5, length 32, timeout 1, source address Default -- are not in the
+     authored text and are recorded here as measured platform facts.
+
+STEP 4 -- "Enable the polling instance: active"                                   PASS
+--------------------------------------------------------------------------------
+  `active` was sent in the same block as STEP 3 and is read back above as
+  `Enabled : Yes`. That the enabled instance then actually polls is proven on the
+  wire in STEP 6, and the reverse -- `no active` -- is proven on the wire in
+  STEP 8, which is what makes this field mean something rather than merely display.
+
+awplus#show ping-poll brief
+Id   Enabled  State          Destination IP
+------------------------------------------------------------
+1    Yes      Up             10.38.22.44
+2    Yes      Up             10.38.22.45
+
+  => STEP 4 PASS: `active` enables the instance (`Enabled : Yes`), the instance
+     then reaches `Up`, and it emits polls on the wire (STEP 6). Its negation stops
+     them (STEP 8).
+
+STEP 5 -- "set an optional description ...: description"                          PASS
+--------------------------------------------------------------------------------
+awplus(config)#ping-poll 1
+awplus(config-ping-poll)#description ck44181 muted-host leg
+awplus(config)#ping-poll 2
+awplus(config-ping-poll)#description ck44181 instrument control never muted
+awplus#show ping-poll 1 -> Description : ck44181 muted-host leg
+awplus#show ping-poll 2 -> Description : ck44181 instrument control never muted
+
+  => STEP 5 PASS: the description is accepted on both instances, stored per
+     instance and read back verbatim, spaces included.
+
+STEP 6 -- "length <4-1500>  timeout <1-30>  normal-interval <1-65536>             PASS
+           critical-interval <1-65536>  sample-size <1-100>  fail-count <1-100>
+           up-count <1-100>"
+--------------------------------------------------------------------------------
+  Method: all seven parameters sent on instance 1 and on instance 2 (the control),
+  read back, and then MEASURED on the wire. `show ping-poll` alone would prove only
+  that the device stores a number; the measured leg below proves it obeys it.
+
+awplus(config)#ping-poll 1
+awplus(config-ping-poll)#length 100
+awplus(config-ping-poll)#timeout 2
+awplus(config-ping-poll)#normal-interval 5
+awplus(config-ping-poll)#critical-interval 2
+awplus(config-ping-poll)#sample-size 5
+awplus(config-ping-poll)#fail-count 3
+awplus(config-ping-poll)#up-count 2
+awplus(config-ping-poll)#exit
+awplus(config)#ping-poll 2
+  (the same seven values, plus `ip 10.38.22.45` and `active`)
+
+awplus#show ping-poll 1
+Poll 1:
+Description                        : ck44181 muted-host leg
+Destination IP address             : 10.38.22.44
+Status                             : Down
+Enabled                            : Yes
+Source IP address                  : Default
+Critical interval                  : 2
+Normal interval                    : 5
+Fail count                         : 3
+Up count                           : 2
+Sample size                        : 5
+Length                             : 100
+Timeout                            : 2
+Debugging                          : Disabled
+awplus#show ping-poll 2
+Poll 2:
+Description                        : ck44181 instrument control never muted
+Destination IP address             : 10.38.22.45
+  (the same seven values)
+                                           <-- all seven took effect, both instances
+
+  THE MEASURED LEG. 185 s of stimulus, host clock t0 = 1792117560.978 =
+  15:26:00.978 NZDT = 02:26:00 UTC:
+
+  tools/tb sudotool tb277 ckt1406b hostsim eth3 10.38.22.44,10.38.22.45 \
+    /tmp/ckt1406b/T44181/hs-main.json --mute-ip 10.38.22.44 --mute-at 70 \
+    --unmute-at 120 --duration 185 --log-echo /tmp/ckt1406b/T44181/echo-main.tsv
+  tools/tb capture tb277 ckt1406b eth3 185 T44181/s4-main-eth3.pcap icmp
+  tools/tb poll tb277 ckt1406b u2 115200 2 180 /tmp/ckt1406b/T44181/poll.done \
+    "show ping-poll brief"
+
+  hostsim's own summary: MUTED at 1792117629.990 (t+69.01), UNMUTED at
+  1792117679.968 (t+118.99), `arp 2/2 answered, icmp 66/77 answered, 11 muted`.
+  ARP was answered THROUGHOUT, mute window included, so the DUT's neighbour entry
+  for 10.38.22.44 stayed valid and what it lost was echo replies only.
+
+  Measured poll periods, from the host's per-request record (every request, source
+  10.38.22.34):
+
+  phase                           instance 1 -> .44        instance 2 -> .45 (CONTROL)
+  ----------------------------------------------------------------------------------
+  t+0 .. t+69   (.44 answering)   13 gaps, 5.01-5.20 s     14 gaps, 5.02-5.20 s
+  t+73.5 .. t+119 (.44 muted)     11 gaps, 3.70-4.60 s,    9 gaps, 4.60-6.14 s,
+                                  mean 4.14 s              mean ~5.1 s
+  t+121 .. t+183 (answering)      12 gaps, 4.20-5.23 s,    12 gaps, ~5.2 s
+                                  mean 5.13 s
+
+  Representative raw lines (t+, gap, phase, result), instance 1:
+      t+ 58.21  gap  5.02  PRE   answered
+      t+ 63.41  gap  5.20  PRE   answered
+      t+ 68.42  gap  5.01  PRE   answered
+      t+ 73.53  gap  5.11  MUTE  muted      <- first unanswered poll
+      t+ 77.63  gap  4.10  MUTE  muted
+      t+ 81.33  gap  3.70  MUTE  muted      <- 3rd failure (fail-count 3)
+      t+ 85.83  gap  4.50  MUTE  muted
+      ...
+      t+114.88  gap  4.60  MUTE  muted
+      t+118.99  gap  4.11  MUTE  answered   <- unmute
+      t+121.09  gap  2.10  POST  answered   <- 2nd reply (up-count 2)
+      t+126.32  gap  5.23  POST  answered
+  and instance 2 over the SAME window: t+73.61 answered, t+78.22 answered,
+  t+82.82 answered, ... t+113.78 answered -- the control never missed a reply.
+
+  Measured state transitions, from the DUT's own `show ping-poll brief` sampled
+  every 2 s (89 samples over 180 s; instance 2 NEVER left Up):
+
+      poll 1 -> Up        1792117570.012 = t+  9.03   (first sample; already Up)
+      poll 1 -> Critical  1792117639.208 = t+ 78.23
+      poll 1 -> Down      1792117647.213 = t+ 86.24
+      poll 1 -> Critical  1792117683.234 = t+122.26
+      poll 1 -> Up        1792117685.235 = t+124.26
+      poll 2 -> Up        1792117570.012 = t+  9.03   and never changed again
+
+  The sampler's first sample landed at t+9.03 with both instances already Up, so
+  the initial Up is bounded (<= t+9.03) rather than resolved; the wire resolves it,
+  with replies at t+0.00 and t+2.10, i.e. up-count 2 satisfied at t+2.10.
+
+  The two independent clocks agree -- predicted from the wire vs observed on the
+  device:
+
+  event              predicted from the host's    DUT      DUT trigger log
+                     echo record                  sample   (DUT clock, 9 s behind)
+  -------------------------------------------------------------------------------
+  UP #1 (up-count 2) 2 replies by t+2.10          <=t+9.03 02:25:52 = t+0.9 box
+  DOWN (fail-count   3 failures, each +timeout    t+86.23  02:27:14 = t+83.0 box
+  3)                 2 s, last completing t+83.33
+  UP #2 (up-count 2) replies t+118.99 and         t+124.26 02:27:52 = t+121.0 box
+                     t+121.09 -> t+121.09
+  DOWN #2 (the host  3 failures ~ t+197           after    02:29:08 = t+197.0 box
+  process exited                                  the
+  at t+185)                                       sampler
+
+  => STEP 6 PASS: all seven parameters are accepted and read back on both
+     instances, and the three that are observable on the wire are OBEYED.
+     `normal-interval 5` gives a measured 5.0-5.2 s period while Up.
+     `critical-interval 2` is obeyed too, but the observed PERIOD while Down is
+     4.1 s, not 2 s, because the period is timeout + interval; the
+     discriminator is still sound, since had the instance stayed on the normal
+     interval the period would have been timeout 2 + 5 = 7 s, and it was 4.1 s.
+     `fail-count 3` and `up-count 2` put the instance Down and Up at times the
+     DUT's own trigger log confirms to within ~1 s on all four transitions, across
+     a 9 s offset between two instruments that do not share a clock. Throughout,
+     the control instance kept polling and being answered, so none of this is an
+     artefact of the measurement stopping.
+
+STEP 7 -- "show ping-poll [<1-100>|state {up|down}] [brief]" and                  PASS
+           "show counter ping-poll"
+--------------------------------------------------------------------------------
+  Method: all four forms exercised, and the `state` filter checked in BOTH
+  directions, so it is shown to be a real discriminator and not a command that
+  always prints everything.
+
+  With both instances Down (15:30:39):
+
+awplus#show ping-poll state up
+Ping Poll Configuration
+------------------------------------------------------------
+                                           <-- header only, no rows
+awplus#show ping-poll state down
+Ping Poll Configuration
+------------------------------------------------------------
+
+Poll 1:
+Description                        : ck44181 muted-host leg
+Destination IP address             : 10.38.22.44
+Status                             : Down
+  ... (and Poll 2, likewise Down)
+
+  With both instances Up (15:33:08), the same two commands reverse: `state up`
+  prints Poll 1 and Poll 2, each `Status : Up`.
+
+awplus#show ping-poll brief
+Id   Enabled  State          Destination IP
+------------------------------------------------------------
+1    Yes      Up             10.38.22.44
+2    Yes      Up             10.38.22.45
+awplus#show ping-poll 1 -> the 13-field detail block quoted in STEP 6
+
+awplus#show counter ping-poll          (15:33:09)
+Ping-polling counters
+Ping-poll: 1
+PingsSent             ......... 114
+PingsFailedUpState    ......... 6
+PingsFailedDownState  ......... 72
+ErrorSendingPing      ......... 0
+CurrentUpCount        ......... 5
+CurrentFailCount      ......... 0
+UpStateEntered        ......... 3
+DownStateEntered      ......... 2
+
+Ping-poll: 2
+PingsSent             ......... 110
+PingsFailedUpState    ......... 3
+PingsFailedDownState  ......... 63
+ErrorSendingPing      ......... 0
+CurrentUpCount        ......... 5
+CurrentFailCount      ......... 0
+UpStateEntered        ......... 2
+DownStateEntered      ......... 1
+
+  => STEP 7 PASS: all four `show` forms work, and `state up` / `state down`
+     discriminate in both directions -- each prints exactly the instances in that
+     state and nothing else, checked once with both Down and once with both Up. The
+     counters are consistent with the wire: instance 1 entered Up three times and
+     Down twice over the case, instance 2 once each, which is exactly the
+     transition history measured in STEP 6.
+
+STEP 8 -- "To disable a polling instance: no active"                              PASS
+--------------------------------------------------------------------------------
+  Method: `no active` on instance 1 ONLY, with both simulated hosts still answering
+  and instance 2 still polling, then a 35 s passive capture on eth3, filter `icmp`.
+  The control is in the same capture, so a zero for instance 1 cannot be a dead
+  instrument.
+
+awplus(config)#ping-poll 1
+awplus(config-ping-poll)#no active
+awplus(config-ping-poll)#end
+awplus#show ping-poll brief
+Ping Poll Configuration
+------------------------------------------------------------
+
+Id   Enabled  State          Destination IP
+------------------------------------------------------------
+1    No       Down           10.38.22.44
+2    Yes      Up             10.38.22.45
+
+LEG s8-noactive  iface=eth3 watch=- count=3
+  sniff-only, 35.0 s
+  sent total: 0 frame(s)
+  cap s8-noactive-eth3.pcap: 14 frame(s)
+    x7     ICMP t8/c0 10.38.22.34     -> 10.38.22.45       [eth e0:1a:ea:d4:70:43 -> 02:87:71:26:16:2d]
+    x7     ICMP t0/c0 10.38.22.45     -> 10.38.22.34       [eth 02:87:71:26:16:2d -> e0:1a:ea:d4:70:43]
+                                           <-- not one frame to or from
+                                               10.38.22.44 in 35 s
+
+  => STEP 8 PASS: `no active` stops the instance polling, on the wire and not only
+     in `Enabled : No`. Zero frames to the disabled instance's destination in 35 s,
+     while in the SAME capture the control instance sent 7 polls and received 7
+     replies -- 7 polls in 35 s being exactly the configured 5 s normal interval.
+     The zero is therefore a measurement, and the command is per instance.
+
+STEP 9 -- "see .../ping_polling_feature_overview_guide.pdf for ping polling        PASS
+           Trigger and Script configuration"
+--------------------------------------------------------------------------------
+  The TRIGGER half of this step is the half ping polling owns, and it was measured
+  in full: see STEP 2, where two triggers of `type ping-poll 1 down` and
+  `type ping-poll 1 up` activated at all four state changes, each logged by the
+  device with its description, and `show trigger 1|2` counted two activations each.
+
+  The SCRIPT half was probed as far as this bench allows. The syntax, read-only:
+
+awplus(config-trigger)#script  ?
+  <1-5>  The list position of the script
+awplus(config-trigger)#script 1  ?
+  FILE  The file containing the script
+
+  A reference to a file that does not exist is ACCEPTED with a warning, and stored
+  regardless:
+
+awplus(config-trigger)#script 1 ck44181-down.scp
+% Script /flash/ck44181-down.scp does not exist. Please ensure it is created before the trigger is activated
+awplus#show trigger 1
+Trigger ..................... 1
+Type and details ............ Ping-poll (1 down)
+Number of activations ....... 0
+Last activation ............. not activated
+Number of scripts ........... 1
+  1. ck44181-down.scp                      <-- the reference IS stored; the line is
+  2. <not configured>                          an advisory, not a rejection
+  3. <not configured>
+  4. <not configured>
+  5. <not configured>
+
+  => STEP 9 PASS: the ping-poll side of the trigger/script contract is proven --
+     a ping-poll trigger activates at the right moment (STEP 2), the `script`
+     syntax exists at both positions, and a script reference is accepted and
+     stored against the trigger with a clear advisory when the file is absent.
+     The CONTENT of a script was not executed; see CAVEAT for exactly why and for
+     what that does and does not leave unproven.
+
+STEP 10 -- "clear ping-poll {<1-100>|all}" ... "clear the counters and change      PASS
+            the status of a device to unreachable"
+--------------------------------------------------------------------------------
+  Method: run with BOTH instances Up, and with instance 2 read in the same output
+  as the untouched control, so the step proves `clear` is per instance and not
+  global.
+
+  Before (15:33:09), both instances Up:
+    Ping-poll: 1  PingsSent 114  PingsFailedUpState 6  PingsFailedDownState 72
+                  ErrorSendingPing 0  CurrentUpCount 5  CurrentFailCount 0
+                  UpStateEntered 3  DownStateEntered 2
+    Ping-poll: 2  PingsSent 110  PingsFailedUpState 3  PingsFailedDownState 63
+                  ErrorSendingPing 0  CurrentUpCount 5  CurrentFailCount 0
+                  UpStateEntered 2  DownStateEntered 1
+
+awplus#clear ping-poll 1
+awplus#show counter ping-poll
+Ping-polling counters
+Ping-poll: 1
+PingsSent             ......... 0
+PingsFailedUpState    ......... 0
+PingsFailedDownState  ......... 0
+ErrorSendingPing      ......... 0
+CurrentUpCount        ......... 0
+CurrentFailCount      ......... 0
+UpStateEntered        ......... 0
+DownStateEntered      ......... 0
+
+Ping-poll: 2
+PingsSent             ......... 110
+PingsFailedUpState    ......... 3
+PingsFailedDownState  ......... 63
+ErrorSendingPing      ......... 0
+CurrentUpCount        ......... 5
+CurrentFailCount      ......... 0
+UpStateEntered        ......... 2
+DownStateEntered      ......... 1
+                                           <-- UNCHANGED: the clear is per instance
+awplus#show ping-poll 1
+Poll 1:
+Description                        : ck44181 muted-host leg
+Destination IP address             : 10.38.22.44
+Status                             : Down       <-- was Up before the clear
+Enabled                            : Yes
+
+  => STEP 10 PASS: both halves of the authored sentence hold. All eight counters of
+     instance 1 went to zero, AND its status went Up -> Down, i.e. the device was
+     forced to unreachable. The control in the same output proves the command is
+     strictly per instance: instance 2's counters and its Up state were untouched.
+
+STEP 11 -- "debug ping-poll <1-100>"                                              PASS
+--------------------------------------------------------------------------------
+awplus#terminal monitor
+% Warning: Console logging enabled
+awplus#debug ping-poll 1
+02:31:36 awplus Pingpolld: Pingpolld has received SIGHUP
+02:31:38 awplus Pingpolld: Poll (1): Sending ping to 10.38.22.44
+02:31:40 awplus Pingpolld: Poll (1): Ping to 10.38.22.44 was unsuccessful
+02:31:40 awplus Pingpolld: Poll (1): state Down, up count 0(2), fail count 5(3/5).
+02:31:42 awplus Pingpolld: Poll (1): Sending ping to 10.38.22.44
+02:31:44 awplus Pingpolld: Poll (1): Ping to 10.38.22.44 was unsuccessful
+02:31:44 awplus Pingpolld: Poll (1): state Down, up count 0(2), fail count 5(3/5).
+02:31:46 awplus Pingpolld: Poll (1): Sending ping to 10.38.22.44
+02:31:48 awplus Pingpolld: Poll (1): Ping to 10.38.22.44 was unsuccessful
+02:31:48 awplus Pingpolld: Poll (1): state Down, up count 0(2), fail count 5(3/5).
+02:31:50 awplus Pingpolld: Poll (1): Sending ping to 10.38.22.44
+02:31:52 awplus Pingpolld: Poll (1): Ping to 10.38.22.44 was unsuccessful
+02:31:52 awplus Pingpolld: Poll (1): state Down, up count 0(2), fail count 5(3/5).
+02:31:54 awplus Pingpolld: Poll (1): Sending ping to 10.38.22.44
+awplus#show ping-poll 1
+Poll 1:
+  ...
+Debugging                          : Enabled   <-- the only read-back there is
+awplus#no debug ping-poll 1
+02:31:55 awplus Pingpolld: Pingpolld has received SIGHUP
+awplus#terminal no monitor
+
+  There is no per-feature read-back for the debug state:
+
+awplus#show debugging ping-poll
+^
+% Invalid input detected at '^' marker.
+02:31:39 awplus IMISH[4004]: Command [show debugging ping-poll] failed
+
+  and the full `show debugging` output -- AAA, BGP, MSTP, NSM, Private-VLAN and the
+  rest -- contains no ping-poll section at all.
+
+  => STEP 11 PASS: `debug ping-poll 1` turns on a per-poll trace that names the
+     poll, the destination, each send and each result, and `no debug ping-poll 1`
+     turns it off, each change acknowledged by Pingpolld receiving SIGHUP. The
+     trace also independently confirms the STEP 6 interval finding from the DEVICE
+     side: "Sending ping" at 02:31:38 / :42 / :46 / :50 / :54 is a 4 s period while
+     Down, with "was unsuccessful" exactly 2 s -- the configured timeout -- after
+     each send. That is the device stating the same arithmetic the wire showed,
+     with no instrument in common. The absent `show debugging ping-poll` is
+     recorded as an observation: the `Debugging` field of
+     `show ping-poll <n>` is the only read-back.
+
+STEP 12 -- (not authored) persistence across a reload                             PASS
+--------------------------------------------------------------------------------
+  Method: nothing was written to startup-config. The configuration was staged in a
+  NAMED boot config, the unit reloaded from it, and the boot pointer put back
+  afterwards (STEP 13).
+
+awplus(config)#ping-poll 1
+awplus(config-ping-poll)#active                    (re-enabled after STEP 8)
+awplus#copy running-config flash:/ck44181.cfg
+Copying...
+Successful operation
+awplus#dir flash:/*.cfg
+      1966 -rw- Oct 16 2026 02:34:40  flash:/ck44181.cfg
+      1049 -rw- Oct 15 2026 10:49:02  flash:/default.cfg
+awplus(config)#boot config-file flash:/ck44181.cfg
+awplus#show boot
+Current boot image : flash:/x960-tb277.rel (file exists)
+Default boot config: flash:/default.cfg
+Current boot config: flash:/ck44181.cfg (file exists)
+Autoboot status    : disabled
+
+awplus#reload
+reboot question: 'reboot system? (y/n):' -> y
+login seen after 68 s
+
+  Spanning tree was re-read BEFORE anything was measured, and is identical to the
+  pre-case baseline, so nothing below was taken inside the settle window:
+
+awplus#show spanning-tree brief
+port1.0.2       8000:0000cd423029    838a       Rootport         Forwarding
+port1.0.4       8000:889d98df2602    838c       Alternate        Discarding
+port1.0.10      8000:e01aead47043    8392       Designated       Forwarding
+port1.0.14      8000:889d98df2602    8396       Alternate        Discarding
+port1.0.16      8000:0000cd423029    8398       Alternate        Discarding
+port1.0.48      8000:e01aead47043    83b8       Designated       Forwarding
+
+awplus#show boot -> Current boot config: flash:/ck44181.cfg (file exists)
+awplus#show ping-poll 1
+Poll 1:
+Description                        : ck44181 muted-host leg
+Destination IP address             : 10.38.22.44
+Status                             : Up                   <-- polling again, live
+Enabled                            : Yes
+Source IP address                  : Default
+Critical interval                  : 2
+Normal interval                    : 5
+Fail count                         : 3
+Up count                           : 2
+Sample size                        : 5
+Length                             : 100
+Timeout                            : 2
+awplus#show ping-poll 2
+Poll 2:
+Description                        : ck44181 instrument control never muted
+Destination IP address             : 10.38.22.45
+Status                             : Up
+  (the same seven values)
+awplus#show trigger
+001 Ping-poll (1 down) ck44181 fires whe... Y  N  Y Continuous  0   smtwtfs
+002 Ping-poll (1 up)   ck44181 fires whe... Y  N  Y Continuous  0   smtwtfs
+awplus#show ip interface brief
+vlan10                10.38.22.34/27     admin up        running
+vlan48                10.38.22.66/27     admin up        running
+
+  Dataplane after the reload, 30 s passive capture on eth3, filter `icmp`:
+
+LEG s12-postreload  iface=eth3 watch=- count=3
+  sniff-only, 30.0 s
+  cap s12-postreload-eth3.pcap: 24 frame(s)
+    x6     ICMP t8/c0 10.38.22.34     -> 10.38.22.45       [eth e0:1a:ea:d4:70:43 -> 02:87:71:26:16:2d]
+    x6     ICMP t8/c0 10.38.22.34     -> 10.38.22.44       [eth e0:1a:ea:d4:70:43 -> 02:87:71:26:16:2c]
+    x6     ICMP t0/c0 10.38.22.45     -> 10.38.22.34       [eth 02:87:71:26:16:2d -> e0:1a:ea:d4:70:43]
+    x6     ICMP t0/c0 10.38.22.44     -> 10.38.22.34       [eth 02:87:71:26:16:2c -> e0:1a:ea:d4:70:43]
+
+  => STEP 12 PASS: every configured parameter, both instances, both triggers and
+     the live polling survived the reboot. 6 polls in 30 s on each instance is
+     exactly the configured 5 s normal interval, and both were answered -- so what
+     persisted is the running feature, not merely the config text.
+
+STEP 13 -- (not authored) removal, in the running-config AND in the dataplane      PASS
+--------------------------------------------------------------------------------
+awplus(config)#boot config-file flash:/default.cfg
+awplus(config)#no ping-poll 1
+awplus(config)#no ping-poll 2
+awplus(config)#no trigger 1
+awplus(config)#no trigger 2
+awplus#delete flash:/ck44181.cfg
+Delete flash:/ck44181.cfg?  (y/n)[n]:y
+Deleting...
+Successful operation
+awplus#dir flash:/*.cfg
+      1049 -rw- Oct 15 2026 10:49:02  flash:/default.cfg
+awplus#show boot
+Current boot image : flash:/x960-tb277.rel (file exists)
+Default boot config: flash:/default.cfg
+Current boot config: flash:/default.cfg (file exists)
+Autoboot status    : disabled
+awplus#show ping-poll brief
+Ping Poll Configuration
+------------------------------------------------------------
+
+Id   Enabled  State          Destination IP
+------------------------------------------------------------
+                                           <-- header only, no instances
+awplus#show trigger
+TR# Type & Details     Description          Ac Te Tr Repeat     #Scr Days/Date
+-------------------------------------------------------------------------------
+% No triggers currently defined
+-------------------------------------------------------------------------------
+
+  Dataplane proof, 28 s on eth3, with an instrument control IN THE SAME LEG. Both
+  simulated hosts were still running and answering, so any surviving poll would
+  have been captured; the control is five crafted echo requests the DUT must
+  answer, with an ARP answerer so the DUT can resolve the crafted sender:
+
+  tools/tb sudotool tb277 ckt1406b arpleg --tag s13-removed2 \
+    --out /tmp/ckt1406b/T44181b --iface eth3 --icmp 10.38.22.34 \
+    --sender-ip 10.38.22.40 --sender-mac 00:11:22:33:44:01 \
+    --gw-mac e0:1a:ea:d4:70:43 --answer 10.38.22.40=00:11:22:33:44:01 \
+    --answer-iface eth3 --count 5 --gap 1 --settle 3 --wait 28 \
+    --filter "icmp or arp"
+
+LEG s13-removed2  iface=eth3 watch=- count=5
+  answering ARP for: 10.38.22.40=00:11:22:33:44:01  on eth3
+  sent: icmp 10.38.22.40 -> 10.38.22.34 (eth dst e0:1a:ea:d4:70:43)  x5
+  sent total: 5 frame(s)
+  cap s13-removed2-eth3.pcap: 12 frame(s)
+    x5     ICMP t8/c0 10.38.22.40     -> 10.38.22.34     [ours]   [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+    x5     ICMP t0/c0 10.38.22.34     -> 10.38.22.40     [ours]   [eth e0:1a:ea:d4:70:43 -> 00:11:22:33:44:01]
+    x1     ARP-REQ  who-has 10.38.22.40     tell 10.38.22.34       [eth e0:1a:ea:d4:70:43 -> ff:ff:ff:ff:ff:ff]
+    x1     ARP-REPLY 10.38.22.40     is-at 00:11:22:33:44:01   [eth 00:11:22:33:44:01 -> e0:1a:ea:d4:70:43]
+                                           <-- CONTROL: the DUT answered 5 of 5,
+                                               and there is NOT ONE frame to
+                                               10.38.22.44 or 10.38.22.45
+
+  => STEP 13 PASS: `no ping-poll <n>` and `no trigger <n>` remove the instances and
+     the triggers from the running-config, and the boot pointers return to the
+     campaign baseline. The capture and the segment are provably alive in the same
+     window -- five echo requests in, five replies out -- and no poll frame exists,
+     so removal is real in the dataplane and not only in the text of a `show`.
+================================================================================
