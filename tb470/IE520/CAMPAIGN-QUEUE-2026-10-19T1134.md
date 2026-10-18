@@ -61,3 +61,7 @@ Sentinel's reading of the facts (not a session fact):
   NOTIFY campaign -- an IE520 DUT on tb470 consoles u2-u5 (the hand-off's consoles) -- none exists: /dev/u2-u5 are absent on tb470 (only u7 x230 and u8 AR4050S, excluded by the constraint; tb470.static records the four IE520s removed 2026-10-16); T33235 not attempted (NOT TESTED), campaign ended
   The block covers every case in the campaign (§10 step 4), so no TRIAGE or RUN was dispatched, no probe ran, no
   console was opened, and the sentinel was not armed (nothing to watch). Nothing on tb470 was changed.
+- **I-2 (campaign) `/create-logs --auto`, 2026-10-19 ~11:38.** T33235 is `kind: script` (its framework log would be
+  the final output) and NOT TESTED (never attempted, no case folder): skipped. No manual cases, so no final log, README
+  or token review; no `work/` exists. Sentinel never armed (no Monitor, no cron); no stray `sentinel.sh` for this
+  session. Campaign ended.
