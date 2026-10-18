@@ -29,6 +29,19 @@ What this memory keeps is the *why*: Terrence's rulings in the order he gave the
   - Each run stands alone: *"the historical memories are for the agent, not the output."*
   - The template takes 38472's structure and 30142's per-step proof.
 
+- **2026-10-19:** two rulings about *who the log is written for*.
+  - *"the english is high level. We need to make sure a junior engineer who is non native
+    english speaker should be able to understand these logs without having to read it twice or
+    thrice."* Plain English is now a rule for every word **we** write (logged-output.md §4);
+    device output still stays verbatim. The test: understandable on the FIRST read.
+  - The header's `Run:` is **one short sentence**, and `Build:` must quote the DUT's own
+    **`show system`** output in full. The tester must capture `show system` with its setup reads
+    or `/create-logs` has nothing to quote — all ten cases of the 2026-10-16 campaign missed it
+    for exactly that reason, and were left as they were because back-filling it would have been
+    inventing a source.
+  - Scope, in his words: *"for all the test that we run in the future by me or someone, not just
+    my campaign or testbox but anyone who would be using this skills and tools and ask CK."*
+
 **Why:** the final log is what the Test Engineer attaches to Zephyr. It must be the proof and
 nothing else, and it must not be produced before a human has reviewed the verdicts.
 

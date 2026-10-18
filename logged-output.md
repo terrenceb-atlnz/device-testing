@@ -1,5 +1,5 @@
 ---
-verified: 2026-10-09
+verified: 2026-10-19
 ---
 # Logged output — what a campaign leaves behind (any testbox, any product)
 
@@ -137,6 +137,10 @@ everything the §4 template needs, because `/create-logs` may use nothing else:
 - the case's title, objective and **each step's text and expected result, verbatim** from the
   test-case database (the final log's STEP headings quote them; 2026-10-08 two logs could not);
 - each device's role, model, serial, console, MAC and build;
+- **the DUT's `show system` output, verbatim and in full** (the §4 header quotes it). Capture
+  it once, with the other setup reads, before step 1. Without it in the working log,
+  `/create-logs` cannot put it in the final log and must leave it out -- which is exactly what
+  happened to all ten cases of the 2026-10-16 campaign;
 - the links and host NICs used, with each NIC's MAC and addresses, and the DUT clock against the
   box's (once per group; later cases may point to the first case's log);
 - every command sent with its device prompt, and every configuration line exactly as sent;
@@ -262,13 +266,20 @@ text viewer.
 ================================================================================
 TEST <id> -- <case title, as in the test-case database>
 ================================================================================
-Run:      <date> <start>-<end> <tz> (device clocks <UTC / offset>, if they differ)
+Run:      <date> <start>-<end> <tz>.  ONE short sentence. Do not explain the method here.
+          Add a second short sentence ONLY if a device clock differs from the box's AND a
+          time in this log depends on it, e.g. "swi_d's clock reads UTC, 3 s behind the box."
 Bench:    <TB>, consoles <list>; Test Engineer <user@host>
 Tester:   <bench-runner | <script> @ <commit> | by hand>
 Graded:   <tester | Test Engineer, re-graded from <VERDICT> on <date>>
 Case:     <source id>, objective "<objective>", <N> steps
 Build:    <dev> <software version> (<release file>, build date <date>)
-          <one line per device>
+          <one line per device: the DUT first, then each partner>
+
+          Then the DUT's own `show system`, copied in full and exactly as it printed:
+<prompt># show system
+  <the whole output, verbatim -- do not shorten it, do not re-type it, do not
+   turn it into a table>
 Configs:  <dev>.cfg, <dev>.cfg, ... (running-config after setup; saved to startup: no | yes)
 
 VERDICT: <PASS | FAIL | PARTIAL | UNSUPPORTED> -- <one-line summary>
@@ -333,6 +344,62 @@ verdict:
 | FAIL | `FAIL CONDITION:` which check failed, against which expected result, and why that is a product failure rather than the method. `TRIED:` each attempt and its outcome, when there was more than one |
 | PARTIAL | `NOT RUN:` each step that could not run, with the reason. `UNBLOCK:` the exact change that would let it run, stated so someone at the bench can do it without asking a question (STANDING-ORDERS §3) |
 | UNSUPPORTED | `NEEDS:` what the case requires. `ABSENT:` the proof the platform lacks it, verbatim (the refused command, the missing hardware or licence bit) |
+
+### 🔥 Write it for a junior engineer who reads English as a second language
+
+**Test Engineer, 2026-10-19:** *"the english is high level. We need to make sure a junior
+engineer who is non native english speaker should be able to understand these logs without
+having to read it twice or thrice."*
+
+**The test is simple: could a junior engineer, reading English as a second language, understand
+every sentence the FIRST time?** If a sentence needs a second read, rewrite it. This applies to
+every word *we* write — the VERDICT summary, `Method:` lines, `<--` notes, `=> STEP n` conclusion
+lines, CAVEAT, and the verdict blocks.
+
+**It does NOT apply to device output.** Command output, prompts and configuration lines stay
+**exactly** as the device printed them. Never simplify, re-type, translate or tidy them.
+
+Rules, in order of how often they are broken:
+
+1. **One idea per sentence.** Full stop. Start the next one. If a sentence has a semicolon, a
+   dash and three commas, it is three sentences.
+2. **Keep sentences short** — aim for 20 words or fewer. A long sentence is not more precise, it
+   is just harder.
+3. **Use the common word.** `use` not `utilise`. `send` not `transmit` (unless the spec says
+   transmit). `shows` not `evidences`. `before` not `prior to`. `so` not `thereby`. `enough` not
+   `sufficient`.
+4. **Say who did what.** "The DUT dropped the frame" beats "the frame was observed to be
+   dropped". Name the actor.
+5. **No idioms, no metaphors, no humour.** Not "the smoking gun", "carved out", "a sanity
+   check", "bites", "under the hood", "a stone's throw". A non-native reader has to stop and
+   decode them. Say the plain thing.
+6. **Avoid phrasal verbs where one verb exists.** `removed` not `took out`. `started` not
+   `brought up`. `found` not `turned up`.
+7. **Expand an abbreviation the first time it appears**, then use it: "Bidirectional Forwarding
+   Detection (BFD)". Protocol names and CLI keywords are exempt — `vlan`, `ip igmp`, `PIM-SM`
+   are the device's own words.
+8. **Give the number.** "0 of 10 frames arrived" beats "the traffic did not get through".
+   "detected in 1.4 s" beats "detected quickly".
+9. **Say what it means, not only what it is.** After the output, one short line: what this
+   proves, and why. That is the whole point of the conclusion line.
+10. **Do not stack clauses in front of the subject.** Put the subject first.
+
+**Worked example — the same conclusion, rewritten.**
+
+> ✗ `=> STEP 4 PASS: the capture evidences that, notwithstanding the absence of any explicit
+> binding, BFD's sub-second detection is effectively orthogonal to RIP's own timers, which
+> continue to govern FIB retention and thereby leave a window during which the prefix remains
+> installed.`
+
+> ✓ `=> STEP 4 PASS: BFD found the failure in 1.4 s. RIP did not act on it. RIP kept the dead
+> route in the forwarding table for 171.6 s more, and the DUT still sent traffic to the dead
+> neighbour during that time. This proves BFD works, and that nothing connects BFD to RIP.`
+
+Same facts, same numbers, no new claim — but the second needs one read.
+
+**A note for reviewers:** this is a rule about *our* prose, not about shortening the evidence.
+Keep every command, every output line and every control. A log that is easy to read and missing
+its proof has failed twice.
 
 ### What goes in, and what stays out
 

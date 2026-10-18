@@ -321,7 +321,10 @@ Every rule is in `logged-output.md` §2. In short, per case:
   stack is one device with one `.cfg`, taken from the master's `show running-config`. Start each
   with the three `!` header lines. A re-run overwrites them.
 - **`<id>/work/run<N>.log`**, written as you go, holding everything logged-output.md §2 lists.
-  `/create-logs` can use nothing else. A re-run starts `run<N+1>`. Read the framework log with
+  `/create-logs` can use nothing else. **That includes the DUT's `show system` output, verbatim
+  and in full** -- capture it with your other setup reads, before step 1. The final log's header
+  quotes it; if it is not in your working log it cannot appear, and the deliverable is short a
+  field the Test Engineer asked for (2026-10-19). A re-run starts `run<N+1>`. Read the framework log with
   `grep -a`. End with `VERDICT: <PASS|FAIL|PARTIAL|UNSUPPORTED> -- <reason>`.
 - **Commit** the case's folder; report the hash as "committed, NOT pushed".
 - **Then SendMessage the sentinel**

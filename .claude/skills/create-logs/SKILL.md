@@ -127,6 +127,16 @@ Nothing is deleted until every check passes for that case:
 - The file name's suffix matches the Results verdict, and only a PASS is a plain `<id>.log`.
 - The header has Run, Bench, Tester, Graded, Case, Build and Configs. Graded matches the
   Results table.
+- **`Run:` is ONE short sentence** (plus a second only for a clock difference the log depends
+  on). It is not the place to explain the method.
+- **`Build:` quotes the DUT's `show system` verbatim and in full.** If the working log did not
+  capture it, leave it out, say so in the summary as a claim with no source, and tell the Test
+  Engineer -- never read it off the bench afterwards or copy it from `bench-state.md`, because
+  that is a different moment and a different source.
+- **Plain English (logged-output.md §4).** Read every line you wrote -- not the device output --
+  as a junior engineer who reads English as a second language. One idea per sentence, common
+  words, no idioms, the number rather than an adjective. Anything needing a second read is
+  rewritten before the log is finished.
 - The `VERDICT:` line matches the file name. A FAIL has `FAIL CONDITION:`, a PARTIAL has
   `NOT RUN:` and `UNBLOCK:`, and an UNSUPPORTED has `NEEDS:` and `ABSENT:`.
 - Every STEP heading carries a step verdict, and every non-baseline STEP ends with its `=>`
