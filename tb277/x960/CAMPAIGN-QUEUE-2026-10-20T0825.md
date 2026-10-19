@@ -137,6 +137,7 @@ case, so a fresh tester can restore the bench from here.
 | T33407 | (274) Management_RADIUS - Local RADIUS Server | aaa-2026-10-20T0825 | PASS | served real RADIUS on the wire (5 requests, 2 Accept / 3 Reject, every reply's authenticator verifying against the configured secret); rejected wrong password, unknown user and wrong secret; ignored a non-NAS host; removed cleanly (rcdiff byte-identical) | T33407/work/run1.log | tester |
 | T33408 | (275) Management_RADIUS - Radius Client mode | aaa-2026-10-20T0825 | PASS | a user existing only on the RADIUS server logged in to the DUT, proven on the wire (24 packets: 7 Access-Request, 3 Accept, 1 Reject, 7 Accounting-Request, 6 Accounting-Response, 10/10 reply authenticators valid), paired Accounting Start/Stop, controls on wrong password / mismatched key / unreachable server, clean removal (rcdiff byte-identical) | T33408/work/run1.log | tester |
 | T33409 | (276) Management_RADIUS - Radius Proxy | aaa-2026-10-20T0825 | PASS | the proxy re-originated each request (new id, Proxy-State carrying the original, added Message-Authenticator, realm stripped); the two legs are cryptographically independent — the same pcap gives authenticator valid=5/invalid=0 on the NAS leg under testing123 and valid=0/invalid=5 on the upstream leg under the same secret | T33409/work/run1.log | tester |
+| T44308 | (296) Management - RMON | snmpmon-2026-10-20T0825 | PASS | statistics, history, event and alarm all measured against counted traffic (history bucket 2 = exactly 1000 packets / 86000 octets); four real SNMPv2c traps caught and decoded on udp/162; a control alarm stayed silent then fired with alarmValue exactly 50; removal proven on the CLI, in the MIB and on the wire | T44308/work/run1.log | tester |
 | T33427 | (300) Management - Flexera Licensing | — | NOT TESTED | needs a Flexera licence from Chris Robb; installing a licence is the Test Engineer's (STANDING-ORDERS §4). Dropped by the Test Engineer 2026-10-19 | — | Test Engineer |
 | T33411 | (278) Management_TACACS+ - Authentication | — | NOT TESTED | BLOCKED: needs a TACACS+ server on TCP/49; binding a privileged port is root on the box (STANDING-ORDERS §4) and the DUT exposes no alternative port | — | sentinel |
 | T33410 | (277) Management_TACACS+ - Accounting | — | NOT TESTED | BLOCKED: depends on T33411 | — | sentinel |
@@ -407,7 +408,12 @@ nothing.
 - **The 2026-10-16 L3 underlay is still up and was NOT rebuilt**: `vlan10 10.38.22.34/27` on
   port1.0.10, `vlan48 10.38.22.66/27` on port1.0.48. Reachability measured **eth3→.34 3/3,
   eth4→.66 3/3**. That is the server path all cases need. The box is **10.38.22.33**.
-- **DUT clock is UTC, exactly +13 behind the box, no skew.** Record once per group.
+- **DUT clock is UTC, +13 h behind the box — AND ~15 s SLOW on top of that.** 🔴 **CORRECTED
+  2026-10-20 10:21 by the group B tester**; the triage block and the group A/B dispatches both
+  said "no skew", which was wrong. Measured twice, 21 minutes apart, constant: box 10:17:25 NZDT
+  ↔ DUT 21:17:10 UTC. The timezone offset was right; the extra ~15 s was not recorded anywhere.
+  **It matters for correlating a DUT log line against a box-side capture** — it is how T44308's
+  five RMON log lines were matched to its four traps. No clock was changed.
 - **The DUT is still on the factory password** (`manager`/`friend` authenticated), so T47199's
   precondition is already true and no password change is needed to reach it. **A fresh console
   login shows NO warning** — only `Last login` and the version banner; `show banner login` is
