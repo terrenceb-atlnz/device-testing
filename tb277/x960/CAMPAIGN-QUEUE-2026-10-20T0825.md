@@ -134,12 +134,34 @@ case, so a fresh tester can restore the bench from here.
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
+| T33407 | (274) Management_RADIUS - Local RADIUS Server | aaa-2026-10-20T0825 | PASS | served real RADIUS on the wire (5 requests, 2 Accept / 3 Reject, every reply's authenticator verifying against the configured secret); rejected wrong password, unknown user and wrong secret; ignored a non-NAS host; removed cleanly (rcdiff byte-identical) | T33407/work/run1.log | tester |
 | T33427 | (300) Management - Flexera Licensing | — | NOT TESTED | needs a Flexera licence from Chris Robb; installing a licence is the Test Engineer's (STANDING-ORDERS §4). Dropped by the Test Engineer 2026-10-19 | — | Test Engineer |
 | T33411 | (278) Management_TACACS+ - Authentication | — | NOT TESTED | BLOCKED: needs a TACACS+ server on TCP/49; binding a privileged port is root on the box (STANDING-ORDERS §4) and the DUT exposes no alternative port | — | sentinel |
 | T33410 | (277) Management_TACACS+ - Accounting | — | NOT TESTED | BLOCKED: depends on T33411 | — | sentinel |
 | T33412 | (279) Management_TACACS+ - Logging | — | NOT TESTED | BLOCKED: depends on T33411 | — | sentinel |
 
 ## Issues
+
+### 🟠 NEEDS TEST ENGINEER (recorded, not asked) — reboot persistence is NOT MEASURED for group A
+
+Raised by the group A tester with T33407's RESULT, and its reasoning is correct, so the sentinel
+did not overrule it.
+
+**Group A performs no reload at all.** Two reasons, both sound:
+1. The DUT's L3 underlay (`vlan10 10.38.22.34/27`, `vlan48 10.38.22.66/27`) exists in
+   **running-config only**, and the boot config is `flash:/default.cfg`. **A reload destroys the
+   server path** — which groups B and C also need.
+2. `copy running-config startup-config` would change your standing bench configuration. That is
+   bench-level, STANDING-ORDERS §4, and is not done unattended.
+
+⇒ **T33407, T33408 and T33409 are graded without the reboot-persistence limb**, and each log must
+say so explicitly rather than implying it was covered. This does not reduce their verdicts; it
+bounds them.
+
+**The cheap fix, one decision from you:** say once whether the underlay may be written to
+startup-config. If yes, a **single reload covers all three cases** and the limb can be added on a
+re-run. If no, the limb stays NOT MEASURED for every case in this campaign, which is the honest
+outcome and should be stated in the group README.
 
 ### 🔴 NEEDS TEST ENGINEER (recorded, not asked — unattended run) — swi_a / u5 will not accept a login
 
