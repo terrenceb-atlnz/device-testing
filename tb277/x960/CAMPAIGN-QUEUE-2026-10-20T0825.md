@@ -142,6 +142,55 @@ case, so a fresh tester can restore the bench from here.
 
 ## Issues
 
+### 🔴🔴 LIVE HAZARD, 2026-10-20 09:23 NZDT — the DUT is rejecting `manager` on the console
+
+**If you are picking this campaign up cold, read this before touching u2.**
+
+**State:** T33408 configured the DUT as a RADIUS client:
+
+```
+radius-server host 10.38.22.33 auth-port 11812 acct-port 11813 key testing123
+aaa authentication login default group radius local
+aaa accounting login default start-stop group radius
+```
+
+The RADIUS server is a **user-owned freeradius instance the tester started on the box**, on
+unprivileged ports 11812/11813. It does **not** know the user `manager`.
+
+**What is happening:** `manager` now fails on the DUT console (`Login incorrect`, first seen
+09:22:58, again 09:23:26). A `radclient1` login got as far as `Session setup problem, abort.`
+
+**Why the `local` fallback did not save it — the sentinel got this wrong and says so.** The
+sentinel advised `group radius local` on the grounds that it protects the console. It protects
+against the server being **unreachable**: the fallback to `local` fires on no-response. It does
+**not** fire when the server returns an **Access-Reject**, which is authoritative and which AW+
+honours. freeradius rejects `manager` because it has no such user, so the DUT rejects it too.
+
+🔴 **Do NOT retry `manager` in a loop.** AW+ locked swi_a at **5 failed logins** with a timer
+that restarts on each further attempt. swi_a is already lost to exactly this. If the DUT's
+`manager` reaches 5, the only console that matters is gone.
+
+**Recovery, neither option needing a console login:**
+1. **Stop the tester's freeradius instance on the box** (preferred). The server becomes
+   unreachable, the `local` fallback genuinely engages, and `manager` authenticates locally as
+   before. Instantly reversible by restarting it.
+2. **Add `manager` to that freeradius instance's users file** and reload it.
+
+Then remove the three AAA/radius lines and re-verify `manager` locally before anything else.
+
+⚠️ **A reload is NOT a recovery here** and is the Test Engineer's call: the L3 underlay
+(`vlan10 10.38.22.34/27`, `vlan48 10.38.22.66/27`) is **running-config only** and the boot config
+is `flash:/default.cfg`, so a reload clears the AAA lines **and** destroys the server path that
+groups B and C need.
+
+**Two things to keep, because they are real measurements, not just damage:**
+- `manager` being rejected is itself **evidence the DUT really is consulting RADIUS** rather
+  than falling through to local — which is what T33408 set out to prove.
+- `Session setup problem, abort.` for `radclient1` suggests RADIUS **authentication succeeded**
+  and session establishment then failed, most likely a missing privilege / Service-Type
+  attribute in the server's reply rather than a DUT defect. Confirm against the server-side
+  `Successes` counter before grading it either way.
+
 ### 🟠 NEEDS TEST ENGINEER (recorded, not asked) — reboot persistence is NOT MEASURED for group A
 
 Raised by the group A tester with T33407's RESULT, and its reasoning is correct, so the sentinel
