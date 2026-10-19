@@ -121,9 +121,10 @@ exists**, rather than implying the steps were authored.
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| A | T33407 Local RADIUS Server; T33408 RADIUS Client mode; T33409 RADIUS Proxy; T33411 TACACS+ Authentication; T33410 TACACS+ Accounting; T33412 TACACS+ Logging | `aaa-2026-10-20T0825` | TRIAGE | one AAA setup serves all six: freeradius is already up, tac_plus is started by the tester. Order deliberately puts **authentication before accounting/logging** — accounting has nothing to record until a login works |
-| B | T33413 Trap Temperature; T44301 Per-port link trap; T44308 RMON; T44309 sFlow Agent | `snmpmon-2026-10-20T0825` | TRIAGE | one monitoring setup: SNMP community + trap host pointing at the box, `snmptrapd` receiving, tcpdump for sFlow. T33413 may not be forceable — a temperature threshold crossing is not something a bench can command |
-| C | T47199 default-password warning; T33416 Triggers - Interface; T33378 Telnet Server (IPv4) | `mgmt-2026-10-20T0825` | TRIAGE | DUT-local, or the box acting as a plain client. Cheapest group; run last |
+| A | T33407 Local RADIUS Server; T33408 RADIUS Client mode; T33409 RADIUS Proxy | `aaa-2026-10-20T0825` | RUNNABLE | RADIUS only. The tester runs a **second, user-owned freeradius** on unprivileged ports (e.g. 11812/11813) and points the DUT at them with `radius-server host <ip> auth-port/acct-port` — the running system instance needs root to reconfigure. All shared secrets are `testing123` |
+| A-blocked | T33411 TACACS+ Authentication; T33410 TACACS+ Accounting; T33412 TACACS+ Logging | — | **BLOCKED** | TACACS+ needs a server on **TCP/49**, a privileged port, and the DUT exposes **no alternative**: `tacacs-server host <ip> ?` offers only `key \| vrf \| <cr>` (measured at triage). Binding it is root on the box = STANDING-ORDERS §4, never done unattended. See `## Issues` for the exact unblock |
+| B | **T44308 RMON; T33413 Trap Temperature**; T44301 Per-port link trap; T44309 sFlow Agent | `snmpmon-2026-10-20T0825` | RUNNABLE | **Reordered at the tester's recommendation: RMON runs FIRST**, because T33413's only measurable trap limb is an RMON alarm bound to a temperature OID, so the alarm instrument is already proven when T33413 needs it. T33413's genuine over-temperature limb is **NOT MEASURABLE** — see `## Issues`. T44301 must flap **port1.0.2 or port1.0.16**, never port1.0.10/port1.0.48, which carry the path to the trap receiver |
+| C | **T33378 Telnet Server (IPv4); T47199 default-password warning; T33416 Triggers - Interface** | `mgmt-2026-10-20T0825` | RUNNABLE | **Reordered at the tester's recommendation: Telnet FIRST**, because the console login shows no default-password warning (measured), so T47199 must look on telnet/SSH/HTTP — and T33378 is the case that turns telnet on. First action for T33416: `trigger 1` → `type ?`, the campaign's one unverified CLI surface |
 | — | T33427 Flexera Licensing | — | **NOT TESTED** | Test Engineer's decision, 2026-10-19: *"Drop it — NOT TESTED"*. Its step 1 is *"Request Chris Robb to generate a Flexera License for a particular feature"*; installing a licence is the Test Engineer's (STANDING-ORDERS §4) and no licence file was available this session |
 
 Setup and restore recipes are written into this file by the tester before each group's first
@@ -134,6 +135,9 @@ case, so a fresh tester can restore the bench from here.
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
 | T33427 | (300) Management - Flexera Licensing | — | NOT TESTED | needs a Flexera licence from Chris Robb; installing a licence is the Test Engineer's (STANDING-ORDERS §4). Dropped by the Test Engineer 2026-10-19 | — | Test Engineer |
+| T33411 | (278) Management_TACACS+ - Authentication | — | NOT TESTED | BLOCKED: needs a TACACS+ server on TCP/49; binding a privileged port is root on the box (STANDING-ORDERS §4) and the DUT exposes no alternative port | — | sentinel |
+| T33410 | (277) Management_TACACS+ - Accounting | — | NOT TESTED | BLOCKED: depends on T33411 | — | sentinel |
+| T33412 | (279) Management_TACACS+ - Logging | — | NOT TESTED | BLOCKED: depends on T33411 | — | sentinel |
 
 ## Issues
 
@@ -197,3 +201,114 @@ campaign.
 - **NOTICE (campaign) — `/tmp` on tb277 is 95% full** (105 MB free) because of 1.8 GB of
   `wireshark_eth4*.pcapng` belonging to someone else. Not ours to delete. If a case fails for
   want of capture space, that is the reason and the case is BLOCKED, not FAILED.
+
+---
+
+## Triage outcome, 2026-10-20 08:50 NZDT — 10 runnable, 3 BLOCKED, 1 NOT TESTED
+
+Tester's report: **13 runnable, 0 blocked by topology, 0 blocked outright.** The sentinel then
+blocked the three TACACS+ cases on a §4 decision the tester correctly surfaced rather than took.
+No AskUserQuestion was used; this run is unattended.
+
+### 🔴 NOTICE (campaign) — TACACS+ needs root, and there is no way round it
+
+**Measured:** `tacacs-server host <ip> ?` offers `key | vrf | <cr>` — **no port option**. TACACS+
+is locked to **TCP/49**, a privileged port, so the server must bind as root. The running box has
+`tacacs+ 4.0.4.27a-3` installed at `/usr/sbin/tac_plus` but not running.
+
+**The tester proposed** writing `tools/tacplus.py`, adding `tacplus` to `SUDO_TOOLS` in
+`tools/tb`, and starting the daemon with `tools/tb sudotool`.
+
+**The sentinel declined, unattended.** `SUDO_TOOLS` is a 14-name allowlist of **traffic
+generators** (`linerate vsend igmp dhcp4 dnsresp hostsim arpleg …`), and `tools/tb` says so in
+its own error text: *"sudotool is only for the root traffic tools"*. Those need raw sockets.
+**Running a network service daemon as root on a privileged port is a different class of
+privilege**, and widening a sudo allowlist to admit it is a security-relevant change to a shared
+repo tool. STANDING-ORDERS §4 reserves root on the box for the Test Engineer and the queue says
+§4 is never loosened unattended. The cases that do not depend on it run; these three do not.
+
+⇒ **T33411, T33410 and T33412 are BLOCKED**, reason: *"TACACS+ requires a server on TCP/49;
+binding a privileged port is root on the box (STANDING-ORDERS §4) and the DUT exposes no
+alternative port."* Not a topology block; no recable fixes it.
+
+**UNBLOCK, for the Test Engineer — one decision, then the three cases run unchanged:** approve
+either (a) adding `tacplus` to `SUDO_TOOLS` with a `tools/tacplus.py` that writes its config into
+the run workdir and only starts/stops `/usr/sbin/tac_plus`, or (b) starting `tac_plus` yourself
+once before the run. Then `/test-mode --resume tb277/x960/CAMPAIGN-QUEUE-2026-10-20T0825.md`.
+
+### NOTICE (campaign) — the running freeradius is not usable without root, and does not need to be
+
+Its clients and users live under `/etc/freeradius/3.0/`, root to edit. Because the DUT accepts
+`radius-server host <ip> auth-port <n> acct-port <n>`, group A runs a **second, user-owned
+freeradius** (`freeradius -d <config tree in the run workdir> -X`) on unprivileged ports and
+points the DUT at those. No root, full control of clients and users, system instance untouched.
+**This is why RADIUS is runnable and TACACS+ is not** — RADIUS has a settable port, TACACS+ does
+not.
+
+### NOTICE (campaign) — T33413's true over-temperature limb is NOT MEASURABLE
+
+`temperature ?` and `environment ?` are both `% Unrecognized command` in config mode, and
+`snmp-server enable trap ?` has **no temperature group**. The limits are fixed in hardware:
+Front Right reads **27 °C against a 61 °C limit**, every sensor `Ok`. Firing the real
+AT-ENVMONv2 `hw-monitoring` fault trap needs the unit physically heated past its limit, and no
+threshold can be moved down to meet the reading. **A bench cannot command that.**
+
+The measurable route, which the case is graded on instead: (a) arm
+`snmp-server enable trap hw-monitoring`, prove it armed, in running-config, removable and
+reboot-persistent, with `snmptrapd` up as a negative control that no fault trap fires while all
+sensors read Ok; **plus** (b) an **RMON alarm** bound to the temperature sensor's AT-ENVMONv2
+OID with a rising threshold set **just below the current reading**, producing a real trap derived
+from a real temperature value, and a control alarm set **above** the reading that must not fire.
+The log must state plainly that the genuine over-temperature limb was NOT MEASURABLE, and why.
+
+### NOTICE (campaign) — T44309 sFlow needs a decoder written
+
+`sflowtool` is absent and installing it is root. `tools/` has no sFlow decoder. The tester writes
+`tools/sflowwire.py` on the model of `tools/snmpwire.py` (pure Python, reads a `tcpdump -w` pcap,
+no scapy), printing agent address, sub-agent id, sequence, sample type, sampling rate and the
+sampled header. Captures stay short and are copied out at once — `/tmp` is 95% full.
+
+### NOTICE (record) — tb277 has no deployed `.setup`
+
+`/home/st-art/st-art/configs/tb277.setup` absent, `/nfsHome` not mounted, no local
+`tb277.setup.current`. Irrelevant to 13 manual cases; it would block any framework run on this
+box. Applying one is `bench_probe.py apply`, STANDING-ORDERS §4.
+
+### NOTICE (process) — swi_a's manager account was locked by the tester
+
+The probe's attempts plus two diagnostic logins reached **7 failures**; the five-minute timer was
+last restarted at ~08:45. Stated plainly so it is never later read as a device fault. Blocks
+nothing.
+
+### Measured facts the group testers should not rediscover
+
+- **The 2026-10-16 L3 underlay is still up and was NOT rebuilt**: `vlan10 10.38.22.34/27` on
+  port1.0.10, `vlan48 10.38.22.66/27` on port1.0.48. Reachability measured **eth3→.34 3/3,
+  eth4→.66 3/3**. That is the server path all cases need. The box is **10.38.22.33**.
+- **DUT clock is UTC, exactly +13 behind the box, no skew.** Record once per group.
+- **The DUT is still on the factory password** (`manager`/`friend` authenticated), so T47199's
+  precondition is already true and no password change is needed to reach it. **A fresh console
+  login shows NO warning** — only `Last login` and the version banner; `show banner login` is
+  empty. T47199 must look at telnet, SSH and HTTP. If it appears nowhere and the TPS says the
+  feature exists, that is a **FINDING, not UNSUPPORTED**.
+- **T33416's surface is unverified**: `type ?` cannot be read without creating `trigger N`
+  first, which TRIAGE may not do. First action of group C's tester. `type` must be set before
+  `description`, and if `type interface` is absent the case is UNSUPPORTED with the `type ?`
+  output as evidence.
+- DUT licence is `atlnz` Full (RADIUS-FULL, RADIUS-100, RADIUS-3 present). **Nothing in this
+  campaign is licence-gated.**
+
+### §8 health-check instrument notes — first campaign under the new rule
+
+All six reads work on the x960-56YSQ. Baseline at 08:46 NZDT:
+
+- `show reboot history` — newest `2026-10-16 06:22:04 Expected CLI(user request)`. Diff the **top
+  entry only**; the table carries year-2000 dates from before the clock was set.
+- `show exception log` → **`None`**.
+- `show cpu` — ⚠️ **`show cpu | include idle` does NOT give the summary.** It matches the
+  per-process `idle` state column and returns a wall of kworker rows. Use plain `show cpu`.
+- `show memory` → `RAM total: 8092132 kB; free: 7453840 kB; buffers: 1544 kB`.
+- `show log | include kernel|…` — ⚠️ **noisy**: `kernel` matches the whole 2026-10-16 boot log
+  (~40 lines) every time. **Two pre-existing `kern.err` lines are NOT a case finding**:
+  `boardinfo-eeprom-i2c 1-0050: Failed to read eeprom data for board_index 0` and the same for
+  `1-0052`, both at `2026 Oct 16 06:22:36`. Bound the filter to the case's own time window.
