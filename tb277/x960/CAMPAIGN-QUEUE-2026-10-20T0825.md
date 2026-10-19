@@ -142,9 +142,24 @@ case, so a fresh tester can restore the bench from here.
 
 ## Issues
 
-### 🔴🔴 LIVE HAZARD, 2026-10-20 09:23 NZDT — the DUT is rejecting `manager` on the console
+### ✅ RESOLVED 09:25 NZDT (was a live hazard 09:22–09:24) — the DUT rejected `manager` on the console
 
-**If you are picking this campaign up cold, read this before touching u2.**
+**Resolved by the tester, without a reload and without help.** `manager` authenticated at
+09:24:48 — the RADIUS path stopped answering, so the `local` fallback engaged as designed on a
+no-response — and the tester immediately restored local authentication:
+
+```
+aaa authentication login default local
+no aaa accounting login default
+```
+
+**Peak exposure: 3 failed `manager` logins against a 5-failure lockout.** Nothing was lost. The
+account was never locked. The account of record below is kept because the mechanism is a real
+trap that will recur, and because the sentinel's advice was part of it.
+
+---
+
+**The hazard as it stood:**
 
 **State:** T33408 configured the DUT as a RADIUS client:
 
