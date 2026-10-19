@@ -140,12 +140,50 @@ case, so a fresh tester can restore the bench from here.
 | T44308 | (296) Management - RMON | snmpmon-2026-10-20T0825 | PASS | statistics, history, event and alarm all measured against counted traffic (history bucket 2 = exactly 1000 packets / 86000 octets); four real SNMPv2c traps caught and decoded on udp/162; a control alarm stayed silent then fired with alarmValue exactly 50; removal proven on the CLI, in the MIB and on the wire | T44308/work/run1.log | tester |
 | T33413 | (280) Management_Trap - Temperature | snmpmon-2026-10-20T0825 | PARTIAL | the over-temperature trap could not be produced on this bench (no settable threshold; coolest sensor 27 °C against a 61 °C hardware limit) AND the RMON-alarm substitute is refused by the product; everything else measurable passed — `hw-monitoring` arms, chains and removes per-group, the AT-ENVMONv2 table matches the CLI on all 14 sensors, and no fault trap fired in a 100 s window in which two known-good RMON traps proved the transport live. **Grade is the Test Engineer's to confirm — see Issues** | T33413/work/run1.log | tester |
 | T44301 | (281) Management_Trap - Per-port link trap | snmpmon-2026-10-20T0825 | PASS | linkDown/linkUp emitted for the port carrying `snmp trap link-status` and for no other, proven on the wire by measured ifIndex (5002, read from ifDescr not assumed); a sibling port flapped in the same 220 s window was logged by the DUT but produced no trap; empty captures both before arming and after removal under identical stimulus | T44301/work/run1.log | tester |
+| T44309 | (297) Management_SFlow - SFlow Agent | snmpmon-2026-10-20T0825 | PASS | v5 datagrams sent to the configured collector from the configured agent address; 2000 frames at 1-in-50 gave **exactly 40** flow samples, each reporting the configured rate and decoding to the exact frame sent; a tenfold rate change dropped the yield tenfold; counter samples only for the one polled port of 77; nothing before configuration, nothing after removal. **Two intermittent defects — see Issues; FAIL is defensible and is the Test Engineer's call** | T44309/work/run1.log | tester |
 | T33427 | (300) Management - Flexera Licensing | — | NOT TESTED | needs a Flexera licence from Chris Robb; installing a licence is the Test Engineer's (STANDING-ORDERS §4). Dropped by the Test Engineer 2026-10-19 | — | Test Engineer |
 | T33411 | (278) Management_TACACS+ - Authentication | — | NOT TESTED | BLOCKED: needs a TACACS+ server on TCP/49; binding a privileged port is root on the box (STANDING-ORDERS §4) and the DUT exposes no alternative port | — | sentinel |
 | T33410 | (277) Management_TACACS+ - Accounting | — | NOT TESTED | BLOCKED: depends on T33411 | — | sentinel |
 | T33412 | (279) Management_TACACS+ - Logging | — | NOT TESTED | BLOCKED: depends on T33411 | — | sentinel |
 
 ## Issues
+
+### 🔴🔥 NEEDS TEST ENGINEER — T44309: sampled packet headers reached the collector AFTER sFlow was disabled
+
+**The most serious thing this campaign has found, and the tester reported it rather than
+burying it in a PASS.**
+
+Once, after `no sflow enable` — with the CLI reporting `Admin Status Disabled` and
+`Polling/sampling/Tx ....... Inactive` — the DUT sent **11 datagrams carrying 85 flow samples of
+traffic that arrived *after* the disable**. 78 were positively identified by their payload
+marker, the 85 sampler sequence numbers were consecutive, and `sample_pool` claimed 42,500
+packets where only ~110 had actually passed.
+
+**Why this matters beyond a failed check:** sFlow flow samples carry **real user traffic
+headers**. This is packet header data leaving the device to a collector after monitoring was
+switched off, while every management surface on the box said monitoring was off.
+
+**Why the tester still graded PASS, and why FAIL is defensible:**
+- For PASS — the feature itself was proven exact (exactly 40 samples from 2000 frames at 1-in-50,
+  rate change scaling tenfold, correct per-port scoping), and the tester then ran **three further
+  enable→disable cycles, the last mirroring the original sequence step for step including the
+  mid-flight rate change, and all three were clean.** The anomaly is intermittent.
+- For FAIL — **the removal check failed on its first execution.** A removal that does not reliably
+  remove is a FAIL condition, and intermittency makes it worse to live with, not better.
+
+The evidence for both readings is in the working log. **It is a one-line re-grade.**
+
+**A second anomaly in the same case:** one fresh enable at 1-in-50 yielded **zero** flow samples
+from the identical burst that had earlier given exactly 40.
+
+### NOTICE (record) — the group B restore recipe was corrected mid-group
+
+The tester wrote the recipe before reading the sFlow CLI surface and guessed
+`sflow collector ip <addr>`, which the DUT rejects. The measured forms are
+**`sflow collector id <1-5> ip <addr>`**, and the negations **`no sflow collector id 1`** /
+**`no sflow agent ip`** take no address. Corrected in place. Worth noting as a process point:
+a restore recipe written before the surface is read can be wrong in a way that only bites the
+person trying to restore from it.
 
 ### 🟠 NEEDS TEST ENGINEER (recorded, not asked) — confirm T33413's grade: PARTIAL or UNSUPPORTED?
 
