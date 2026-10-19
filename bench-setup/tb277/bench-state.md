@@ -1,6 +1,6 @@
 # tb277 — bench state
 
-> **Generated 2026-10-19T193021Z by `bench_probe.py`** from `captures/2026-10-19T193021Z/` on tb277. Measured state only;
+> **Generated 2026-10-19T195648Z by `bench_probe.py`** from `captures/2026-10-19T195648Z/` on tb277. Measured state only;
 > nothing here is hand-written. Regenerate with `./bench_probe.py --box tb277 run` on tb277. The
 > `setup` fence at the end IS `tb277.setup`; `./bench_probe.py apply` writes it to the box.
 > Names and PDU outlets come from `tb277.static`; platform mechanics live in the orient-dt
@@ -12,7 +12,6 @@
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | /dev/u2 | 115200 | swi_d | AT-x960-56YSQ | A2WQS700B | awplus | standalone | Active Master | sin_x96056-20261012-24 | Unknown | flash:/x960-tb277.rel |
 | /dev/u3 | 9600 | swi_b | AT-x960-28YSQ | A10737A261700021 | x960-28YSQ | standalone | Active Master | sin_x96056-20260921-9 | 8.24.0 | flash:/backup.rel |
-| /dev/u5 | — | ? | ? | ? | ? | — | login_failed | | |  |
 
 ## Links
 
@@ -26,12 +25,12 @@
 
 ## Advisories
 
-- !! USER-CONFLICT: the session gives facts for /dev/u5 (outlet 3@10.36.230.35, name swi_a), but no device was read on /dev/u5 this run
+- none
 
 ## tb277.setup
 
 ```setup
-### GENERATED 2026-10-19T193021Z by bench_probe.py from a console capture -- DO NOT HAND-EDIT.
+### GENERATED 2026-10-19T195648Z by bench_probe.py from a console capture -- DO NOT HAND-EDIT.
 ### Source: claude/device-testing/bench-setup/bench-state.md (regenerate with
 ### `bench_probe.py run` on tb277; `bench_probe.py apply` writes this file).
 ### Names and PDU outlets come from bench-setup/tb277/tb277.static.
@@ -73,6 +72,5 @@ eth4 up swi_d:port1.0.48
 ```
 
 ```probe-meta
-capture 2026-10-19T193021Z
-unread /dev/u5 login_failed
+capture 2026-10-19T195648Z
 ```

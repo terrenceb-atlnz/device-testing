@@ -887,6 +887,76 @@ auth/priv bits is the proof.
   authPriv and 12 plaintext (v3 discovery, v2c, and an authNoPriv control with its OID in the
   clear)
 
+### `radius.py`
+RADIUS (RFC 2865 / 2866) codec library -- the one home for the RADIUS wire format in this repo,
+imported by `radsend.py`, `radsrv.py` and `radwire.py` so the encoding that SENDS a packet is
+the code that DECODES it off the wire. It covers the header and attribute TLVs, PAP
+User-Password hide/unhide, the Accounting-Request Request Authenticator, the Response
+Authenticator (the check that proves a responder holds the shared secret -- no `show` command
+on either end can prove that), and Message-Authenticator (RFC 3579, HMAC-MD5).
+- **Run:** `import radius as R` (library). `python3 radius.py` runs a codec self-test, no network
+- **Where:** anywhere; **needs:** nothing beyond Python
+- **Imports:** none
+- **Limits:** PAP and the standard attribute set; no CHAP, no EAP payload parsing, no
+  vendor-specific (26) sub-attribute decoding
+- **Status:** verified 2026-10-20 -- self-test OK on the dev host and on tb277 (`tools/tb tool
+  tb277 <scratch> radius`), and end-to-end against a real AW+ RADIUS server (x960-56YSQ)
+
+### `radsend.py`
+A NAS in one command: sends an Access-Request (PAP) or an Accounting-Request and reports the
+reply, **verifying the reply's Response Authenticator against the shared secret**. It is also
+the control instrument -- `--secret` and `--password` can deliberately be wrong, and the exit
+code tells the two outcomes apart. An ICMP port-unreachable is reported as such, which is a
+stronger "nothing is listening" than silence.
+- **Run:** `radsend.py <server-ip> --secret S --user NAME [--password PW] [--port N]
+  [--acct start|stop|interim] [--bind IP] [--nas-ip IP] [--nas-id T] [--service-type N]
+  [--msg-auth] [--count N] [--timeout S] [--retries N] [--id N] [--quiet]`
+- **Where:** anywhere with a path to the server (on a testbox: `tools/tb tool <TB> <scratch>
+  radsend ...`); **needs:** nothing beyond Python, and no root (unprivileged source port)
+- **Imports:** radius
+- **Exit codes:** 0 replied and the authenticator verified; 1 no reply (includes ICMP
+  port-unreachable); 3 a reply whose Response Authenticator did NOT verify; 4 Access-Reject
+  (a real answer -- a case that EXPECTS a reject treats 4 as success); 2 usage/socket error
+- **Limits:** PAP only (no CHAP, no EAP), one outstanding request at a time
+- **Status:** verified 2026-10-20 on tb277 against the x960-56YSQ Local RADIUS Server (T33407):
+  Access-Accept, wrong-password Reject, unknown-user Reject, wrong-secret, unknown-NAS silence,
+  and the ICMP-unreachable path with the feature off
+
+### `radsrv.py`
+A RADIUS authentication and accounting server in pure Python, on any UDP port. It exists
+because a testbox's packaged freeradius keeps its clients and users under `/etc/`, which is
+root to edit, and 1812/1813 are privileged ports (STANDING-ORDERS §4). This one runs as an
+ordinary user on, say, 11812/11813 -- a DUT is pointed at it with `radius-server host <box>
+auth-port <n> acct-port <n>` -- and every client, user and secret is on the command line, so
+the whole server side of a case is visible in the working log. One log line per packet.
+- **Run:** `radsrv.py --secret S --client IP --user NAME:PASSWORD [--auth-port N]
+  [--acct-port N] [--bind IP] [--client-secret IP=S] [--user-file F] [--reply-attr N=V]
+  [--reject-all] [--drop-all] [--log PATH] [--seconds N] [--stopfile PATH] [--pidfile PATH]`
+- **Where:** a host the DUT can reach; **needs:** nothing beyond Python, and no root while the
+  ports are >= 1024
+- **Imports:** radius
+- **Behaviour worth knowing:** a request from an unlisted client, or one whose
+  Message-Authenticator does not verify, is DROPPED and logged -- so a wrong-secret control
+  shows up as silence rather than a Reject, as a real server does. `--reject-all` and
+  `--drop-all` give deliberate negative controls.
+- **Limits:** PAP only (no CHAP, no EAP), no proxying of its own, no duplicate-request cache
+- **Status:** verified 2026-10-20 on tb277 (T33408/T33409) and end-to-end against `radsend.py`
+
+### `radwire.py`
+Decodes and COUNTS the RADIUS packets in a `tcpdump -w` pcap, and, given the shared secret,
+pairs each reply with its request and says whether the Response Authenticator verifies. This
+is the wire half of a RADIUS case's evidence: RADIUS is UDP, so "the login worked" is not a
+measurement (STANDING-ORDERS §7).
+- **Run:** `radwire.py <file.pcap> [--port N ...] [--secret S] [--limit N] [--quiet]`
+  (default ports 1812, 1813, 11812, 11813; any `--port` replaces the whole default list)
+- **Where:** anywhere; **needs:** nothing beyond Python
+- **Imports:** radius, snmpwire (for the classic-pcap reader and the Ethernet/802.1Q/IPv4/UDP
+  walk -- so it takes `tcpdump -w` output, NOT pcapng)
+- **Limits:** IPv4/UDP only; a reply can only be authenticator-checked when its request is in
+  the same capture (reported as `unpaired` otherwise)
+- **Status:** verified 2026-10-20 on tb277, x960-56YSQ (T33407): 10 packets, 5 Access-Request /
+  2 Access-Accept / 3 Access-Reject, authenticator valid=5 invalid=0 unpaired=0
+
 ### `rs.py`
 Sends ICMPv6 Router Solicitations to ff02::2, 2 s apart.
 - **Run:** `sudo rs.py <iface> <count>`

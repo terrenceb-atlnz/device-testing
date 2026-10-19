@@ -312,3 +312,68 @@ All six reads work on the x960-56YSQ. Baseline at 08:46 NZDT:
   (~40 lines) every time. **Two pre-existing `kern.err` lines are NOT a case finding**:
   `boardinfo-eeprom-i2c 1-0050: Failed to read eeprom data for board_index 0` and the same for
   `1-0052`, both at `2026 Oct 16 06:22:36`. Bound the filter to the case's own time window.
+
+---
+
+## Group A `aaa-2026-10-20T0825` — bench setup and the exact restore recipe
+
+Written by the group's tester (bench-runner) before the group's first case, so a fresh tester
+can restore the bench from this file alone if the session dies mid-group.
+
+**Consoles used:** /dev/u2 (swi_d, the DUT) and /dev/u3 (swi_b) only. /dev/u5 and /dev/u1 are
+never opened. Box scratch: `/tmp/ckaaa/` (`tools/tb scratch tb277 ckaaa`).
+
+**Physical/bench setup this group needs: NONE beyond what is already standing.** No recable, no
+VLAN change, no new SVI, no PDU action. The group uses the L3 underlay that was already up:
+
+    tb277 eth3 10.38.22.33/27  <->  swi_d port1.0.10, DUT `interface vlan10` 10.38.22.34/27
+    tb277 eth4 10.38.22.65/27  <->  swi_d port1.0.48, DUT `interface vlan48` 10.38.22.66/27
+
+⛔ Do NOT shut port1.0.10 or port1.0.48 and do NOT rebuild these SVIs. They exist in
+running-config only (boot config is `flash:/default.cfg`), so a DUT reload destroys them.
+**This group deliberately performs no reload and writes nothing to startup-config.**
+
+**What each case adds to the DUT, and the exact command that removes it:**
+
+| case | added on swi_d (u2) | removed by |
+| --- | --- | --- |
+| T33407 | `radius-server local` block (`server enable`, `nas 10.38.22.33 key …`, `user …`), plus an auto-created `nas 127.0.0.1` entry the DUT makes itself | `configure terminal` / `no radius-server local` — removes the whole block including the auto-created NAS |
+| T33408 | `radius-server host 10.38.22.33 auth-port 11812 acct-port 11813 key testing123`, `aaa authentication login default group radius local`, `aaa accounting …` | `no radius-server host 10.38.22.33 auth-port 11812 acct-port 11813`, then restore the baseline `aaa authentication login default local` and `no aaa accounting …` |
+| T33409 | `radius-server proxy-server` block (+ whatever its own surface requires) | `configure terminal` / `no radius-server proxy-server` |
+
+**The baseline the group must return to** (from `show running-config` at 2026-10-20 08:59 NZDT,
+work/pre-u2.log of T33407). The AAA-relevant lines, and there is no `radius-server` line of any
+kind at baseline:
+
+    username manager privilege 15 password 8 $5$bJozIP4D$orvkW78S6QHN65L3EGGJpHS.QlHSjwuYbMynH5.Ifp2
+    service ssh
+    no service telnet
+    service http
+    aaa authentication enable default local
+    aaa authentication login default local
+
+🔴 **The restore that matters most:** `aaa authentication login default local`. If a case leaves
+`aaa authentication login default group radius` behind and the RADIUS server on the box is gone,
+console and SSH logins fall through to whatever the method list says next. Every case in this
+group therefore configures the fallback form `group radius local`, never `group radius` alone,
+and the restore command is:
+
+    configure terminal
+    aaa authentication login default local
+    no aaa accounting login default
+    no radius-server host 10.38.22.33 auth-port 11812 acct-port 11813
+    no radius-server local
+    no radius-server proxy-server
+    end
+
+(`no aaa authentication login default` also returns the list to its default; the explicit
+`aaa authentication login default local` above is what the baseline actually shows, so it is
+the form that makes `rcdiff.py` clean.)
+
+**Verification after every case:** `python3 tools/rcdiff.py <pre>.log <post>.log` must print
+nothing, and `show boot` must still read boot image `flash:/x960-tb277.rel`, boot config
+`flash:/default.cfg`.
+
+**The DUT's pre-existing global RADIUS secret is NOT ours.** `show radius` printed
+`Secret Key : Byc98JqUNsCGeNIJ8uZhkYpbcbRZY+Fs5c3qCqhdvYw=` before this campaign touched
+anything. It is left exactly as found. Every secret this group configures is `testing123`.
