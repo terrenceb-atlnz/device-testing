@@ -986,6 +986,40 @@ auth/priv bits is the proof.
   alarmSampleType, alarmValue and the crossed threshold, each timestamped and matched to the
   burst that caused it, against an empty capture from the same stimulus after removal
 
+### `httpq.py`
+One HTTP/HTTPS request to a device's management interface, dependency free. It prints the
+status line, the response headers and the (optionally truncated) body.
+- **Why it exists:** HTTP is the third management access path a Management case has to grade
+  alongside telnet and ssh, and `show http` cannot say what the web interface actually
+  answers -- whether a GUI is installed, whether an API is reachable, or which error it
+  returns. It is also how a device's REST/RestCONF surface is checked without adding a
+  dependency to the box.
+- **Run:** `httpq.py <url> [--method M] [--user U --password P] [--data STR]
+  [--header 'K: V']... [--timeout S] [--max-body N] [--verify] [--head-only]`, or
+  `tools/tb tool <TB> <scratch> httpq <url> ...`
+- **Where:** testbox (it must reach the device's management address); **needs:** nothing
+  beyond Python
+- **Imports:** none (urllib from the standard library)
+- **Exit:** 0 a response arrived, whatever its status; 4 the transport failed; 6 usage
+- **Limits and traps:**
+  - **TLS verification is OFF by default**, because device certificates are self-signed
+    (`O = Allied-Telesis, CN = AlliedwarePlusDefault`). Pass `--verify` to turn it on.
+  - 🔴 **An AW+ device answers plain `http://` with a 301 to `https://`.** urllib follows the
+    redirect, so an SSL context attached only to an `https://` starting URL is not in play by
+    then and the request dies on `CERTIFICATE_VERIFY_FAILED` -- which reads as a device or
+    network fault. The context is therefore built unconditionally (measured on tb277
+    2026-10-20, T47199).
+  - `--user/--password` sends HTTP Basic only; it does not drive a form login or a session
+    cookie.
+  - The password is an argv value and is visible in `ps` on the box; use a worthless
+    credential.
+- **Status:** verified 2026-10-20 on tb277, x960-56YSQ (T47199): 404 from `/` and `/login`
+  with no GUI file installed (`show http` -> `GUI file in use : -`), 501
+  `ANT_CODE_UNIMPLEMENTED` from `/api/v1/system`, and **200 OK with 11848 B of
+  `application/yang-data+json` from `/restconf/data`** -- the last being the measurement that
+  the DUT was NOT in the documented "login-only mode" that a factory-default password would
+  have put it in
+
 ### `tcpflow.py`
 Summarises the **TCP conversations** in a `tcpdump -w` pcap, in pure Python. Every other decoder
 here knows one application protocol; this one knows only TCP, which is what a case needs when
