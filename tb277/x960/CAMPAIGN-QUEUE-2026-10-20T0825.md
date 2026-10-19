@@ -137,6 +137,51 @@ case, so a fresh tester can restore the bench from here.
 
 ## Issues
 
+### 🔴 NEEDS TEST ENGINEER (recorded, not asked — unattended run) — swi_a / u5 will not accept a login
+
+Raised by the tester at 2026-10-20 08:3x NZDT, during the TRIAGE gate. **The campaign was NOT
+held for it**: no case in this list needs swi_a, so triage and the run continue on u2 and u3.
+
+**Probe exit 4 USER-CONFLICT**, Advisory verbatim:
+
+```
+  - the session gives facts for /dev/u5 (outlet 3@10.36.230.35, name swi_a), but no device
+    was read on /dev/u5 this run
+  Nothing recorded was changed. Ask the Test Engineer which is right.
+```
+
+**What is true.** u5 answers at 9600 with a clean `awplus login:` banner, so **the x950 is alive
+and running** — this is a login problem, not a dead unit. `manager`/`friend` is refused. The
+probe's own meta: `"login": "no prompt after login. tail='\r\nLogin incorrect\r\n\r\nawplus login: '"`.
+
+**The username echo is TRUNCATED.** The console transcript shows `awplus login: maPassword:` —
+the device took `ma` as the whole username and went straight to the password prompt. That is a
+character-loss or console-state symptom, not evidence that the password changed. `u5 @9600` is
+recorded in 27 places in this repo, and the regenerated `[baudrates]` section now carries
+**swi_b 9600 and swi_d 115200 only, nothing for u5**.
+
+**The tester locked the account, and said so.** The probe's attempts plus one `tools/tb ckcon`
+diagnostic reached five failures: `The account is locked due to 5 failed logins. (5 minutes left
+to unlock)`. It auto-unlocks. **The tester did not retry**, correctly: more attempts re-lock it,
+and a password or console change on swi_a is bench-level (STANDING-ORDERS §4).
+
+**Side effect on the record.** The probe regenerated `bench-setup/tb277/bench-state.md` from what
+it could measure, so **swi_a's device row and its four LLDP-proven links to swi_b and swi_d have
+dropped out of that file**. That is the probe working as designed — bench-state.md is measured
+state only — not a deletion. The 2026-10-16 content is in git history. Nothing was hand-edited
+and nothing was reverted. The next probe that can read u5 restores it.
+
+**For the Test Engineer, when you are back — three candidates, in the order I would try them:**
+1. **Console state.** Something may have left the port mid-dialog. One bare CR before the first
+   username, then `manager`. Cheapest, and it costs nothing if wrong.
+2. **Baud.** Force it: `bench_probe.py --box tb277 --baud 9600 run --consoles u5`. The probe
+   never falls back from an explicit `--baud`, so a wrong auto-detection stops hiding the result.
+3. **The credential really did change on swi_a**, by someone or something outside this campaign.
+   That is yours to settle, not ours to guess at.
+
+Nothing in `tb277.static` or the session facts was changed, and neither side of the
+USER-CONFLICT was resolved (STANDING-ORDERS §4).
+
 - **NOTICE (campaign) — `sflowtool` is absent from tb277.** T44309 will be graded on the DUT's
   emitted sFlow datagrams, decoded by hand, not on a collector's parse. Installing a package is
   root on the box and therefore the Test Engineer's (STANDING-ORDERS §4); it was not requested.
