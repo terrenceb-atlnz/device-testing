@@ -148,6 +148,41 @@ case, so a fresh tester can restore the bench from here.
 
 ## Issues
 
+### 🛠 NOTICE (process) — the §8 `show log` filter MATCHES ITS OWN COMMAND, and the rule needs fixing
+
+Found by the sentinel watching group C, 2026-10-20 11:39. **A defect in the rule written on
+2026-10-19, not in any tester.**
+
+STANDING-ORDERS §8 and logged-output.md §2 tell the tester to run:
+
+```
+show log | include kernel|exception|crash|restart|Unexpected
+```
+
+AW+ logs every command as `IMISH[pid]: [manager@ttyS0]<the command text>`. **That text contains
+every keyword in the filter**, so each run of the health check matches every previous run of the
+health check. By the eighth case of this campaign the output was mostly the tester's own
+`show log | include …` and `show exception log` lines, with real device events a minority.
+
+**Consequences:** the signal-to-noise ratio decays through a campaign; a genuine `restart` line
+is easy to miss among the echoes; and each health read costs more context than the last.
+
+**The fix for logged-output.md §2 and STANDING-ORDERS §8** (to apply at wrap, not mid-campaign):
+exclude the command echoes as well as bounding the window — e.g.
+
+```
+show log | include kernel|exception|crash|restart|Unexpected | exclude IMISH
+```
+
+verifying first that AW+ supports a chained `| exclude` on this build; otherwise filter the
+echoes out on the box side after the read. Keep the existing "bound the filter to the case's own
+time window" advice either way — it helps but does not solve this, because the echoes fall
+inside the window too.
+
+**Credit where due:** the rule still worked. It surfaced the `[SCRIPT]snmp restart isis` lines
+and gave every case a clean reboot/exception/CPU/memory baseline. This is a refinement, not a
+retraction.
+
 ### 🔴🔥 NEEDS TEST ENGINEER — T44309: sampled packet headers reached the collector AFTER sFlow was disabled
 
 **The most serious thing this campaign has found, and the tester reported it rather than
