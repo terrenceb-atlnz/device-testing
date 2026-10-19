@@ -241,6 +241,50 @@ not an error.
   a RADIUS-served login for a user with no local account, the local fallback with the server
   down, and two console recoveries after authentication was deliberately broken
 
+### `netlogin.py`
+Logs in to a device over **TELNET or SSH** and prints EVERY byte of the login exchange, banner
+included, then runs commands. It is the network twin of `conlogin.py`: that one drives a serial
+console, this one drives the network management paths.
+- **Why it exists:** a case about a **login-time message** cannot be graded from a `show`
+  command, because the message only exists in the bytes a real login receives -- and it differs
+  per access path. The AW+ default-password warning, a MOTD, a login banner and a password
+  expiry warning are all in that class. It is also how a telnet or SSH *server* case proves the
+  server for real: authenticate, run a command, read the output back.
+- **Run:** `netlogin.py --proto telnet|ssh --host H [--port N] --user U --password P
+  [--transcript FILE] [--timeout S] [--login-timeout S] [--cmd CMD]... [--no-logout]
+  [--expect priv|user|fail]`, or `tools/tb tool <TB> <scratch> netlogin ...`
+- **Where:** testbox (it must reach the device's management address); **needs:** nothing beyond
+  Python, and the system `ssh` client for `--proto ssh`
+- **Imports:** none (telnet is a raw socket with minimal IAC handling -- every option is
+  refused; ssh is the system client driven through a pty)
+- **Output:** the bytes before the username prompt, between username and password, and **after
+  the password was sent (the login banner)** as three labelled blocks, then
+  `LOGIN RESULT: PRIV|USER|FAIL|TIMEOUT|EOF  proto=  user=  seconds=`, then one block per
+  `--cmd`
+- **Exit:** 0 privileged `#`, 1 unprivileged `>`, 2 refused, 3 nothing recognisable, 4 the
+  transport failed (`[Errno 111] Connection refused` -- which is itself a first-class result
+  for an "is the server off?" control), 6 usage. With `--expect`, 0 matched and 5 did not.
+- **Limits and traps:**
+  - **An AW+ login lands at privilege 1 (`>`)** even for a `privilege 15` username, so a login
+    test's success is `USER`, not `PRIV` (`platforms/x960.md` §7E.6).
+  - It writes **no** host trust: ssh runs with `UserKnownHostsFile=/dev/null`,
+    `GlobalKnownHostsFile=/dev/null`, `StrictHostKeyChecking=no`, `PubkeyAuthentication=no`.
+  - It counts against the device's failed-login lockout like any other login. AW+ locks an
+    account at 5 failures with a timer that restarts on each attempt, so for a *refusal*
+    control prefer a **non-existent username** over a wrong password for an account you still
+    need -- the DUT then logs `FAILED LOGIN n ... FOR (unknown)` and the real account is
+    untouched.
+  - `--login-timeout` must exceed the method list's fallback delay (25.5 s against an
+    unreachable RADIUS server, `platforms/x960.md` §7E.1).
+  - The password is an argv value, so it is visible in `ps` on the box. Use a worthless
+    credential, as the standing orders require.
+- **Status:** verified 2026-10-20 on tb277, x960-56YSQ (T33378): a telnet login as `manager`
+  that authenticated, listed itself as `vty 0 ... 10.38.22.33` on the DUT and returned
+  `show system`; a refused telnet login for a non-existent user; and three
+  `Connection refused` results used as the OFF controls of an on/off arc. Fixed in that same
+  case: a refused AW+ login re-presents `<host> login:`, so the failure pattern is now tested
+  FIRST and a re-presented login prompt after the password grades FAIL.
+
 ### `poll.py`
 Runs commands every `interval_s` for `duration_s`, stamped with epoch times. It logs in again
 when the session drops, for example when the master reloads, and touches `donefile` at the end.
@@ -941,6 +985,37 @@ auth/priv bits is the proof.
   RMON traps on udp/162 decoded to risingAlarm / fallingAlarm with alarmIndex, alarmVariable,
   alarmSampleType, alarmValue and the crossed threshold, each timestamped and matched to the
   burst that caused it, against an empty capture from the same stimulus after removal
+
+### `tcpflow.py`
+Summarises the **TCP conversations** in a `tcpdump -w` pcap, in pure Python. Every other decoder
+here knows one application protocol; this one knows only TCP, which is what a case needs when
+the question is *"did a session to this port actually happen, or was it refused?"*.
+- **Why it exists:** a connection that was **refused** and a connection that was **never
+  attempted** look identical in a `show` command and completely different on the wire. That
+  discrimination is the whole of an off/on/removed arc, and `platforms/x960.md` §5 records this
+  platform reporting a feature Enabled while the dataplane did nothing -- so the verdict has to
+  come from the packets (STANDING-ORDERS §7).
+- **Run:** `tcpflow.py <file.pcap> [--port N] [--ascii] [--max-bytes N] [--quiet]`, or
+  `tools/tb tool <TB> <scratch> tcpflow /tmp/<scratch>/<out>.pcap --port 23 [--ascii]`
+- **Where:** anywhere; **needs:** nothing beyond Python (no scapy; it reads the pcap format
+  directly, classic and pcapng, either endianness, Ethernet / Linux SLL / SLL2 / RAW, and
+  skips over VLAN tags)
+- **Imports:** none
+- **Output:** one block per flow with the endpoints, packet count, duration and a handshake
+  verdict -- `ESTABLISHED+DATA`, `ESTABLISHED`, `REFUSED (SYN answered by RST)`,
+  `NO-ANSWER (SYN, nothing back)` or `PARTIAL` -- then per direction the packet count, payload
+  bytes and the set of TCP flag combinations seen. `--ascii` additionally prints the printable
+  payload per direction, which for a cleartext protocol such as telnet is the login banner
+  itself.
+- **Limits:** IPv4 TCP only (no IPv6, no UDP); it does not reassemble out-of-order segments, so
+  `--ascii` is a concatenation in capture order, which is right for an interactive session and
+  wrong for a bulk transfer; a flow is keyed on the address/port pair, so a reused source port
+  inside one capture merges into one flow.
+- **Status:** verified 2026-10-20 on tb277, x960-56YSQ (T33378): four captures across one
+  telnet on/off arc -- 4 packets / 2 REFUSED flows with the server disabled, 94 packets with it
+  enabled (one ESTABLISHED+DATA flow carrying 2045 B of banner and command output, decoded with
+  `--ascii`, plus a refused-credential flow of 94 B), a REFUSED flow while `show telnet` still
+  read Enabled with Protocol IPv6, and 2 packets after removal
 
 ### `sflowwire.py`
 Decodes the **sFlow v5** datagrams in a `tcpdump -w` pcap and prints what each sample says. It

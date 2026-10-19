@@ -58,7 +58,14 @@ ADVISORY = re.compile(
     # tb277 2026-10-16 across `no service pim`, `no service pdm` and `no ip vrf red`,
     # each verified by the running-config afterwards.  Without it cfg.py abandons
     # every command after a service or VRF removal.
-    r"|Save the config and restart for this change to take effect",
+    r"|Save the config and restart for this change to take effect"
+    # `service telnet` / `service telnet ip` / `service telnet ipv6`: the server IS enabled and
+    # the prompt advances; this is a security nag, not a rejection.  Measured on tb277
+    # 2026-10-20 (T33378): `service telnet ip` printed it, and `show telnet` immediately
+    # afterwards read `Telnet server : Enabled / Protocol : IPv4 / Port : 23` with
+    # `service telnet` in the running-config.  Without it cfg.py abandons the rest of the
+    # batch at the very command that turns the feature on.
+    r"|Telnet is insecure and deprecated",
     re.I)
 
 def is_advisory(line):

@@ -307,8 +307,14 @@ def main():
 
     s = Session(tp, args.transcript)
     t0 = time.time()
-    pats = [("login", LOGIN_RE), ("password", PASSWORD_RE), ("priv", PRIV_RE),
-            ("user", USER_RE), ("fail", FAIL_RE)]
+    # FAIL is tested FIRST: a refused AW+ login prints "Login incorrect" and then re-presents
+    # "<host> login:", so a list that tested the login prompt first graded a real refusal as
+    # UNKNOWN (measured on tb277 2026-10-20, T33378's bad-credential control).
+    pats = [("fail", FAIL_RE), ("login", LOGIN_RE), ("password", PASSWORD_RE),
+            ("priv", PRIV_RE), ("user", USER_RE)]
+    # After the password has been sent, a fresh "login:" prompt IS the refusal.
+    post_pats = [("fail", FAIL_RE), ("priv", PRIV_RE), ("user", USER_RE),
+                 ("relogin", LOGIN_RE), ("password", PASSWORD_RE)]
 
     print("=== %s %s:%d as %s ===" % (args.proto, args.host, port, args.user))
 
@@ -329,14 +335,14 @@ def main():
 
     if name == "password":
         s.send_line(args.password)
-        name, post = s.read_until(pats, args.login_timeout)
+        name, post = s.read_until(post_pats, args.login_timeout)
         print("--- bytes after the password was sent (THE LOGIN BANNER) ---")
         sys.stdout.write(post.decode("utf-8", "replace"))
         if not post.endswith(b"\n"):
             print()
 
     secs = round(time.time() - t0, 1)
-    outcome = {"priv": "PRIV", "user": "USER", "fail": "FAIL",
+    outcome = {"priv": "PRIV", "user": "USER", "fail": "FAIL", "relogin": "FAIL",
                "EOF": "EOF", None: "TIMEOUT"}.get(name, "UNKNOWN")
     print("LOGIN RESULT: %s  proto=%s  user=%s  seconds=%s" %
           (outcome, args.proto, args.user, secs))
