@@ -1,0 +1,423 @@
+# T44301 -- (281) Management_Trap - Per-port link trap -- run 1 working log
+# tb277, DUT swi_d (AT-x960-56YSQ), console /dev/u2. Group snmpmon-2026-10-20T0825.
+# Written as the run went. Run is CLEAN.
+
+## Session facts (from the dispatch, not measured here)
+
+Identical to T44308 of this group; the full block is in `../T44308/work/run1.log`. In short:
+box tb277; consoles **u2 and u3 only** (u5 and u1 never opened; this case used u2 only); pdu
+10.36.230.212 outlets u2=1 u3=7 and **no PDU action was taken**; u2 = swi_d (DUT,
+AT-x960-56YSQ, S/N A2WQS700B), u3 = swi_b (AT-x960-28YSQ); constraints none beyond standing
+orders; Test Engineer Bidhan Chapagai; run UNATTENDED, nothing blocked on a prompt; stamp
+2026-10-20T0825; sentinel = the dispatching /test-mode parent session.
+
+Group-level facts recorded once in T44308's log: host NIC MACs, the link map, and the **DUT
+clock running ~15 s behind the box** (correcting the queue's "no skew"). That skew is applied
+below wherever a DUT log line is matched to a box-side capture timestamp, and it is what makes
+the correlation in STEP 5 exact.
+
+## Case text
+
+Title, from ck.db `zephyr_cases` key `AWPTCM-T44301`:
+**"(281) Management_Trap - Per-port link trap"**. Folder
+`/New Platform Test (MASTER)/New Platform Template/Management`, labels
+`["New_Platform_Management"]`, script_type STEP_BY_STEP, status Draft.
+
+🔴 **THERE IS NO AUTHORED STEP TEXT.** `num_steps 1`, `has_objective 0`, single step
+`[{"description":"","testData":"","expected":""}]` -- all three fields empty. Confirmed from
+ck.db with `tools/tb tool tb277 cksnmpmon ckcase AWPTCM-T44301`, and stated in the dispatch.
+**No objective, no precondition, no step description, no test data and no expected result exist
+to quote.** Every step below was designed by the tester from the title, from the DUT's own CLI
+surface (enumerated read-only in T44308 STEP 2 before anything in this group was configured),
+and from RFC 3418, which defines the linkDown and linkUp notifications the title names.
+
+The word the whole case turns on is **per-port**. So the design is a matched pair: two ports of
+the same model, on the same DUT, cabled to the same partner switch, flapped the same way in the
+same capture window -- one with the per-port trap armed and one without. A trap for the armed
+port and silence for the other is the only evidence that actually says "per-port".
+
+## Devices, links and instruments
+
+| role | name | model | serial | console | software | boot image / config |
+| --- | --- | --- | --- | --- | --- | --- |
+| DUT | swi_d | AT-x960-56YSQ | A2WQS700B | /dev/u2 @115200 | sin_x96056-20261012-24 | flash:/x960-tb277.rel / flash:/default.cfg |
+| partner (far end of both test links) | swi_b | AT-x960-28YSQ | A10737A261700021 | /dev/u3, NOT opened | sin_x96056-20260921-9 | flash:/backup.rel |
+
+- **The two test links, both to swi_b and both 1000BASE-T copper SFP:**
+  `swi_b port1.0.2 <-> swi_d port1.0.2` and `swi_b port1.0.16 <-> swi_d port1.0.16`.
+  Confirmed independently here by `show spanning-tree brief`, which gives both ports the same
+  Designated Bridge `8000:0000cd423029` -- i.e. the same far-end bridge.
+- **ifIndex, measured over SNMP, not assumed:**
+  `.1.3.6.1.2.1.2.2.1.2.5002 = STRING: port1.0.2`, `...5016 = STRING: port1.0.16`,
+  `...5010 = STRING: port1.0.10`. The ifIndex is 5000 + the port number on this platform, and
+  5002 / 5016 are the two numbers every trap below is graded on.
+- 🔴 **port1.0.10 and port1.0.48 were never shut, flapped or reconfigured.** They carry the path
+  to the trap receiver; flapping one would have destroyed the instrument. The dispatch names
+  port1.0.2 and port1.0.16 as the ports to use and that is what was used.
+- **port1.0.2 is the RSTP root port** at baseline and port1.0.16 is Alternate/Discarding to the
+  same bridge, exactly as the dispatch warned. Shutting the root port moves the root port to
+  port1.0.16 and back; that is normal RSTP and it reconverged fully (STEP 7).
+- Trap receiver: the box, **eth3 10.38.22.33/27**, cabled to swi_d port1.0.10 (access vlan 10,
+  `interface vlan10` 10.38.22.34/27). Traps are caught with `tools/tb capture ... udp port 162`
+  and decoded with `tools/snmpwire.py --port 162 --values --abs`.
+
+🔥 **`--values` is not optional for this case.** A linkDown and a linkUp trap carry
+**byte-identical varbind OIDs** -- ifIndex, ifAdminStatus and ifOperStatus, all at the same
+instance. The only thing that distinguishes them is the **value** of `snmpTrapOID.0`
+(`1.3.6.1.6.3.1.1.5.3` vs `.5.4`). Decoding OIDs alone cannot tell the two apart at all. The
+option was added to `tools/snmpwire.py` by T44308 of this group for exactly this reason.
+
+## Pre-run gate
+
+The group's gate ran once before its first case and is recorded in full in
+`../T44308/work/run1.log`; nothing about the box changed between cases and no console was
+released. Re-confirmed for this case:
+
+- **Boot baseline (gate 7)** -- `show boot` 10:37:34 NZDT: Current boot image
+  `flash:/x960-tb277.rel`, Current boot config `flash:/default.cfg (file exists)`, Default
+  `flash:/default.cfg`, Autoboot disabled. Re-read after teardown: identical.
+- **Console state** -- u2 at a clean `awplus#` privileged exec prompt.
+- Gates 5, 6, 8, 10 not applicable (manual case, no framework script). Gate 9: `sentinel: parent`.
+
+## DUT `show system`, verbatim and in full (captured 10:37:35 NZDT, before step 1)
+
+    System Status                                           Mon Oct 19 21:37:20 2026
+
+    Board      ID   Bay     Board Name                        Rev   Serial number
+    --------------------------------------------------------------------------------
+    Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+    PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+    PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+    Fan module 730  FAN1    AT-FAN19                          -     -
+    Fan module 730  FAN2    AT-FAN19                          -     -
+    --------------------------------------------------------------------------------
+    RAM: Total: 8092132 kB Free: 7460408 kB
+    Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+    --------------------------------------------------------------------------------
+    Environment Status : Normal
+    Uptime             : 3 days 15:14:56
+    Bootloader version : Unknown
+
+    Current software   : x960-tb277.rel
+    Software version   : sin_x96056-20261012-24
+    Build date         : Mon Oct 12 06:38:00 UTC 2026
+
+    Current boot config: flash:/default.cfg (file exists)
+
+    System Name
+     awplus
+    System Contact
+
+    System Location
+
+## HEALTH, sample 1 of 2 -- with the setup reads, before step 1 (10:37:43-10:37:50 NZDT)
+
+File `work/pre-u2.log`.
+
+- `show reboot history` -- newest **`2026-10-16 06:22:04 Expected CLI(user request)`**. Campaign
+  baseline.
+- `show exception log` -> **`None`**.
+- `show cpu` -> `1 second: 0%, 20 seconds: 0%, 60 seconds: 0%`; load 0.00/0.00/0.0.
+- `show memory` -> **`RAM total: 8092132 kB; free: 7460156 kB; buffers: 2356 kB`**.
+
+## STEP 1 (designed) -- the starting state of both test ports
+
+`show interface port1.0.2 status` / `port1.0.16 status` at 10:37:38-39:
+
+    Port        Name               Status      Vlan      Duplex Speed   Type
+    port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+    port1.0.16  -                  connected           1 a-full a-1000  1000BASE-T
+
+`show spanning-tree brief` at 10:37:40:
+
+    Default: Bridge up - Spanning Tree Enabled
+    Default: Root Path Cost 20000 - Root Port 5002 -  Bridge Priority 32768
+    Default: Root Id 8000:0000cd423029
+    Default: Bridge Id 8000:e01aead47043
+    port1.0.2       8000:0000cd423029    838a       Rootport         Forwarding
+    port1.0.16      8000:0000cd423029    8398       Alternate        Discarding
+
+Both ports up, both to the same far-end bridge (swi_b, which is also the STP root). port1.0.16
+is Discarding under RSTP -- the dispatch said so and it is true. **It does not matter for this
+case**: an RSTP role governs whether the port forwards user traffic, not whether its physical
+link state changes, and the measurement here is physical link state. STEP 5 proves it directly:
+the DUT logs port1.0.16's down and up events exactly as it logs port1.0.2's.
+
+`show running-config interface port1.0.2` and `... port1.0.16` at baseline are three lines each
+(`switchport`, `switchport mode access`) with **no `snmp trap link-status` on either**.
+
+**STEP 1 PASS.**
+
+## SETUP applied before step 2 (10:38:3x NZDT)
+
+    awplus# configure terminal
+    awplus(config)# snmp-server community testing123 ro
+    awplus(config)# snmp-server host 10.38.22.33 version 2c testing123
+    awplus(config)# snmp-server enable trap nsm
+    awplus(config)# end
+
+Each echoed with no `% ` (`work/s1-setup.log`). `nsm` is the trap group that carries link state
+on AW+ (the Network Services Module owns interface state); it was identified from the 32-group
+`snmp-server enable trap ?` list read in T44308 STEP 2. Secret `testing123`.
+
+`show running-config | include snmp`:
+
+    snmp-server
+    snmp-server enable trap nsm
+    snmp-server community testing123
+    snmp-server host 10.38.22.33 version 2c testing123
+
+**`swi_d.cfg` was saved here**, after setup and before step 2: 3 header + 102 config lines.
+
+## STEP 2 (designed) -- baseline OFF: the GLOBAL trap group alone produces nothing
+
+**This is the step that shows the per-port command is load-bearing.** `snmp-server enable trap
+nsm` is armed globally, and neither port carries `snmp trap link-status`. A full flap of
+port1.0.2 inside a 110 s capture of udp/162 (`work/s2-leg1-unarmed.log`):
+
+    10:39:01  tcpdump -i eth3 -w s2unarmed.pcap udp port 162   (110 s)
+    10:39:01 - 10:39:16  quiet
+    10:39:26  shutdown port1.0.2        -> show interface: port1.0.2 ... disabled
+    10:39:52  no shutdown port1.0.2     -> show interface: port1.0.2 ... connected
+    10:40:52  capture closed -- 0 packets captured
+
+    snmpwire SUMMARY 0 SNMP message(s): 0 ENCRYPTED, 0 PLAINTEXT   (exit 1 = nothing decoded)
+
+The flap was real: `show interface port1.0.2 status` read `disabled` between the two commands
+and `connected` after. **Zero traps.** So on this platform the global group is necessary but not
+sufficient, and a link trap is OFF by default on a port. **STEP 2 PASS.**
+
+## STEP 3 (designed) -- arm ONE port
+
+    awplus(config)# interface port1.0.2
+    awplus(config-if)# snmp trap link-status
+
+`show running-config interface port1.0.2` now carries the line; `... port1.0.16` still does not
+(`work/s3-arm.log`):
+
+    interface port1.0.2              interface port1.0.16
+     switchport                       switchport
+     switchport mode access           switchport mode access
+     snmp trap link-status           !
+
+**STEP 3 PASS.**
+
+## STEP 4 (designed) -- the measurement and its control, in ONE capture window
+
+Both flaps, armed port and unarmed port, inside a single 220 s capture so that no difference in
+agent state, community, route, receiver or time of day can be offered as an explanation for the
+difference in result (`work/s4-leg2-armed.log`), box clock:
+
+    10:41:29  tcpdump -i eth3 -w s4armed.pcap udp port 162   (220 s)
+    10:41:29 - 10:41:44  quiet
+    10:41:54  shutdown port1.0.2      (ARMED)    -> disabled
+    10:42:25  no shutdown port1.0.2   (ARMED)    -> connected
+    10:43:06  shutdown port1.0.16     (NOT armed) -> disabled
+    10:43:37  no shutdown port1.0.16  (NOT armed) -> connected
+    10:45:10  capture closed -- 2 packets captured
+
+The decode, `snmpwire.py /tmp/cksnmpmon/s4armed.pcap --port 162 --values --abs`
+(`work/s5-leg2-decode.log`), in full:
+
+    #1   10:41:52.459 10.38.22.34:50063 -> 10.38.22.33:162  SNMPv2c  community='testing123' pdu=SNMPv2-Trap  msgData=PLAINTEXT
+          1.3.6.1.2.1.1.3.0 = TimeTicks: 31432200                     sysUpTime.0
+          1.3.6.1.6.3.1.1.4.1.0 = OID: 1.3.6.1.6.3.1.1.5.3   <- linkDown
+          1.3.6.1.2.1.2.2.1.1.5002 = INTEGER: 5002                    ifIndex        = port1.0.2
+          1.3.6.1.2.1.2.2.1.7.5002 = INTEGER: 2                       ifAdminStatus  = down
+          1.3.6.1.2.1.2.2.1.8.5002 = INTEGER: 2                       ifOperStatus   = down
+          1.3.6.1.6.3.1.1.4.3.0 = OID: 1.3.6.1.4.1.207.1.14.204       snmpTrapEnterprise
+    #2   10:42:23.920 10.38.22.34:50063 -> 10.38.22.33:162  SNMPv2c  community='testing123' pdu=SNMPv2-Trap  msgData=PLAINTEXT
+          1.3.6.1.2.1.1.3.0 = TimeTicks: 31435400
+          1.3.6.1.6.3.1.1.4.1.0 = OID: 1.3.6.1.6.3.1.1.5.4   <- linkUp
+          1.3.6.1.2.1.2.2.1.1.5002 = INTEGER: 5002                    ifIndex        = port1.0.2
+          1.3.6.1.2.1.2.2.1.7.5002 = INTEGER: 1                       ifAdminStatus  = up
+          1.3.6.1.2.1.2.2.1.8.5002 = INTEGER: 1                       ifOperStatus   = up
+          1.3.6.1.6.3.1.1.4.3.0 = OID: 1.3.6.1.4.1.207.1.14.204
+    SUMMARY 2 SNMP message(s): 0 ENCRYPTED, 2 PLAINTEXT
+
+| window | what was done | what arrived on udp/162 |
+| --- | --- | --- |
+| 10:41:29-10:41:44 | nothing | nothing |
+| 10:41:54 | **shutdown port1.0.2 (ARMED)** | **linkDown, ifIndex 5002, admin 2, oper 2** |
+| 10:42:25 | **no shutdown port1.0.2 (ARMED)** | **linkUp, ifIndex 5002, admin 1, oper 1** |
+| 10:43:06 | shutdown port1.0.16 (NOT armed) | **nothing** |
+| 10:43:37 | no shutdown port1.0.16 (NOT armed) | **nothing** |
+| 10:43:37-10:45:10 | nothing, 93 s | nothing |
+
+**Every claim the case name makes is in that table.** Both traps name the armed port and only
+the armed port, by its measured ifIndex. Both carry the correct administrative and operational
+status for the direction of the transition. The identical operation on a sibling port in the
+same window, on the same DUT, to the same partner switch, produced nothing at all.
+`snmpTrapEnterprise` is `1.3.6.1.4.1.207.1.14.204`, the x960-56YSQ's sysObjectID.
+
+**STEP 4 PASS.**
+
+## STEP 5 (designed) -- the control is a measurement, not a silence: the DUT SAW both flaps
+
+A control that produces nothing is worthless if the stimulus might not have happened. The DUT's
+own log settles it (`work/s8-linklog.log`, `show log | include port1.0.2|port1.0.16`, DUT clock,
+add ~15 s for the box clock):
+
+    2026 Oct 19 21:41:38 user.notice awplus NSM[946]: Port down notification received for port1.0.2
+    2026 Oct 19 21:41:38 user.notice awplus MSTP[1090]: CIST root port changed: port1.0.2->port1.0.16
+    2026 Oct 19 21:41:38 user.notice awplus MSTP[1090]: CIST port1.0.16 now forwarding, propagating TC to other ports
+    2026 Oct 19 21:41:38 user.notice awplus NSM[946]: port1.0.2 user shutdown
+    2026 Oct 19 21:42:09 user.notice awplus NSM[946]: port1.0.2 user no shutdown
+    2026 Oct 19 21:42:10 user.notice awplus NSM[946]: Port up notification received for port1.0.2
+    2026 Oct 19 21:42:14 user.notice awplus MSTP[1090]: CIST root port changed: port1.0.16->port1.0.2
+    2026 Oct 19 21:42:14 user.notice awplus MSTP[1090]: CIST port1.0.2 now forwarding, propagating TC to other ports
+    2026 Oct 19 21:42:50 user.notice awplus NSM[946]: Port down notification received for port1.0.16
+    2026 Oct 19 21:42:50 user.notice awplus NSM[946]: port1.0.16 user shutdown
+    2026 Oct 19 21:43:21 user.notice awplus NSM[946]: port1.0.16 user no shutdown
+    2026 Oct 19 21:43:21 user.notice awplus NSM[946]: Port up notification received for port1.0.16
+
+**The DUT detected and logged all four link transitions in exactly the same words**, two for the
+armed port and two for the unarmed one -- `Port down notification received for ...` /
+`Port up notification received for ...`. It emitted a trap for two of them.
+
+⇒ **`snmp trap link-status` gates the NOTIFICATION, not the detection.** The silence for
+port1.0.16 is the feature working, not the stimulus failing. That is what turns the control into
+a measurement.
+
+Correlation with the wire, applying the measured ~15 s skew (DUT behind box):
+21:41:38 -> box 10:41:53 vs trap #1 at **10:41:52.459**; 21:42:10 -> box 10:42:25 vs trap #2 at
+**10:42:23.920**. Both within about a second, which is the resolution of a log stamped to the
+second against a capture stamped to the millisecond.
+
+The RSTP churn is in the log too and is exactly what STEP 1 predicted: the root port moved
+port1.0.2 -> port1.0.16 when the root port went down, and back when it returned.
+
+**STEP 5 PASS.**
+
+## STEP 6 (designed) -- removal, proven with the IDENTICAL stimulus
+
+    awplus(config)# interface port1.0.2
+    awplus(config-if)# no snmp trap link-status
+
+`show running-config interface port1.0.2` is back to its three baseline lines, the
+`snmp trap link-status` line gone. The same flap, in a fresh 110 s capture
+(`work/s6-leg3-removed.log`):
+
+    10:45:34  tcpdump -i eth3 -w s6removed.pcap udp port 162   (110 s)
+    10:45:42  no snmp trap link-status on port1.0.2
+    10:45:53  shutdown port1.0.2
+    10:46:24  no shutdown port1.0.2     -> show interface: connected
+    10:47:25  capture closed -- 0 packets captured
+
+    snmpwire SUMMARY 0 SNMP message(s): 0 ENCRYPTED, 0 PLAINTEXT
+
+The stimulus that produced two traps forty seconds of configuration earlier now produces none,
+with the global `snmp-server enable trap nsm` still armed. **The per-port line, and nothing
+else, is what was switched off.** **STEP 6 PASS.**
+
+## STEP 7 (designed) -- the bench is back where it started
+
+`show spanning-tree brief` after the last flap (`work/s7-health-after.log`):
+
+    Default: Root Path Cost 20000 - Root Port 5002 -  Bridge Priority 32768
+    port1.0.2       8000:0000cd423029    838a       Rootport         Forwarding
+    port1.0.16      8000:0000cd423029    8398       Alternate        Discarding
+
+**Byte-for-byte the STEP 1 state**: port1.0.2 is the root port and forwarding again, port1.0.16
+is Alternate/Discarding again. `show interface ... status` reads `connected` on both. No port is
+left shut and no RSTP role is left changed. **STEP 7 PASS.**
+
+## STEP 8 -- reboot persistence: NOT MEASURED
+
+🔴 This case performed no reload and wrote nothing to startup-config, so **persistence of
+`snmp trap link-status` across a reboot is NOT MEASURED and is not claimed.** The reason is the
+group's, not this case's: the L3 underlay (vlan10 on port1.0.10, vlan48 on port1.0.48) exists in
+running-config only -- the boot config is `flash:/default.cfg` -- so a reload destroys the path
+to the trap receiver, and writing it to startup-config is a change to the standing bench
+(STANDING-ORDERS §4), never taken unattended. Already in the queue as a NEEDS TEST ENGINEER item
+from group A; nothing new is asked.
+
+## HEALTH, sample 2 of 2 -- after the last step, before teardown (10:47:45-10:48:02 NZDT)
+
+File `work/s7-health-after.log`.
+
+- `show reboot history` -- newest **`2026-10-16 06:22:04 Expected CLI(user request)`**.
+  **Identical to sample 1; no new reboot.** None was expected: this case shut and re-enabled two
+  ports, which is not a reboot, and took no PDU action.
+- `show exception log` -> **`None`**. Identical to sample 1.
+- `show log | include kernel|exception|crash|restart|Unexpected`, read on the console and bounded
+  to this case's own window (DUT clock `21:37`-`21:48`): after discarding my own command echoes,
+  **one line**, and it is the familiar one:
+
+        2026 Oct 19 21:38:20 user.notice awplus IMISH[26033]: [SCRIPT]snmp restart isis
+
+  = box 10:38:35, the moment this case sent its `snmp-server` setup block. T44308 and T33413
+  logged the identical line at their own `snmp-server` changes. It is the SNMP subsystem
+  re-registering the ISIS agent after an snmp-server configuration change, at `user.notice`,
+  attributable to my own command. **Not a daemon crash.**
+  **No kernel line, no crash, no `Unexpected` entry** in the window. The two pre-existing
+  `kern.err boardinfo-eeprom-i2c` lines are dated 2026 Oct 16, outside it.
+- **Specifically looked for and NOT found: any loop-protection or LDF event.** This bench runs
+  `loop-protection loop-detect ldf-interval 1 fast-block` and the case flapped one of two
+  parallel links between the same pair of bridges, which is precisely the shape that can trip
+  it. `show log tail 150` filtered for `link|loop|LDF|NSM|block|STP|spanning` in this window
+  returns no loop-protection line and no blocked port. RSTP handled the transition on its own
+  (STEP 5) and no port was left blocked by anything other than RSTP's own Alternate role, which
+  is the baseline.
+- `show cpu` -> `1 second: 0%, 20 seconds: 0%, 60 seconds: 0%`; load 0.00/0.00/0.0. Identical to
+  sample 1.
+- `show memory` -> **`RAM total: 8092132 kB; free: 7452840 kB; buffers: 2452 kB`** against
+  **7460156 kB** free in sample 1: **used rose by 7,316 kB (0.09% of 8 GB)** across a case with
+  four port flaps, two RSTP reconvergences and six console sessions. **No leak is claimed and
+  none can be from one case**; two samples can only show a step change that did not come back,
+  and 7 MB over this workload is ordinary allocation. A leak test is its own case.
+
+**The run is CLEAN.** Nothing is confounded; no `NEEDS TEST ENGINEER` arises from the health reads.
+
+## Teardown and restore proof
+
+    awplus(config)# no snmp-server enable trap nsm
+    awplus(config)# no snmp-server host 10.38.22.33 version 2c testing123
+    awplus(config)# no snmp-server community testing123
+
+(`snmp trap link-status` was already removed as STEP 6, and port1.0.2 and port1.0.16 were both
+left `no shutdown` and connected.) No `% ` on any line (`work/s9-teardown.log`);
+`show running-config | include snmp` afterwards prints only the baseline `snmp-server`.
+
+- `python3 tools/rcdiff.py work/pre-u2.log work/post-u2.log` -> **no output, exit 0**: the
+  running configuration is **byte-identical** to the pre-case capture.
+- `show boot` after teardown -> Current boot image `flash:/x960-tb277.rel`, Current boot config
+  `flash:/default.cfg (file exists)` -- the gate-7 baseline, unchanged.
+- Console /dev/u2 left logged in at a clean `awplus#` privileged exec prompt. /dev/u3 was never
+  opened by this case.
+- Nothing of mine left running on the box: every `tcpdump` was started by `tools/tb capture`
+  with its own `timeout` and all had exited.
+- Captures kept in `/tmp/cksnmpmon/`: `s2unarmed.pcap` (empty, the baseline-OFF control),
+  **`s4armed.pcap`** (the two link traps), `s6removed.pcap` (empty, the removal control).
+
+## Files this case saved
+
+    tb277/x960/snmpmon-2026-10-20T0825/T44301/swi_d.cfg          (deliverable, after setup)
+    .../work/pre-u2.log        baseline, show system, port + STP + LLDP state, HEALTH 1
+    .../work/s1-setup.log, s1-rc-after-setup.log                 setup and the .cfg source
+    .../work/s2-leg1-unarmed.log       STEP 2, ifIndex confirmation and the unarmed flap
+    .../work/s3-arm.log                STEP 3
+    .../work/s4-leg2-armed.log         STEP 4, the run
+    .../work/s5-leg2-decode.log        STEP 4, the trap decode
+    .../work/s6-leg3-removed.log       STEP 6
+    .../work/s7-health-after.log       STEP 7 and HEALTH 2
+    .../work/s8-linklog.log            STEP 5, the DUT's own link log
+    .../work/s9-teardown.log, post-u2.log                        teardown and restore proof
+
+## Verdict
+
+The case is about one word, per-port, and that word was measured rather than inferred. With the
+global `nsm` trap group armed and no per-port configuration, a full flap of port1.0.2 produced
+nothing. With `snmp trap link-status` on port1.0.2 alone, the same flap produced a linkDown and
+a linkUp on the wire, each naming ifIndex 5002 -- measured, not assumed, from
+`ifDescr.5002 = port1.0.2` -- and each carrying the correct ifAdminStatus and ifOperStatus for
+its direction. In the same capture window, the identical flap of port1.0.16, a sibling port to
+the same partner switch, produced nothing, while the DUT's own log shows it detected and
+recorded all four transitions in identical words. Removing the one per-port line returned the
+behaviour to silence under the identical stimulus. The bench ended in its starting state, RSTP
+roles included.
+
+Reboot persistence is **NOT MEASURED** for the bench reason in STEP 8, and that limb is not
+claimed anywhere above.
+
+VERDICT: PASS -- linkDown and linkUp traps are emitted for the port that carries `snmp trap link-status` and for no other, proven on the wire by ifIndex with a sibling-port control flapped in the same window that the DUT logged but did not trap, with baseline-OFF and post-removal controls both empty under the identical stimulus; reboot persistence NOT MEASURED, no reload is possible in this campaign.
