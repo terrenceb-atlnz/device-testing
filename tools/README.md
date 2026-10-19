@@ -942,6 +942,54 @@ auth/priv bits is the proof.
   alarmSampleType, alarmValue and the crossed threshold, each timestamped and matched to the
   burst that caused it, against an empty capture from the same stimulus after removal
 
+### `sflowwire.py`
+Decodes the **sFlow v5** datagrams in a `tcpdump -w` pcap and prints what each sample says. It
+exists because `sflowtool` is not installed on every testbox and installing it is root
+(STANDING-ORDERS §4), while a verdict on sFlow needs the one thing no `show` command can give:
+that a datagram really left the switch, that it names the configured agent, and that the
+sampling rate and the sampled frame in it are the ones the case set up. `show sflow` saying
+"Enabled" is not a measurement -- `platforms/x960.md` §5 records this exact platform reporting a
+mirror Enabled while the dataplane copied nothing.
+- **Run:** `sflowwire.py <file.pcap> [--port 6343] [--limit N] [--abs] [--quiet] [--find TEXT]`
+- **Where:** anywhere; **needs:** nothing beyond Python (no scapy)
+- **Imports:** snmpwire (for the classic-pcap reader and the Ethernet/802.1Q/IPv4/UDP walk --
+  so it takes `tcpdump -w` output, NOT pcapng)
+- **Prints per datagram:** agent address, sub-agent id, datagram sequence number, agent uptime
+  and sample count. Per **flow** sample: the sampling rate as `1-in-N`, sample pool, drops,
+  input and output ifIndex, and the sampled frame's own header decoded -- MACs, 802.1Q/QinQ
+  tags, EtherType, IPv4 addresses, protocol and TCP/UDP ports. Per **counters** sample: the
+  ifIndex and the generic interface counters (ifType, ifSpeed, direction, status, and the in/out
+  octet, unicast, multicast, broadcast, discard and error counts). Ends with a `SUMMARY` line
+  giving the datagram count, flow and counters sample totals, the agent address(es) and the
+  sequence range.
+- **Options:**
+  - `--abs` absolute local time per datagram instead of the offset from the first one. Needed to
+    claim a control window was silent, and to line a datagram up with the burst that caused it.
+  - `--quiet` the SUMMARY line only -- the right form for counting in a control window.
+  - **`--find TEXT`** counts the raw-header samples whose sampled bytes contain that ASCII text,
+    and marks each one. 🔥 **This is how you prove WHICH burst a sample belongs to.** Send each
+    burst with `vsend.py --tag <marker>`; the marker travels in the payload and the sampled
+    header is the only place a decoder can see it. Without it two bursts of the same shape are
+    indistinguishable in a decode -- and that distinction is exactly what settled T44309's
+    finding (samples emitted after `no sflow enable` were of post-disable traffic, not a stale
+    buffer).
+- **Limits:**
+  - sFlow **v5** only; a v4 datagram is skipped, not reported.
+  - flow samples: the raw-packet-header record (format 1) is decoded; other record formats are
+    listed by format and length only. Counters: the generic interface record (format 1) is
+    decoded; the ethernet/dot3Stats record (format 2) that AW+ also sends is listed only.
+  - expanded samples (formats 3 and 4) are parsed, including their split source and
+    input/output fields.
+  - IPv4/UDP transport only; it does not reassemble.
+  - exit 1 means no sFlow datagram was decoded -- which for a control window is the expected
+    grade, not an error; 2 means the file could not be read.
+- **Status:** written and verified 2026-10-20 on tb277, x960-56YSQ (T44309). Self-tested first
+  against a hand-built synthetic v5 datagram (one flow sample with a raw header of a known
+  86-byte frame, one counters sample), then on hardware: 22 datagrams in which 2000 frames at a
+  configured 1-in-50 gave exactly 40 flow samples, each reporting `sampling_rate=1-in-50`, with
+  `sample_pool` stepping by exactly 50, 38 sampled headers decoding to the exact frame
+  `vsend.py` was told to build, and 5 counters samples all for the one polled port
+
 ### `radius.py`
 RADIUS (RFC 2865 / 2866) codec library -- the one home for the RADIUS wire format in this repo,
 imported by `radsend.py`, `radsrv.py` and `radwire.py` so the encoding that SENDS a packet is
