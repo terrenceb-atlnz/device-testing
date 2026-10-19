@@ -326,6 +326,16 @@ Every rule is in `logged-output.md` §2. In short, per case:
   quotes it; if it is not in your working log it cannot appear, and the deliverable is short a
   field the Test Engineer asked for (2026-10-19). A re-run starts `run<N+1>`. Read the framework log with
   `grep -a`. End with `VERDICT: <PASS|FAIL|PARTIAL|UNSUPPORTED> -- <reason>`.
+- **Health-check the DUT twice in every case** (logged-output.md §2 "Check the DUT's health"):
+  with the setup reads before step 1, and again after the last step, before teardown. Read
+  `show reboot history`, `show exception log`, `show log | include kernel|exception|crash|restart|Unexpected`,
+  `show log tail 150` (after only), `show cpu` and `show memory`. Keep both samples in the
+  working log. Read the log **on the console** and write down the filtered lines -- never pull a
+  whole `show log` into context. A new reboot you did not cause, a non-`None` exception log, or
+  a kernel or crash line makes the run **confounded**: report it to the sentinel as
+  `NEEDS TEST ENGINEER:` and keep going. Severity alone is not a fault -- AW+ logs normal
+  events at `user.crit`. Never claim a memory leak from one case; two samples can only show a
+  step change that did not come back.
 - **Commit** the case's folder; report the hash as "committed, NOT pushed".
 - **Then SendMessage the sentinel**
   `RESULT <id> <VERDICT> -- <one-line reason> -- <group>-<STAMP>/<id>/work/run<N>.log`.

@@ -42,6 +42,20 @@ What this memory keeps is the *why*: Terrence's rulings in the order he gave the
   - Scope, in his words: *"for all the test that we run in the future by me or someone, not just
     my campaign or testbox but anyone who would be using this skills and tools and ask CK."*
 
+- **2026-10-19, same session, a third ruling: the DUT's HEALTH is now part of every case.**
+  He asked whether `show log` (crashes, kernel errors), `show reboot history`, memory leaks and
+  CPU were checked during a run. **They were not.** `show reboot history` lived only in
+  `/orient-dt` and `/wrap-dt` — once at session start, once at session end — and CPU and memory
+  appeared nowhere in a tester's required workflow. Now every case reads
+  `show reboot history`, `show exception log`, a filtered `show log` + `show log tail 150`,
+  `show cpu` and `show memory` **twice**: with the setup reads and again after the last step.
+  Both samples go in the working log; the final log carries a five-line `HEALTH:` block
+  (logged-output.md §2 "Check the DUT's health" and §4). Four traps are written in beside it:
+  AW+ logs **normal** events at `user.crit` so severity alone is not a fault; the framework's
+  post-failure power cycle reads as `Unexpected System reboot`; the console wraps at 80 columns
+  so a one-line match misses a split line; and **one case cannot prove a memory leak** — two
+  samples show only a step change that did not come back.
+
 **Why:** the final log is what the Test Engineer attaches to Zephyr. It must be the proof and
 nothing else, and it must not be produced before a human has reviewed the verdicts.
 

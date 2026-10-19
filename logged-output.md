@@ -141,6 +141,9 @@ everything the §4 template needs, because `/create-logs` may use nothing else:
   it once, with the other setup reads, before step 1. Without it in the working log,
   `/create-logs` cannot put it in the final log and must leave it out -- which is exactly what
   happened to all ten cases of the 2026-10-16 campaign;
+- **the DUT's health reads, before step 1 and again after the last step** (the subsection
+  below says which commands and how to read them). Both samples go in the working log,
+  whatever they show. "Nothing in the log" is a measurement only if the log was read;
 - the links and host NICs used, with each NIC's MAC and addresses, and the DUT clock against the
   box's (once per group; later cases may point to the first case's log);
 - every command sent with its device prompt, and every configuration line exactly as sent;
@@ -164,6 +167,80 @@ side of too much.
 - **Teardown.** The tester still restores the bench after every case and verifies that by
   diffing `show running-config` against the pre-case copy (STANDING-ORDERS §1). That proof stays
   in the working log and is not part of the final log.
+
+### Check the DUT's health, every case (Test Engineer, 2026-10-19)
+
+The Test Engineer asked: *"when you run the test or the bench runner runs the test, are these
+things checked: show log to identify any crashes or any errors (kernel errors) or anything that
+should not be in there / show reboot history to check for any unexpected reboots / any memory
+leaks / CPU usage"*. Until this date they were **not**. `show reboot history` was read at
+`/orient-dt` and at `/wrap-dt`, so once at the start of a session and once at the end; nothing
+was read per case, and CPU and memory were never read at all. A unit that crashed, restarted a
+daemon or leaked memory during a case left no trace in that case's record.
+
+From now on **every case reads the DUT's health twice: once with the setup reads before step 1,
+and once after the last step, before teardown.** Both samples go in the working log. The final
+log carries the short `HEALTH:` block of §4.
+
+The commands, all read-only, all confirmed on AW+:
+
+```
+show reboot history
+show exception log
+show log | include kernel|exception|crash|restart|Unexpected
+show log tail 150                 <- the after sample only
+show cpu
+show memory
+```
+
+**Run them on the box and put the result in the working log. Do not pull a whole `show log`
+into the agent's context**: read it on the console, keep the filtered lines and the tail, and
+write those down.
+
+**How to read each one. Every trap below has already cost someone a session.**
+
+1. **`show reboot history`.** Compare the after sample with the before sample. Only a **new**
+   entry counts. A new entry is expected when the case itself reloaded the unit or the
+   framework power-cycled it; say which, and give the time. The framework's own post-failure
+   power cycle is logged as **`Unexpected System reboot`** on every bound device, so that
+   wording alone does not mean a fault (`/orient-dt` §4). Match it against the run's
+   `Power cycle ... completed` lines first. A new entry you cannot match to something you did
+   is a finding, and the case is **confounded** until it is explained.
+2. **`show exception log`.** An empty log prints the header and the word `None`. Anything else
+   is copied into the working log verbatim and reported to the sentinel the same day. Do not
+   run `clear exception log` during a campaign: the next case needs the same baseline.
+3. **`show log`.** AW+ writes a `<facility>.<severity>` field, for example `kern.crit` or
+   `daemon.err`. **Severity alone is not a fault.** On our own captures `user.crit` carries
+   completely normal events -- `Member 3 ... has joined the stack`, `Configuration update
+   completed for port3.0.1-port3.0.28`. What is worth a second look is a `kernel:` line, a
+   daemon that restarted, and anything naming the feature under test. Quote the line; do not
+   summarise it.
+   - **The console wraps at 80 columns**, so one long log line arrives as two and a one-line
+     match misses it (`/orient-dt` §4, a false FAIL on 2026-10-02). Read the raw lines before
+     grading anything on a match or on the absence of one.
+   - Log files read as **binary** because of control bytes, so always `grep -a`.
+4. **`show cpu`.** Record the idle figure in both samples. A busy CPU during a traffic test is
+   normal. What is reportable is a CPU that is still busy **after** the traffic stopped.
+   `show cpu history` gives the trend when a number looks wrong.
+5. **`show memory`.** Record the used figure in both samples. **One case cannot prove a memory
+   leak, and the log must not claim one.** What two samples can show is a **step change** that
+   does not come back after teardown -- that is the signal worth reporting, and the words for
+   it are "memory used rose from X to Y and had not returned N minutes after teardown". A real
+   leak test is a separate case: repeat one operation many times and sample memory across the
+   repeats.
+   - **Do not run `show memory allocations` routinely.** It alone took 22 s of serial transfer
+     on an IE520 and sits inside the window of a console wedge we investigated
+     (`IE520/i2c_evidence.log`). Use it only when a step change has already been measured.
+
+**What to do when a check is dirty.** The health reads do not by themselves change the case's
+verdict: a case whose steps all passed on a unit that also logged a crash is reported as its
+step verdict plus the health finding, and the run is labelled **confounded -- because ...**.
+Send the sentinel the finding on the same `RESULT` line's heels, as a
+`NEEDS TEST ENGINEER:` note. The Test Engineer decides whether the case is re-run.
+
+**A worked precedent is already in the repo:** `tb277/x960/mirror-2026-10-08T1637/T44974/`
+graded "no crash, restart, exception or NSM entry" as a step of its own, with the `show log
+tail 25` output quoted. That is the shape.
 
 ### Reporting to the sentinel
 
@@ -287,6 +364,12 @@ VERDICT: <PASS | FAIL | PARTIAL | UNSUPPORTED> -- <one-line summary>
       <thing checked> ............ <result>  (<the proof, in a few words>)
 <verdict block -- see below>
 CAVEAT:  <the scope limit of the proof, if any: what this run did NOT establish>
+HEALTH:  <the DUT's health across this case; the reads are in §2. One line per check.>
+         reboots ......... <no new entry | <n> new: <what caused each, with the time>>
+         exception log ... <None | <the entry, verbatim>>
+         log ............. <no crash, daemon restart or kernel error | <the line, verbatim>>
+         CPU ............. <idle <n>% before -> <n>% after>
+         memory .......... <<n>% used before -> <n>% used after>
 
 --------------------------------------------------------------------------------
 TOPOLOGY AS TESTED
