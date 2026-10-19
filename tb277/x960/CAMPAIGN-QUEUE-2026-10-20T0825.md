@@ -141,12 +141,56 @@ case, so a fresh tester can restore the bench from here.
 | T33413 | (280) Management_Trap - Temperature | snmpmon-2026-10-20T0825 | PARTIAL | the over-temperature trap could not be produced on this bench (no settable threshold; coolest sensor 27 °C against a 61 °C hardware limit) AND the RMON-alarm substitute is refused by the product; everything else measurable passed — `hw-monitoring` arms, chains and removes per-group, the AT-ENVMONv2 table matches the CLI on all 14 sensors, and no fault trap fired in a 100 s window in which two known-good RMON traps proved the transport live. **Grade is the Test Engineer's to confirm — see Issues** | T33413/work/run1.log | tester |
 | T44301 | (281) Management_Trap - Per-port link trap | snmpmon-2026-10-20T0825 | PASS | linkDown/linkUp emitted for the port carrying `snmp trap link-status` and for no other, proven on the wire by measured ifIndex (5002, read from ifDescr not assumed); a sibling port flapped in the same 220 s window was logged by the DUT but produced no trap; empty captures both before arming and after removal under identical stimulus | T44301/work/run1.log | tester |
 | T44309 | (297) Management_SFlow - SFlow Agent | snmpmon-2026-10-20T0825 | PASS | v5 datagrams sent to the configured collector from the configured agent address; 2000 frames at 1-in-50 gave **exactly 40** flow samples, each reporting the configured rate and decoding to the exact frame sent; a tenfold rate change dropped the yield tenfold; counter samples only for the one polled port of 77; nothing before configuration, nothing after removal. **Two intermittent defects — see Issues; FAIL is defensible and is the Test Engineer's call** | T44309/work/run1.log | tester |
+| T33378 | (229) Management - Telnet Server (IPv4) | mgmt-2026-10-20T0825 | PASS | proven on the wire across off / on / IPv6-only / removed: 4 pkts SYN→RST while disabled; 94 pkts with a real manager session carrying 2045 B of banner and output, the DUT logging telnetd from 10.38.22.33; a bad credential refused at the application on an ESTABLISHED connection; IPv4 refused while `show telnet` still read Enabled/IPv6; 2 pkts after removal; rcdiff byte-identical | T33378/work/run1.log | tester |
 | T33427 | (300) Management - Flexera Licensing | — | NOT TESTED | needs a Flexera licence from Chris Robb; installing a licence is the Test Engineer's (STANDING-ORDERS §4). Dropped by the Test Engineer 2026-10-19 | — | Test Engineer |
 | T33411 | (278) Management_TACACS+ - Authentication | — | NOT TESTED | BLOCKED: needs a TACACS+ server on TCP/49; binding a privileged port is root on the box (STANDING-ORDERS §4) and the DUT exposes no alternative port | — | sentinel |
 | T33410 | (277) Management_TACACS+ - Accounting | — | NOT TESTED | BLOCKED: depends on T33411 | — | sentinel |
 | T33412 | (279) Management_TACACS+ - Logging | — | NOT TESTED | BLOCKED: depends on T33411 | — | sentinel |
 
 ## Issues
+
+### NOTICE (bench) — the Test Engineer's minicom on u1 is GONE as of 2026-10-20 ~11:44
+
+`tools/tb precheck tb277 u2,u3` at the start of group C returned **exit 5 FOUND with exactly one
+item**: `process 744 (root, up 39-00:20:06): /usr/sbin/ser2net` — the box's own console daemon.
+**The `minicom -D /dev/ttyUSB1` that groups A and B ran alongside is no longer running.**
+
+Both session consoles read free. The tester treated the Test Engineer's **"Proceed"** of
+2026-10-19 16:53 as a standing answer rather than stalling an unattended queue on an
+already-answered question, which the sentinel agrees with: the FOUND set is now strictly
+*smaller* than the one that was approved. **u1 was not touched either way, by anyone, at any
+point in this campaign.**
+
+### 🔥 NOTICE (product fact, for platforms/x960.md) — how `service telnet` is stored, and a §5-shaped read-back
+
+Measured in T33378, all four states walked:
+
+| typed | stored in running-config | `show telnet` |
+| --- | --- | --- |
+| `service telnet ip` | `service telnet` **+** `no service telnet ipv6` | `Protocol: IPv4` |
+| `service telnet ipv6` as well | `service telnet` alone | `Protocol: IPv4,IPv6` |
+| `no service telnet ip` | `service telnet` **+** `no service telnet ip` | `Protocol: IPv6` |
+| `no service telnet` | `no service telnet` | `Disabled`, `Protocol: None` |
+
+**The command you type is not the command stored.** The IPv4-only state is defined by the
+*presence of a negation*, not by the enabling command — so a config diff or a restore recipe has
+to negate two lines, and a reader will never find the command that was issued.
+
+And a **§5-shaped read-back**: `show telnet` can read **Enabled** while IPv4 TCP/23 is refused
+(the IPv6-only state). Same shape as the mirroring trap in `platforms/x960.md` §5 — here it is
+correct behaviour, but it is another instance of "a `show` command's headline does not settle
+what the dataplane does".
+
+### 🛠 NOTICE (tooling) — `service telnet ip` prints a `%` line AND SUCCEEDS
+
+`% Warning: Telnet is insecure and deprecated. Please use SSH.` is emitted on success.
+`tools/cfg.py` was abandoning the rest of the batch **at the very command that turns the feature
+on**, because a `%` line reads as an error to a stop-on-error driver. Fixed by adding the text to
+`tools/console.py`'s ADVISORY list, with the transcript console.py's own rule requires.
+
+This is the inverse of memory `bench-scripts-stop-on-cli-errors`: there, a `%` line that looked
+like success and was a failure; here, a `%` line that looks like a failure and is a success.
+Both break a naive driver.
 
 ### 🛠 NOTICE (process) — the §8 `show log` filter MATCHES ITS OWN COMMAND, and the rule needs fixing
 
