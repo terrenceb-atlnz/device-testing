@@ -150,6 +150,38 @@ case, so a fresh tester can restore the bench from here.
 
 ## Issues
 
+### 🔎 CROSS-CASE (sentinel) — triggers CAN threshold CPU, memory and temperature; RMON alarms cannot
+
+Noticed by the sentinel at 12:13 while T33416 read `type ?`. **This qualifies group B's
+T33413 finding and should travel with it**, because a developer reading that finding alone would
+draw too strong a conclusion.
+
+The full AW+ trigger type list on this build:
+
+```
+atmf  cpu  env-sensor  interface  linkmon-probe  log  main-pse  memory
+periodic  ping-poll  pse-port  reboot  stack  time  usb
+```
+
+**`type cpu` ("Monitor CPU usage levels"), `type memory` ("Monitor memory usage levels") and
+`type env-sensor` ("Monitor environment sensor") all exist.**
+
+So the correct statement of the T33413/RMON finding is narrower than "no threshold on
+temperature, CPU or memory can be expressed on this build". It is:
+
+> **RMON's `alarmVariable` is restricted to the RMON tables, against RFC 2819** — so those
+> thresholds cannot be expressed *through RMON*, and an SNMP manager expecting standard RMON
+> behaviour will not find them. **AW+ provides the capability by a different, proprietary
+> mechanism (triggers), which is not interoperable with an RMON-based manager.**
+
+That is still a real finding — an RMON implementation that silently narrows a standard MIB is a
+problem for anyone using a standards-based NMS — but it is an **interoperability** finding, not
+a missing-capability one. `/create-logs` and `platforms/x960.md` should carry it in that form.
+
+Also settled by the same read: **`type interface` EXISTS** ("Monitor the link status of an
+interface"), so **T33416 is a genuine test, not UNSUPPORTED.** That was the campaign's one
+unverified CLI surface.
+
 ### 🔴🔥 FAIL — T47199: the default-password warning is absent on every access path. **A developer finding.**
 
 The campaign's first FAIL, and the best-evidenced thing in it.
