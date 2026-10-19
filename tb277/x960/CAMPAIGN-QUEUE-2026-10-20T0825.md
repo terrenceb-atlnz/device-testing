@@ -499,3 +499,100 @@ nothing, and `show boot` must still read boot image `flash:/x960-tb277.rel`, boo
 **The DUT's pre-existing global RADIUS secret is NOT ours.** `show radius` printed
 `Secret Key : Byc98JqUNsCGeNIJ8uZhkYpbcbRZY+Fs5c3qCqhdvYw=` before this campaign touched
 anything. It is left exactly as found. Every secret this group configures is `testing123`.
+
+---
+
+## Group B `snmpmon-2026-10-20T0825` — bench setup and the exact restore recipe
+
+Written by the group's tester (bench-runner) before the group's first case, so a fresh tester
+can restore the bench from this file alone if the session dies mid-group.
+
+**Consoles used:** /dev/u2 (swi_d, the DUT) and /dev/u3 (swi_b) only. /dev/u5 and /dev/u1 are
+never opened. Box scratch: `/tmp/cksnmpmon/` (`tools/tb scratch tb277 cksnmpmon`).
+
+**Physical/bench setup this group needs: NONE beyond what is already standing.** No recable, no
+VLAN change, no new SVI, no PDU action. The group uses the L3 underlay that was already up:
+
+    tb277 eth3 10.38.22.33/27 (MAC 00:0d:b9:55:77:0e)  <->  swi_d port1.0.10, vlan10 10.38.22.34/27
+    tb277 eth4 10.38.22.65/27 (MAC 00:0d:b9:55:77:0f)  <->  swi_d port1.0.48, vlan48 10.38.22.66/27
+    swi_b port1.0.2  <-> swi_d port1.0.2    (LLDP both ends; RSTP root path)
+    swi_b port1.0.16 <-> swi_d port1.0.16   (LLDP both ends; Alternate/Discarding under RSTP)
+
+The DUT's vlan10/vlan48 MAC (both SVIs share one) is `e0:1a:ea:d4:70:43`.
+
+⛔ Do NOT shut, flap or reconfigure port1.0.10 or port1.0.48. They carry the path to the trap
+receiver and the sFlow collector; flapping one destroys the instrument meant to catch the trap.
+The link-state case (T44301) flaps **port1.0.2** only.
+⛔ These SVIs exist in running-config only (boot config is `flash:/default.cfg`), so a DUT reload
+destroys them. **This group performs no reload and writes nothing to startup-config**, and
+therefore does NOT measure reboot persistence — the same recorded NEEDS TEST ENGINEER item as
+group A.
+
+**Common setup every case in this group applies, and the exact command that removes it:**
+
+| added on swi_d (u2) | removed by |
+| --- | --- |
+| `snmp-server community testing123 ro` | `no snmp-server community testing123` |
+| `snmp-server host 10.38.22.33 version 2c testing123` | `no snmp-server host 10.38.22.33 version 2c testing123` |
+| `snmp-server enable trap <group>` (rmon / nsm / hw-monitoring, per case) | `no snmp-server enable trap <group>` |
+
+**What each case adds on top, and the exact command that removes it:**
+
+| case | added on swi_d (u2) | removed by |
+| --- | --- | --- |
+| T44308 | `rmon event 11`, `rmon event 12`, `rmon alarm 11`, `rmon alarm 12`; on `interface port1.0.10`: `rmon collection stats 11`, `rmon collection history 11` | `no rmon alarm 11`, `no rmon alarm 12`, `no rmon event 11`, `no rmon event 12`; in `interface port1.0.10`: `no rmon collection stats 11`, `no rmon collection history 11` |
+| T33413 | `snmp-server enable trap hw-monitoring`; an RMON event + alarm bound to a temperature variable **if the CLI accepts one** (`rmon alarm ?` says the variable must be `etherStatsEntry.n.n`, so this is expected to be rejected — that rejection is the case's measurement) | `no snmp-server enable trap hw-monitoring`; `no rmon alarm <n>`, `no rmon event <n>` |
+| T44301 | `snmp-server enable trap nsm`; on `interface port1.0.2`: `snmp trap link-status`; the step itself does `shutdown` / `no shutdown` on port1.0.2 | `no snmp-server enable trap nsm`; in `interface port1.0.2`: `no snmp trap link-status`, and `no shutdown` so the link is left UP |
+| T44309 | `sflow agent ip 10.38.22.34`, `sflow collector ip 10.38.22.33 [port N]`, `sflow enable`; on `interface port1.0.10` (and/or port1.0.2): `sflow sampling-rate N`, `sflow polling-interval N` | `no sflow enable`, `no sflow collector ip 10.38.22.33`, `no sflow agent ip`; per interface `no sflow sampling-rate`, `no sflow polling-interval` |
+
+**The baseline the group must return to** (from `show running-config` 2026-10-20 09:56:20 NZDT,
+`T44308/work/pre-u2.log`). There is no `rmon`, no `sflow`, no `snmp-server community`, no
+`snmp-server host` and no `snmp-server enable trap` line at baseline; the only SNMP line is the
+bare `snmp-server`:
+
+    snmp-server
+    aaa authentication enable default local
+    aaa authentication login default local
+    interface port1.0.10
+     switchport
+     switchport mode access
+     switchport access vlan 10
+    interface vlan10
+     ip address 10.38.22.34/27
+    interface vlan48
+     ip address 10.38.22.66/27
+
+🔴 **The restore that matters most:** `interface port1.0.2` must be left `no shutdown` after
+T44301, and `port1.0.10`/`port1.0.48` must never be touched at all. The full group restore is:
+
+    configure terminal
+    no snmp-server enable trap rmon
+    no snmp-server enable trap nsm
+    no snmp-server enable trap hw-monitoring
+    no snmp-server host 10.38.22.33 version 2c testing123
+    no snmp-server community testing123
+    no sflow enable
+    no sflow collector ip 10.38.22.33
+    no sflow agent ip
+    no rmon alarm 11
+    no rmon alarm 12
+    no rmon event 11
+    no rmon event 12
+    interface port1.0.10
+     no rmon collection stats 11
+     no rmon collection history 11
+     no sflow sampling-rate
+     no sflow polling-interval
+    interface port1.0.2
+     no snmp trap link-status
+     no sflow sampling-rate
+     no sflow polling-interval
+     no shutdown
+    end
+
+**Verification after every case:** `python3 tools/rcdiff.py <pre>.log <post>.log` must print
+nothing, and `show boot` must still read boot image `flash:/x960-tb277.rel`, boot config
+`flash:/default.cfg` (both confirmed at 09:56:17 NZDT before the group's first command).
+
+**Every secret this group configures is `testing123`** (community string and sFlow/trap
+community alike). The DUT's pre-existing global RADIUS secret is left exactly as found.
