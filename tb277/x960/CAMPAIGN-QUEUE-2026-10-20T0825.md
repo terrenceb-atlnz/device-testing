@@ -138,12 +138,56 @@ case, so a fresh tester can restore the bench from here.
 | T33408 | (275) Management_RADIUS - Radius Client mode | aaa-2026-10-20T0825 | PASS | a user existing only on the RADIUS server logged in to the DUT, proven on the wire (24 packets: 7 Access-Request, 3 Accept, 1 Reject, 7 Accounting-Request, 6 Accounting-Response, 10/10 reply authenticators valid), paired Accounting Start/Stop, controls on wrong password / mismatched key / unreachable server, clean removal (rcdiff byte-identical) | T33408/work/run1.log | tester |
 | T33409 | (276) Management_RADIUS - Radius Proxy | aaa-2026-10-20T0825 | PASS | the proxy re-originated each request (new id, Proxy-State carrying the original, added Message-Authenticator, realm stripped); the two legs are cryptographically independent — the same pcap gives authenticator valid=5/invalid=0 on the NAS leg under testing123 and valid=0/invalid=5 on the upstream leg under the same secret | T33409/work/run1.log | tester |
 | T44308 | (296) Management - RMON | snmpmon-2026-10-20T0825 | PASS | statistics, history, event and alarm all measured against counted traffic (history bucket 2 = exactly 1000 packets / 86000 octets); four real SNMPv2c traps caught and decoded on udp/162; a control alarm stayed silent then fired with alarmValue exactly 50; removal proven on the CLI, in the MIB and on the wire | T44308/work/run1.log | tester |
+| T33413 | (280) Management_Trap - Temperature | snmpmon-2026-10-20T0825 | PARTIAL | the over-temperature trap could not be produced on this bench (no settable threshold; coolest sensor 27 °C against a 61 °C hardware limit) AND the RMON-alarm substitute is refused by the product; everything else measurable passed — `hw-monitoring` arms, chains and removes per-group, the AT-ENVMONv2 table matches the CLI on all 14 sensors, and no fault trap fired in a 100 s window in which two known-good RMON traps proved the transport live. **Grade is the Test Engineer's to confirm — see Issues** | T33413/work/run1.log | tester |
 | T33427 | (300) Management - Flexera Licensing | — | NOT TESTED | needs a Flexera licence from Chris Robb; installing a licence is the Test Engineer's (STANDING-ORDERS §4). Dropped by the Test Engineer 2026-10-19 | — | Test Engineer |
 | T33411 | (278) Management_TACACS+ - Authentication | — | NOT TESTED | BLOCKED: needs a TACACS+ server on TCP/49; binding a privileged port is root on the box (STANDING-ORDERS §4) and the DUT exposes no alternative port | — | sentinel |
 | T33410 | (277) Management_TACACS+ - Accounting | — | NOT TESTED | BLOCKED: depends on T33411 | — | sentinel |
 | T33412 | (279) Management_TACACS+ - Logging | — | NOT TESTED | BLOCKED: depends on T33411 | — | sentinel |
 
 ## Issues
+
+### 🟠 NEEDS TEST ENGINEER (recorded, not asked) — confirm T33413's grade: PARTIAL or UNSUPPORTED?
+
+The tester graded **PARTIAL** and set out its reasoning rather than deciding quietly. The
+sentinel did **not** re-grade: logged-output.md §1 makes this a genuine judgement call and
+`grading-authority-tier-list` puts the Test Engineer above both of us.
+
+**The case for PARTIAL (what the tester chose).** §1: *"It was unable to run fully, because of a
+physical or other misconfiguration"*. The platform **does** have the `hw-monitoring` trap group
+and it **does** arm. What is missing is any way for a bench to drive a sensor past a
+hardware-fixed limit — the coolest sensor reads **27 °C against a 61 °C limit**. That is a bench
+gap, and §1 puts a bench gap at PARTIAL.
+
+**The case for UNSUPPORTED.** §1: *"The platform does not support what the case tests"*. If the
+case is read as "the platform provides a settable temperature threshold and notifies on it",
+then it does not: there is no settable threshold anywhere, and the RMON-alarm substitute is
+**refused by the product**. On that reading the gap is the platform's, not the bench's.
+
+**Either is defensible. It changes the filename** (`-partial.log` vs `-unsupported.log`) **and
+the verdict block** the final log must carry (PARTIAL needs `NOT RUN:` + `UNBLOCK:`;
+UNSUPPORTED needs `NEEDS:` + `ABSENT:`). Settle it before `/create-logs`.
+
+### 🔥 Product finding — RMON alarmVariable is restricted to the RMON tables, against RFC 2819
+
+The second developer-grade finding from group B. **Five attempts, four syntaxes, all refused,
+none created** — including a plain `sysUpTime.0` control, so it is not a formatting mistake:
+
+```
+% OID number did not match 1.3.6.1.2.1.16.1.1.1. (etherStats) or 1.3.6.1.2.1.16.2.2.1. (etherHistory)
+% OID field string did not match an acceptable etherHistory field
+% Stats or history collection index was not correctly entered
+```
+
+**RFC 2819 places no such limit on `alarmVariable`** — it is any integer-valued MIB object, and
+that generality is the entire point of the RMON alarm group. On this build **no threshold on
+temperature, CPU, memory or any non-RMON counter can be expressed at all.**
+
+Measured alongside it, and useful: the AT-ENVMONv2 temperature table is at
+**`1.3.6.1.4.1.207.8.4.4.3.12.3.1`** — col 4 description, col 5 reading, col 6 upper limit,
+col 7 status, indexed `.1.<resource>.<sensor>` — and all 14 sensors agree with
+`show system environment` reading for reading. **So temperature CAN be thresholded by an
+external manager polling that table; the device simply cannot notify on it itself.** That is the
+crisp statement of the gap for a developer.
 
 ### ✅ RESOLVED 09:25 NZDT (was a live hazard 09:22–09:24) — the DUT rejected `manager` on the console
 
