@@ -151,6 +151,21 @@ case, so a fresh tester can restore the bench from here.
 
 ## Issues
 
+### NOTICE (scope) — enumerated but NOT graded, across the campaign
+
+Stated so `/create-logs` does not imply coverage these cases do not have:
+
+- **IPv6 telnet** — the surface was walked (`service telnet ipv6`, `Protocol: IPv4,IPv6`,
+  `Protocol: IPv6`) but the case is scoped IPv4 and no IPv6 session was driven or captured.
+- **`type interface … any`** — the third interface-trigger direction, alongside the `down` and
+  `up` that were measured.
+- **A trigger's `day` / `time` / `test` options** — present in the sub-mode, not exercised.
+- **A trigger script's CONTENT** — needs a root write to `/tftproot` (§4). The trigger was proven
+  to *reach* the script (`Unable to activate script … (File not found)`), so the open limb is now
+  "what does a script do when it runs", not "does the action list run".
+- **HTTP login** — NOT MEASURABLE on this DUT: `show http` reads `GUI file in use : -`, no Web
+  GUI is installed, and installing one is a bench change.
+
 ### ✅ TRIAGE POLICY — a future TRIAGE *can* read the trigger `type` surface
 
 Measured in T33416: **entering `trigger N` and leaving without setting a `type` persists nothing**
@@ -242,6 +257,12 @@ a user-generated config will not."* **Both units store the manager password as `
 (SHA-256-crypt), not `$1$` (MD5).** Supporting detail: both units' manager hashes carry
 **8-character salts** while a password set through the CLI got a **16-character salt** — different
 generators, so the manager hashes were not produced by an ordinary CLI command.
+
+**The authority for expecting it, precisely.** **X960 TPS row 271 = Yes**, and **TFS 2616.1**:
+the warning is required *"at every login using the default account 'manager'"*, with
+`Configuration Commands: None`, applicability *all platforms in 5.5.1-2*, and
+**`Excluded Targets: None`**. There is no documented gate and no documented exclusion — which is
+what makes the silence a defect rather than a configuration choice.
 
 **Verdict confirmation needed.** The tester graded **FAIL**: the feature is declared supported
 (TPS row 271 = Yes, Priority 1) and the behaviour is absent. If an unset `def_pwd_chg` boot
