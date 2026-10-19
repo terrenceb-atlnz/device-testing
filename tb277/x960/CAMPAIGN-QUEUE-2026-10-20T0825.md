@@ -124,7 +124,7 @@ exists**, rather than implying the steps were authored.
 | A | T33407 Local RADIUS Server; T33408 RADIUS Client mode; T33409 RADIUS Proxy | `aaa-2026-10-20T0825` | **DONE — 3 of 3 PASS** | RADIUS only. The tester runs a **second, user-owned freeradius** on unprivileged ports (e.g. 11812/11813) and points the DUT at them with `radius-server host <ip> auth-port/acct-port` — the running system instance needs root to reconfigure. All shared secrets are `testing123` |
 | A-blocked | T33411 TACACS+ Authentication; T33410 TACACS+ Accounting; T33412 TACACS+ Logging | — | **BLOCKED** | TACACS+ needs a server on **TCP/49**, a privileged port, and the DUT exposes **no alternative**: `tacacs-server host <ip> ?` offers only `key \| vrf \| <cr>` (measured at triage). Binding it is root on the box = STANDING-ORDERS §4, never done unattended. See `## Issues` for the exact unblock |
 | B | **T44308 RMON; T33413 Trap Temperature**; T44301 Per-port link trap; T44309 sFlow Agent | `snmpmon-2026-10-20T0825` | **DONE — 3 PASS, 1 PARTIAL** | **Reordered at the tester's recommendation: RMON runs FIRST**, because T33413's only measurable trap limb is an RMON alarm bound to a temperature OID, so the alarm instrument is already proven when T33413 needs it. T33413's genuine over-temperature limb is **NOT MEASURABLE** — see `## Issues`. T44301 must flap **port1.0.2 or port1.0.16**, never port1.0.10/port1.0.48, which carry the path to the trap receiver |
-| C | **T33378 Telnet Server (IPv4); T47199 default-password warning; T33416 Triggers - Interface** | `mgmt-2026-10-20T0825` | RUNNABLE | **Reordered at the tester's recommendation: Telnet FIRST**, because the console login shows no default-password warning (measured), so T47199 must look on telnet/SSH/HTTP — and T33378 is the case that turns telnet on. First action for T33416: `trigger 1` → `type ?`, the campaign's one unverified CLI surface |
+| C | **T33378 Telnet Server (IPv4); T47199 default-password warning; T33416 Triggers - Interface** | `mgmt-2026-10-20T0825` | **DONE — 2 PASS, 1 FAIL** | **Reordered at the tester's recommendation: Telnet FIRST**, because the console login shows no default-password warning (measured), so T47199 must look on telnet/SSH/HTTP — and T33378 is the case that turns telnet on. First action for T33416: `trigger 1` → `type ?`, the campaign's one unverified CLI surface |
 | — | T33427 Flexera Licensing | — | **NOT TESTED** | Test Engineer's decision, 2026-10-19: *"Drop it — NOT TESTED"*. Its step 1 is *"Request Chris Robb to generate a Flexera License for a particular feature"*; installing a licence is the Test Engineer's (STANDING-ORDERS §4) and no licence file was available this session |
 
 Setup and restore recipes are written into this file by the tester before each group's first
@@ -143,12 +143,44 @@ case, so a fresh tester can restore the bench from here.
 | T44309 | (297) Management_SFlow - SFlow Agent | snmpmon-2026-10-20T0825 | PASS | v5 datagrams sent to the configured collector from the configured agent address; 2000 frames at 1-in-50 gave **exactly 40** flow samples, each reporting the configured rate and decoding to the exact frame sent; a tenfold rate change dropped the yield tenfold; counter samples only for the one polled port of 77; nothing before configuration, nothing after removal. **Two intermittent defects — see Issues; FAIL is defensible and is the Test Engineer's call** | T44309/work/run1.log | tester |
 | T33378 | (229) Management - Telnet Server (IPv4) | mgmt-2026-10-20T0825 | PASS | proven on the wire across off / on / IPv6-only / removed: 4 pkts SYN→RST while disabled; 94 pkts with a real manager session carrying 2045 B of banner and output, the DUT logging telnetd from 10.38.22.33; a bad credential refused at the application on an ESTABLISHED connection; IPv4 refused while `show telnet` still read Enabled/IPv6; 2 pkts after removal; rcdiff byte-identical | T33378/work/run1.log | tester |
 | T47199 | (273) Management_Operation - Show warning message when user continues to use default PW | mgmt-2026-10-20T0825 | **FAIL** | `% Default password needs to be changed.` absent from EVERY access path — 2 console logins on swi_d, telnet, SSH, and 2 console logins on swi_b (different model, 3-week-older build, also still on `friend`) — and absent from the log, while TPS row 271 says Yes at Priority 1 and the DUT still authenticates with the factory password. A `banner exec` marker proved the instruments can see a message in exactly that position | T47199/work/run1.log | tester |
+| T33416 | (283) Management_Triggers - Interface | mgmt-2026-10-20T0825 | PASS | `type interface` exists; proven on three independent instruments — activation counters, the SNMPv2c trap on the wire (AT trigger OID `1.3.6.1.4.1.207.8.4.4.4.53.0.1`, trigger ID in varbind `…53.1.0`), and the DUT's own `TRIGGER[…] activated` log line — with three silent controls under identical stimulus (sibling port, `no active`, `no trigger`), 0 traps in 270 s from the instrument that had just recorded three | T33416/work/run1.log | tester |
 | T33427 | (300) Management - Flexera Licensing | — | NOT TESTED | needs a Flexera licence from Chris Robb; installing a licence is the Test Engineer's (STANDING-ORDERS §4). Dropped by the Test Engineer 2026-10-19 | — | Test Engineer |
 | T33411 | (278) Management_TACACS+ - Authentication | — | NOT TESTED | BLOCKED: needs a TACACS+ server on TCP/49; binding a privileged port is root on the box (STANDING-ORDERS §4) and the DUT exposes no alternative port | — | sentinel |
 | T33410 | (277) Management_TACACS+ - Accounting | — | NOT TESTED | BLOCKED: depends on T33411 | — | sentinel |
 | T33412 | (279) Management_TACACS+ - Logging | — | NOT TESTED | BLOCKED: depends on T33411 | — | sentinel |
 
 ## Issues
+
+### ✅ TRIAGE POLICY — a future TRIAGE *can* read the trigger `type` surface
+
+Measured in T33416: **entering `trigger N` and leaving without setting a `type` persists nothing**
+— no `show trigger` row, no running-config line. So reading `type ?` is effectively read-only
+and a future triage need not defer it. **This retires the "first action of the group's tester"
+caveat** this campaign had to carry.
+
+Contrast, from group A: entering **`group <name>`** in the RADIUS proxy sub-mode **DOES create
+it**. The two sub-modes differ, so neither behaviour can be assumed from the other.
+
+### 🛠 NOTICE (tooling) — `show trigger` with no triggers prints a `%` line from a SUCCESSFUL show
+
+`% No triggers currently defined` stops `cfg.py`. The tester deliberately did **not** add it to
+`console.ADVISORY`, which is for configuration commands, and ran shows through `ckcon.py`
+instead. That is the right call and worth keeping: ADVISORY is not a dumping ground for every
+benign `%`.
+
+Related grep trap: **`show running-config | include trigger` prints only `trigger 1` / `trigger 2`**
+— the sub-mode lines (`type`, `description`, `trap`, `repeat`) do not contain the word. That grep
+tells you a trigger exists and **nothing about what it does**.
+
+### NOTICE (campaign) — the trigger ACTION list is executed, but script CONTENT is NOT MEASURED
+
+Pointing `script 1` at a deliberately absent file made the DUT log
+`TRIGGER[1411]: Trigger 1 (ck down on port1.0.2) activated` immediately followed by
+`Unable to activate script /flash/cktrig.scp (File not found)` — which proves the action list is
+**executed, not merely counted**. What a script *does* when it runs still needs a root write to
+the box's `/tftproot`: the same §4 limb T44181 left open, and item 5 on the 2026-10-19 handover's
+OPEN list. **This case narrows that open item** from "does the trigger run its action?" to "what
+does a script do when it runs?".
 
 ### 🔎 CROSS-CASE (sentinel) — triggers CAN threshold CPU, memory and temperature; RMON alarms cannot
 
