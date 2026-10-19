@@ -135,6 +135,7 @@ case, so a fresh tester can restore the bench from here.
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
 | T33407 | (274) Management_RADIUS - Local RADIUS Server | aaa-2026-10-20T0825 | PASS | served real RADIUS on the wire (5 requests, 2 Accept / 3 Reject, every reply's authenticator verifying against the configured secret); rejected wrong password, unknown user and wrong secret; ignored a non-NAS host; removed cleanly (rcdiff byte-identical) | T33407/work/run1.log | tester |
+| T33408 | (275) Management_RADIUS - Radius Client mode | aaa-2026-10-20T0825 | PASS | a user existing only on the RADIUS server logged in to the DUT, proven on the wire (24 packets: 7 Access-Request, 3 Accept, 1 Reject, 7 Accounting-Request, 6 Accounting-Response, 10/10 reply authenticators valid), paired Accounting Start/Stop, controls on wrong password / mismatched key / unreachable server, clean removal (rcdiff byte-identical) | T33408/work/run1.log | tester |
 | T33427 | (300) Management - Flexera Licensing | — | NOT TESTED | needs a Flexera licence from Chris Robb; installing a licence is the Test Engineer's (STANDING-ORDERS §4). Dropped by the Test Engineer 2026-10-19 | — | Test Engineer |
 | T33411 | (278) Management_TACACS+ - Authentication | — | NOT TESTED | BLOCKED: needs a TACACS+ server on TCP/49; binding a privileged port is root on the box (STANDING-ORDERS §4) and the DUT exposes no alternative port | — | sentinel |
 | T33410 | (277) Management_TACACS+ - Accounting | — | NOT TESTED | BLOCKED: depends on T33411 | — | sentinel |
@@ -168,6 +169,20 @@ rejected `manager` (`Access-Reject to 10.38.22.34 id=134 user='manager' (no such
 DUT honoured it without trying `local`. The fallback fires on **no response**, never on an
 authoritative reject. **The safe pattern is: the RADIUS server must know every account you still
 need, or the server must be absent.** This belongs in `platforms/x960.md`.
+
+**RESOLVED — and two sentinel hypotheses were settled against the server log, one wrong, one right:**
+- **A `radclient1` lockout was NOT what happened.** The sentinel read the repeated 09:27–09:28
+  rejects as a possible lockout poisoning the positive leg. Wrong: every attempt reached the
+  server and the server's answers are on record — 09:27:17 was a deliberate **wrong-password**
+  control (`Access-Reject`), and 09:27:55–09:28:10 was a deliberate **wrong-shared-key** control
+  (four `DROP-bad-msg-auth` 5.003 s apart, then the local fallback). Designed negative legs, not
+  accidents. The DUT's log never passed `FAILED LOGIN 2` against the 5 that lock an account.
+- **The `Last login:` discriminator was CONFIRMED**, and is now `platforms/x960.md` §7E.2. Five
+  local logins printed `Last login: … on ttyS0`; three RADIUS-served logins printed none; each
+  cross-checked against the server's own Access-Accept lines, no exceptions. Mechanism: the line
+  comes from the Linux lastlog of a **local** account, and a RADIUS session has no local account.
+  (The sentinel had seen one counter-example and told the Test Engineer it probably would not
+  survive — it did.)
 
 **`Session setup problem, abort.` was NOT an authentication failure.** The server logged
 `Access-Accept to 10.38.22.34 id=195 user='radclient1' (ok)` — the DUT received and accepted the
