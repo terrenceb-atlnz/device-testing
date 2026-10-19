@@ -153,9 +153,29 @@ aaa authentication login default local
 no aaa accounting login default
 ```
 
-**Peak exposure: 3 failed `manager` logins against a 5-failure lockout.** Nothing was lost. The
-account was never locked. The account of record below is kept because the mechanism is a real
-trap that will recur, and because the sentinel's advice was part of it.
+**Peak exposure: 2 failed `manager` logins against a 5-failure lockout** (the sentinel first
+wrote 3, miscounting the attempt that actually succeeded; the tester's count is correct).
+Nothing was lost, the account was never locked, and no reload was needed.
+
+**The recovery became a measurement.** The tester stopped its radsrv instance, so the server went
+unreachable and the `local` fallback engaged on no-response. `manager` then authenticated locally
+in **25.5 s**, against **0.4 s** when the method list is plain `local` — the DUT really did try
+RADIUS first and waited out `timeout 5` × (1 + 3 retransmits) before falling through. That
+timing difference is the proof that the method list was in force.
+
+**🔥 Product fact, now recorded: `local` is NOT a fallback for an Access-Reject.** The server
+rejected `manager` (`Access-Reject to 10.38.22.34 id=134 user='manager' (no such user)`) and the
+DUT honoured it without trying `local`. The fallback fires on **no response**, never on an
+authoritative reject. **The safe pattern is: the RADIUS server must know every account you still
+need, or the server must be absent.** This belongs in `platforms/x960.md`.
+
+**`Session setup problem, abort.` was NOT an authentication failure.** The server logged
+`Access-Accept to 10.38.22.34 id=195 user='radclient1' (ok)` — the DUT received and accepted the
+Accept and then failed to build the session, and no Accounting-Request followed. The Accept
+carried only a Reply-Message: **no Service-Type and no privilege attribute**. That is an
+instrument defect in the test server, **not a DUT defect**, and it is being treated as a step of
+its own. Also measured: the DUT's Access-Request carries `NAS-Identifier='console'`,
+`Service-Type=8 (Authenticate-Only)` and a Message-Authenticator.
 
 ---
 
