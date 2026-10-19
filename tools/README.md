@@ -207,6 +207,40 @@ root shell before a run.
 - **Limits:** it sends one CR, so it is not strictly passive
 - **Status:** verified 2026-10-02 on tb470: IE520 (u3) and x230 (u0, 9600)
 
+### `conlogin.py`
+Logs a console OUT and back IN as a named user, and reports what the login did. This is the
+instrument an AAA case needs: `aaa authentication login` only runs when somebody really logs
+in, so a case that configures RADIUS, TACACS+ or local authentication has to produce a real
+login attempt and grade it -- no `show` command can. A refused login is a first-class result,
+not an error.
+- **Run:** `conlogin.py <tty> <baud> <transcript> --user U --password P [--logout]
+  [--restore-user U --restore-password P] [--no-restore] [--settle S]
+  [--expect fail|priv|user]`, or `tools/tb conlogin <TB> <scratch> <uN> <baud> ...`
+- **Where:** testbox; **needs:** pyserial
+- **Imports:** console
+- **Output:** one line, `LOGIN RESULT: PRIV|USER|FAIL|TIMEOUT  user=<u>  seconds=<s>
+  prompt=<the last line seen>`
+- **Exit:** 0 privileged `#`, 1 unprivileged `>`, 2 refused, 3 nothing recognisable,
+  4 **the RESTORE login failed** (the serious one -- the console may need a human), 6 usage.
+  With `--expect`, 0 means the outcome matched and 5 that it did not.
+- **Always restores.** Unless `--no-restore`, it ends by logging in as a fallback user
+  (default `manager`/`friend`, i.e. `CK_USER`/`CK_PASSWORD`), `enable`s if it lands at `>`,
+  and leaves the console at exec with `terminal no monitor`. A case that deliberately breaks
+  authentication therefore still hands the console back usable.
+- **Limits and traps:**
+  - **An AW+ console login lands at privilege 1 (`>`) even for a `privilege 15` username**, so
+    a login test's success is `USER`, not `PRIV`. Expect `priv` only after an `enable`.
+  - **`--settle` must exceed the method list's fallback delay.** On an x960 with
+    `aaa authentication login default group radius local` and the server unreachable, the
+    local fallback took **25.5 s** -- the 25 s default read it as a TIMEOUT while the login
+    actually succeeded (measured 2026-10-20, `platforms/x960.md` §7E.1).
+  - It counts against a device's failed-login lockout like any other login. AW+ locks an
+    account at 5 failures with a timer that restarts on each further attempt: plan the number
+    of negative attempts, and never retry in a loop.
+- **Status:** verified 2026-10-20 on tb277, x960-56YSQ (T33408): local login, a refused login,
+  a RADIUS-served login for a user with no local account, the local fallback with the server
+  down, and two console recoveries after authentication was deliberately broken
+
 ### `poll.py`
 Runs commands every `interval_s` for `duration_s`, stamped with epoch times. It logs in again
 when the session drops, for example when the master reloads, and touches `donefile` at the end.
