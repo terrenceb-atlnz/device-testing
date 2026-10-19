@@ -133,10 +133,12 @@ Nothing is deleted until every check passes for that case:
   capture it, leave it out, say so in the summary as a claim with no source, and tell the Test
   Engineer -- never read it off the bench afterwards or copy it from `bench-state.md`, because
   that is a different moment and a different source.
-- **`HEALTH:` is present and sourced.** Its five lines come from the working log's before and
-  after health reads (logged-output.md §2). A check the tester did not run is written as
-  `not read`, never guessed and never filled in from another case. If none were run, say so in
-  the summary as a missing requirement.
+- **`HEALTH:` is present and sourced -- and its absence FAILS this check.** Its five lines
+  come from the working log's before and after health reads (logged-output.md §2,
+  STANDING-ORDERS §8). Never guess one, never fill one in from another case, and never read it
+  off the bench afterwards. If the working log has no health reads, **the case fails this check
+  and keeps its `work/`**: name it in the summary as a case that must be re-run or waived by the
+  Test Engineer. This holds for every campaign, every testbox and every tester.
 - **Plain English (logged-output.md §4).** Read every line you wrote -- not the device output --
   as a junior engineer who reads English as a second language. One idea per sentence, common
   words, no idioms, the number rather than an adjective. Anything needing a second read is

@@ -157,3 +157,28 @@ runs it**.
 
 Related: [[campaign-measurement-discipline]] (baseline OFF first, traffic must TRANSIT the DUT,
 split PROVEN from NOT MEASURABLE), [[satisfactory-level-of-testing]].
+
+## 8. Health-check the DUT in every case (Test Engineer, 2026-10-19)
+
+The order, as given: *"when you run the test or the bench runner runs the test, are these
+things checked: show log to identify any crashes or any errors (kernel errors) or anything that
+should not be in there / show reboot history to check for any unexpected reboots / any memory
+leaks / CPU usage"*. Until this date they were **not**. It now applies to **every case, now and
+in future, whoever runs it and whatever testbox it runs on** — by `bench-runner`, by a framework
+script, by another agent, or by hand.
+
+- **Twice per case**, no exceptions: with the setup reads before step 1, and again after the
+  last step, before teardown. Both samples go in the working log, whatever they show. The
+  commands and how to read each are in **[logged-output.md](logged-output.md) §2, "Check the
+  DUT's health, every case"**; the final log's `HEALTH:` block is §4 there.
+- **This is checked twice too.** The tester runs the reads; **`/create-logs` then refuses to
+  finish a case whose final log has no sourced `HEALTH:` block** — that case keeps its `work/`
+  and is reported to the Test Engineer. A health read is not optional and cannot be waived by
+  the tester.
+- **A dirty read does not silently change the verdict.** The case keeps its step verdict, the
+  run is labelled *confounded — because …*, and the tester sends the sentinel a
+  `NEEDS TEST ENGINEER:` note. Re-running is the Test Engineer's call (§4).
+- **Never claim a memory leak from one case.** Two samples can only show a step change that did
+  not come back after teardown. A leak test is its own case.
+
+Related: [[log-is-the-deliverable]], [[campaign-measurement-discipline]].

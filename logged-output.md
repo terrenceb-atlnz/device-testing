@@ -182,6 +182,12 @@ From now on **every case reads the DUT's health twice: once with the setup reads
 and once after the last step, before teardown.** Both samples go in the working log. The final
 log carries the short `HEALTH:` block of §4.
 
+**This applies to every case, whoever runs it and whatever testbox it runs on** --
+`bench-runner`, a framework script, another agent, or by hand. It is a standing order
+(STANDING-ORDERS §8), and it is checked twice: the tester runs the reads, and `/create-logs`
+refuses to finish a case whose final log has no sourced `HEALTH:` block. A tester cannot waive
+it; only the Test Engineer can.
+
 The commands, all read-only, all confirmed on AW+:
 
 ```
