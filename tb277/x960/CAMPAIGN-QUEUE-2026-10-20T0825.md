@@ -142,12 +142,69 @@ case, so a fresh tester can restore the bench from here.
 | T44301 | (281) Management_Trap - Per-port link trap | snmpmon-2026-10-20T0825 | PASS | linkDown/linkUp emitted for the port carrying `snmp trap link-status` and for no other, proven on the wire by measured ifIndex (5002, read from ifDescr not assumed); a sibling port flapped in the same 220 s window was logged by the DUT but produced no trap; empty captures both before arming and after removal under identical stimulus | T44301/work/run1.log | tester |
 | T44309 | (297) Management_SFlow - SFlow Agent | snmpmon-2026-10-20T0825 | PASS | v5 datagrams sent to the configured collector from the configured agent address; 2000 frames at 1-in-50 gave **exactly 40** flow samples, each reporting the configured rate and decoding to the exact frame sent; a tenfold rate change dropped the yield tenfold; counter samples only for the one polled port of 77; nothing before configuration, nothing after removal. **Two intermittent defects — see Issues; FAIL is defensible and is the Test Engineer's call** | T44309/work/run1.log | tester |
 | T33378 | (229) Management - Telnet Server (IPv4) | mgmt-2026-10-20T0825 | PASS | proven on the wire across off / on / IPv6-only / removed: 4 pkts SYN→RST while disabled; 94 pkts with a real manager session carrying 2045 B of banner and output, the DUT logging telnetd from 10.38.22.33; a bad credential refused at the application on an ESTABLISHED connection; IPv4 refused while `show telnet` still read Enabled/IPv6; 2 pkts after removal; rcdiff byte-identical | T33378/work/run1.log | tester |
+| T47199 | (273) Management_Operation - Show warning message when user continues to use default PW | mgmt-2026-10-20T0825 | **FAIL** | `% Default password needs to be changed.` absent from EVERY access path — 2 console logins on swi_d, telnet, SSH, and 2 console logins on swi_b (different model, 3-week-older build, also still on `friend`) — and absent from the log, while TPS row 271 says Yes at Priority 1 and the DUT still authenticates with the factory password. A `banner exec` marker proved the instruments can see a message in exactly that position | T47199/work/run1.log | tester |
 | T33427 | (300) Management - Flexera Licensing | — | NOT TESTED | needs a Flexera licence from Chris Robb; installing a licence is the Test Engineer's (STANDING-ORDERS §4). Dropped by the Test Engineer 2026-10-19 | — | Test Engineer |
 | T33411 | (278) Management_TACACS+ - Authentication | — | NOT TESTED | BLOCKED: needs a TACACS+ server on TCP/49; binding a privileged port is root on the box (STANDING-ORDERS §4) and the DUT exposes no alternative port | — | sentinel |
 | T33410 | (277) Management_TACACS+ - Accounting | — | NOT TESTED | BLOCKED: depends on T33411 | — | sentinel |
 | T33412 | (279) Management_TACACS+ - Logging | — | NOT TESTED | BLOCKED: depends on T33411 | — | sentinel |
 
 ## Issues
+
+### 🔴🔥 FAIL — T47199: the default-password warning is absent on every access path. **A developer finding.**
+
+The campaign's first FAIL, and the best-evidenced thing in it.
+
+**Measured absence.** `% Default password needs to be changed.` appears on **none** of: two
+console logins on swi_d, a telnet login, an SSH login, two console logins on **swi_b** (an
+x960-28YSQ on a three-week-older build, also still on `friend`, with no `security-password`
+configuration at all). **Two models, two builds, one result.** No log line either, which
+ER361.1.02 specifies when the feature is active.
+
+**The absence is a measurement, not a blind spot.** `banner exec CKPROBE-EXEC-BANNER-MARKER`
+appeared on console, telnet **and** SSH, in exactly the position the TFS example puts the
+warning — the last thing before the first prompt. The instruments can see a message there.
+There was none to see.
+
+**Independent corroboration from a different subsystem.** The FDPC engineering page says a
+device in the factory-default-password state is held in HTTP login-only mode, its APIs
+answering 403 `API access requires admin password to be configured`.
+**`GET /restconf/data` with `manager`/`friend` returned 200 OK and 11848 bytes of yang-data.**
+The HTTP server agrees with the CLI that this device is not in the factory-default state —
+although it literally is.
+
+**Likely cause, from the product's own page, verbatim:** *"Currently, we only check that the
+password has been encrypted with an MD5 hash, as the default-generated config contains this but
+a user-generated config will not."* **Both units store the manager password as `$5$`
+(SHA-256-crypt), not `$1$` (MD5).** Supporting detail: both units' manager hashes carry
+**8-character salts** while a password set through the CLI got a **16-character salt** — different
+generators, so the manager hashes were not produced by an ordinary CLI command.
+
+**Verdict confirmation needed.** The tester graded **FAIL**: the feature is declared supported
+(TPS row 271 = Yes, Priority 1) and the behaviour is absent. If an unset `def_pwd_chg` boot
+variable makes the silence correct, it becomes **UNSUPPORTED-by-configuration or PARTIAL**. The
+evidence supports either reading. **Third grading call for the Test Engineer**, after T33413 and
+T44309.
+
+**The one open limb.** `def_pwd_chg` lives in the **U-Boot environment**; no CLI reports it and
+reaching the bootloader needs a reboot, which this campaign forbids. *Against* it mattering:
+TFS 2616 — the warn-only feature the TPS row and this case actually name — mentions no gate, and
+its "will not be implemented" and "Excluded Targets" are both None. *For* it: 2616 may have been
+built on FDPC's gated path.
+
+**The experiment deliberately NOT run, and the sentinel agrees with the refusal.** Substituting a
+`$1$` MD5-crypt of `friend` on the `manager` account would prove the theory on hardware. The
+tester declined it unattended because it touches **the DUT's only admin account**;
+`security-password history 1` may refuse the restoring command; and if the device then decides it
+IS in the factory state, the behaviour is FORCE_CHANGE — an interactive dialogue `conlogin.py`
+refuses by design. **swi_a is already lost to a lockout this campaign; a second lost unit would
+be a bench incident.** The exact commands and the byte-exact restore string are in the working
+log. **It needs an attended session.**
+
+**Housekeeping:** HTTP *login* is NOT MEASURABLE on this DUT — `show http` reads
+`GUI file in use : -`, no Web GUI is installed, and installing one is a bench change. The
+manager password was **never changed**; the precondition was already true, and restoring
+plaintext `friend` would have fought `security-password minimum-length 8`. The control came from
+a second account (`ckalt`), now deleted. Adds `tools/httpq.py`.
 
 ### NOTICE (bench) — the Test Engineer's minicom on u1 is GONE as of 2026-10-20 ~11:44
 
