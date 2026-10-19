@@ -460,6 +460,18 @@ dropped out of that file**. That is the probe working as designed — bench-stat
 state only — not a deletion. The 2026-10-16 content is in git history. Nothing was hand-edited
 and nothing was reverted. The next probe that can read u5 restores it.
 
+🔴 **CORRECTION, 2026-10-20 12:02 — the truncated echo is NOT evidence of the cause.**
+The group C tester's login to **swi_b on u3** (also 9600) shows the **identical signature** —
+`x960-28YSQ login: maPassword:` — and **that login SUCCEEDED** (`Last login:` followed
+immediately). So `ma`/`mana` is a harmless **echo/display race on a 9600 console**, where the
+`Password:` prompt overwrites the tail of the echoed username; the device receives the full
+string. It happens on a console where authentication works.
+
+⇒ The sentinel's earlier reasoning — that the truncation pointed at baud or flow control and
+therefore weakened the "the credential really changed" explanation — **does not hold**. The
+progressive `ma`→`mana` difference was noise, not signal. **The cause of u5's refusal is open
+again**, and a changed credential is back among the leading candidates.
+
 **For the Test Engineer, when you are back — three candidates, in the order I would try them:**
 1. **Console state.** Something may have left the port mid-dialog. One bare CR before the first
    username, then `manager`. Cheapest, and it costs nothing if wrong.
