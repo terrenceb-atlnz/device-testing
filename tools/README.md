@@ -900,7 +900,7 @@ This answers the one question no `show` command on a device can: for SNMPv3, are
 really unreadable in flight? An SNMPv3 message carries `msgData` as either a plaintext
 `scopedPDU` (ASN.1 tag 0x30) or an `encryptedPDU` (tag 0x04), and that tag with the msgFlags
 auth/priv bits is the proof.
-- **Run:** `snmpwire.py <file.pcap> [--port 161] [--port 162] [--limit N] [--oids]`
+- **Run:** `snmpwire.py <file.pcap> [--port 161] [--port 162] [--limit N] [--oids] [--values] [--abs]`
 - **Where:** anywhere; **needs:** nothing beyond Python (no scapy)
 - **Imports:** none
 - **Prints per message:** source and destination, SNMP version, and for v3 the msgID, the
@@ -909,6 +909,24 @@ auth/priv bits is the proof.
   prints the community. With `--oids` it lists the varbind OIDs of every plaintext message --
   i.e. exactly what an eavesdropper could read. Ends with a `SUMMARY ... ENCRYPTED, ... PLAINTEXT`
   line.
+- **It is also the trap decoder** (`--port 162`), and the two options below are what make it
+  one. Added 2026-10-20 by T44308; no existing behaviour or default output changed.
+  - **`--values`** prints each varbind as `OID = <type>: <value>` (INTEGER, STRING / Hex-STRING,
+    OID, IpAddress, Counter32/64, Gauge32, TimeTicks, NULL, and the noSuchObject /
+    noSuchInstance / endOfMibView exceptions), and annotates a known `snmpTrapOID.0` value with
+    its name -- risingAlarm, fallingAlarm, linkUp, linkDown, coldStart, warmStart,
+    authenticationFailure. It implies `--oids`.
+    🔥 **A v2c/v3 notification is identified by the VALUE of `snmpTrapOID.0`, not by any OID in
+    it**, so `--oids` alone cannot tell a risingAlarm from a fallingAlarm, and cannot tell
+    linkDown from linkUp AT ALL -- those two carry byte-identical varbind OIDs and differ only
+    in that value. Grading a link-state or alarm trap case without `--values` is not possible.
+  - **`--abs`** prints each message's absolute local time instead of the offset from the first
+    decoded message. Without it you can say one trap came before another but you cannot say a
+    control window was silent, because the first trap always reads `+0.000s`. Pair it with the
+    box-clock times of the stimulus; note the DUT's own log is on the DUT clock, which on tb277
+    runs ~15 s behind the box.
+  - The annotation is advisory: an unlisted notification OID is printed as-is and nothing is
+    inferred from its absence from the list.
 - **Limits:**
   - classic pcap only (`tcpdump -w`), Ethernet link type; it refuses pcapng with a clear message;
   - it walks 802.1Q/QinQ and IPv4/UDP only -- no IPv6 and no reassembly;
@@ -919,7 +937,10 @@ auth/priv bits is the proof.
   its OIDs legible. That pairing is what makes the encrypted result a measurement.
 - **Status:** verified 2026-10-16 on tb277, x960-56YSQ (T43870): 18 messages, 6 encrypted
   authPriv and 12 plaintext (v3 discovery, v2c, and an authNoPriv control with its OID in the
-  clear)
+  clear). `--values` and `--abs` verified 2026-10-20 on tb277, x960-56YSQ (T44308): four SNMPv2c
+  RMON traps on udp/162 decoded to risingAlarm / fallingAlarm with alarmIndex, alarmVariable,
+  alarmSampleType, alarmValue and the crossed threshold, each timestamped and matched to the
+  burst that caused it, against an empty capture from the same stimulus after removal
 
 ### `radius.py`
 RADIUS (RFC 2865 / 2866) codec library -- the one home for the RADIUS wire format in this repo,
