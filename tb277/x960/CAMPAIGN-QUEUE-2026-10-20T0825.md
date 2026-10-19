@@ -123,7 +123,7 @@ exists**, rather than implying the steps were authored.
 | --- | --- | --- | --- | --- |
 | A | T33407 Local RADIUS Server; T33408 RADIUS Client mode; T33409 RADIUS Proxy | `aaa-2026-10-20T0825` | **DONE — 3 of 3 PASS** | RADIUS only. The tester runs a **second, user-owned freeradius** on unprivileged ports (e.g. 11812/11813) and points the DUT at them with `radius-server host <ip> auth-port/acct-port` — the running system instance needs root to reconfigure. All shared secrets are `testing123` |
 | A-blocked | T33411 TACACS+ Authentication; T33410 TACACS+ Accounting; T33412 TACACS+ Logging | — | **BLOCKED** | TACACS+ needs a server on **TCP/49**, a privileged port, and the DUT exposes **no alternative**: `tacacs-server host <ip> ?` offers only `key \| vrf \| <cr>` (measured at triage). Binding it is root on the box = STANDING-ORDERS §4, never done unattended. See `## Issues` for the exact unblock |
-| B | **T44308 RMON; T33413 Trap Temperature**; T44301 Per-port link trap; T44309 sFlow Agent | `snmpmon-2026-10-20T0825` | RUNNABLE | **Reordered at the tester's recommendation: RMON runs FIRST**, because T33413's only measurable trap limb is an RMON alarm bound to a temperature OID, so the alarm instrument is already proven when T33413 needs it. T33413's genuine over-temperature limb is **NOT MEASURABLE** — see `## Issues`. T44301 must flap **port1.0.2 or port1.0.16**, never port1.0.10/port1.0.48, which carry the path to the trap receiver |
+| B | **T44308 RMON; T33413 Trap Temperature**; T44301 Per-port link trap; T44309 sFlow Agent | `snmpmon-2026-10-20T0825` | **DONE — 3 PASS, 1 PARTIAL** | **Reordered at the tester's recommendation: RMON runs FIRST**, because T33413's only measurable trap limb is an RMON alarm bound to a temperature OID, so the alarm instrument is already proven when T33413 needs it. T33413's genuine over-temperature limb is **NOT MEASURABLE** — see `## Issues`. T44301 must flap **port1.0.2 or port1.0.16**, never port1.0.10/port1.0.48, which carry the path to the trap receiver |
 | C | **T33378 Telnet Server (IPv4); T47199 default-password warning; T33416 Triggers - Interface** | `mgmt-2026-10-20T0825` | RUNNABLE | **Reordered at the tester's recommendation: Telnet FIRST**, because the console login shows no default-password warning (measured), so T47199 must look on telnet/SSH/HTTP — and T33378 is the case that turns telnet on. First action for T33416: `trigger 1` → `type ?`, the campaign's one unverified CLI surface |
 | — | T33427 Flexera Licensing | — | **NOT TESTED** | Test Engineer's decision, 2026-10-19: *"Drop it — NOT TESTED"*. Its step 1 is *"Request Chris Robb to generate a Flexera License for a particular feature"*; installing a licence is the Test Engineer's (STANDING-ORDERS §4) and no licence file was available this session |
 
@@ -594,7 +594,7 @@ group A.
 | T44308 | `rmon event 11`, `rmon event 12`, `rmon alarm 11`, `rmon alarm 12`; on `interface port1.0.10`: `rmon collection stats 11`, `rmon collection history 11` | `no rmon alarm 11`, `no rmon alarm 12`, `no rmon event 11`, `no rmon event 12`; in `interface port1.0.10`: `no rmon collection stats 11`, `no rmon collection history 11` |
 | T33413 | `snmp-server enable trap hw-monitoring`; an RMON event + alarm bound to a temperature variable **if the CLI accepts one** (`rmon alarm ?` says the variable must be `etherStatsEntry.n.n`, so this is expected to be rejected — that rejection is the case's measurement) | `no snmp-server enable trap hw-monitoring`; `no rmon alarm <n>`, `no rmon event <n>` |
 | T44301 | `snmp-server enable trap nsm`; on `interface port1.0.2`: `snmp trap link-status`; the step itself does `shutdown` / `no shutdown` on port1.0.2 | `no snmp-server enable trap nsm`; in `interface port1.0.2`: `no snmp trap link-status`, and `no shutdown` so the link is left UP |
-| T44309 | `sflow agent ip 10.38.22.34`, `sflow collector ip 10.38.22.33 [port N]`, `sflow enable`; on `interface port1.0.10` (and/or port1.0.2): `sflow sampling-rate N`, `sflow polling-interval N` | `no sflow enable`, `no sflow collector ip 10.38.22.33`, `no sflow agent ip`; per interface `no sflow sampling-rate`, `no sflow polling-interval` |
+| T44309 | `sflow agent ip 10.38.22.34`, **`sflow collector id 1 ip 10.38.22.33`**, `sflow enable`; on `interface port1.0.10`: `sflow sampling-rate 50` (min is 50), `sflow polling-interval 20` | `no sflow enable`, **`no sflow collector id 1`**, **`no sflow agent ip`** (both negations take NO address -- the full form is rejected), then per interface `no sflow sampling-rate`, `no sflow polling-interval` |
 
 **The baseline the group must return to** (from `show running-config` 2026-10-20 09:56:20 NZDT,
 `T44308/work/pre-u2.log`). There is no `rmon`, no `sflow`, no `snmp-server community`, no
@@ -613,6 +613,11 @@ bare `snmp-server`:
     interface vlan48
      ip address 10.38.22.66/27
 
+⚠️ **Corrected 2026-10-20 11:30 by the group's tester, measured not guessed:** the sFlow
+collector is addressed by INDEX (`sflow collector id <1-5> ip <A.B.C.D>`); `sflow collector ip
+<addr>` is `% Unrecognized command`. Both negations take no address. The forms above are the
+measured ones and the forms originally written into this section were wrong.
+
 🔴 **The restore that matters most:** `interface port1.0.2` must be left `no shutdown` after
 T44301, and `port1.0.10`/`port1.0.48` must never be touched at all. The full group restore is:
 
@@ -623,7 +628,7 @@ T44301, and `port1.0.10`/`port1.0.48` must never be touched at all. The full gro
     no snmp-server host 10.38.22.33 version 2c testing123
     no snmp-server community testing123
     no sflow enable
-    no sflow collector ip 10.38.22.33
+    no sflow collector id 1
     no sflow agent ip
     no rmon alarm 11
     no rmon alarm 12
