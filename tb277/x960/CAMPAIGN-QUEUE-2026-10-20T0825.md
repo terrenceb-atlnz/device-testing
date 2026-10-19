@@ -725,3 +725,127 @@ nothing, and `show boot` must still read boot image `flash:/x960-tb277.rel`, boo
 
 **Every secret this group configures is `testing123`** (community string and sFlow/trap
 community alike). The DUT's pre-existing global RADIUS secret is left exactly as found.
+
+---
+
+## Group C `mgmt-2026-10-20T0825` — bench setup and the exact restore recipe
+
+Written by the group's tester (bench-runner) before the group's first case, so a fresh tester
+can restore the bench from this file alone if the session dies mid-group.
+Cases, in dispatch order: **T33378** Telnet Server (IPv4) → **T47199** default-password warning
+→ **T33416** Triggers - Interface.
+
+**Consoles used:** /dev/u2 (swi_d, the DUT) only. /dev/u3 is opened by the gate probe and by
+nothing else in this group; **/dev/u5 and /dev/u1 are never opened.** Box scratch:
+`/tmp/ckmgmt/` (`tools/tb scratch tb277 ckmgmt`).
+
+**Physical/bench setup this group needs: NONE beyond what is already standing.** No recable, no
+VLAN change, no new SVI, no PDU action, no reload. The group uses the same L3 underlay as
+groups A and B:
+
+    tb277 eth3 10.38.22.33/27 (MAC 00:0d:b9:55:77:0e)  <->  swi_d port1.0.10, vlan10 10.38.22.34/27
+    tb277 eth4 10.38.22.65/27 (MAC 00:0d:b9:55:77:0f)  <->  swi_d port1.0.48, vlan48 10.38.22.66/27
+    swi_b port1.0.2  <-> swi_d port1.0.2     (LLDP both ends; RSTP root path)
+    swi_b port1.0.16 <-> swi_d port1.0.16    (LLDP both ends; Alternate/Discarding under RSTP)
+
+⛔ Do NOT shut, flap or reconfigure **port1.0.10** or **port1.0.48**: they carry the only IP path
+from the box to the DUT, which IS this group's instrument (a telnet/SSH session and its capture).
+T33416's interface trigger uses **port1.0.2** only.
+⛔ The SVIs exist in running-config only (boot config `flash:/default.cfg`), so a reload destroys
+them. **This group performs no reload and writes nothing to startup-config**, and therefore does
+**NOT** measure reboot persistence — the same recorded NEEDS TEST ENGINEER item as groups A and B.
+
+**The baseline the group must return to** (`show running-config` 2026-10-20 11:39:09 NZDT,
+`T33378/work/pre-u2.log`; byte-identical to group B's restored baseline). The lines this group
+can touch, at baseline:
+
+    no banner motd
+    username manager privilege 15 password 8 $5$bJozIP4D$orvk...     <- the FACTORY password 'friend'
+    ssh server allow-users manager
+    service ssh
+    no service telnet
+    service http
+    aaa authentication enable default local
+    aaa authentication login default local
+    security-password minimum-length 8
+    security-password history 1
+    line con 0
+    line vty 0 7
+
+There is no `trigger`, no second `username`, no `banner login` and no `banner exec` at baseline.
+`show telnet` reads `Telnet server : Disabled / Protocol : None / Port : 23`.
+`show boot`: boot image `flash:/x960-tb277.rel`, boot config `flash:/default.cfg` — both
+confirmed at 11:39:08 NZDT before the group's first command.
+
+**What each case adds on swi_d (u2), and the exact command that removes it:**
+
+| case | added on swi_d (u2) | removed by |
+| --- | --- | --- |
+| T33378 | `service telnet ip` (the IPv4-only form; `service telnet ?` offers `ip \| ipv6 \| <cr>`) | `no service telnet ip` — and the group's end state must be `no service telnet`, i.e. `show telnet` back to `Disabled / None / 23` |
+| T47199 | `username ckalt privilege 15 password testing123` — a **second** account whose password is NOT the factory default, used as the control for the default-password warning. Telnet stays on from T33378 for this case | `no username ckalt` |
+| T33416 | `trigger 1` with `type interface <port> <event>` and an action (`script`/`command`); on `interface port1.0.2` the step itself does `shutdown` / `no shutdown` | `no trigger 1`; in `interface port1.0.2`: `no shutdown` so the link is left UP |
+
+🔴 **The manager password is NOT changed by this group.** T47199's precondition (the factory
+password `friend` is still set) is already true, and the dispatch left the change to the tester's
+judgement. It is **declined, deliberately**: `security-password minimum-length 8` is configured
+and `friend` is 6 characters, so putting it back would need the length rule relaxed and restored
+as well; and the product may not recognise a re-entered `friend` as the *factory* password again,
+which would destroy the precondition for this case on this DUT permanently, unattended, with no
+way to restore it. The control limb is obtained instead from a second account (`ckalt`) whose
+password is not the default — same discrimination, fully reversible.
+
+**Every secret this group configures is `testing123`.** No secret is sent down a console except
+that one and the factory `friend`, which the DUT already holds.
+
+**The full group restore is:**
+
+    configure terminal
+    no service telnet ip
+    no service telnet
+    no username ckalt
+    no trigger 1
+    interface port1.0.2
+     no shutdown
+    end
+
+**Verification after every case:** `python3 tools/rcdiff.py <pre>.log <post>.log` must print
+nothing, and `show boot` must still read boot image `flash:/x960-tb277.rel`, boot config
+`flash:/default.cfg`.
+
+**Authority consulted before the first command** (`review-feature-docs-before-testing`), so no
+case in this group is graded against the DUT alone. The case numbers in the titles map to the
+**X960 platform support TPS** rows with a constant **−2** offset (verified against group A:
+case *(274)* Local RADIUS Server ↔ TPS row **272**):
+
+| case | TPS row | TPS feature | Pri | Supported |
+| --- | --- | --- | --- | --- |
+| T33378 *(229)* | **227** | Management / Telnet Server(IPv4) | 1 | **Yes** |
+| T47199 *(273)* | **271** | Management / Show warning message when user continue to use default PW | 1 | **Yes** |
+| T33416 *(283)* | **281** | Triggers / Interface | 1 | **Yes** |
+
+⇒ **All three are declared supported on this platform**, so an absent behaviour is a FINDING,
+not a platform limit.
+
+**T47199's behavioural authority** is the TFS *"Warning when using default password"*
+(`https://wiki.atlnz.lc/awpwiki/index.php/Warning_when_using_default_password_TFS`, project 2616,
+rev 0.3, approved 21/Oct/21), spec **2616.1**:
+
+> The system will check **at every login using the default account 'manager'** if the factory
+> default password 'friend' is set, if it is, the system will warn the user that the default
+> password should be changed.
+
+with this worked example, and `Initial Release Targets: all platforms in 5.5.1-2`,
+`Excluded Targets: None`, `Logging specifications: None`:
+
+    awplus login: manager
+    Password:
+    AlliedWare Plus (TM) 0.0.0 09/26/21 21:23:17
+    % Default password needs to be changed.
+    awplus>
+
+⇒ the expected string is **`% Default password needs to be changed.`**, printed after the
+version banner and before the first prompt, on **every** login as `manager` while the password is
+`friend`. The TFS specifies no log line and no show command, so the login byte stream is the only
+place it can be graded — which is why this group needed a network login driver
+(`tools/netlogin.py`, new).
+
