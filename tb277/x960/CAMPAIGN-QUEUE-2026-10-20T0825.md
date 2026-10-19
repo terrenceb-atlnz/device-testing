@@ -182,6 +182,15 @@ and nothing was reverted. The next probe that can read u5 restores it.
 Nothing in `tb277.static` or the session facts was changed, and neither side of the
 USER-CONFLICT was resolved (STANDING-ORDERS §4).
 
+**Update 08:44:49 NZDT — u5 was attempted again and RE-LOCKED.** The sentinel's feed caught
+`awplus login: manaPassword:` → `The account is locked due to 6 failed logins. (5 minutes left
+to unlock)`. The tester had said at hand-back that it would not retry; something did. The
+sentinel sent it one message to take u5 out of any further pass. **The truncation is
+progressive, not random: `ma` at 08:33, `mana` at 08:44** — four characters through instead of
+two. That strengthens the baud / flow-control reading and weakens the changed-password reading.
+No further attempts should be made; the diagnosis is `--baud 9600` and it is not needed for this
+campaign.
+
 - **NOTICE (campaign) — `sflowtool` is absent from tb277.** T44309 will be graded on the DUT's
   emitted sFlow datagrams, decoded by hand, not on a collector's parse. Installing a package is
   root on the box and therefore the Test Engineer's (STANDING-ORDERS §4); it was not requested.
