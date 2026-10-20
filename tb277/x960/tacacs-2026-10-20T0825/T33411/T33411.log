@@ -1,0 +1,744 @@
+================================================================================
+TEST T33411 -- (278) Management_TACACS+ - Authentication
+================================================================================
+Run:      2026-10-20 13:40-14:08 NZDT.  All 14 steps ran on swi_d, with no reload.
+          swi_d's clock reads UTC and is 13 h 00 m 15 s behind the box, so this log
+          adds that offset when it matches a DUT time to a box time.
+Bench:    tb277, console u2 (swi_d); Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T33411.  The test-case database holds NO authored objective and NO
+          authored step text for this case.  It has one step, and that step's
+          description, test data and expected result are all empty.  The 14 steps
+          below were designed by the tester from the case title, the x960 platform
+          support TPS and the "TACACS+ AAA" TFS (project 1599).
+          Tester's objective: prove that this DUT can authenticate a CLI login
+          against an external TACACS+ server, that the server and not the local
+          database decided the outcome, that each failure mode has its own
+          signature, and that the feature can be removed completely.
+Build:    swi_d  sin_x96056-20261012-24  (x960-tb277.rel, build date Mon Oct 12
+          06:38:00 UTC 2026)
+
+awplus# show system
+
+System Status                                           Tue Oct 20 00:40:44 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B       
+PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU 
+PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S 
+Fan module 730  FAN1    AT-FAN19                          -     -               
+Fan module 730  FAN2    AT-FAN19                          -     -               
+--------------------------------------------------------------------------------
+RAM: Total: 8092132 kB Free: 7459716 kB
+Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 3 days 18:18:20
+Bootloader version : Unknown
+
+Current software   : x960-tb277.rel
+Software version   : sin_x96056-20261012-24
+Build date         : Mon Oct 12 06:38:00 UTC 2026
+
+Current boot config: flash:/default.cfg (file exists)
+
+System Name
+ awplus
+System Contact
+
+System Location
+
+Configs:  swi_d.cfg (running-config after setup; saved to startup: no)
+
+Note on credentials: this case typed real passwords and one real TACACS+ shared key
+into the DUT.  They are replaced in this log by <server password>, <local password>,
+<password>, <shared key> and <wrong key>.  The device's own stored forms are shown as
+<encrypted shared key> and <hash>.  Password and username LENGTHS are kept, because
+they are measured on the wire in STEP 13.
+
+VERDICT: PASS -- TACACS+ authentication works on this DUT, proven on three independent
+         instruments.
+      a user with no local account at all ... admitted  (taclow logged in over SSH, STEP 13)
+      the server decided, not the DUT ....... proven    (same user admitted with the server
+                                                         password, refused with the local
+                                                         one, STEPS 6 and 7)
+      the DUT really spoke TACACS+ ......... proven    (58 packets on TCP port 49, against
+                                                         0 with the feature off, STEPS 3, 6)
+      servers tried in config order ........ proven    (S1599.1.004, STEP 11)
+      failure to reach a server is logged .. proven    (S1599.1.004, STEPS 11, 12)
+      each failure mode has its own sign ... proven    (reject, wrong key and unreachable
+                                                         server all differ, STEPS 7, 9, 11)
+      removal is complete .................. proven    (0 packets on TCP port 49 under the
+                                                         same stimulus, STEP 14)
+
+CAVEAT:  Two things this run did NOT establish.
+         1. Enable authentication through TACACS+ (TFS S1599.1.011 to S1599.1.016) is
+            NOT MEASURED.  The command exists on this build and STEP 2 lists it, but it
+            was not configured.  Reason: STEP 7 proves this DUT honours a server Reject
+            and skips the local fallback.  The server holds no enable credential for
+            these users, so an enable would most likely be Rejected.  A Rejected enable
+            leaves the operator at awplus> with no way into configuration mode on any
+            access path, because the console and every VTY share one enable method list.
+            The only recovery is a reload.  A reload was forbidden for this run, because
+            the vlan10 path to the TACACS+ server exists in the running-config only and
+            the boot config is flash:/default.cfg.
+         2. Reboot persistence is NOT MEASURED for this group.  No reload was performed.
+            This log does not show whether tacacs-server host and aaa authentication
+            login default group tacacs+ local survive a restart.
+         Also not exercised: the global tacacs-server key, tacacs-server timeout, the
+         vrf option on tacacs-server host, a named (non-default) method list, a server
+         that answers with a malformed reply, and the concurrent-session limits.
+
+HEALTH:  reboots ......... no new entry.  Newest entry is
+                           "2026-10-16 06:22:04 Expected CLI(user request)" in both samples
+         exception log ... None, in both samples
+         log ............. no crash, daemon restart or kernel error.  The filter
+                           "show log | include kernel|exception|crash|restart|Unexpected"
+                           returned 12 lines in both samples, and every one of them is an
+                           IMISH echo of a health-check command.  With those echoes removed,
+                           zero device lines match in either sample
+         CPU ............. usage 0% before -> 0% after (1 s, 20 s and 60 s averages, both
+                           samples; load averages 0.00 / 0.00 / 0.0 before)
+         memory .......... free 7457960 kB before -> 7452544 kB after, of 8092132 kB total.
+                           That is 5416 kB lower, which is 0.07% of total.  No leak is
+                           claimed; one case cannot prove one
+         Run label: CLEAN.  Not confounded.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+      tb277 /dev/u2 @115200  (serial console)
+           |
+           v   console logins, and every show and config command
+  +-------------------------------------------------------+
+  |  swi_d   AT-x960-56YSQ              *** DUT ***        |
+  |  vlan10  10.38.22.34/27   on port1.0.10                |
+  +-------------------------------------------------------+
+           ^  port1.0.10
+           |
+           |  (a) SSH logins, tb277 -> DUT   (the second login path)
+           |  (b) TACACS+ over TCP port 49,  DUT -> server
+           v
+      tb277 eth3  10.38.22.33/27  mac 00:0d:b9:55:77:0e
+           |
+           +--> tac_plus 4.0.4.27a-3, TCP port 49    (the TACACS+ server)
+           +--> tcpdump on eth3, filter "tcp port 49"  (the capture point)
+
+  DUT     : swi_d (AT-x960-56YSQ) console /dev/u2 @115200, S/N A2WQS700B,
+            software sin_x96056-20261012-24.  Single unit, no stack.
+  server  : tac_plus 4.0.4.27a-3 on tb277 itself, pid 3491, started by the Test
+            Engineer at 2026-10-20 13:29:56 NZDT.  Accounting file
+            /var/log/tac_plus.acct.  The tester never started, stopped,
+            reconfigured or read the configuration of this service.
+            Server accounts: tacuser at service = exec { priv-lvl = 15 };
+            taclow at priv-lvl = 1.
+  link    : swi_d port1.0.10 <-> tb277 eth3  (vlan10, 10.38.22.32/27 subnet).
+            port1.0.10 carries the only path to the TACACS+ server.  It was never
+            shut and never flapped.
+  host    : tb277 eth3, mac 00:0d:b9:55:77:0e, 10.38.22.33/27 -> swi_d port1.0.10.
+            The DUT's neighbour entry on the box reads
+            "10.38.22.34 dev eth3 lladdr e0:1a:ea:d4:70:43".
+  host    : tb277 eth4, 10.38.22.65/27, mac 00:0d:b9:55:77:0f.  Present on the box,
+            not used by this case.
+  address : 10.38.22.60 is an address on the same subnet with no host on it.  STEPS
+            11 and 12 use it as a deliberately unreachable TACACS+ server.
+  tools   : all run on tb277.  tools/tb drives the console helpers tools/ckcon.py
+            (shows), tools/cfg.py (configuration), tools/qmark.py (read-only help
+            probes), tools/peek.py (console state) and tools/conlogin.py (console
+            logins).  tools/netlogin.py drives SSH logins.
+            tools/tb capture runs tcpdump on eth3, and tools/tcpflow.py decodes the
+            capture.  tools/filewin.py reads /var/log/tac_plus.acct in a bounded
+            window.  tools/rcdiff.py compares the running-config before and after.
+
+STEP 1 (designed) -- check the login instrument, and measure a local login            PASS
+--------------------------------------------------------------------------------
+  Method: a login test needs a tool that can really log in.  No show command can
+  produce a login.  This step proves the tool works and gives the local timing to
+  compare every later login against.
+
+tools/tb conlogin tb277 cktac u2 115200 --user manager --password <password> --expect user
+
+  LOGIN RESULT: USER  user=manager  seconds=0.4  prompt='awplus>'
+  conlogin: expected USER, got USER -- MATCH
+  conlogin: restore login as manager -> USER ('awplus>')
+
+Console banner, from the box-side console transcript:
+
+  awplus login: manager
+  Last login: Tue Oct 20 00:40:40 UTC 2026 on ttyS0
+  AlliedWare Plus (TM) 0.0.0 10/12/26 06:38:00
+  awplus>                                   <-- privilege 1, not privilege 15
+
+  => STEP 1 PASS: a local login takes 0.4 s and lands at awplus>.  On this build an
+     AW+ console login reaches ">" even for a username with privilege 15.  So the
+     success value for a login test on this platform is USER, not PRIV.  This matches
+     platforms/x960.md section 7E.6.
+
+STEP 2 (designed) -- list the CLI surface, read-only, before sending any of it        PASS
+--------------------------------------------------------------------------------
+  Method: tools/qmark.py types "PREFIX ?" with NO carriage return, reads the help
+  text, then clears the line with Ctrl-U.  It self-tests that nothing was executed
+  first: "self-test OK: 'show clock ?' then Ctrl-U then CR executed nothing".  A
+  "<cmd> ?" sent through a normal carriage-return driver would EXECUTE the command.
+
+tools/tb qmark tb277 cktac u2 115200 --mode 'configure terminal' -- '<each prefix>'
+
+  prefix                                      completions offered
+  ------------------------------------------  --------------------------------------
+  tacacs-server                               host / key / timeout
+  tacacs-server host                          A.B.C.D / HOSTNAME
+  tacacs-server host 10.38.22.33              key / vrf / <cr>
+  tacacs-server host 10.38.22.33 key          8 (DES) / 9 (AES) / STRING
+  tacacs-server timeout                       <1-1000> seconds, default 5
+  aaa authentication login                    NAME / default
+  aaa authentication login default            group / local
+  aaa authentication login default group      NAME / ldap / radius / tacacs+
+  aaa authentication login default group
+      tacacs+                                 group / local / <cr>
+  aaa authentication enable default           group / local
+  aaa authentication enable default group     tacacs+ only
+  aaa authentication enable default group
+      tacacs+                                 local / none / <cr>
+  aaa authentication enable default local     <cr>
+  aaa accounting login default                none / start-stop / stop-only
+  aaa accounting commands                     <1-15> privilege level range
+
+  Four facts from this listing:
+  1. "tacacs-server host <ip>" takes NO port argument.  It offers only key, vrf and
+     <cr>.  TACACS+ on this platform is fixed to TCP port 49.
+  2. The shared key can be typed as plain STRING, or given already encrypted with 8
+     (DES) or 9 (AES).
+  3. "none" is offered for ENABLE authentication and never for LOGIN authentication.
+     This matches TFS S1599.1.071, which lists tacacs+, local and none for the enable
+     method and no none for login.
+  4. "none" is not reachable directly after "default".  It exists only as the fallback
+     after "group tacacs+".
+
+tools/tb peek tb277 cktac u2 115200
+  /dev/u2 TAIL: 'awplus#'                     <-- clean exec prompt, nothing executed
+
+  => STEP 2 PASS: every command this case goes on to send exists on this build.  No
+     configuration was written and no command was run.
+
+STEP 3 (designed) -- baseline with the feature OFF: logins happen, TCP 49 is silent   PASS
+--------------------------------------------------------------------------------
+  Method: with no tacacs-server line in the running-config, capture TCP port 49 on
+  the server's own NIC for 45 s while real console logins are driven.
+
+awplus# show tacacs+
+  No TACACS+ servers currently defined
+
+tools/tb capture tb277 cktac eth3 45 tac-off.pcap tcp port 49        (in parallel with)
+tools/tb conlogin tb277 cktac u2 115200 --user manager  --password <password> --expect user
+tools/tb conlogin tb277 cktac u2 115200 --user ckabsent --password <password> --expect fail
+
+  LOGIN RESULT: USER  user=manager  seconds=0.4  prompt='awplus>'     -- MATCH
+    conlogin: restore login as manager -> USER ('awplus>')
+  LOGIN RESULT: FAIL  user=ckabsent  seconds=1.6  prompt='awplus login:'  -- MATCH
+    conlogin: restore login as manager -> USER ('awplus>')
+
+  tcpdump: listening on eth3 ...
+  0 packets captured
+  0 packets received by filter
+  0 packets dropped by kernel
+
+  An unknown username, "ckabsent", was used for the refusal control instead of a wrong
+  password for a real account.  AW+ locks an account after 5 failed logins, and the
+  lock timer restarts on each attempt.  An unknown username touches no account's
+  counter.
+
+  Second control, taken later in the run: a 40 s capture on TCP port 49 with the
+  TACACS+ server already configured (STEP 5) and NO login driven through it.
+
+  0 packets captured
+
+  => STEP 3 PASS: four console logins, one of them a refusal, produced 0 packets on
+     TCP port 49 in 45 s.  A configured but unused TACACS+ client also produced 0
+     packets in 40 s, so it does not poll or send keepalives.  The DUT speaks to TCP
+     port 49 only when an authentication is actually needed.  Every packet counted
+     from STEP 6 onward is therefore caused by the configuration this case adds.
+
+STEP 4 (designed) -- build and prove a way back before the method list is changed     PASS
+--------------------------------------------------------------------------------
+  Method: platforms/x960.md section 7E.1 says "local" at the end of a method list is a
+  fallback for an UNREACHABLE server, not for a Reject.  The TACACS+ server does not
+  know the user "manager".  So the moment the default login list points at TACACS+,
+  "manager" can no longer log in to this DUT by any path.  This step creates a local
+  account that can still get in, and proves it works first.
+
+awplus# configure terminal
+awplus(config)# username tacuser privilege 15 password <local password>
+awplus(config)# end
+awplus#
+
+  The local password of "tacuser" is DIFFERENT from its TACACS+ password.  That makes
+  STEP 7 a discriminator as well as a control.
+
+tools/tb conlogin tb277 cktac u2 115200 --user tacuser --password <local password>
+    --expect user --restore-user tacuser --restore-password <local password>
+
+  LOGIN RESULT: USER  user=tacuser  seconds=0.4  prompt='awplus>'
+  conlogin: expected USER, got USER -- MATCH
+  conlogin: restore login as tacuser -> USER ('awplus>')
+
+tools/tb peek tb277 cktac u2 115200   ->   /dev/u2 TAIL: 'awplus#'
+
+  => STEP 4 PASS: "tacuser" logs in, and "enable" raises it to "#".  "enable" works
+     because "aaa authentication enable default local" reads privilege 15 from the
+     LOCAL database, and this case never points the enable list at TACACS+.  This is
+     the way back to configuration mode in every state the case enters below.
+
+STEP 5 (designed) -- configure TACACS+ authentication                                 PASS
+--------------------------------------------------------------------------------
+awplus# configure terminal
+awplus(config)# tacacs-server host 10.38.22.33 key <shared key>
+awplus(config)# aaa authentication login default group tacacs+ local
+awplus(config)# end
+
+  tools/cfg.py exit code 0.  Neither command printed a "% " line.
+
+awplus# show running-config        (the lines this case changed)
+  username manager privilege 15 password 8 <hash>
+  username tacuser privilege 15 password 8 <hash>
+  tacacs-server host 10.38.22.33 key 9 <encrypted shared key>
+  aaa authentication enable default local
+  aaa authentication login default group tacacs+ local
+
+awplus# show tacacs+
+  TACACS+ Global Configuration
+    Source Interface    : not configured
+    Timeout             : 5 sec
+
+  Server Host/                                  Server
+  IP Address                     VRF            Status
+  --------------------------------------------------------
+  10.38.22.33                                   Unknown     <-- not Alive yet
+
+  => STEP 5 PASS: both commands are accepted.  Two things to note.  The plain-text key
+     is stored AES-encrypted, as "key 9 ...", and is never displayed again.  The
+     server's Status starts at "Unknown", not "Alive", because the DUT has not spoken
+     to it yet.  That makes "show tacacs+" a usable instrument: its state changes only
+     after a real exchange.
+
+  swi_d.cfg was saved at this point, 2026-10-20 13:48 NZDT, after setup and before the
+  measurement steps.
+
+STEP 6 (designed) -- the measurement: a TACACS+-served login, on three instruments    PASS
+--------------------------------------------------------------------------------
+  Method: "tacuser" has one password on the server and a different password in the
+  local database.  A successful login with the SERVER password can only have been
+  decided by the server.
+
+tools/tb capture tb277 cktac eth3 40 tac-accept.pcap tcp port 49     (in parallel with)
+tools/tb conlogin tb277 cktac u2 115200 --user tacuser --password <server password>
+    --expect user --restore-user tacuser --restore-password <server password>
+
+  LOGIN RESULT: USER  user=tacuser  seconds=0.6  prompt='awplus>'
+  conlogin: expected USER, got USER -- MATCH
+  conlogin: restore login as tacuser -> USER ('awplus>')
+
+  Two logins happened inside the capture window: the tested login, and conlogin's own
+  restore login.  Both used the server password.
+
+Instrument 1 -- the DUT.
+
+awplus# show tacacs+
+  10.38.22.33                                   Alive          <-- was Unknown in STEP 5
+
+awplus# show users
+  Line    User            Host(s)  Idle      Location        Priv Idletime Timeout
+  con 0   tacuser         idle     00:00:04  ttyS0           15   10       N/A
+
+awplus# show log tail 40        (device lines; IMISH command echoes removed)
+  2026 Oct 20 00:50:03 authpriv.notice awplus login: PAM-tacplus: User tacuser is authenticated
+  2026 Oct 20 00:50:05 authpriv.notice awplus login: PAM-tacplus: User tacuser is authenticated
+
+  Exactly two lines for exactly two logins.  DUT 00:50:03 UTC plus 13:00:15 is box
+  13:50:18 NZDT, which is inside the capture window.
+
+Instrument 3 -- the wire.
+
+tools/tb tool tb277 cktac tcpflow /tmp/cktac/tac-accept.pcap --port 49
+
+  58 packet(s) total, 4 TCP flow(s) on port 49
+
+  flow 10.38.22.33:49 <-> 10.38.22.34:42354  packets=17  duration=0.048s  => ESTABLISHED+DATA
+     10.38.22.34:42354 -> 10.38.22.33:49  pkts=8  payload=66 B  flags={ACK, FIN.ACK, PSH.ACK, SYN}
+     10.38.22.33:49 -> 10.38.22.34:42354  pkts=9  payload=46 B  flags={ACK, FIN.ACK, PSH.ACK, SYN.ACK}
+
+  flow 10.38.22.33:49 <-> 10.38.22.34:42356  packets=12  duration=0.010s  => ESTABLISHED+DATA
+     10.38.22.34:42356 -> 10.38.22.33:49  pkts=6  payload=71 B  flags={ACK, FIN.ACK, PSH.ACK, SYN}
+     10.38.22.33:49 -> 10.38.22.34:42356  pkts=6  payload=30 B  flags={ACK, FIN.ACK, PSH.ACK, SYN.ACK}
+
+  (the same pair again on ports 43604 and 43614, for the second login)
+
+  Two logins produced exactly four TCP connections, so TWO PER LOGIN.  The pair repeats
+  byte for byte across both logins:
+
+  flow           out payload  in payload  what it is
+  -------------  -----------  ----------  ------------------------------------------
+  first, 17 pkt  66 B         46 B        the AUTHENTICATION exchange.  An ASCII login
+                                          is START, REPLY(GETPASS), CONTINUE(password),
+                                          REPLY(PASS).  The client therefore sends more
+                                          than it receives.  It also lasts about 5 times
+                                          longer, 0.048 s, because it waits for the
+                                          driver to type the password
+  second, 12 pkt 71 B         30 B        the AUTHORIZATION exchange, opened right after
+                                          and lasting 0.010 s.  A larger request and a
+                                          much smaller reply.  This is what carries the
+                                          server's "service = exec { priv-lvl = 15 }"
+                                          back to the DUT
+
+  Each connection is opened, used and closed: SYN, SYN.ACK, PSH.ACK, FIN.ACK.  The
+  client does not hold one session open.
+
+  => STEP 6 PASS: a user whose local password does not match the password that was
+     offered was admitted to the DUT.  All three instruments agree the TACACS+ server
+     decided.  The DUT logged "PAM-tacplus: User tacuser is authenticated".  "show
+     tacacs+" moved from Unknown to Alive.  The wire carried two complete TCP port 49
+     conversations per login, where the OFF baseline carried none.  This satisfies TFS
+     S1599.1.010.
+
+  A discriminator that needs no knowledge of the shared key.  The TACACS+ body is
+  obfuscated, so no instrument on the wire can read the verdict.  It does not need to.
+  Compare this step with STEP 7:
+
+      outcome     TCP port 49 conversations per login
+      ----------  --------------------------------------------------------------
+      accepted    TWO -- the authentication exchange, then an authorization exchange
+      rejected    ONE -- the authentication exchange alone, with nothing after it
+
+  The authentication flow itself has the same shape in both cases.  It is the presence
+  or absence of the SECOND flow that reveals the verdict, because the DUT only asks
+  "what is this user allowed to do?" after it has been told who they are.
+
+STEP 7 (designed) -- discriminator: the same user's LOCAL password must be refused    PASS
+--------------------------------------------------------------------------------
+  Method: "tacuser" exists in both databases with different passwords.  If the local
+  database were being consulted, the local password would work.
+
+tools/tb conlogin tb277 cktac u2 115200 --user tacuser --password <local password>
+    --expect fail --restore-user tacuser --restore-password <server password>
+
+  LOGIN RESULT: FAIL  user=tacuser  seconds=1.4  prompt='Login incorrect'
+  conlogin: expected FAIL, got FAIL -- MATCH
+
+DUT log:
+
+  2026 Oct 20 00:53:40 authpriv.err    awplus login: PAM-tacplus: auth failed: 2
+  2026 Oct 20 00:53:41 authpriv.notice awplus login: FAILED LOGIN SESSION FROM ttyS0 FOR tacuser, Permission denied
+
+Wire, tac-reject.pcap, 46 packets, 3 flows (the refused login plus the restore login):
+
+  flow ...:49 <-> ...:59448  packets=17  ESTABLISHED+DATA   out 66 B / in 46 B
+                                            <-- the REFUSED login: authentication ONLY
+  flow ...:49 <-> ...:48444  packets=17  ESTABLISHED+DATA   out 66 B / in 46 B
+  flow ...:49 <-> ...:48448  packets=12  ESTABLISHED+DATA   out 71 B / in 30 B
+                                            <-- the restore login: authentication, then
+                                                authorization
+
+  => STEP 7 PASS: the method list is "group tacacs+ local".  The local database holds a
+     password that WOULD have admitted this user.  It was never consulted.  The server
+     answered Reject and the DUT honoured it.  This confirms platforms/x960.md section
+     7E.1 for TACACS+: "local" at the end of a method list is a fallback for an
+     unreachable server, not for a Reject.  The DUT names the TACACS+ status code:
+     "auth failed: 2", which is AUTHEN_STATUS_FAIL.  This step is also the proof that
+     STEP 6's login was decided by the server, because both logins used the same
+     account over the same path and differed only in which database holds the password
+     that was offered.
+
+STEP 8 (designed) -- add a second login path, so the console is never the only way in PASS
+--------------------------------------------------------------------------------
+  Method: STEPS 9 and 10 break authentication on purpose.  Breaking it from the console
+  risks a state where no credential works and the only recovery is a reload, which this
+  run forbids.  So an SSH path was added first.  Every destructive step below was driven
+  over SSH, and the console session was held logged in at "#" throughout, checked with
+  peek before and after each one.
+
+awplus(config)# ssh server allow-users tacuser
+  (the baseline was "ssh server allow-users manager")
+
+tools/tb tool tb277 cktac netlogin --proto ssh --host 10.38.22.34 --user tacuser
+    --password <server password> --login-timeout 40 --expect user --cmd 'show users'
+
+  --- bytes after the password was sent (THE LOGIN BANNER) ---
+  Last login: Tue Oct 20 00:53:48 UTC 2026 on ttyS0
+  AlliedWare Plus (TM) 0.0.0 10/12/26 06:38:00
+  awplus>
+  LOGIN RESULT: USER  proto=ssh  user=tacuser  seconds=0.4
+
+  === CMD: show users ===
+  Line    User            Host(s)  Idle      Location        Priv Idletime Timeout
+  con 0   tacuser         idle     00:00:07  ttyS0           15   10       N/A
+  vty 0   tacuser         idle     00:00:00  10.38.22.33     1    10       N/A
+
+  Wire: 29 packets, the same TWO flows per login: 17 packets with 68 B out and 46 B in,
+  then 12 packets with 73 B out and 30 B in.
+
+  => STEP 8 PASS: TACACS+ authentication serves the SSH path as well as the console,
+     with the same two-flow signature.  Two extra facts.  First, the "Priv" column of
+     "show users" is the session's CURRENT privilege, not the user's maximum.  The
+     console session reads 15 because it had been enabled.  This fresh SSH session
+     reads 1, although the server returned priv-lvl = 15.  So a TACACS+ priv-lvl of 15
+     does NOT raise the session automatically; "enable" is still needed.  Second, the
+     SSH login's request is 2 bytes larger than the console's for the same credential,
+     68 B against 66 B.  STEP 13 explains that.
+
+STEP 9 (designed) -- control: a MISMATCHED shared key                                 PASS
+--------------------------------------------------------------------------------
+  Method: driven over SSH only.  The console session stayed at "awplus#" the whole
+  time (peek before: /dev/u2 TAIL: 'awplus#').
+
+awplus(config)# tacacs-server host 10.38.22.33 key <wrong key>
+
+  netlogin --proto ssh --user tacuser --password <server password>  -> LOGIN RESULT: FAIL  3.4 s
+  netlogin --proto ssh --user manager --password <password>         -> LOGIN RESULT: USER  0.3 s
+
+DUT log:
+
+  2026 Oct 20 00:56:44 auth.err awplus sshd-session[6911]: tac_authen_read_timeout: inconsistent reply body, incorrect key?
+  2026 Oct 20 00:56:44 auth.err awplus sshd-session[6911]: PAM-tacplus: no more servers to connect
+  2026 Oct 20 00:56:44 authpriv.notice awplus sshd-session[6911]: pam_unix(vty0:auth): authentication failure; ... user=tacuser
+  2026 Oct 20 00:56:48 auth.err awplus sshd-session[6917]: PAM-tacplus: user not authenticated by TACACS+
+  2026 Oct 20 00:56:48 auth.notice awplus sshd-session[6915]: Accepted keyboard-interactive/pam for manager from 10.38.22.33 port 55260 ssh2
+
+Wire, tac-wrongkey.pcap, 24 packets, 2 flows, one per attempt:
+
+  flow ...:49 <-> ...:49706  packets=12  ESTABLISHED+DATA   out 41 B / in 72 B
+  flow ...:49 <-> ...:51196  packets=12  ESTABLISHED+DATA   out 41 B / in 72 B
+
+  => STEP 9 PASS, with two findings.
+     1. A wrong shared key has its own wire signature, and it is the opposite of a
+        normal exchange.  A normal exchange is 17 packets, the client sends more than
+        it receives (66 B out, 46 B in), and a second authorization flow follows.  A
+        wrong key gives 12 packets, the server sends far more than it receives (41 B
+        out, 72 B in), and nothing follows.  The client gets one START away and never
+        reaches the CONTINUE that would carry the password.  So the password is never
+        put on the wire at all when the key is wrong.
+     2. A wrong shared key is treated as "server unavailable", and the "local" fallback
+        DOES engage.  "manager" was admitted in 0.3 s.  Read with STEP 7, this fixes
+        section 7E.1 exactly for TACACS+: a Reject is honoured and local is skipped; a
+        protocol failure is not a Reject, so local is used.  The DUT also says WHY.
+        platforms/x960.md section 7E.4 records that for RADIUS a wrong shared key and a
+        dead server are indistinguishable in the DUT's log, because both read "failed
+        to respond".  For TACACS+ the DUT prints "tac_authen_read_timeout: inconsistent
+        reply body, incorrect key?", which names the cause.  STEP 11's truly unreachable
+        server reads "tac_connect_single_vrf: connection failed ... Transport endpoint
+        is not connected" instead.  The two failure modes ARE distinguishable on TACACS+
+        where they are not on RADIUS.  That follows from TACACS+ running over TCP: a
+        connect failure and a decode failure happen at different layers.  The fallback
+        delay here was 0.3 s, not the 25.5 s that section 7E.1 measured for an
+        unreachable RADIUS server, because the TCP connection succeeded and the server
+        answered at once.
+
+  The correct key was restored immediately afterwards and the way back was re-checked:
+  netlogin --proto ssh --user tacuser --password <server password> gave LOGIN RESULT:
+  USER in 0.4 s, and the console was still at "awplus#".
+
+STEP 10 (designed) -- control: a local privilege-15 account the server does not know  PASS
+--------------------------------------------------------------------------------
+netlogin --proto ssh --host 10.38.22.34 --user manager --password <password> --expect fail
+
+  manager@10.38.22.34's password:
+  LOGIN RESULT: FAIL  proto=ssh  user=manager  seconds=2.0        (--expect fail: MATCH)
+
+  Wire, tac-mgr-reject.pcap: 17 packets, ONE flow, out 64 B / in 46 B.  Authentication
+  only, with no authorization.  That is STEP 7's reject signature, on the SSH path.
+
+  => STEP 10 PASS: "manager" is a local account with privilege 15.  It offered its
+     correct local password.  "local" is written at the end of the method list.  It was
+     still refused, because the server answers Reject for it.  This is the most
+     dangerous property of the feature in daily use, and it is why STEP 4 built a way
+     back before the method list was touched.
+
+STEP 11 (designed) -- several servers: tried in order (TFS S1599.1.004)               PASS
+--------------------------------------------------------------------------------
+  Method: 10.38.22.60 was checked first and is genuinely dead on the same subnet
+  (tools/tb ping tb277 eth3 10.38.22.60 2 -> 100% loss).  It was then configured FIRST,
+  ahead of the working server.
+
+awplus(config)# no tacacs-server host 10.38.22.33
+awplus(config)# tacacs-server host 10.38.22.60 key <shared key>
+awplus(config)# tacacs-server host 10.38.22.33 key <shared key>
+
+awplus# show running-config | include tacacs
+  tacacs-server host 10.38.22.60 key 9 <encrypted shared key>
+  tacacs-server host 10.38.22.33 key 9 <encrypted shared key>
+
+awplus# show tacacs+
+  10.38.22.60                                   Unknown
+  10.38.22.33                                   Alive
+
+netlogin --proto ssh --user tacuser --password <server password> --expect user
+  LOGIN RESULT: USER  proto=ssh  user=tacuser  seconds=3.6      (0.4 s with one server)
+
+DUT log:
+
+  2026 Oct 20 01:01:52 auth.err    sshd-session[7267]: tac_connect_single_vrf: connection failed with 10.38.22.60:49: Transport endpoint is not connected
+  2026 Oct 20 01:01:52 auth.err    sshd-session[7267]: PAM-tacplus: connection failed srv 0: Transport endpoint is not connected
+  2026 Oct 20 01:01:52 auth.notice sshd-session[7267]: PAM-tacplus: User tacuser is authenticated
+
+  Wire, tac-two.pcap, filter "tcp port 49 or (arp and host 10.38.22.60)": 32 packets.
+  29 of them are the two TCP port 49 flows to 10.38.22.33.  The other 3 are the DUT's
+  unanswered ARP requests for 10.38.22.60.  There is no TCP SYN to 10.38.22.60 at all,
+  because ARP never resolved.
+
+awplus# show tacacs+            (after the login)
+  10.38.22.60                                   Error
+  10.38.22.33                                   Alive
+
+  => STEP 11 PASS, S1599.1.004 satisfied: the servers are tried one after another, in
+     the order they appear in the running-config.  The log even names the index, "srv
+     0".  The unreachable server does not stop the login.  The second server serves it.
+     The failure to reach the first server is logged.  The cost is 3.2 s of extra login
+     time, 3.6 s against 0.4 s, and all of it is spent in ARP.  "show tacacs+" gains a
+     third per-server state, "Error", beside "Unknown" and "Alive".
+     Two smaller facts.  The two stored "key 9" values are byte-identical for the same
+     plain-text key, so the stored form is deterministic and two servers that share a
+     key look identical in the running-config.  And 10.38.22.33 read "Alive" again
+     right after being removed and re-added, so that state is not reset by
+     reconfiguration.
+
+STEP 12 (designed) -- every server unreachable: the local fallback                    PASS
+--------------------------------------------------------------------------------
+awplus(config)# no tacacs-server host 10.38.22.33
+  (this leaves only the dead 10.38.22.60)
+
+  netlogin --proto ssh --user manager --password <password>        -> LOGIN RESULT: USER  3.9 s
+  netlogin --proto ssh --user tacuser --password <local password>  -> LOGIN RESULT: USER  3.6 s
+
+DUT log:
+
+  2026 Oct 20 01:03:44 auth.err    sshd-session[7450]: tac_connect_single_vrf: connection failed with 10.38.22.60:49: Transport endpoint is not connected
+  2026 Oct 20 01:03:44 auth.err    sshd-session[7450]: PAM-tacplus: connection failed srv 0: Transport endpoint is not connected
+  2026 Oct 20 01:03:44 auth.err    sshd-session[7450]: PAM-tacplus: no more servers to connect
+  2026 Oct 20 01:03:44 auth.err    sshd-session[7450]: PAM-tacplus: user not authenticated by TACACS+
+  2026 Oct 20 01:03:44 auth.notice sshd-session[7448]: Accepted keyboard-interactive/pam for tacuser from 10.38.22.33 port 55270 ssh2
+
+  => STEP 12 PASS: with every configured server unreachable, the "local" fallback
+     engages.  The DUT logs that it ran out of servers, with "no more servers to
+     connect".  That is the logging half of S1599.1.004.  The second login is the
+     cleanest proof that the fallback really is local: the account served was "tacuser"
+     with its LOCAL password, the password that exists only in the local database and
+     that STEP 7 proved is ignored while the server answers.  The same credential is
+     refused with the server up and accepted with the server down.  The measured
+     fallback delay is 3.6 s to 3.9 s, against the 25.5 s that platforms/x960.md
+     section 7E.1 measured for an unreachable RADIUS server.  TACACS+ fails much faster,
+     because it fails at ARP and TCP connect instead of waiting out a UDP retransmit
+     schedule.
+
+STEP 13 (designed) -- the decisive leg: a user with NO local account at all           PASS
+--------------------------------------------------------------------------------
+  Method: "tacuser" has a local account, because it is the way back built in STEP 4.
+  Someone could argue the local database helped in STEPS 6 and 8.  "taclow" exists only
+  on the TACACS+ server, at priv-lvl = 1, and has no local entry of any kind.
+
+awplus(config)# no tacacs-server host 10.38.22.60
+awplus(config)# tacacs-server host 10.38.22.33 key <shared key>
+awplus(config)# ssh server allow-users taclow
+
+netlogin --proto ssh --host 10.38.22.34 --user taclow --password <server password>
+    --expect user --cmd 'show users'
+
+  --- bytes after the password was sent (THE LOGIN BANNER) ---
+
+  AlliedWare Plus (TM) 0.0.0 10/12/26 06:38:00
+
+  awplus>
+  LOGIN RESULT: USER  proto=ssh  user=taclow  seconds=0.5
+
+  === CMD: show users ===
+  con 0   tacuser         idle     00:00:09  ttyS0           15   10       N/A
+  vty 0   taclow          idle     00:00:00  10.38.22.33     1    10       N/A
+
+  Wire, tac-taclow.pcap: 29 packets, the two-flow accept signature.  17 packets with
+  67 B out and 46 B in, then 12 packets with 72 B out and 30 B in.
+
+  => STEP 13 PASS.  This is the case's decisive measurement.  An account that does not
+     exist on the DUT in any form was admitted to its CLI, ran a command, and was listed
+     by the DUT as a logged-in user.  Only the TACACS+ server can have allowed that.
+
+  The "Last login:" discriminator.  platforms/x960.md section 7E.2 says a
+  server-authenticated login prints NO "Last login:" line, because that line comes from
+  the Linux lastlog of a LOCAL account.  Measured here for TACACS+:
+
+      login                        local account?   "Last login:" in the banner?
+      ---------------------------  ---------------  ----------------------------
+      manager, local (STEP 1)      yes              yes
+      tacuser, TACACS+ (STEPS 6,8) yes              yes
+      taclow, TACACS+ (STEP 13)    no               no
+
+  So the rule holds, and it is now sharper: the thing that decides is whether a LOCAL
+  account exists, not which protocol authenticated the login.  "tacuser" was
+  authenticated by TACACS+ and still printed the line.
+
+  A second measured caveat on the same line.  "tacuser" was created in STEP 4.  Its
+  very first login, seconds later, printed:
+
+      awplus login: tacuser
+      Last login: Mon Oct 19 23:00:48 UTC 2026 from 10.38.22.33
+
+  "tacuser" had never logged in before.  It had existed for seconds, and it had never
+  used an address-based access path.  So AW+ can report a "Last login:" that does not
+  belong to the account shown.  A freshly created account can report a login it never
+  made, from a path it never used.  Anyone using "Last login:" as a discriminator must
+  know this.
+
+  The obfuscated body is NOT padded, so the packet length leaks two lengths.  Five
+  independent measurements of the client-to-server payload of the AUTHENTICATION flow
+  fit one model exactly, with nothing left over:
+
+      step  path     user (len)  password (len)       measured out  base + user + pw
+      ----  -------  ----------  -------------------  ------------  ----------------
+      6     console  tacuser (7) <server pw>   (10)   66 B          49 + 17
+      7     console  tacuser (7) <local pw>    (10)   66 B          49 + 17
+      8     ssh      tacuser (7) <server pw>   (10)   68 B          51 + 17
+      10    ssh      manager (7) <password>     (6)   64 B          51 + 13
+      13    ssh      taclow  (6) <server pw>   (10)   67 B          51 + 16
+
+  The console base is 49 B and the SSH base is 51 B.  The 2-byte difference is the port
+  and rem_addr attributes of the session.  Beyond that base, every byte of the username
+  and every byte of the password is one byte on the wire.  TACACS+ obfuscation is a
+  keystream XOR and adds no padding.  So someone watching the network who cannot read a
+  single credential can still read the exact LENGTH of both the username and the
+  password of every login.  This is a property of the protocol, not a defect in this
+  product, but it is measured here on this product.
+
+STEP 14 (designed) -- removal                                                         PASS
+--------------------------------------------------------------------------------
+awplus(config)# no tacacs-server host 10.38.22.33
+awplus(config)# aaa authentication login default local
+
+awplus# show tacacs+
+  TACACS+ Global Configuration
+    Source Interface    : not configured
+    Timeout             : 5 sec
+
+  No TACACS+ servers currently defined
+
+  Then a 45 s capture on TCP port 49, with three real logins driven through it:
+
+  netlogin --proto ssh --user taclow --password <server password> --expect fail
+      -> LOGIN RESULT: FAIL  proto=ssh  user=taclow  seconds=3.4
+  conlogin --user manager --password <password> --expect user
+      -> LOGIN RESULT: USER  user=manager  seconds=0.4  prompt='awplus>'
+         (plus its restore login)
+
+  0 packets captured
+  0 packets received by filter
+
+DUT log for the refused "taclow":
+
+  2026 Oct 20 01:05:41 authpriv.notice sshd-session[7709]: pam_unix(vty0:auth): check pass; user unknown
+  2026 Oct 20 01:05:43 auth.err        sshd-session[7698]: error: PAM: User not known to the underlying authentication module for taclow from 10.38.22.33
+
+  => STEP 14 PASS: the feature removes completely.  No server is left in "show
+     tacacs+".  There are 0 packets on TCP port 49 under the same stimulus that
+     produced 58.  The account that only the server knew is now simply unknown, and the
+     line that says so comes from LOCAL PAM, with no TACACS+ line at all.  "manager" is
+     admitted again at the local timing of 0.4 s, so the section 7E.1 lockout is lifted
+     as soon as the method list is restored.
+================================================================================

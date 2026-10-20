@@ -1,0 +1,714 @@
+================================================================================
+TEST T33410 -- (277) Management_TACACS+ - Accounting
+================================================================================
+Run:      2026-10-20 14:12-14:33 NZDT.  All 12 steps ran on swi_d, with no reload.
+          swi_d's clock reads UTC and is 13 h 00 m 15 s behind the box, so a DUT time
+          in this log must have that offset added before it is compared to a server
+          record, which is written in box time.
+Bench:    tb277, console u2 (swi_d); Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T33410.  The test-case database holds NO authored objective and NO
+          authored step text for this case.  It has one step, and that step's
+          description, test data and expected result are all empty.  The 12 steps
+          below were designed by the tester from the case title, the x960 platform
+          support TPS and the "TACACS+ AAA" TFS (project 1599).
+          Tester's objective: prove that this DUT reports CLI activity to an external
+          TACACS+ accounting server, that a login and a logout produce correctly
+          paired records, that each configured mode does exactly what it says, that
+          command accounting records the right commands with the right privilege and
+          the right text, that each record can be matched to the session that caused
+          it, and that the feature can be removed completely.
+Build:    swi_d  sin_x96056-20261012-24  (x960-tb277.rel, build date Mon Oct 12
+          06:38:00 UTC 2026)
+
+awplus# show system
+
+System Status                                           Tue Oct 20 01:12:15 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B       
+PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU 
+PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S 
+Fan module 730  FAN1    AT-FAN19                          -     -               
+Fan module 730  FAN2    AT-FAN19                          -     -               
+--------------------------------------------------------------------------------
+RAM: Total: 8092132 kB Free: 7453376 kB
+Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 3 days 18:49:51
+Bootloader version : Unknown
+
+Current software   : x960-tb277.rel
+Software version   : sin_x96056-20261012-24
+Build date         : Mon Oct 12 06:38:00 UTC 2026
+
+Current boot config: flash:/default.cfg (file exists)
+
+System Name
+ awplus
+System Contact
+
+System Location
+
+Configs:  swi_d.cfg (running-config after setup; saved to startup: no)
+
+Note on credentials: this case typed a real password and a real TACACS+ shared key
+into the DUT.  They are replaced in this log by <password> and <shared key>.  The
+device's own stored forms are shown as <encrypted shared key> and <hash>.
+
+VERDICT: PASS -- TACACS+ accounting works on this DUT.  Three defects were found, and
+         two of them need a developer.
+      23 TFS specifications measured ...... 19 PASS  (the table after STEP 12 lists
+                                                      every one, with its step)
+      paired START and STOP records ....... proven   (matching task_id, STEP 3)
+      task_id increments per session ...... proven   (1 -> 2, STEP 4)
+      elapsed_time is real ................ proven   (elapsed_time=4 for a session open
+                                                      4.1 s, STEP 4)
+      start-stop, stop-only and none ...... proven   (each against a measured zero on
+                                                      two instruments, STEPS 3, 7, 8)
+      a session older than the config ..... proven   (no STOP, STEP 5)
+      console and SSH accounted alike ..... proven   (login accounting only, STEP 6)
+      command accounting on the console ... proven   (privilege selection, expansion,
+                                                      the "do" exception, unique
+                                                      task_id, STEP 9)
+      triggers are mutually exclusive ..... proven   (both directions, STEP 10)
+      periodic updates on the minute ...... proven   (1-minute cadence, STEP 11)
+      removal is complete ................. proven   (0 records and 0 packets, STEP 12)
+      command accounting on an SSH session  DEFECT   (0 records -- FINDING 2, STEP 9)
+      an SSH session's periodic update .... DEFECT   (wrong task_id, then reused --
+                                                      FINDING 3, STEP 11)
+      "end" leaves config mode ............ DEFECT   (no record, while "exit" is
+                                                      recorded -- FINDING 1, STEP 9)
+
+CAVEAT:  What this run did NOT establish, and what limits the verdict.
+         1. Reboot persistence is NOT MEASURED for this group.  No reload was
+            performed.  This log does not show whether the "aaa accounting" lines
+            survive a restart.
+         2. The three defects limit the scope of the PASS.  Command accounting was
+            proven on the console only, because on an SSH session it produced nothing
+            at all (FINDING 2).  An SSH session's periodic update cannot be matched to
+            its session (FINDING 3).  "end" is not accounted (FINDING 1).
+         3. S1599.2.06, "no record for enable", is only PARTLY measured.  It was
+            measured on the SSH session, where FINDING 2 makes the zero ambiguous.  It
+            could not be measured separately on the console, because the console
+            session was already privileged.  It is not claimed as a pass.
+         4. Not exercised at all: the exact AV-pair set against the TACACS+ reference
+            page (S1599.1.030 / .055), a malformed accounting REPLY (S1599.1.021 /
+            .007), "show tech" and script commands (S1599.1.037 / .038), the "edit"
+            command (S1599.1.035), Ctrl-C aborting a command (S1599.1.044), the CLI
+            blocking for the server timeout (S1599.1.105), the concurrency limits
+            (S1599.1.065 / .066), and a named (non-default) accounting method list.
+            S1599.1.105 was left out on purpose: with command accounting on from the
+            console and the server removed, EVERY console command would block for the
+            timeout, including the commands needed to undo it.  The console is the
+            only administrative path on this bench.
+
+HEALTH:  reboots ......... no new entry.  Newest entry is
+                           "2026-10-16 06:22:04 Expected CLI(user request)" in both samples
+         exception log ... None, in both samples
+         log ............. no crash, daemon restart or kernel error.  With the IMISH
+                           command echoes removed, the filter
+                           "show log | include kernel|exception|crash|restart|Unexpected"
+                           matched 0 device lines in both samples.  "show log tail 150"
+                           after the case, with IMISH echoes and routine sshd session
+                           lines removed, left no lines at all
+         CPU ............. usage 0% before -> 0% after (1 s, 20 s and 60 s averages),
+                           although about 220 ICMP packets and about 50 TACACS+
+                           exchanges happened in between
+         memory .......... free 7453124 kB before -> 7453020 kB after, of 8092132 kB
+                           total.  That is 104 kB lower, which is 0.001% of total
+         Run label: CLEAN.  Not confounded.  FINDINGS 1, 2 and 3 are product behaviours
+         this case measured.  They are not health problems with the unit.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+      tb277 /dev/u2 @115200  (serial console)
+           |
+           v   console logins, console command batches, every show and config command
+  +-------------------------------------------------------+
+  |  swi_d   AT-x960-56YSQ              *** DUT ***        |
+  |  vlan10  10.38.22.34/27   on port1.0.10                |
+  +-------------------------------------------------------+
+           ^  port1.0.10
+           |
+           |  (a) SSH sessions, tb277 -> DUT   (the VTY stimulus)
+           |  (b) TACACS+ accounting records, TCP port 49, DUT -> server
+           v
+      tb277 eth3  10.38.22.33/27  mac 00:0d:b9:55:77:0e
+           |
+           +--> tac_plus 4.0.4.27a-3, TCP port 49    (the TACACS+ server)
+           +--> /var/log/tac_plus.acct               (the accounting file, the primary
+           |                                          instrument of this case)
+           +--> tcpdump on eth3, filter "tcp port 49"  (the capture point)
+
+  DUT     : swi_d (AT-x960-56YSQ) console /dev/u2 @115200, S/N A2WQS700B,
+            software sin_x96056-20261012-24.  Single unit, no stack.
+  server  : tac_plus on tb277 itself, TCP port 49, accounting file
+            /var/log/tac_plus.acct.  Started by the Test Engineer.  The tester never
+            started, stopped, reconfigured or read the configuration of this service.
+  link    : swi_d port1.0.10 <-> tb277 eth3  (vlan10, 10.38.22.32/27 subnet).
+            port1.0.10 and port1.0.48 were never shut and never flapped.
+  host    : tb277 eth3, mac 00:0d:b9:55:77:0e, 10.38.22.33/27 -> swi_d port1.0.10.
+            This NIC is the server, the capture point, and the source of every SSH
+            session.
+  tools   : all run on tb277.  tools/tb drives the console helpers tools/ckcon.py
+            (shows), tools/cfg.py (configuration) and tools/qmark.py (read-only help
+            probes).  tools/conlogin.py drives console logins and logouts.
+            tools/netlogin.py drives SSH sessions.  tools/filewin.py reads
+            /var/log/tac_plus.acct in a bounded window: it marks the byte offset before
+            a step and reads exactly the new bytes after it, so "no record" is a
+            measured zero and not an absence of output.  tools/tb capture runs tcpdump
+            on eth3 and tools/tcpflow.py decodes the capture.  tools/rcdiff.py compares
+            the running-config before and after.
+
+  Design note: accounting is independent of authentication.  The TFS says so: "User
+  login accounting is separate from user login authentication. When a user logs in,
+  regardless of what authentication method was used, the user login accounting will
+  behave as per its configuration."  This case therefore left
+  "aaa authentication login default local" alone throughout.  "manager" kept working on
+  every path, so no escape account was needed.  It also means every record below was
+  produced for a LOCALLY authenticated login.
+
+STEP 1 (designed) -- baseline OFF, with the server already configured                 PASS
+--------------------------------------------------------------------------------
+  Method: this is the sharpest possible OFF baseline.  The TACACS+ server is configured
+  and reachable.  Only the accounting configuration is missing.  So anything measured
+  later comes from the accounting commands alone.
+
+awplus(config)# tacacs-server host 10.38.22.33 key <shared key>
+
+awplus# show running-config | include aaa
+  aaa authentication enable default local
+  aaa authentication login default local
+                                       <-- no "aaa accounting" line of any kind
+
+tools/tb tool tb277 cktac filewin /var/log/tac_plus.acct --quiet
+  FILEWIN /var/log/tac_plus.acct size=0 ...
+
+  (capture running) netlogin --proto ssh --user manager --password <password> --cmd 'show clock'
+    LOGIN RESULT: USER  proto=ssh  user=manager  seconds=0.3
+
+  0 packets captured          (tcp port 49, 30 s)
+  FILEWIN /var/log/tac_plus.acct size=0 from=0 new-bytes=0 new-lines=0 matched=0
+
+  => STEP 1 PASS, S1599.1.022 satisfied in its strongest form: a complete SSH session
+     -- login, a command, logout -- with a configured and reachable TACACS+ server
+     produced 0 accounting bytes and 0 packets.  This is the baseline that every later
+     zero is measured against.
+
+STEP 2 (designed) -- list the accounting CLI surface, read-only                       PASS
+--------------------------------------------------------------------------------
+tools/tb qmark tb277 cktac u2 115200 --mode 'configure terminal' -- '<each prefix>'
+
+  prefix                                      completions offered
+  ------------------------------------------  --------------------------------------
+  aaa accounting                              auth-mac / auth-web / commands / dot1x /
+                                              login / update
+  aaa accounting login                        NAME / default
+  aaa accounting login default                none / start-stop / stop-only
+  aaa accounting login default start-stop     group only
+  aaa accounting login default stop-only      group only
+  aaa accounting login default none           group only
+  aaa accounting login default start-stop
+      group                                   NAME "Radius server group name" /
+                                              radius / tacacs+
+  aaa accounting commands                     <1-15> privilege level range
+  aaa accounting commands 15                  default only
+  aaa accounting commands 15 default          stop-only ONLY
+  aaa accounting commands 15 default
+      start-stop                              % Unrecognized command
+  aaa accounting update                       periodic / <cr>
+  aaa accounting update periodic              <1-65535> intervals, IN MINUTES
+
+  Three traps worth keeping:
+  1. "none" is not a terminal keyword.  Its help text reads "No accounting record to be
+     sent", but "aaa accounting login default none" is rejected with "% Incomplete
+     command."  It still needs "group tacacs+".  STEP 8 shows this.
+  2. Command accounting has no "start-stop", only "stop-only".  That is correct for a
+     point event, but it differs from login accounting and the TFS does not say so.
+  3. A CLI help defect: "aaa accounting login default start-stop group ?" describes
+     NAME as "Radius server group name", although the same position accepts "tacacs+".
+     This is cosmetic, but it is wrong text on a TACACS+ path.
+
+  => STEP 2 PASS: every command this case sends exists on this build.  The real form of
+     "none" was learned here, instead of by failing a later step.
+
+STEP 3 (designed) -- start-stop login accounting: the paired records                  PASS
+--------------------------------------------------------------------------------
+awplus(config)# aaa accounting login default start-stop group tacacs+
+
+  swi_d.cfg was saved at this point, 2026-10-20 14:15 NZDT, after setup and before the
+  measurement steps.
+
+netlogin --proto ssh --user manager --password <password> --cmd 'show clock'
+
+/var/log/tac_plus.acct, window --from 0, 2 new lines (tab characters shown as |):
+
+  Oct 20 14:15:09 | 10.38.22.34 | manager | ssh | 10.38.22.33 | start |  | start_time=1792458895 | task_id=1 | service=shell | timezone=UTC
+  Oct 20 14:15:09 | 10.38.22.34 | manager | ssh | 10.38.22.33 | stop  |  | stop_time=1792458895  | task_id=1 | service=shell | timezone=UTC | disc-cause=9 | disc-cause-ext=2 | pre-session-time=0 | elapsed_time=0
+
+Wire: 24 packets, 2 flows.  One TCP connection per record.
+
+  flow ...:49 <-> ...:48542  packets=12  ESTABLISHED+DATA  out 102 B / in 17 B   <- the START
+  flow ...:49 <-> ...:48558  packets=12  ESTABLISHED+DATA  out 165 B / in 17 B   <- the STOP
+
+  => STEP 3 PASS, S1599.1.023, S1599.1.024 and S1599.1.028 satisfied: a START on login
+     and a STOP on logout.  Both carry task_id=1, so the pair belongs to one session.
+     The STOP is 63 B larger because it adds stop_time, disc-cause, disc-cause-ext,
+     pre-session-time and elapsed_time.  The server answers each one with 17 B.
+     Note the user: "manager", authenticated by the LOCAL database.  This case never
+     points the login method list at TACACS+.  So accounting is proven independent of
+     the authentication method, exactly as the TFS states.
+
+STEP 4 (designed) -- task_id increments, and elapsed_time is real                     PASS
+--------------------------------------------------------------------------------
+  Method: a second session, held open on purpose with a ping.
+
+netlogin ... --cmd 'ping 10.38.22.33 repeat 5'       (5 packets ... time 4102ms)
+
+  Oct 20 14:15:58 ... start | start_time=1792458944 | task_id=2 ...
+  Oct 20 14:16:02 ... stop  | stop_time=1792458948  | task_id=2 ... elapsed_time=4
+
+  => STEP 4 PASS, S1599.1.027 satisfied: task_id advanced from 1 to 2 for the next
+     session.  START and STOP agree again.  stop_time minus start_time is 4, and
+     elapsed_time=4 matches the 4.1 s the session was really open.  The record's
+     duration is measured, not nominal.
+
+STEP 5 (designed) -- S1599.1.026: a session that started before the configuration     PASS
+--------------------------------------------------------------------------------
+  Method: the TFS says "Users already logged in, when changes are made, will retain the
+  configuration that existed when they logged in."  The console session had been logged
+  in since before accounting was configured.  So logging it out must produce no STOP.
+  conlogin.py logs the console out before it logs back in, so one call tests this and
+  the console's own accounting in the same window.
+
+awplus# show users         (before)
+  con 0   manager   ttyS0        (this session opened about 13:5x; accounting was
+                                  configured at 14:15)
+
+tools/tb conlogin tb277 cktac u2 115200 --user manager --password <password> --logout --expect user
+  LOGIN RESULT: USER  user=manager  seconds=0.4  -- MATCH
+  conlogin: logged out again
+  conlogin: restore login as manager -> USER
+
+Window: exactly three records.
+
+  Oct 20 14:16:34 ... manager | ttyS0 | unknown | start | start_time=1792458980 | task_id=3 ...
+  Oct 20 14:16:34 ... manager | ttyS0 | unknown | stop  | stop_time=1792458980  | task_id=3 ... elapsed_time=0
+  Oct 20 14:16:36 ... manager | ttyS0 | unknown | start | start_time=1792458982 | task_id=4 ...
+
+  => STEP 5 PASS, S1599.1.026 satisfied.  task_id 3 is the test login and its logout.
+     task_id 4 is the restore login, which is still open.  There is NO stop record for
+     the console session that already existed.  It logged out at the start of this
+     sequence and produced nothing, because accounting was not configured when it
+     logged in.  This is a DIFFERENCE from RADIUS.  platforms/x960.md section 7E.4
+     records the opposite for RADIUS on this same DUT: "A session opened before
+     accounting was enabled still produces a Stop."  TACACS+ is the one that matches
+     its own specification.
+
+STEP 6 (designed) -- S1599.1.025: the console and an SSH session are accounted alike  PASS
+--------------------------------------------------------------------------------
+  Method: compare STEP 3 (SSH) with STEP 5 (console).  Same configuration, same user.
+
+  field          SSH                            console
+  -------------  -----------------------------  -----------------------------
+  port           ssh                            ttyS0
+  rem_addr       10.38.22.33                    unknown
+  record shape   start + stop, matching task_id  start + stop, matching task_id
+  AV pairs       identical set                  identical set
+
+  => STEP 6 PASS, S1599.1.025 satisfied: LOGIN accounting is global.  It is not bound
+     to a line, and both access paths produce the same records.  The only difference is
+     how the session is identified, through "port" and "rem_addr", which is what those
+     attributes are for.  Remember this result.  STEP 9 shows that COMMAND accounting
+     does not share it.
+
+STEP 7 (designed) -- stop-only                                                        PASS
+--------------------------------------------------------------------------------
+awplus(config)# no aaa accounting login default
+awplus(config)# aaa accounting login default stop-only group tacacs+
+
+netlogin --proto ssh --user manager --password <password> --cmd 'show clock'
+
+  FILEWIN ... new-lines=1
+  Oct 20 14:17:06 ... manager | ssh | 10.38.22.33 | stop | stop_time=1792459013 | task_id=5 | ... elapsed_time=0
+
+  => STEP 7 PASS: exactly ONE record, a stop, with no start before it.  It also
+     confirms the note inside S1599.1.027: "when stop-only is configured, the session
+     that closes first uses the first available task_id".  task_id=5 was allocated at
+     the STOP, not at the login.
+
+STEP 8 (designed) -- none, and the CLI trap inside it                                 PASS
+--------------------------------------------------------------------------------
+awplus(config)# aaa accounting login default none
+  % Incomplete command.                       <-- see STEP 2, trap 1
+
+awplus(config)# aaa accounting login default none group tacacs+
+awplus# show running-config | include aaa accounting
+  aaa accounting login default none group tacacs+
+
+  (capture running) netlogin --proto ssh --user manager --password <password> --cmd 'show clock'
+
+  0 packets captured              (the pcap holds 0 packets; tcpflow agrees)
+  FILEWIN ... new-bytes=0 new-lines=0
+
+  => STEP 8 PASS, S1599.1.022 satisfied: with the method list set to "none" on purpose,
+     a full SSH session produced no record and no packet.  "none" is a real configured
+     state, not just the absence of configuration, and it is silent on both instruments.
+
+  Reading note: tcpdump printed "0 packets captured" but "1 packet received by filter".
+  "received by filter" is a kernel-side counter that can be higher than the captured
+  count when the capture ends.  The pcap itself holds 0 packets and tcpflow.py reads 0
+  flows, so the measurement is zero.  This is written down because a raw "1" in a
+  summary line is exactly the kind of number that becomes a false finding.
+
+STEP 9 (designed) -- command accounting: what is recorded, and exactly how            PASS
+--------------------------------------------------------------------------------
+awplus(config)# aaa accounting commands 15 default stop-only group tacacs+
+
+  First with privilege 15 only configured.  Three exec commands were sent:
+
+    show clock | sh ver | show nosuchthing
+
+  FILEWIN ... new-lines=2
+  ... task_id=6  | priv-lvl=15 | cmd=terminal no monitor
+  ... task_id=7  | priv-lvl=15 | cmd=terminal no monitor
+
+  None of the three test commands was recorded.  The only two records are the console
+  driver's own privilege-15 "terminal no monitor".  "show clock" and "show version" are
+  privilege-1 commands, so with only level 15 configured they are correctly out of
+  scope.  S1599.1.031 confirmed: the privilege that selects a record is the COMMAND's,
+  not the session's.  All three commands were typed in a privilege-15 session.
+  The driver's own commands appearing in the records is a measurement artefact of using
+  a console tool.  It is not a product behaviour.  It is noted so the counts below read
+  correctly.
+
+  Privilege 1 was then added, and the batch repeated with two config-mode commands:
+
+awplus(config)# aaa accounting commands 1 default stop-only group tacacs+
+
+    show clock | sh ver | show nosuchthing | configure terminal | do sh clock | end
+
+  FILEWIN ... new-lines=6
+  task_id=13 | priv-lvl=1  | cmd=terminal length 0          <- the driver's
+  task_id=14 | priv-lvl=15 | cmd=terminal no monitor        <- the driver's
+  task_id=15 | priv-lvl=1  | cmd=show clock
+  task_id=16 | priv-lvl=1  | cmd=show version
+  task_id=17 | priv-lvl=15 | cmd=configure terminal
+  task_id=18 | priv-lvl=1  | cmd=do sh clock
+
+  Read against the TFS, line by line:
+
+  spec          what it requires                 measured here
+  ------------  -------------------------------  ----------------------------------
+  S1599.1.033   a record for an accepted,        cmd=show clock -- PASS
+                executed command at the
+                configured privilege
+  S1599.1.036   the full expanded command, not   "sh ver" was typed; the record reads
+                the abbreviation that was typed  cmd=show version -- PASS
+  S1599.1.034   no command output in the record  "show version" prints about 20 lines;
+                                                 the record carries only
+                                                 cmd=show version -- PASS
+  S1599.1.041   config-mode commands accounted   "configure terminal" gives
+                as privilege 15                  priv-lvl=15, and in a separate run
+                                                 "ip domain-lookup" typed inside
+                                                 config mode also gives
+                                                 priv-lvl=15 -- PASS
+  S1599.1.042   a "do" command accounted at      "do sh clock" gives priv-lvl=1 and
+                privilege 1 and NOT expanded     cmd=do sh clock -- both halves PASS.
+                                                 Note the contrast with "sh ver" three
+                                                 lines above, which WAS expanded
+  S1599.1.043   a unique task_id per command     13, 14, 15, 16, 17, 18 -- consecutive,
+                                                 one per command -- PASS
+  S1599.2.08    no record for an invalid command "show nosuchthing" produced no
+                                                 record -- PASS
+
+  A separate, focused run confirmed the config-mode half on its own.  The commands were
+  "configure terminal", "ip domain-lookup", "end", "show clock":
+
+  task_id=22 | priv-lvl=15 | cmd=configure terminal
+  task_id=23 | priv-lvl=15 | cmd=ip domain-lookup
+  task_id=24 | priv-lvl=1  | cmd=show clock
+
+  Two controls that also passed:
+  * S1599.2.06, no record for "enable".  "enable" produced no record.  It was measured
+    on the SSH session, where FINDING 2 below makes the zero ambiguous.  It could not
+    be measured separately on the console, because the console session was already
+    privileged.  It is reported as PARTLY MEASURED and is not claimed as a pass.
+  * S1599.2.07, no record for "?".  "?" produced no record.  qmark.py types "PREFIX ?"
+    with no carriage return and then Ctrl-U, and its own self-test proves nothing is
+    executed.  The accounting file gained nothing across all of this case's qmark
+    probes.
+
+  FINDING 1 (low severity) -- "end" leaves configuration mode with no accounting
+  record, while "exit" is recorded.
+
+  In the batch above, "end" sits between "do sh clock" (task_id 18) and the next
+  command, and there is no record for it.  The task_ids on either side are consecutive,
+  so no record was lost on the way.  None was ever produced.  The separate focused run
+  shows the same thing: "configure terminal" (22) and "ip domain-lookup" (23) are
+  recorded, "end" is not, and the next exec command takes 24.
+
+  The control that makes this a finding rather than a design choice.  Same
+  configuration, same session:
+
+    show clock | configure terminal | exit | show clock
+
+  task_id=28 | priv-lvl=15 | cmd=configure terminal
+  task_id=29 | priv-lvl=15 | cmd=exit              <<<< RECORDED
+  task_id=30 | priv-lvl=1  | cmd=show clock
+
+  "exit" and "end" do the same thing.  They leave configuration mode.  Only "exit" is
+  accounted.  Against the TFS: S1599.1.041 says "all commands entered after 'configure
+  terminal'" are accounted at privilege 15, and "end" is such a command.  It is
+  accepted, correct in syntax, and executed, which are S1599.1.033's three conditions.
+  The "will not be implemented" list, S1599.2.06 to S1599.2.11, names "enable", an
+  incomplete command, "?", an invalid command, a command that did not execute, a
+  boot-configuration command and the "edit" outcome.  It does not name "end".
+  Severity is low but real.  A command-accounting audit trail shows an operator going
+  into configuration mode and what they typed, but not that they left it, when they
+  used "end".  The next exec-mode record implies the exit, so nothing is lost for good.
+  It is an inconsistency between two synonyms, and the inconsistency is the part worth
+  fixing.
+
+  FINDING 2 (needs a developer) -- command accounting records CONSOLE commands only.
+  Commands typed on an SSH session are not accounted at all.
+
+  Both "aaa accounting commands 1 default stop-only group tacacs+" and "aaa accounting
+  commands 15 default stop-only group tacacs+" were configured, and both were proven
+  working from the console above.  An SSH session was then opened AFTER that
+  configuration and driven through six commands:
+
+  netlogin --proto ssh --host 10.38.22.34 --user manager --password <password>
+      --cmd 'show clock' --cmd 'sh ver' --cmd 'enable'
+      --cmd 'configure terminal' --cmd 'ip domain-lookup' --cmd 'end'
+
+  LOGIN RESULT: USER  proto=ssh  user=manager  seconds=0.4
+
+  Every command really ran.  The transcript shows "enable" reaching "awplus#" and
+  "show clock" returning "UTC Time: Tue, 20 Oct 2026 01:21:28 +0000".  The result on
+  both instruments, over a 30 s capture that covered the whole session:
+
+  0 packets captured                                      (tcp port 49)
+  FILEWIN /var/log/tac_plus.acct ... new-bytes=0 new-lines=0 matched=0
+
+  Zero records and zero packets.  This was run twice with the same outcome.  The first
+  run was a four-command session and the second was the six-command session above.
+
+  This is not a missing binding.  "line vty 0 7" was probed read-only:
+
+awplus(config-line)# accounting ?
+  login  Set accounting method list for login session      <-- login only, no commands
+awplus(config-line)# ?
+  accounting / authorization / do / exec-timeout / exit / help / history /
+  length / login / no / privilege / show
+
+  There is no per-line command-accounting option anywhere.  That is consistent with the
+  TFS, which says "Command accounting will be globally configured" (S1599.1.031) -- and
+  global is exactly what it is not.
+
+  The control is in the same file.  LOGIN accounting on the SAME SSH sessions works
+  perfectly (STEPS 3, 4, 7: port=ssh, rem_addr=10.38.22.33, paired task_ids).  COMMAND
+  accounting on the CONSOLE works perfectly (above).  So the server, the shared key,
+  the network path, the method list and the TACACS+ client are all working in both
+  dimensions.  Only the intersection, commands on an SSH session, is silent.
+  Against the TFS: S1599.1.031 says command accounting is globally configured, and it
+  is configured globally but does not apply globally.  S1599.1.065 says the platform
+  supports "a maximum of 33 concurrent authentication and 33 concurrent command
+  accounting sessions for vty connections", so the specification explicitly sizes SSH
+  command accounting; this build supports zero.  TPS row 275 says TACACS+ Accounting is
+  Supported: Yes at Priority 1, so this is a finding, not a platform limit.
+  Operational consequence: an operator who administers this switch over SSH, which is
+  the normal case, leaves no command audit trail at all, while the TACACS+
+  configuration looks as though it is recording one.  An audit trail that is silently
+  absent is worse than one that is obviously absent.  This needs a developer.
+
+  => STEP 9 PASS: seven specifications are satisfied, each on its own record.  The
+     expansion rule and its "do" exception are the two most easily got wrong, and both
+     are exactly right.  Two defects were also measured here: FINDING 1 ("end" is not
+     accounted) and FINDING 2 (SSH commands are not accounted at all).
+
+STEP 10 (designed) -- S1599.1.045 and .046: triggers and command accounting exclude   PASS
+                      each other
+--------------------------------------------------------------------------------
+  Method: both directions were tested, each from a clean state.
+
+  S1599.1.046 -- a trigger refused while command accounting is on:
+
+awplus# configure terminal
+awplus(config)# trigger 1
+  % Triggers cannot be configured while AAA command accounting is enabled.
+awplus# show trigger
+  % No triggers currently defined                 <-- nothing was created
+
+  S1599.1.045 -- command accounting refused while a trigger exists:
+
+awplus(config)# no aaa accounting commands 15 default
+awplus(config)# no aaa accounting commands 1 default
+awplus(config)# trigger 1
+awplus(config-trigger)# type periodic 1440
+awplus# show trigger
+  001 Periodic (1440 ...                      Y  N  Y Continuous  0   smtwtfs
+
+awplus(config)# aaa accounting commands 15 default stop-only group tacacs+
+  % Command accounting cannot be configured while triggers are configured.
+
+  => STEP 10 PASS, both halves, each with its own distinct and accurate error message.
+     That is exactly what S1599.1.045 and S1599.1.046 require: "An error message is
+     printed if a user tries to ...".  "type periodic 1440" was chosen for the trigger
+     because it touches no port and no hardware.  It was removed again straight away
+     with "no trigger 1".
+
+STEP 11 (designed) -- periodic accounting updates (S1599.1.050, .052, .054)           PASS
+--------------------------------------------------------------------------------
+awplus(config)# no aaa accounting login default
+awplus(config)# aaa accounting login default start-stop group tacacs+
+awplus(config)# aaa accounting update periodic 1          (1 minute, the minimum)
+
+  Observation A -- an SSH session held open for 81 s:
+
+  Oct 20 14:25:14 | manager | ssh   | 10.38.22.33 | start  | start_time=1792459500 | task_id=44
+  Oct 20 14:26:02 | manager | ttyS0 | unknown     | update | task_id=4
+  Oct 20 14:26:12 | manager | pts/0 | unknown     | update | task_id=45
+  Oct 20 14:26:35 | manager | ssh   | 10.38.22.33 | stop   | stop_time=1792459581  | task_id=44 ... elapsed_time=81
+
+  Observation B -- a second SSH session held open for 142 s, which is two intervals:
+
+  Oct 20 14:27:06 | manager | ssh   | 10.38.22.33 | start  | start_time=1792459612 | task_id=46
+  Oct 20 14:28:02 | manager | pts/0 | unknown     | update | task_id=45
+  Oct 20 14:28:02 | manager | ttyS0 | unknown     | update | task_id=4
+  Oct 20 14:29:02 | manager | ttyS0 | unknown     | update | task_id=4
+  Oct 20 14:29:02 | manager | pts/0 | unknown     | update | task_id=45
+  Oct 20 14:29:28 | manager | ssh   | 10.38.22.33 | stop   | stop_time=1792459754  | task_id=46 ... elapsed_time=142
+
+  Observation C -- the control.  "show users" showed only "con 0", so no SSH session
+  was open, for 75 s:
+
+  Oct 20 14:30:02 | manager | ttyS0 | unknown | update | task_id=4
+  Oct 20 14:31:02 | manager | ttyS0 | unknown | update | task_id=4
+
+  The pts/0 updates stop.  So they are bound to a live SSH session.  They are not an
+  orphaned timer.
+
+  What passes: periodic updates are sent, at exactly the configured 1-minute cadence
+  (14:26:02, 14:28:02, 14:29:02, 14:30:02, 14:31:02 -- all on the minute), and only
+  while login accounting is enabled, which is S1599.1.054.  The CONSOLE session's
+  update carries task_id=4, which is its own START's task_id, so S1599.1.052 is
+  satisfied for the console.
+
+  FINDING 3 (needs a developer) -- an SSH session's periodic update cannot be matched
+  to that session.
+
+  S1599.1.052 says: "Periodic update messages must contain an AVP task_id that is
+  identical to the one used by login accounting START and STOP messages for the same
+  session."
+
+  session   START / STOP                               its periodic update
+  --------  -----------------------------------------  -----------------------------
+  console   port=ttyS0, task_id=4                      port=ttyS0, task_id=4 -- correct
+  SSH #1    port=ssh, rem_addr=10.38.22.33, task_id=44 port=pts/0, rem_addr=unknown,
+                                                       task_id=45
+  SSH #2    port=ssh, rem_addr=10.38.22.33, task_id=46 port=pts/0, rem_addr=unknown,
+                                                       task_id=45 again
+
+  Two separate defects in one record.
+  1. The task_id is wrong.  SSH #1's update took 45, the next free number from the
+     global counter, instead of its own session's 44.
+  2. That number is then reused.  SSH #2 is a different session.  It opened after SSH
+     #1 had closed, and it has its own START and STOP pair at task_id=46.  Its updates
+     still carry 45.  So the update identity is allocated once and shared by later SSH
+     sessions.  Two sessions one after the other produce updates that cannot be told
+     apart, as well as updates that cannot be matched to their own session.
+  The "port" attribute also disagrees with the session's own records: pts/0 in the
+  update, ssh in the START and the STOP.  And "rem_addr" is lost: it reads "unknown"
+  instead of the client's address.  So not one of the three fields a server could
+  correlate on matches.
+  S1599.1.053's escape clause does not apply.  It allows a fresh task_id only when
+  login accounting was "not active yet (login accounting and periodic updates
+  configured for current session without re-login)".  Both SSH sessions logged in AFTER
+  both commands were configured, and each had already sent its own START.
+  Consequence in a real deployment: a TACACS+ accounting server can rebuild console
+  sessions completely.  For SSH sessions it sees interim updates it cannot join to any
+  session, and if it keys on task_id it will merge the updates of different
+  administrators into one record.  This needs a developer.  It is the second
+  SSH-specific accounting defect in this case.
+
+  => STEP 11 PASS: periodic updates are sent at the configured interval, they stop when
+     login accounting stops, and the console's update carries the correct task_id.  An
+     SSH session's update carries the wrong task_id, and that wrong number is then
+     reused by the next SSH session (FINDING 3).
+
+STEP 12 (designed) -- removal                                                         PASS
+--------------------------------------------------------------------------------
+awplus(config)# no aaa accounting login default
+awplus(config)# no aaa accounting update
+
+awplus# show running-config | include aaa|tacacs
+  tacacs-server host 10.38.22.33 key 9 <encrypted shared key>
+  aaa authentication enable default local
+  aaa authentication login default local
+                                       <-- no "aaa accounting" line of any kind remains
+
+  Then a 40 s capture, with a full SSH session (login, "show clock", "enable",
+  "configure terminal", "end", logout) AND console commands driven through it:
+
+  0 packets captured
+  FILEWIN /var/log/tac_plus.acct ... new-bytes=0 new-lines=0 matched=0
+
+  => STEP 12 PASS: every accounting mode this case configured removes completely.
+     There are 0 records and 0 packets under the same stimulus that produced 44
+     records and many flows.  The only TACACS+ line left at this point is this case's
+     own setup line, "tacacs-server host 10.38.22.33", and it was removed afterwards.
+
+--------------------------------------------------------------------------------
+SPECIFICATION SUMMARY -- every TFS specification this case touched
+--------------------------------------------------------------------------------
+  spec          requirement (shortened)              result
+  ------------  -----------------------------------  ------------------------------
+  S1599.1.022   no tacacs+ option, so no login       PASS (STEPS 1, 8)
+                accounting message
+  S1599.1.023   START on login                       PASS (STEP 3)
+  S1599.1.024   STOP on logout                       PASS (STEP 3)
+  S1599.1.025   login accounting is global; the      PASS (STEP 6)
+                same on console and SSH
+  S1599.1.026   changes apply only at the next       PASS (STEP 5)
+                login; existing sessions keep
+                their configuration
+  S1599.1.027   task_id sequential per session;      PASS (STEPS 4, 7)
+                stop-only allocates it at the STOP
+  S1599.1.028   the STOP's task_id is the same as    PASS (STEPS 3, 4)
+                its START's
+  S1599.1.031   the accounted privilege is           PASS on privilege selection.
+                selectable; global configuration     The "global" half FAILS for an
+                                                     SSH session -- FINDING 2
+  S1599.1.033   a record for an accepted, executed   PASS on the console (STEP 9)
+                command
+  S1599.1.034   no command output in the record      PASS (STEP 9)
+  S1599.1.036   abbreviations expanded to the full   PASS (STEP 9, "sh ver" became
+                command                              "show version")
+  S1599.1.041   config-mode commands accounted at    PASS (STEP 9)
+                privilege 15
+  S1599.1.042   "do" commands at privilege 1 and     PASS, both halves (STEP 9)
+                NOT expanded
+  S1599.1.043   a unique task_id per command         PASS (STEP 9)
+  S1599.1.045   command accounting refused while a   PASS (STEP 10)
+                trigger exists, with an error
+  S1599.1.046   triggers refused while command       PASS (STEP 10)
+                accounting is on, with an error
+  S1599.1.050   periodic updates at the configured   PASS (STEP 11)
+                interval
+  S1599.1.052   an update's task_id is the same as   PASS for the console.  FAILS for
+                its session's START and STOP        an SSH session -- FINDING 3
+  S1599.1.054   updates only while login accounting  PASS (STEP 11, observation C)
+                is enabled
+  S1599.1.065   33 concurrent COMMAND accounting     FAILS at one -- FINDING 2
+                sessions for vty connections
+  S1599.2.06    no record for "enable"               PARTLY MEASURED -- see STEP 9
+  S1599.2.07    no record for "?"                    PASS (STEP 9)
+  S1599.2.08    no record for an invalid command     PASS (STEP 9)
+================================================================================
