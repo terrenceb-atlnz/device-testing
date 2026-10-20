@@ -167,7 +167,7 @@ SSH_AUTH_SOCK=$sock ssh -o BatchMode=yes <TB> \
   'cd ~/claude/device-testing/bench-setup && <PY> bench_probe.py --box <TB> precheck --consoles <list>'
 ```
 
-- `<PY>` is a Python ≥ 3.7 with pyserial on the box (tb105: `python3.8`).
+- `<PY>` is a Python ≥ 3.7 with pyserial on the box (tb105 and tb101: `python3.8`; `tools/tb` picks it by itself).
 - **FOUND (exit 5) or UNKNOWN: stop and tell the Test Engineer what was found.** Never displace
   anyone. Idle is not free.
 - `fuser` on the device node is the only reliable holder test. On 2026-09-09 minicom held three

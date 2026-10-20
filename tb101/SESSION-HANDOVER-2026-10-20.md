@@ -23,7 +23,7 @@ The Test Engineer's direction, verbatim:
    STANDING-ORDERS §4, even with your consent). From the dev host, in this repo:
    ```bash
    python3 bench-setup/bench_probe.py --box tb101 apply
-   tools/tb probe tb101 --consoles 0-3 --baud 115200 --no-prompt      # expect MATCH
+   tools/tb probe tb101 --consoles 0-3 --baud 115200 --no-prompt      # expect MATCH (tools/tb uses python3.8 on tb101 since 2026-10-21; before that: TB_PY=python3.8)
    ```
    `bench_probe.py` now writes `/home/st-art/configs/tb101.setup` on tb101 (see "probe path" below) because
    `/home/st-art/st-art -> /nfsHome/st-art` dangles there.
