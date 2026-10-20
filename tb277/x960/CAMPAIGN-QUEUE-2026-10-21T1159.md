@@ -80,46 +80,110 @@ was displaced. The Test Engineer's own logins on pts/0 and pts/1 are information
   (management) and §7G (the filter defect). Read it before designing a step.
 - None of the 14 is in **MANUAL-ONLY.md**.
 
-## 🔴 Thirteen of fourteen cases have ONE authored step; one has NONE
+## 🔴 CORRECTED at triage — ALL 14 cases have NO authored text at all
 
-From `ck.db` (`tools/ckcase.py`, run on the box) at 2026-10-21 11:5x:
+The queue first said "thirteen have one authored step". **That overstated it.** Measured from
+`ck.db` `zephyr_cases` at triage:
 
-| case | title | authored steps |
+- **`has_objective = 0` on all 14** — not one case has objective text.
+- T44296: `steps = []`, `num_steps = 0`.
+- The other 13: `num_steps = 1`, but the step is an **empty placeholder** —
+  `[{"description": "", "testData": "", "expected": ""}]`, 53 characters of JSON with nothing
+  in it.
+
+**There is not one word of authored procedure, test data or expected result anywhere in this
+campaign.** Every case is designed from the TFS, the TPS row and the DUT's own CLI surface, and
+**every final log must say that no authored authority exists beyond the title.**
+
+### The authority that DOES exist: the X960 TPS (fetched at triage, last modified 2026-10-19)
+
+`wiki.atlnz.lc/awpwiki/index.php?title=X960_platform_support_TPS&action=raw`
+
+| TPS row | feature | supported |
 | --- | --- | --- |
-| T33379 | (230) Management - Telnet Client (IPv4) | 1 |
-| T33380 | (231) Management - SSH Server (IPv4) | 1 |
-| T33381 | (232) Management - SSH Client (IPv4) | 1 |
-| T33384 | (235) EnhancedOperationManagement - Auto boot from external media | 1 |
-| T33386 | (237) EnhancedOperationManagement - Management ACL | 1 |
-| T33387 | (238) EnhancedOperationManagement - Management Stacking | 1 |
-| T33388 | (239) EnhancedOperationManagement - Hardware Watchdog | 1 |
-| T33389 | (240) EnhancedOperationManagement - Software Watchdog | 1 |
-| T47192 | (243) Config_File - A dynamic configuration while operating (Change, Delete) | 1 |
-| T44296 | (259) LLDP - LLDP | **0** |
-| T33398 | (260) LLDP - LLDP-Med | 1 |
-| T33399 | (262) NTP - IPv4 NTP Server | 1 |
-| T33400 | (263) NTP - IPv4 NTP Client | 1 |
-| T44298 | (264) NTP - IPv6 NTP Server | 1 |
+| 228 Telnet Client(IPv4) · 229 SSH Server(IPv4) · 230 SSH Client(IPv4) | | **Yes** |
+| 233 Auto boot from External Media · 291 External Media (SD/USB) | | **Yes** |
+| 235 Management ACLs | | **Yes** |
+| **236 Management Stacking** | *"not necessary as these units support VCS"* | **🔴 No** |
+| 237 Hardware Watchdog · 238 Software Watchdog | | **Yes** |
+| 241 Dynamic configuration (Change, Delete) | | **Yes** |
+| 257 LLDP · 258 LLDP-Med | | **Yes** |
+| 260 NTP Server(IPv4) · 261 NTP Client(IPv4) · 262 IPv6 NTP Server | | **Yes** |
 
-As in the 2026-10-20 campaign, each test is **designed from the TFS, the TPS row and the DUT's
-own CLI surface**, and each log says plainly that no authored step text beyond the single line
-exists. A case id that resolves to nothing is widened to the measurable surface, and the log
-says no authority exists.
+Requirement rows that decide verdicts:
+- **TPS 5.3.6** *"The Watchdog function can be enabled or disabled by user command"* — **No**.
+- **TPS 6.1.1** — the real statement of what T33386 must prove: *"Access filter for management
+  I/F, which denies all packets addressed to the management I/F other than those packets that
+  come from user specified network(s) or host(s). Also TCP/UDP port number of all services such
+  as telnet, SNMP, ICMP and etc. is configurable."*
+- **TPS line 894** — the real statement of what T47192 must prove: *"Support a Dynamic
+  configuration. Even during in operation, addition, change and deletion of a configuration must
+  be effected dynamically unless a chip set or another hardware component requires restart…"*
+- TPS Default Configuration says *"Stacking is enabled by default"*; this DUT reads `Stacking
+  hardware disabled`. A deviation worth one line in T33387's log.
+
+## ✅ TRIAGE ANSWER — there is NO forwarding loop. Counted traffic legs are safe.
+
+`spanning-tree mode rstp` on all three, single instance, **root is swi_b**
+(`8000.0000.cd42.3029`). Exactly **2 of the 6** inter-switch links are in the active tree, and
+the tree is a line: **swi_d —(1.0.2)— swi_b —(1.0.1)— swi_a**.
+
+| unit | port | peer | role | state |
+| --- | --- | --- | --- | --- |
+| swi_d (DUT) | port1.0.2 | swi_b 1.0.2 | **Rootport** | **Forwarding** |
+| swi_d | port1.0.16 | swi_b 1.0.16 | Alternate | Discarding |
+| swi_d | port1.0.4 | swi_a 1.0.4 | Alternate | Discarding |
+| swi_d | port1.0.14 | swi_a 1.0.14 | Alternate | Discarding |
+| swi_a | port1.0.1 | swi_b 1.0.1 | **Rootport** | **Forwarding** |
+| swi_a | port1.0.11 | swi_b 1.0.11 | Alternate | Discarding |
+| swi_a | port1.0.4 / 1.0.14 | swi_d | Designated | Forwarding (far end discards) |
+
+Read swi_a↔swi_d as a pair: swi_a forwards, swi_d discards, so **neither link carries data**.
+The four probe advisories are ordinary transit learning on that tree — swi_d floods the testbox
+MACs to swi_b on 1.0.2, swi_b floods them to swi_a on 1.0.1 — not a loop. **Record this table in
+each group's working log so a later flap is visible.**
+
+## 🔴 The layer-3 underlay is GONE on all three units — rebuild it as group setup
+
+`vlan10 10.38.22.34/27` and `vlan48 10.38.22.66/27` no longer exist on swi_d: not the addresses,
+not the VLANs. `show vlan brief` shows **one VLAN, `1 default`, every port untagged in it**.
+swi_b has only `eth0 169.254.42.42/16` (the documented no-DHCP default); swi_a has none. All
+three boot `flash:/default.cfg`, and swi_d and swi_b rebooted this morning, so running-config
+died with them.
+
+The testbox NICs are now in a **flat vlan1** with both switches: eth3 `10.38.22.33/27` and eth4
+`10.38.22.65/27`, two /27s sharing one broadcast domain until the VLANs are recreated. **A
+tester that assumes the 2026-10-20 topology will get wrong answers.**
+
+### ✅ DECISION (Test Engineer, 2026-10-21 12:2x): write the underlay to startup-config
+
+Asked directly, the Test Engineer chose **"Yes, write it to startup-config"**:
+
+> The tester rebuilds vlan10/vlan48 and saves it. Survives the reboots in group E, stops every
+> group paying setup cost again, and unblocks reboot-persistence limbs that have been NOT
+> MEASURED for two campaigns.
+
+This **closes handover OPEN 2** and overrides STANDING-ORDERS §1's "nothing is written unless
+the case requires it" for the underlay only. **Group A rebuilds it and saves it; B, C and D
+inherit it.** Reboot-persistence limbs are now measurable for the first time in three campaigns.
 
 ## Queue
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| A | T33379 Telnet Client; T33380 SSH Server; T33381 SSH Client | `access-2026-10-21T1159` | PENDING | Remote access, IPv4. The DUT is both server and client, so swi_b is the far end. Telnet is disabled on the DUT (`no service telnet` is in its baseline) — enabling it is part of T33379's own setup |
-| B | T33386 Management ACL; T47192 dynamic config change/delete | `mgmt-2026-10-21T1159` | PENDING | No reboot expected. T33386 must prove the ACL BLOCKS as well as permits — a permit-only result is the absence-of-evidence trap |
-| C | T44296 LLDP; T33398 LLDP-Med | `lldp-2026-10-21T1159` | PENDING | 🔴 Needs the STP question (above) settled first: LLDP is a counted traffic case. The probe switches `lldp run` on itself, so record the pre-case state before touching it |
-| D | T33399 IPv4 NTP Server; T33400 IPv4 NTP Client; T44298 IPv6 NTP Server | `ntp-2026-10-21T1159` | PENDING | DUT as server with a partner as client, and the reverse. IPv6 server needs IPv6 addressing on the transit VLAN |
-| E | T33384 Auto boot from external media; T33387 Management Stacking; T33388 Hardware Watchdog; T33389 Software Watchdog | `eom-2026-10-21T1159` | PENDING | 🔴 **Reboot-heavy — run LAST.** All four may reset a unit. **swi_a is off-limits for reboots** (above), so any limb needing a swi_a reset is BLOCKED, not attempted. T33384 needs external media (USB/SD) — if the DUT has none, that is UNSUPPORTED with the proof, not a bench request |
+| A | T33379 Telnet Client; T33380 SSH Server; T33381 SSH Client | `access-2026-10-21T1159` | PENDING | **Rebuilds the underlay and SAVES it** — B, C, D inherit. T33379 is the DUT originating outward; its server half is NOT under test and `no service telnet` on the DUT is left alone. Far end swi_b needs `service telnet` enabled in group setup and removed in teardown. **T33381: use a throwaway account on swi_b, never type the real password down u2** |
+| B | T33386 Management ACL; T47192 dynamic config; **T33387 Management Stacking** | `mgmt-2026-10-21T1159` | PENDING | 🔴 **No `access-class` under `line vty` on this platform** — `acc ?` offers only `login`. `ip access-list ?` is `% Unrecognized command`. Use `access-list`+`access-group`, `snmp-server community <n>`, `ssh server allow-users/deny-users`, `service telnet\|ssh ip`. **Hardware ACLs implicitly PERMIT, software/standard implicitly DENY** (§5) — grading the wrong default round is the easy false pass. T33387 is a desk verdict: UNSUPPORTED on TPS row 236 |
+| C | T44296 LLDP; T33398 LLDP-Med | `lldp-2026-10-21T1159` | PENDING | ✅ Loop question settled, safe to run. 🔴 **Run the probe with `--read-only` first** — the 11:59 probe toggled `lldp run` itself and may be the reason it is on. Record `show running-config \| include lldp` as the first act. `show lldp neighbors brief` does not exist. Run `.setup` carries swi_a **with no `[powerlink]`** so the post-failure cycle cannot reach it |
+| D | T33399 IPv4 NTP Server; T33400 IPv4 NTP Client; T44298 IPv6 NTP Server | `ntp-2026-10-21T1159` | PENDING | 🔴 **`show ntp status` and `show ntp counters` return EMPTY output**, not an error — read them before and after configuring and report if they stay empty. 🔴 **The DUT clock is UTC, 13 h behind the box** — record the pair once per group. Expect the longest-running group |
+| E | T33384 Auto boot from external media | `eom-2026-10-21T1159` | **DEFERRED to after hours** | Test Engineer, 2026-10-21: run A–D now, E after hours. MANUAL-ONLY (commit `4349a50`): a person must insert a FAT32 USB stick carrying `autoboot.txt` plus the release and config it names. **Automatable part gives a PARTIAL**: `autoboot enable` accepted and stored, `show boot` status change, and the negative limb (enabled, no media, still boots `flash:/x960-tb277.rel`) costing one DUT reboot |
+| — | T33388 Hardware Watchdog; T33389 Software Watchdog | — | **NOT TESTED** | Test Engineer's decision, 2026-10-21: *"Drop them — NOT TESTED"*. See Issues |
 
 ## Results
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
+| T33388 | (239) EnhancedOperationManagement - Hardware Watchdog | — | NOT TESTED | Dropped by the Test Engineer 2026-10-21. No user-facing watchdog CLI exists on this platform and **TPS 5.3.6 says so deliberately** (*"can be enabled or disabled by user command"* = No): no `show watchdog`, nothing in config mode. The only trigger available was deliberate crash injection via `start-shell`, which was not authorised | — | Test Engineer |
+| T33389 | (240) EnhancedOperationManagement - Software Watchdog | — | NOT TESTED | Dropped by the Test Engineer 2026-10-21, same reason as T33388 | — | Test Engineer |
 
 ## Issues
 

@@ -1,6 +1,6 @@
 # tb277 — bench state
 
-> **Generated 2026-10-20T193945Z by `bench_probe.py`** from `captures/2026-10-20T193945Z/` on tb277. Measured state only;
+> **Generated 2026-10-20T230259Z by `bench_probe.py`** from `captures/2026-10-20T230259Z/` on tb277. Measured state only;
 > nothing here is hand-written. Regenerate with `./bench_probe.py --box tb277 run` on tb277. The
 > `setup` fence at the end IS `tb277.setup`; `./bench_probe.py apply` writes it to the box.
 > Names and PDU outlets come from `tb277.static`; platform mechanics live in the orient-dt
@@ -10,8 +10,8 @@
 
 | console | baud | name | model | serial | hostname | stack | role | software | bootloader | boot image |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| /dev/u2 | 115200 | swi_d | AT-x960-56YSQ | A2WQS700B | awplus | standalone | Active Master | sin_x96056-20261012-24 | Unknown | flash:/x960-tb277.rel |
-| /dev/u3 | 9600 | swi_b | AT-x960-28YSQ | A10737A261700021 | x960-28YSQ | standalone | Active Master | sin_x96056-20260921-9 | 8.24.0 | flash:/backup.rel |
+| /dev/u2 | 115200 | swi_d | AT-x960-56YSQ | A2WQS700B | awplus | standalone | Active Master | sin_x96056-20261019-27 | Unknown | flash:/x960-tb277.rel |
+| /dev/u3 | 9600 | swi_b | AT-x960-28YSQ | A10737A261700021 | awplus | standalone | Active Master | awplus_main-20261020-78 | 8.24.0 | flash:/backup.rel |
 | /dev/u5 | 9600 | swi_a | AT-x950 GEN2-52XSTQm | A10713A262600012 | awplus | standalone | Active Master | awplus_main-20261019-73 | 8.24.0 | Not set |
 
 ## Links
@@ -30,12 +30,15 @@
 
 ## Advisories
 
-- none
+- eth3 learned on swi_d port1.0.10 AND swi_b port1.0.2
+- eth4 learned on swi_d port1.0.48 AND swi_b port1.0.2
+- eth3 learned on swi_d port1.0.10 AND swi_a port1.0.1
+- eth4 learned on swi_d port1.0.48 AND swi_a port1.0.1
 
 ## tb277.setup
 
 ```setup
-### GENERATED 2026-10-20T193945Z by bench_probe.py from a console capture -- DO NOT HAND-EDIT.
+### GENERATED 2026-10-20T230259Z by bench_probe.py from a console capture -- DO NOT HAND-EDIT.
 ### Source: claude/device-testing/bench-setup/bench-state.md (regenerate with
 ### `bench_probe.py run` on tb277; `bench_probe.py apply` writes this file).
 ### Names and PDU outlets come from bench-setup/tb277/tb277.static.
@@ -84,5 +87,5 @@ eth4 up swi_d:port1.0.48
 ```
 
 ```probe-meta
-capture 2026-10-20T193945Z
+capture 2026-10-20T230259Z
 ```
