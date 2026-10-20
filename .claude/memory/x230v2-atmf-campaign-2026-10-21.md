@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-**What ran (tb470, u0 = AR4050S master, u1 = x230v2-28GS member, 2026-10-21, final logs `297190c`,
+**What ran (tb470, u0 = AR4050S master, u1 = x230v2-28GS member, 2026-10-21, final logs `04bc3ce` (was 297190c before the 12:3x rebase),
 `tb470/x230v2-28GS/atmf-2026-10-21T0835/`):**
 - **T46810 "ATMF Backup"** has one EMPTY step and no objective in ck.db (folder names an ARX200S-GTX scale project).
   Terrence's answer "the backup should be with the provisioned node" was read as: back the x230 member up to the master's

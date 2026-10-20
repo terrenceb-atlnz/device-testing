@@ -13,7 +13,7 @@ Constraints: "Reloads allowed now" (office hours); sentinel stand-down "When the
 
 ## TL;DR
 - **Campaign 2026-10-21T0835 complete: T46810 ATMF Backup PASS (under an assumed reading), T28218 ATMF provisioning PASS.**
-  Final logs CREATED (`297190c`): [atmf-2026-10-21T0835/README.md](atmf-2026-10-21T0835/README.md). No `work/` remains.
+  Final logs CREATED (`04bc3ce` after the rebase; was `297190c`): [atmf-2026-10-21T0835/README.md](atmf-2026-10-21T0835/README.md). No `work/` remains.
 - **Bench is whole.** Wrap probe `2026-10-20T231844Z` (12:18 NZDT, u0/u1) **MATCH** against the template the Test Engineer
   applied at 08:3x (`backups/2026-10-20T192905Z.*`); no advisories. Both units at exec, logged out of nothing (consoles
   closed after `terminal no monitor`). No reload, no PDU cycle, no `write` by any case; both running-configs byte-identical
@@ -54,10 +54,10 @@ tools/tb ckcon tb470 wrap1021 u1 115200 "show atmf" "show atmf links" "show boot
    finished after the restart), hand-back 09:39.
 3. **Session restart at 09:33** (the VS Code process died mid-restore). The tester subagent was resumed by name with its
    context intact; the device had already taken every restore command (transcript), so only the verification was redone.
-4. **`/create-logs` (10:3x–10:4x, `297190c`):** two final logs with `.cfg` files, group README, per-case and group reviews.
+4. **`/create-logs` (10:3x–10:4x, `04bc3ce`, was `297190c`):** two final logs with `.cfg` files, group README, per-case and group reviews.
 5. **Records at this wrap:** this handover; two rows added to `platforms/x230v2-28GS.md`; memory `x230v2-atmf-campaign-2026-10-21`.
 
-## Results (queue `## Results`) — final logs CREATED, commit 297190c
+## Results (queue `## Results`) — final logs CREATED, commit 04bc3ce (was 297190c before the rebase)
 | case | verdict | run label | one line |
 | --- | --- | --- | --- |
 | T46810 ATMF Backup | PASS (tester; **Assumed** reading: ck.db has no steps) | clean | 4050 master backed up the x230 member to its USB in 32 s, status Good; the .rel (36,747,551 B), tb470-bench.cfg (1914 B) and default.cfg on usb: at flash sizes |
@@ -103,9 +103,11 @@ test that this bench cannot run; the functional reading used here is the sentine
   transcripts show completed; its context survives the parent's restart (worked 09:34).
 
 ## Git
-Fetched 12:19: local main 5 ahead of origin/main (adfe1fa, df652b7, 8469b6d, 297190c, e20e7f2 — two of them the tb101
-session's), 4 behind (8bb6645, 8c07b64, a1faab7, b2763a1: tb277 / bench_probe.py work). The §0a rebase was done at this wrap
-with the peers on hold; the final counts are in the wrap brief and in the commit log.
+Fetched 12:19: local main was 5 ahead / 4 behind origin/main (the behind side = tb277 and bench_probe.py work). At 12:3x,
+with both peer sessions holding, `git rebase --autostash origin/main` finished with no conflicts; the dirty bench-setup files
+(your 08:29 apply's `.current` files and `backups/2026-10-20T192905Z.*`) were carried across uncommitted. Hashes changed in the
+rebase: create-logs `297190c` is now `04bc3ce`; this wrap's records commit is the one that follows it. Final state: 6 to push,
+0 behind. Push is yours: `git push origin main`.
 
 ## Pointers
 - Queue and results: [CAMPAIGN-QUEUE-2026-10-21T0835.md](CAMPAIGN-QUEUE-2026-10-21T0835.md)
