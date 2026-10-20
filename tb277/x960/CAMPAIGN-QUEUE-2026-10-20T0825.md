@@ -151,6 +151,43 @@ case, so a fresh tester can restore the bench from here.
 
 ## Issues
 
+### 🔴 CORRECTION 2026-10-20 15:40 — T33413 IS measurable. The Test Engineer supplied the method.
+
+**The tester and the sentinel both concluded "the over-temperature trap is NOT MEASURABLE on
+this bench". That conclusion was wrong**, and it was wrong for an instructive reason: both of us
+reasoned from the **CLI surface only**. `temperature ?` and `environment ?` are
+`% Unrecognized command`, and `snmp-server enable trap ?` has no `temperature` group — all true,
+and all irrelevant, because **the threshold is settable underneath the CLI.**
+
+**The Test Engineer's method**, demonstrated on an AT-x250-28XTm:
+
+```
+AT-x250-28XTm# start-shell
+[root@AT-x250-28XTm flash]# echo 20000 > /sys/class/hwmon/hwmon0/temp1_max
+[root@AT-x250-28XTm hwmon0]# exit
+AT-x250-28XTm# 20:45:47 AT-x250-28XTm Platform: SENSOR Board Base - Temp: Remote 1:
+              Alarm asserted. Reading:37 Threshold:20 (Degrees C)
+```
+
+Lower `temp*_max` below the live reading and the platform asserts the alarm, which is what
+drives the `hw-monitoring` trap. **The sensor reading is real; only the threshold is moved.**
+
+**Authority — this was never blocked.** `start-shell` is root **on the DUT**, not on the
+testbox. STANDING-ORDERS **§4 reserves root on tb277**; **§1 explicitly puts the devices under
+test in play** (*"You may reconfigure and deconfigure devices as required to perform a test"*).
+No permission was needed and none should have been waited for. The gap was imagination, not
+policy.
+
+**The generalisable lesson, for `logged-output.md` and future triage:** *the CLI surface is not
+the device's surface.* An AW+ switch is Linux underneath, and `start-shell` reaches sysfs,
+`/proc` and the hwmon tree. Before declaring any limb NOT MEASURABLE on the grounds that "no CLI
+command exists", check whether the underlying OS exposes it. This is the second time this
+campaign that a stated impossibility turned out to be a missing idea rather than a missing
+capability.
+
+**T33413 is being re-run as `run2`** with this method. Its PARTIAL verdict and the
+PARTIAL-vs-UNSUPPORTED grading question are both superseded by whatever run 2 measures.
+
 ### 🔎 CROSS-CASE (sentinel) — the DUT handles management secrets THREE different ways
 
 Visible only across groups A, B and D; no single case could see it. Measured, same device, same
