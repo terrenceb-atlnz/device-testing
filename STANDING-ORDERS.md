@@ -180,5 +180,10 @@ script, by another agent, or by hand.
   `NEEDS TEST ENGINEER:` note. Re-running is the Test Engineer's call (§4).
 - **Never claim a memory leak from one case.** Two samples can only show a step change that did
   not come back after teardown. A leak test is its own case.
+- **Never chain `| exclude` onto `| include` to tidy a health read.** On AW+ the whole string
+  after `include` is taken as one alternation pattern, so the second filter silently becomes
+  another alternative and nothing is excluded. No error is printed, so the output *looks*
+  filtered and is not. Measured on the x960 on 2026-10-20 (`platforms/x960.md` §7G). Save the
+  output and filter it on the box afterwards instead.
 
 Related: [[log-is-the-deliverable]], [[campaign-measurement-discipline]].
