@@ -9,7 +9,7 @@ metadata:
 ---
 
 **Measured 2026-10-20 on tb101** (re-verify: consoles and cables rot). Full record:
-`tb101/SESSION-HANDOVER-2026-10-20.md`; generated state `bench-setup/tb101/bench-state.md`.
+`tb101/IE520/SESSION-HANDOVER-2026-10-20.md`; generated state `bench-setup/tb101/bench-state.md`.
 
 | member | console | S/N | name | host NIC ↔ port | notes |
 | --- | --- | --- | --- | --- | --- |

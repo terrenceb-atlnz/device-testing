@@ -28,7 +28,7 @@ Constraints: none stated
 ## Restored / kept / skipped
 - Restored: nothing to restore (read-only session).
 - Kept: everything as the 09:45 handover below left it.
-- Skipped: the OPEN items below (port4.0.26 far end, flash housekeeping, /nfsHome fstab, handover placement) —
+- Skipped: the OPEN items below (port4.0.26 far end, flash housekeeping, /nfsHome fstab; handover placement CLOSED 10:45, moved to tb101/IE520/) —
   not asked for. The ser2net daemon is the only `precheck` FOUND item, as before (holds no console).
 
 ## Next steps
@@ -115,7 +115,7 @@ tools/tb probe tb101 --consoles 0-3 --baud 115200 --no-prompt # expect MATCH; to
    probe's links (no LLDP neighbour, no host MAC learned). Unchanged since 2026-10-20.
 2. Flash housekeeping on the members, if wanted (see 2026-10-20 handover, "Flash leftovers").
 3. `/nfsHome` fstab line on tb101 (optional root change; the `remote_path()` fallback makes it unnecessary).
-4. Handover placement: this and the 2026-10-20 file live at `tb101/` (no `<FAMILY>/` level, unlike orient-dt §0's
+4. ~~Handover placement~~ CLOSED 2026-10-21: Terrence ruled `tb101/IE520/`; both files moved there (git mv). Was: live at `tb101/` (no `<FAMILY>/` level, unlike orient-dt §0's
    `<TB>/<FAMILY>/` pattern). Decide: move both to `tb101/IE520/` or record tb101 as single-family.
 
 ## Next steps (ordered)
