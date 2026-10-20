@@ -25,6 +25,9 @@ The one way a device-testing session reaches a testbox: `tools/tb <action> <box>
   line can never match a rule.
 - **What it does for you:**
   - sets `SSH_AUTH_SOCK` (the keyring agent);
+  - forwards a local `CKTO=<secs>` (the console drivers' per-command timeout) to the box for the
+    console actions, since ssh carries no environment (2026-10-21; e.g. `CKTO=600 tools/tb ckcon …`
+    for a long `copy`);
   - picks the box's Python (tb105 and tb277: `python3.8`, because their `python3` is 3.6 and
     `bench_probe.py` dies on it with `TypeError: __init__() got an unexpected keyword argument
     'capture_output'`; or set `TB_PY`);
@@ -120,6 +123,9 @@ on; this one does not (orient-dt §3).
   `SPLICE_RE` / `unsplice()` strip the known families from a COPY of the buffer and retry. The
   transcript and the returned output keep every byte. Same silent-truncation family as
   `console.ADVISORY`.
+- **Exec sub-modes with square brackets (2026-10-21):** `PROMPT_RE` / `PROMPT_ANYWHERE_RE` also match
+  `host[atmf-provision]#`, and `to_exec()` leaves such a mode with `exit` (a `(config…)` mode still with
+  `end`). Before this, every command sent in `atmf provision node` mode ran to its full timeout.
 - **Mode-aware terminal settings (2026-10-02):** `to_exec()`, `set_monitor(on)` and
   `monitor_off()`. `terminal monitor` / `terminal no monitor` / `terminal length` are exec-only
   and `terminal monitor` does not toggle, so these methods confirm a prompt first, `end` out of

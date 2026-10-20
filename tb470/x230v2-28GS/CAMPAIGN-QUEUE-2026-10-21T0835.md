@@ -206,3 +206,62 @@ Q1 T46810 definition (proposal above). Q2 T28218 file-set: (a) 4050's own files 
 (c) also provision the x230 for real. Q3 network name `Enterprise-AMF` + omit `device` [default]. Also to note: the
 run `.setup` is the deployed `tb470.setup` as is (it declares only u0/u1, the two units the run uses); no framework
 script is involved (manual CLI via `tools/tb ckcon|cfg`), so pt_preflight does not apply.
+
+## Run, group 1 (atmf-2026-10-21T0835) -- bench setup and restore recipe (bench-runner, written 09:2x before the first device change)
+
+Gate: the 08:40 triage gate stands (precheck CLEAR bar the two known stale locks; peek u0/u1 at exec; `/nfsHome`
+mounted; probe `2026-10-20T194059Z` MATCH; both units boot `flash:/tb470-bench.cfg`). Group baseline = that capture's
+`u0/u1.show_running-config.txt` plus this group's own pre-run reads `46810/work/prerun-u0.out`, `prerun-u1.out`
+(running-config, boot, system, health). Scratch on tb470: `/tmp/atmf-0835/` (transcripts `console-u0.log`,
+`console-u1.log`). **No `write` on either unit. The x230 (u1) is never configured.** Run order: T46810, then T28218,
+in ONE AMF session; restore ONCE after both. Tools: `tools/console.py` now matches the `[atmf-provision]#` prompt and
+leaves it with `exit`; `tools/tb` forwards `CKTO` (committed with this recipe).
+
+**Setup (u0 = 4050, running-config only), in this order:**
+```
+configure terminal
+ atmf network-name Enterprise-AMF      <- the x230's baseline network
+ atmf management vlan 3500             <- the x230's baseline values (defaults are 4092/4091); wiki: immediate, no reboot
+ atmf domain vlan 1234
+ atmf master                           <- AMF-MASTER-20..250 on the FULL licence (show license brief 08:41)
+ interface port1.0.2                   <- the one lead to x230 port1.0.1 (trunk, atmf-link in the x230's baseline)
+  switchport mode trunk
+  switchport atmf-link
+end
+```
+Gate before step 1 of T46810: `show atmf` Role Master / Network Enterprise-AMF; `show atmf nodes` lists
+`x230-28GSv2` (poll up to 180 s); `show atmf backup` → `Backup Media: USB (Total … Free …)`.
+
+**T46810 (assumed reading, Test Engineer: "the backup should be with the provisioned node"):** `atmf backup now
+x230-28GSv2` → poll `show atmf backup` to status `Good` → `dir usb:/atmf/Enterprise-AMF/nodes/x230-28GSv2/flash/`
+must list `x230v2_28GS-awplus_main-20261019-75.rel` (36,747,551 B) and `tb470-bench.cfg` (1914 B).
+**T28218 (as written, 5 steps, `future_node`, no `device`):** `atmf provision node future_node` → `create` → `locate`
+→ `copy usb:/atmf/Enterprise-AMF/nodes/x230-28GSv2/flash/x230v2_28GS-awplus_main-20261019-75.rel
+./x230v2_28GS-awplus_main-20261019-75.rel` → `configure boot system x230v2_28GS-awplus_main-20261019-75.rel` →
+`copy usb:/atmf/Enterprise-AMF/nodes/x230-28GSv2/flash/tb470-bench.cfg ./tb470-bench.cfg` → `configure boot config
+tb470-bench.cfg` → `exit` → `show atmf provision nodes`. **Never** `atmf provision future_node` on an interface,
+never `atmf cleanup` on the x230 (option (c), out of scope).
+
+**Restore (u0), in this order, after both cases:**
+```
+atmf provision node future_node
+ delete                               <- removes usb:/atmf/Enterprise-AMF/nodes/future_node/ (answer y if asked)
+ exit
+atmf backup delete x230-28GSv2        <- this run's backup only; the Sep-21 usb:/atmf/tb470/ tree STAYS
+configure terminal
+ interface port1.0.2
+  no switchport atmf-link
+  switchport mode access
+  switchport access vlan 10
+ no atmf master
+ no atmf network-name                 <- bare form only
+ no atmf management vlan
+ no atmf domain vlan
+end
+```
+Then `show atmf` → Network Name Not Set; `tools/rcdiff.py` of `show running-config` against the pre-run read, both
+units (the x230's must be empty without any restore); `show boot` both `flash:/tb470-bench.cfg (file exists)`; health
+reads; `terminal no monitor`, consoles at exec. If `show atmf` still shows master/depth residue: `reload` the 4050
+(allowed today; boots tb470-bench.cfg, ~3-4 min; `write` never). Post-run probe with the triage facts must be MATCH.
+**If the tester dies mid-group:** apply the restore block above on u0 exactly as written (the x230 needs nothing),
+then rcdiff; a provisioned node or backup left on `usb:` is removed by the same two commands.

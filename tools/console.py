@@ -75,8 +75,9 @@ def is_advisory(line):
 USERNAME = os.environ.get('CK_USER', 'manager')
 PASSWORD = os.environ.get('CK_PASSWORD', 'friend')
 
-# 'awplus#', 'awplus-2#', 'awplus(config)#', 'awplus(config-if)#'
-PROMPT_RE = re.compile(r'[\w.-]+(?:\([\w -]+\))?#[ \t]*$')
+# 'awplus#', 'awplus-2#', 'awplus(config)#', 'awplus(config-if)#', and the square-bracket
+# exec sub-modes such as 'awplus[atmf-provision]#' (2026-10-21; left with `exit`, not `end`)
+PROMPT_RE = re.compile(r'[\w.-]+(?:\([\w -]+\)|\[[\w -]+\])?#[ \t]*$')
 # Same, but allowed to sit anywhere in the buffer rather than only at the end.
 # It must be anchored at a LINE START and must NOT require anything particular
 # after the '#'.  With `terminal monitor` on the device splices a log line
@@ -87,7 +88,7 @@ PROMPT_RE = re.compile(r'[\w.-]+(?:\([\w -]+\))?#[ \t]*$')
 # alternating 0-4 s and exactly-25 s iterations, 25 s being the timeout.
 # Anchoring at line start is what keeps a stray '#' inside log text from
 # matching, now that the trailing context is no longer required.
-PROMPT_ANYWHERE_RE = re.compile(r'(?:^|\r?\n)(?:[\w.-]+(?:\([\w -]+\))?|\))#')
+PROMPT_ANYWHERE_RE = re.compile(r'(?:^|\r?\n)(?:[\w.-]+(?:\([\w -]+\)|\[[\w -]+\])?|\))#')
 # The '|\)' alternative is the GENERAL half of the splice fix below: when a device
 # message lands inside the '(mode)' part of the prompt, the prompt's tail is left on
 # its own line as ')#', and no device output legitimately starts a line that way.
@@ -358,9 +359,10 @@ class Console:
             return False
         for _ in range(3):
             p = self._last_prompt(raw) or ''
-            if '(' not in p:
+            if '(' not in p and '[' not in p:
                 return True
-            raw = self.send_until_prompt('end', timeout=15.0)
+            # '(config...)' leaves with `end`; an exec sub-mode '[atmf-provision]' with `exit`
+            raw = self.send_until_prompt('end' if '(' in p else 'exit', timeout=15.0)
             if not self.last_prompt_seen:
                 return False
         return False
