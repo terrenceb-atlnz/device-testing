@@ -93,10 +93,12 @@ Measured: [bench-setup/tb101/bench-state.md](../bench-setup/tb101/bench-state.md
 - Memory: `tb101-ie520-bench-map` (new), `ie520-image-update-procedure` (tb101 run notes).
 - NOT touched: `bench-setup/bench-state.md` (tb470) was already modified before this session — left unstaged.
 
-## Open
-1. `apply` + MATCH probe (you).
-2. Stack link port4.0.28 ↔ port1.0.27 down (cable).
-3. Decide on `stack 1 priority 1`; the master only changes at the next reload.
+## Open (updated 2026-10-21)
+1. ~~`apply` + MATCH probe (you).~~ DONE 2026-10-21 08:22/08:28 by Terrence: MATCH, no advisories (`tools/tb` now
+   picks python3.8 on tb101; the first probe attempt failed under python3 = 3.6).
+2. Stack link port4.0.28 ↔ port1.0.27 down (cable) — Terrence reseating it 2026-10-21; a whole-stack `reload`
+   follows (also makes member 1 master, item 3), then a re-probe expecting all eight stackports up.
+3. ~~Decide on `stack 1 priority 1`~~ KEPT (Terrence, 2026-10-21): takes effect at the item-2 reload.
 4. `port4.0.26` copper SFP `connected` in vlan1 on member 4: what is on the other end? (not in the probe's links: no
    LLDP neighbour, no host MAC).
 5. Flash housekeeping (old `.cfg`, debug tarballs) if wanted.
