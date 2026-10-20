@@ -26,6 +26,10 @@ editor kills the tester). Sentinel hard ceiling 2026-10-21 17:30 NZDT.
 - Root on the box: "Tester may use sudo -n for the bond and its restore" — *Within the case only: ip link bond0
   add/del, enslave/release, re-add the NIC addresses, verify with ip -br addr. Nothing else as root.*
 
+**Test Engineer's answers to the triage, 2026-10-21 12:4x (option text, word for word):**
+- Go: "Proceed now" — *Dispatch the RUN as planned: DUT po1 on port1.0.1+port2.0.1, host bond0 eth3+eth4, eth2 far side, events E1-E6.*
+- Root traffic tools: "Yes, that reading" — *Traffic tools under sudo -n are test traffic; root CHANGES on tb101 are limited to the bond build/restore.*
+
 ## Rules carried with the queue
 
 - Verdicts, working logs, the `RESULT` line, the results list: [logged-output.md](../../logged-output.md).
@@ -92,7 +96,7 @@ editor kills the tester). Sentinel hard ceiling 2026-10-21 17:30 NZDT.
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | T17584 LACP - Startup stable with heavy traffic | tb101/IE520/lacp-2026-10-21T1222/ | TRIAGED 12:35 — RUNNABLE now (fit below; 4-device/4-route step NOT MEASURABLE) | manual CLI + host bond (802.3ad) + line-rate traffic; member reloads + whole-stack reload inside the case; sudo -n on tb101 for the bond only |
+| 1 | T17584 LACP - Startup stable with heavy traffic | tb101/IE520/lacp-2026-10-21T1222/ | RUN dispatched 12:4x (TRIAGED 12:35 RUNNABLE) (fit below; 4-device/4-route step NOT MEASURABLE) | manual CLI + host bond (802.3ad) + line-rate traffic; member reloads + whole-stack reload inside the case; sudo -n on tb101 for the bond only |
 
 ## Triage 2026-10-21 12:35 NZDT (bench-runner, TRIAGE dispatch; read-only apart from the probe)
 
