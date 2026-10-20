@@ -65,6 +65,7 @@ Test Engineer's rulings carried into this campaign (2026-10-21):
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
 | T46810 | ATMF Backup | atmf-2026-10-21T0835 | PASS | Assumed: x230 member backed up by the 4050 master to its USB media (ck.db has no steps); `atmf backup now x230-28GSv2` -> Good in 32 s, the x230's .rel (36,747,551 B) + tb470-bench.cfg (1914 B) + default.cfg on usb:/atmf/Enterprise-AMF/nodes/x230-28GSv2/flash/ at flash sizes; no health change, no new Unexpected System reboot on either unit | atmf-2026-10-21T0835/46810/work/run1.log | tester |
+| T28218 | ATMF provisioning | atmf-2026-10-21T0835 | PASS | all 5 steps as written on the 4050 master: future_node created on usb:, the x230's .rel (36,747,551 B) and tb470-bench.cfg (1914 B) copied from its AMF backup and set as boot system/config, `show atmf provision nodes` matches the expected block field for field (media USB instead of a file server); no health change, no new Unexpected System reboot | atmf-2026-10-21T0835/28218/work/run1.log | tester |
 
 ## Issues
 
