@@ -67,6 +67,20 @@ refers to these by NAME**; when something moves, fix this table and nothing else
     with `<TB>.static` or the bench; nothing recorded is changed).
 - Without `--read-only` it switches `lldp run` on where a device has it off and LEAVES it on
   (2026-09-30; running-config only). `--read-only` (shared boxes) changes nothing.
+- **Baud DETECTION corrupts the login dialog on the slower console of a mixed-baud bench, but
+  only when a login is actually required** (tb277, 2026-10-20). Measured three times: with u3
+  (9600) at a `login:` prompt the mixed run reported `login_failed`; `--baud 9600` logged it in;
+  the mixed run then succeeded because u3 was already at an exec prompt and needed no dialog.
+  **So on a mixed-baud bench, pin and probe the slow consoles FIRST** (`--consoles u3,u5 --baud
+  9600`), which leaves them logged in, then run the full mixed probe.
+  - **Read the failure note before blaming a credential.** In the capture's `meta.json`,
+    `"no prompt after login. tail=''"` is an EMPTY read and means the dialog desynced — a wrong
+    password makes AW+ print `Login incorrect` and a fresh `login:`, so the tail would END WITH
+    `login:`. A tail ending `Password: ` is the real credential case. On 2026-10-20 both forms
+    appeared on one bench and were wrongly reported as "both devices refuse their credentials".
+  - `bench_probe.py`'s `PASSWORDS` list is **hardcoded** and it reads no environment variable.
+    `tools/console.py` does read **`CK_USER` / `CK_PASSWORD`**, so case tooling can reach a unit
+    whose password is not a factory default when the probe cannot.
 - `--baud <rate>` (2026-10-08) tries only that console rate and never falls back: a CR at the
   wrong rate reached an IE520's Linux console as a BREAK (`sysrq: HELP`, u4, 2026-10-08). Use it
   whenever the session facts or the handover give the consoles' rate.

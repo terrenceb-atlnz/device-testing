@@ -17,8 +17,9 @@ All 13 final logs and their `.cfg` files are created and committed; every `work/
 left configured, nothing was written to startup-config, and the DUT did not reboot (uptime
 3 days 21:57 at wrap).
 
-**Two partners now refuse their console login: swi_b (u3) and swi_a (u5).** Both consoles are
-healthy and both devices are alive. This is the one thing the next session must deal with.
+**One partner is unreachable by the probe: swi_a (u5).** It needs a password the probe does not
+have. swi_b (u3) is fine — an earlier claim in this file that it refused its login was wrong, and
+the cause is recorded under "The 9600 console trap" below.
 
 ## Current bench state and how to verify it
 
@@ -41,8 +42,8 @@ use the wrapper.
 | unit | console | power | state |
 | --- | --- | --- | --- |
 | swi_d (DUT, AT-x960-56YSQ, S/N A2WQS700B) | u2 @115200 | on | standalone, Ready, Active Master. Boot image `flash:/x960-tb277.rel` **(file exists)**, boot config `flash:/default.cfg` **(file exists)**. Software `sin_x96056-20261012-24`, build Mon Oct 12 06:38:00 UTC 2026. Console **left logged in at `awplus#`** |
-| swi_b (AT-x960-28YSQ, S/N A10737A261700021) | u3 @9600 | on | **alive and linked, console login REFUSED.** Console sits at a clean `x960-28YSQ login:` |
-| swi_a (AT-x950 GEN2-52XSTQm) | u5 @9600 | on | **console login REFUSED.** Console sits at a clean `awplus login:` |
+| swi_b (AT-x960-28YSQ, S/N A10737A261700021) | u3 @9600 | on | **fine.** standalone, Active Master, `sin_x96056-20260921-9`, bootloader 8.24.0, boot `flash:/backup.rel`. Left logged in at `x960-28YSQ#` |
+| swi_a (AT-x950 GEN2-52XSTQm) | u5 @9600 | on | **probe cannot log in: it reaches a `Password:` prompt that none of its three defaults satisfy.** Console healthy, sits at `awplus login:` |
 
 Host NICs: eth2 `10.38.22.1/27`, eth3 `10.38.22.33/27`, eth4 `10.38.22.65/27` — **all three
 carrier=1**. The bench flash-boots, so there is no TFTP path to worry about.
@@ -94,22 +95,52 @@ is superseded. The final log describes run 2 alone.
 - RADIUS, TACACS+, RMON, sFlow v5, SNMP traps and interface triggers all work as specified,
   with the per-case exceptions in each log's CAVEAT.
 
+### 🔥 The 9600 console trap — measured 2026-10-20, and it produced a wrong diagnosis first
+
+**`bench_probe.py`'s baud DETECTION corrupts the login dialog on a 9600 console, but only when a
+login is actually required.** Measured three times in a row:
+
+| run | consoles | u2 (115200) | u3 (9600) | u5 (9600) |
+| --- | --- | --- | --- | --- |
+| mixed, auto-detect, u3 at `login:` | u2,u3,u5 | ok | **login_failed** | login_failed |
+| `--baud 9600` | u3,u5 | — | **ok** | login_failed |
+| mixed, auto-detect, u3 already logged in | u2,u3,u5 | ok | **ok** | login_failed |
+
+The probe's own code comments the mechanism: a CR sent at the wrong rate during detection
+arrives as a garbage character and leaves the port mid-dialog. A console already at an exec
+prompt needs no login dialog, so there is nothing to corrupt — which is why the 2026-10-19 run
+succeeded on u3 and the first run today did not.
+
+**How to tell this apart from a bad password, which is the part that matters.** Read the
+`login:` note in the capture's `meta.json`:
+- `"no prompt after login. tail=''"` — an **empty** read. Not an authentication failure. A wrong
+  password makes AW+ print `Login incorrect` and a fresh `login:`, so the tail would END WITH
+  `login:`. Empty means the dialog desynced. **This is the baud trap.**
+- `"no prompt after login. tail='terminal no monitor\r\nPassword: '"` — the login proceeded and
+  the device is asking for a password the probe does not have. **This is a real credential.**
+
+Both consoles showed the first form on the first run, and I wrote them up as "both devices
+refuse their credentials". That was wrong: two devices changing their password on the same
+afternoon is a far less likely story than one driver mishandling one baud rate, and the empty
+tail distinguishes them. **The Test Engineer corrected it by saying he can log in to all three.**
+
 ### Inferred, not proven
 
-- **Why swi_b and swi_a refuse their console login is NOT established.** What is measured: both
-  consoles are healthy and at clean `login:` prompts; swi_d still sees its LLDP neighbour
-  `0000.cd42.3029` on port1.0.2 and port1.0.16, so **swi_b is powered, linked and forwarding**.
-  swi_b's login succeeded at 12:31 NZDT today and fails at 17:18. A changed or locked credential
-  is the leading candidate for both, but nothing was tried, because guessing credentials risks a
-  lockout. **This is a question, not a conclusion.**
+- **swi_a's password is not established.** What is measured: the probe reaches a `Password:`
+  prompt on u5 and none of its three defaults (`friend`, `P@ssw0rd`, `awplus`) satisfies it.
+  Nothing further was tried, to avoid a lockout. The Test Engineer reports he can log in, so the
+  credential exists and is known to him.
 
 ## OPEN questions
 
-1. **Why do swi_b (u3) and swi_a (u5) refuse their console login, and what are the right
-   credentials?** Evidence path: `tools/tb peek tb277 cksnmpmon u3 9600` shows the prompt;
-   `bench-setup/tb277/captures/2026-10-20T041840Z/` is the failed run; the 2026-10-19T233129Z
-   capture is the last one where swi_b answered. **Until this is answered, no case needing a
-   partner can run, and `bench-state.md` cannot describe those two units.**
+1. **How should `bench_probe.py` get swi_a's password?** Its `PASSWORDS` list is **hardcoded**
+   (`["friend", "P@ssw0rd", "awplus"]`, line 163) and it reads no environment variable, so there
+   is no supported way to give it another credential — and a credential must never be committed
+   to this repo. `tools/console.py` is different: it reads **`CK_USER` / `CK_PASSWORD`**, so case
+   tooling can already reach swi_a today by setting those in the environment. This is a decision
+   for the Test Engineer: teach `bench_probe.py` to read the same two variables, or accept that
+   swi_a stays `login_failed` in `bench-state.md`. **swi_b and swi_d are unaffected and
+   `bench-state.md` now describes both.**
 2. **May the layer 3 underlay be written to startup-config?** `vlan10 10.38.22.34/27` and
    `vlan48 10.38.22.66/27` exist in running-config only and predate this campaign. One decision
    unblocks reboot persistence for every case in the campaign **and** settles whether the
@@ -131,8 +162,10 @@ is superseded. The final log describes run 2 alone.
 ## Ordered next steps
 
 1. Push: `git push origin main` (after deciding OPEN 4). **53 commits pending.**
-2. Recover the swi_b and swi_a console logins (OPEN 1), then re-probe so `bench-state.md`
-   describes all three units again.
+2. Decide OPEN 1 so the probe can reach swi_a; `bench-state.md` already describes swi_d and
+   swi_b. **When probing a bench with mixed baud rates, pin the slow consoles first**:
+   `tools/tb probe tb277 --consoles u3,u5 --baud 9600 --no-prompt`, which leaves them logged in,
+   then run the full mixed probe.
 3. Answer OPEN 2, then re-run the persistence limb of the affected cases.
 4. Stop the TACACS+ server when it is no longer wanted: `ssh tb277 "sudo systemctl stop tacacs_plus"`.
 
@@ -158,8 +191,8 @@ in either direction), then restore 61000 and verify with `od -c` → `6 1 0 0 0 
 
 ## Pointers
 
-- Topology: `bench-setup/tb277/bench-state.md` (regenerated 2026-10-20T041840Z — **and it now
-  describes only swi_d**, see OPEN 1).
+- Topology: `bench-setup/tb277/bench-state.md` (regenerated **2026-10-20T050132Z**: swi_d and
+  swi_b with all four links; swi_a `login_failed`, see OPEN 1).
 - Platform facts: `platforms/x960.md`, §7E (AAA/RADIUS), §7F (management), §7G (the filter defect).
 - The campaign: `CAMPAIGN-QUEUE-2026-10-20T0825.md`, including its `## Issues`.
 - Process reviews: each group's `REVIEW.md` and each case's `<id>-review.md`.
