@@ -43,7 +43,7 @@ use the wrapper.
 | --- | --- | --- | --- |
 | swi_d (DUT, AT-x960-56YSQ, S/N A2WQS700B) | u2 @115200 | on | standalone, Ready, Active Master. Boot image `flash:/x960-tb277.rel` **(file exists)**, boot config `flash:/default.cfg` **(file exists)**. Software `sin_x96056-20261012-24`, build Mon Oct 12 06:38:00 UTC 2026. Console **left logged in at `awplus#`** |
 | swi_b (AT-x960-28YSQ, S/N A10737A261700021) | u3 @9600 | on | **fine.** standalone, Active Master, `sin_x96056-20260921-9`, bootloader 8.24.0, boot `flash:/backup.rel`. Left logged in at `x960-28YSQ#` |
-| swi_a (AT-x950 GEN2-52XSTQm) | u5 @9600 | on | **up and reachable by hand** (confirmed 2026-10-21). S/N `A10713A262600012`, software `awplus_main-20261019-73`, build Mon Oct 19 00:54:59 UTC 2026. 🔴 **`Current boot image : Not set`**; boot config `flash:/default.cfg (file exists)`. `bench_probe.py` still cannot log in — see OPEN 1 |
+| swi_a (AT-x950 GEN2-52XSTQm) | u5 @9600 | on | **in bench-state.md and fully read** (2026-10-21). S/N `A10713A262600012`, `awplus_main-20261019-73`, bootloader 8.24.0. 🔴 **`Current boot image : Not set`**; boot config `flash:/default.cfg (file exists)` |
 
 Host NICs: eth2 `10.38.22.1/27`, eth3 `10.38.22.33/27`, eth4 `10.38.22.65/27` — **all three
 carrier=1**. The bench flash-boots, so there is no TFTP path to worry about.
@@ -155,18 +155,11 @@ successful login resets the counter, and on a locked account that has to be done
 
 ## OPEN questions
 
-1. **How should `bench_probe.py` get swi_a's password?** Confirmed 2026-10-21: the probe reaches
-   a login prompt and fails with `Login incorrect`, because its `PASSWORDS` list is **hardcoded**
-   (`["friend", "P@ssw0rd", "awplus"]`, line 163) and it reads no environment variable. swi_a's
-   password is none of those. A credential must never be committed to this repo, so the probe
-   needs to read one from the environment, as `tools/console.py` already does (`CK_USER` /
-   `CK_PASSWORD`). **Two designs, and the choice has a lockout consequence:**
-   - **One global `CK_PASSWORD`, tried first.** Simple. But on swi_d and swi_b, whose password
-     IS a default, it adds one failed login each per probe run.
-   - **Per-console (e.g. `CK_PASSWORD_U5`).** No wasted attempts anywhere. More code.
-   Given that this bench has already locked an account out to 11 failures, the per-console form
-   is the safer one. **Until this is decided, swi_a stays `login_failed` in `bench-state.md`** —
-   its measured facts are in the unit table above instead. swi_d and swi_b are unaffected.
+1. 🔴 **swi_a has no boot image pointer: `Current boot image : Not set`.** swi_d reads
+   `flash:/x960-tb277.rel (file exists)`. **Do not reload swi_a until this is understood** — it
+   may not come back. Not investigated. Evidence: `show boot` on u5, 2026-10-21, and the
+   `boot image` column of `bench-state.md`.
+
 2. **May the layer 3 underlay be written to startup-config?** `vlan10 10.38.22.34/27` and
    `vlan48 10.38.22.66/27` exist in running-config only and predate this campaign. One decision
    unblocks reboot persistence for every case in the campaign **and** settles whether the
@@ -188,10 +181,15 @@ successful login resets the counter, and on a locked account that has to be done
 ## Ordered next steps
 
 1. Push: `git push origin main` (after deciding OPEN 4). **53 commits pending.**
-2. Decide OPEN 1 so the probe can reach swi_a; `bench-state.md` already describes swi_d and
-   swi_b. **When probing a bench with mixed baud rates, pin the slow consoles first**:
-   `tools/tb probe tb277 --consoles u3,u5 --baud 9600 --no-prompt`, which leaves them logged in,
-   then run the full mixed probe.
+2. **Probing this bench now needs swi_a's password in the environment**, per console so no
+   other unit pays a failed attempt:
+   ```
+   printf '%s\n' '<swi_a password>' | ssh tb277 'read -r P; export CK_PASSWORD_U5="$P"; unset P;
+     cd ~/claude/device-testing/bench-setup && python3.8 bench_probe.py --box tb277 run \
+       --consoles u2,u3,u5 --no-prompt --pdu 10.36.230.212 --outlet u2=1,u3=7'
+   ```
+   Pass it over **stdin, never on the command line** — `ps` is readable by other users on this
+   shared box. The password is not in this repo and must not be put in it.
 3. Answer OPEN 2, then re-run the persistence limb of the affected cases.
 4. Stop the TACACS+ server when it is no longer wanted: `ssh tb277 "sudo systemctl stop tacacs_plus"`.
 
@@ -217,8 +215,9 @@ in either direction), then restore 61000 and verify with `od -c` → `6 1 0 0 0 
 
 ## Pointers
 
-- Topology: `bench-setup/tb277/bench-state.md` (regenerated **2026-10-20T050132Z**: swi_d and
-  swi_b with all four links; swi_a `login_failed`, see OPEN 1).
+- Topology: `bench-setup/tb277/bench-state.md` (regenerated **2026-10-20T193945Z**: **all three
+  units and all six inter-switch links**. swi_a's four links — to swi_d on port1.0.14 and
+  port1.0.4, to swi_b on port1.0.1 and port1.0.11 — were invisible while it could not be read).
 - Platform facts: `platforms/x960.md`, §7E (AAA/RADIUS), §7F (management), §7G (the filter defect).
 - The campaign: `CAMPAIGN-QUEUE-2026-10-20T0825.md`, including its `## Issues`.
 - Process reviews: each group's `REVIEW.md` and each case's `<id>-review.md`.

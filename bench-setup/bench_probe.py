@@ -161,6 +161,27 @@ SOCK = os.environ.get("SSH_AUTH_SOCK_TB") or "/run/user/{}/keyring/ssh".format(o
 BAUDS = [115200, 9600]
 USERNAME = "manager"
 PASSWORDS = ["friend", "P@ssw0rd", "awplus"]
+
+
+def creds_for(port):
+    """Credentials for one console, from the environment. NEVER hard-code a non-default here.
+
+    A unit whose password is not a factory default is named per console, so no other console
+    pays for it:  CK_PASSWORD_U5='...' ./bench_probe.py --box tbNNN run --consoles u2,u3,u5
+    `CK_USER_U5` overrides the username the same way. The bare `CK_USER` / `CK_PASSWORD` (the
+    names tools/console.py already uses) apply to every console that has no per-console value.
+
+    When a password IS given for a console it is the ONLY one tried. That is deliberate: AW+
+    locks an account after repeated failures and EVERY failed attempt re-arms the lock, so
+    falling back through the defaults after an explicit password would lock the very unit the
+    operator just supplied a credential for (measured on tb277, 2026-10-21: an account reached
+    11 failed logins and its 5-minute lock never expired while anything kept retrying).
+    """
+    m = re.search(r"u(\d+)$", port or "")
+    sfx = "_U" + m.group(1) if m else ""
+    user = os.environ.get("CK_USER" + sfx) or os.environ.get("CK_USER") or USERNAME
+    pw = os.environ.get("CK_PASSWORD" + sfx) or os.environ.get("CK_PASSWORD")
+    return user, ([pw] if pw else list(PASSWORDS))
 LLDP_SETTLE = 35            # CAP on the wait for neighbours after `lldp run` (they send every
                             # 30 s); the wait ends as soon as the expected ports are all seen
 
@@ -411,8 +432,9 @@ class Probe:
                 break
             out = self._line("", timeout=15.0)
         if out.rstrip().lower().endswith("login:"):
-            for pw in PASSWORDS:
-                self._line(USERNAME, timeout=10.0)
+            user, pws = creds_for(self.port)
+            for pw in pws:
+                self._line(user, timeout=10.0)
                 out = self._line(pw, timeout=15.0)
                 if "new password" in out.lower():
                     return False, "forced password-change dialog; refused"
@@ -424,7 +446,7 @@ class Probe:
             self.s.write(b"enable\r")
             out = self._drain(quiet=1.0, timeout=15.0, need_prompt=False)
             if "password" in out.lower() and not PRIV_ANYWHERE_RE.search(out):
-                self.s.write((PASSWORDS[0] + "\r").encode())
+                self.s.write((creds_for(self.port)[1][0] + "\r").encode())
                 out = self._drain(quiet=1.0, timeout=12.0, need_prompt=False)
         self._line("end", timeout=8.0)
         self._line("terminal length 0", timeout=8.0)
@@ -832,9 +854,13 @@ def parse_show_stack(text):
 
 def parse_show_boot(text):
     for ln in (text or "").splitlines():
-        m = re.match(r"^\s*Current boot image\s*:\s*(\S+)", ln)
+        # `(\S+)` alone turns AW+'s "Not set" into "Not", which reads like a filename in the
+        # generated table. Take the whole value and drop the trailing "(file exists)" note.
+        # Measured on tb277's swi_a, 2026-10-21: it genuinely has no boot image pointer.
+        m = re.match(r"^\s*Current boot image\s*:\s*(.+?)\s*$", ln)
         if m:
-            return {"image": m.group(1), "flash": m.group(1).lower().startswith("flash:")}
+            img = re.sub(r"\s*\((?:file (?:exists|not found))\)\s*$", "", m.group(1)).strip()
+            return {"image": img or None, "flash": img.lower().startswith("flash:")}
     return {"image": None, "flash": None}
 
 
