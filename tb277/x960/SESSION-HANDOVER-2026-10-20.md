@@ -43,7 +43,7 @@ use the wrapper.
 | --- | --- | --- | --- |
 | swi_d (DUT, AT-x960-56YSQ, S/N A2WQS700B) | u2 @115200 | on | standalone, Ready, Active Master. Boot image `flash:/x960-tb277.rel` **(file exists)**, boot config `flash:/default.cfg` **(file exists)**. Software `sin_x96056-20261012-24`, build Mon Oct 12 06:38:00 UTC 2026. Console **left logged in at `awplus#`** |
 | swi_b (AT-x960-28YSQ, S/N A10737A261700021) | u3 @9600 | on | **fine.** standalone, Active Master, `sin_x96056-20260921-9`, bootloader 8.24.0, boot `flash:/backup.rel`. Left logged in at `x960-28YSQ#` |
-| swi_a (AT-x950 GEN2-52XSTQm) | u5 @9600 | on | **probe cannot log in: it reaches a `Password:` prompt that none of its three defaults satisfy.** Console healthy, sits at `awplus login:` |
+| swi_a (AT-x950 GEN2-52XSTQm) | u5 @9600 | on | **up and reachable by hand** (confirmed 2026-10-21). S/N `A10713A262600012`, software `awplus_main-20261019-73`, build Mon Oct 19 00:54:59 UTC 2026. 🔴 **`Current boot image : Not set`**; boot config `flash:/default.cfg (file exists)`. `bench_probe.py` still cannot log in — see OPEN 1 |
 
 Host NICs: eth2 `10.38.22.1/27`, eth3 `10.38.22.33/27`, eth4 `10.38.22.65/27` — **all three
 carrier=1**. The bench flash-boots, so there is no TFTP path to worry about.
@@ -124,23 +124,49 @@ refuse their credentials". That was wrong: two devices changing their password o
 afternoon is a far less likely story than one driver mishandling one baud rate, and the empty
 tail distinguishes them. **The Test Engineer corrected it by saying he can log in to all three.**
 
-### Inferred, not proven
+### swi_a (u5) — resolved by hand on 2026-10-21, and two things it taught
 
-- **swi_a's password is not established.** What is measured: the probe reaches a `Password:`
-  prompt on u5 and none of its three defaults (`friend`, `P@ssw0rd`, `awplus`) satisfies it.
-  Nothing further was tried, to avoid a lockout. The Test Engineer reports he can log in, so the
-  credential exists and is known to him.
+The Test Engineer supplied the password and cleared the account. A **hand-paced** login then
+succeeded first time and read the unit:
+
+- **S/N `A10713A262600012` — this MATCHES `tb277.static`'s `A10713A262600012 = swi_a, 3,
+  10.36.230.35`.** The `swi_a = u5` mapping had never been confirmed by a serial read before;
+  it is now.
+- Software `awplus_main-20261019-73` (a **different build train** from the x960s'
+  `sin_x96056-*`). `enable` needs **no** password.
+- 🔴 **`Current boot image : Not set`.** swi_d reads `flash:/x960-tb277.rel (file exists)`.
+  swi_a has no boot image pointer at all, so **a reload may not bring it back**. Nobody should
+  reload swi_a until this is understood. Not investigated further.
+- The console **logs itself out on `exec-timeout`**, so a login does not persist between
+  sessions.
+
+**What made the login work, after ~15 automated attempts had failed:** wait for the COMPLETE
+`Password:` prompt before writing the password, instead of firing on first output. The echo on
+this console reads `maPassword:` — the username echo is still in flight when the prompt
+arrives. That truncated echo is cosmetic; the username itself arrives intact. An earlier claim
+in this file that the username was being mangled was **wrong**.
+
+**🔴 The lockout, and the warning.** `manager` on swi_a was already at **7 failed logins** before
+this session touched it, which fits the aaa group's RADIUS work that morning. Each
+`ckcon.py` invocation makes about **four** login attempts, and each one **re-arms** the
+five-minute lock — so the counter climbed 7 -> 8 -> 10 -> 11 under repeated "single" retries and
+the lock never expired. **Waiting cannot clear a lock while anything is still retrying.** Only a
+successful login resets the counter, and on a locked account that has to be done by hand.
 
 ## OPEN questions
 
-1. **How should `bench_probe.py` get swi_a's password?** Its `PASSWORDS` list is **hardcoded**
-   (`["friend", "P@ssw0rd", "awplus"]`, line 163) and it reads no environment variable, so there
-   is no supported way to give it another credential — and a credential must never be committed
-   to this repo. `tools/console.py` is different: it reads **`CK_USER` / `CK_PASSWORD`**, so case
-   tooling can already reach swi_a today by setting those in the environment. This is a decision
-   for the Test Engineer: teach `bench_probe.py` to read the same two variables, or accept that
-   swi_a stays `login_failed` in `bench-state.md`. **swi_b and swi_d are unaffected and
-   `bench-state.md` now describes both.**
+1. **How should `bench_probe.py` get swi_a's password?** Confirmed 2026-10-21: the probe reaches
+   a login prompt and fails with `Login incorrect`, because its `PASSWORDS` list is **hardcoded**
+   (`["friend", "P@ssw0rd", "awplus"]`, line 163) and it reads no environment variable. swi_a's
+   password is none of those. A credential must never be committed to this repo, so the probe
+   needs to read one from the environment, as `tools/console.py` already does (`CK_USER` /
+   `CK_PASSWORD`). **Two designs, and the choice has a lockout consequence:**
+   - **One global `CK_PASSWORD`, tried first.** Simple. But on swi_d and swi_b, whose password
+     IS a default, it adds one failed login each per probe run.
+   - **Per-console (e.g. `CK_PASSWORD_U5`).** No wasted attempts anywhere. More code.
+   Given that this bench has already locked an account out to 11 failures, the per-console form
+   is the safer one. **Until this is decided, swi_a stays `login_failed` in `bench-state.md`** —
+   its measured facts are in the unit table above instead. swi_d and swi_b are unaffected.
 2. **May the layer 3 underlay be written to startup-config?** `vlan10 10.38.22.34/27` and
    `vlan48 10.38.22.66/27` exist in running-config only and predate this campaign. One decision
    unblocks reboot persistence for every case in the campaign **and** settles whether the
