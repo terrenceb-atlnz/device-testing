@@ -28,6 +28,7 @@ here, not an error.
 - Never chain `&& git push` onto a commit, never retry a denied push, never propose `--force`.
 - Before committing on top of a remote that may have moved (Terrence pushes from GitHub's UI
   too — the 1-line README on repo creation), `git fetch` and `pull --rebase --autostash` first.
+  Since 2026-10-21 that is orient-dt §0a, run at every session start: [[shared-working-tree-git-sync-first]].
 - Applies to both repos. The Test-cases memory `commit-and-push-on-session-end` still says
   Claude should push; that side's stream owns that file — flag it, don't edit it from here.
 

@@ -264,7 +264,11 @@ Four homes, no duplication, every entry dated:
   - **the Test Engineer pushes** after the session;
   - do not retry a denied push, and do not chain it onto the commit;
   - report the branch as *committed, not pushed* with the hash, so the push is a one-liner
-    (`git push origin main`).
+    (`git push origin main`);
+  - after the last commit, `git fetch origin` and report
+    `git rev-list --left-right --count main...origin/main` as `<n> to push, <m> behind`. If
+    behind, do the §0a dance from orient-dt now (peers on hold, `rebase --autostash`, both sides'
+    facts kept) so the next session's orient starts in sync (Terrence, 2026-10-21).
 
 ## 7. Traps of wrapping — each has already happened
 
