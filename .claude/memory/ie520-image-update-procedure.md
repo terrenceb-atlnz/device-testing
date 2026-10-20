@@ -70,3 +70,19 @@ IE520s before they gave this procedure.
   - Its queued Ctrl+B presses re-drew the main menu about 9 times and hid the `2`. That fix is now
     in `tools/bootmenu_park.py`.
 - Related: [[ie520-4stack-flashprep]], [[read-the-transcripts-before-driving-hardware]].
+
+**tb101 run, 2026-10-20 (all three units, ~16 min wall clock, no PDU):**
+- Standalones (u0, u1): `tftp_copy` 211–213 s, `boot system`, `bootmenu_park --reload`, then
+  `bootmenu_escape` straight away (a standalone has nothing to wait for), `login:` ~3 min, verify
+  `Software version` before `delete` of the old file. `boot system` must point at the running
+  file first, or the old `.rel` (and a `backup` boot image: `no boot system backup`) cannot be deleted.
+- Stack: `boot system` to the new file blocks the console with `Synchronizing file across the
+  stack, please wait...`; **`ckyn.py` gives up at a fixed 60 s (exit 5) regardless of CKTO**, so
+  send it and then `listen` for `File synchronization with stack member N successfully completed`
+  (~120 s for 40 MB here). Park member 2 (its own console, `reload stack-member 2` on the master),
+  park the master with `--reload`, `bootmenu_escape` on both at once; stack reformed in ~4 min.
+- Cross-member delete uses the HOSTNAME as the prefix: `delete IE520-1/flash:IE520-tb470.rel`
+  (hostname `IE520`), `dir IE520-1/flash:` to confirm.
+- A member with a lower `stack N priority` becomes Active Master after the whole-stack reboot
+  (member 2, priority 1, took over on tb101): the console that reads the master changes.
+- Temporary TFTP addresses were running-only `ip address … secondary` lines; each reload cleared them.
