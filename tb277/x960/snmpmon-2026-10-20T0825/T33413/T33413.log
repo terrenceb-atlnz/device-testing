@@ -1,0 +1,611 @@
+================================================================================
+TEST T33413 -- (280) Management_Trap - Temperature
+================================================================================
+Run:      2026-10-20 15:44-16:06 NZDT.  The over-temperature trap of swi_d was produced,
+          caught on the wire and cleared again.
+          swi_d's clock reads UTC and is 15 s behind the box; this log matches device log
+          times to capture times using that 15 s.
+Bench:    tb277, consoles u2 = swi_d (DUT); Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T33413.  The test-case database holds NO objective and NO step text for
+          this case: it has 1 step and its description, testData and expected fields are
+          all empty.  The 10 steps below were designed by the tester from the case title,
+          from the sysfs method the Test Engineer supplied, and from the device's own CLI,
+          MIB and sysfs surface, all read before anything was changed.
+Build:    swi_d  sin_x96056-20261012-24  (x960-tb277.rel, build date Mon Oct 12 06:38:00 UTC 2026)
+
+awplus# show system
+
+    System Status                                           Tue Oct 20 02:45:57 2026
+
+    Board      ID   Bay     Board Name                        Rev   Serial number
+    --------------------------------------------------------------------------------
+    Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+    PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+    PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+    Fan module 730  FAN1    AT-FAN19                          -     -
+    Fan module 730  FAN2    AT-FAN19                          -     -
+    --------------------------------------------------------------------------------
+    RAM: Total: 8092132 kB Free: 7457872 kB
+    Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+    --------------------------------------------------------------------------------
+    Environment Status : Normal
+    Uptime             : 3 days 20:23:33
+    Bootloader version : Unknown
+
+    Current software   : x960-tb277.rel
+    Software version   : sin_x96056-20261012-24
+    Build date         : Mon Oct 12 06:38:00 UTC 2026
+
+    Current boot config: flash:/default.cfg (file exists)
+
+    System Name
+     awplus
+    System Contact
+
+    System Location
+
+Configs:  swi_d.cfg (running-config after setup; saved to startup: no)
+
+READ THIS FIRST.  THE SWITCH DID NOT GET HOT.
+         Everything in this log was produced by lowering the alarm LIMIT below a normal room
+         temperature reading.  The sensor reading is real and normal from the first read to
+         the last: 27 degrees C.  The only value that moved is the limit the platform compares
+         that reading against.  It went from the hardware default of 61 C down to 20 C and
+         back to 61 C.  No heat was applied.  No fan was interfered with.  The unit was never
+         in any thermal danger.  Where this log says "the alarm asserted", it means "27 is
+         greater than the 20 I told it to use".  Nothing more.
+
+VERDICT: PASS -- the over-temperature trap was produced on a real, unchanged sensor reading
+         and was caught on the wire, three times, against a silent baseline.
+      hwmon node identified ..... PASS  (hwmon1/temp1_max, matched on reading, low limit and high limit)
+      baseline silent ........... PASS  (60 s capture with the limit untouched: 0 packets)
+      alarm asserts ............. PASS  (CLI `***Fault***`, MIB status 2 -> 1, device log `Reading:27 Threshold:20`)
+      the trap on the wire ...... PASS  (SNMPv2c trap 1.3.6.1.4.1.207.8.4.4.3.12.0.5, sensor named, reading 27, limit 20)
+      the clear on the wire ..... PASS  (trap ...12.0.6 on restore, limit 61; CLI and MIB back to Ok)
+      no side effects ........... PASS  (no fan ramp, no thermal action, no port disabled, no reboot)
+      repeatability ............. PASS  (6 transitions, 6 traps, every one reading 27 C)
+      threshold restored ........ PASS  (`od -c` byte-identical to the value read before the first write)
+      product finding ........... RECORDED (STEP 8: the trap is NOT gated by `snmp-server enable trap hw-monitoring`)
+      reboot persistence ........ NOT MEASURED (STEP 10)
+CAVEAT:  The STEP 8 finding has limits, and they must not be dropped.
+         1. Only the temperature sensor was stimulated.  This run does NOT claim that
+            `snmp-server enable trap hw-monitoring` does nothing at all.  The group may still
+            gate fan, PSU or voltage notifications.  This case never provoked those.
+         2. This run does NOT claim that any other trap group is affected.
+         3. One alternative explanation is still open.  The group's state may be read only when
+            the daemon or the system starts.  If so, a removal could not take effect until a
+            reboot, and the behaviour would be a delay rather than missing gating.  Settling
+            that needs a reload.  This run could not reload the DUT (STEP 10), so the
+            alternative is NOT ruled out.
+         This run did not reload the DUT and did not save to startup-config.  Persistence of
+         the configuration across a reboot is NOT proven.
+         Only one sensor was used: resource 100, sensor 6, `Temp: Front Right`.
+         Only SNMPv2c was used.  SNMPv1 and SNMPv3 trap delivery were not tested.
+HEALTH:  reboots ......... no new entry.  Newest entry is `2026-10-16 06:22:04 Expected CLI(user request)`
+                           in both samples.  This case did no reload and no power cycle.
+         exception log ... None, in both samples.
+         log ............. no kernel line, no crash, no daemon restart and no `Unexpected`
+                           reboot in either sample.  `show log tail 150` after the case held
+                           142 `user.notice`, 6 `daemon.crit` and 2 `user.err` lines.
+                           The 6 `daemon.crit` lines are this case's OWN six alarm transitions,
+                           quoted in full in STEP 9.  `daemon.crit` is the severity the platform
+                           gives a sensor alarm.  It is the expected severity for this event.
+                           The 2 `user.err` lines are
+                           `2026 Oct 20 02:43:01 user.err awplus IMISH[14666]: Command [end] failed`
+                           and the same line at 02:43:04.  They are a console driver sending
+                           `end` at a prompt that is already exec, before step 1.
+                           No ENVMON, thermal-protection, port-disable or shutdown line appears.
+         CPU ............. 0% used before -> 0% used after.  Both samples read
+                           `1 second: 0%, 20 seconds: 0%, 60 seconds: 0%`, load 0.00/0.00/0.0.
+         memory .......... free 7457948 kB before -> 7455932 kB after.  Memory used rose by
+                           2,016 kB and had not come back 1 minute after the last step.  That
+                           is reported as a measurement only.  One case cannot show a memory
+                           leak, and this log does not claim one.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+    tb277 host NIC eth3   10.38.22.33/27   MAC 00:0d:b9:55:77:0e
+        ^              |
+        |              |  SNMP get (udp/161)  --->  to 10.38.22.34, tools/snmpq.py
+        |              v
+        |  environment traps (udp/162)  <---  from 10.38.22.34, tcpdump + tools/snmpwire.py
+        |
+    port1.0.10   (access port, vlan 10)
+  +-----------------------------------------------------------+
+  |  swi_d   AT-x960-56YSQ                          <== DUT    |
+  |  interface vlan10  10.38.22.34/27     (trap source)        |
+  |                                                            |
+  |  the stimulus happens INSIDE the DUT, over console /dev/u2:|
+  |    start-shell -> echo 20000 > /sys/class/hwmon/hwmon1/temp1_max
+  |    hwmon1 = adt7476 at i2c-1 address 0x2d, temp1                 |
+  |    temp1 backs CLI resource 100 sensor 6, "Temp: Front Right"    |
+  +-----------------------------------------------------------+
+        ^
+        |  console /dev/u2 @115200 (tb277 serial): all CLI and all shell commands
+
+  DUT     : swi_d (AT-x960-56YSQ) console /dev/u2 @115200, S/N A2WQS700B
+  host    : tb277 eth3, MAC 00:0d:b9:55:77:0e, 10.38.22.33/27 -> swi_d port1.0.10.
+            eth3 is the SNMP manager and the trap receiver.
+  link    : tb277 eth3 <-> swi_d port1.0.10 (copper, vlan 10, access).  It carried the SNMP
+            reads and all six traps.
+  sensor  : resource 100 sensor 6 `Temp: Front Right`, backed by
+            /sys/class/hwmon/hwmon1/temp1_max.  This is the only thing the case changed.
+  unused  : swi_b (u3) was not used.  tb277 eth4 <-> port1.0.48 was not used.  No PDU action
+            was taken.
+  tools   : tools/awshell.py (the device root shell, through tools/tb awshell),
+            tools/snmpq.py (SNMP reads), tools/snmpwire.py (trap decode),
+            tools/rc2cfg.py, tools/rcdiff.py.  All ran on tb277 through tools/tb.
+
+STEP 1 -- designed: read every sensor before anything is changed                 PASS
+--------------------------------------------------------------------------------
+awplus# show system environment
+  Overall Status: Normal
+
+  Fourteen temperature sensors, every one `Ok`:
+
+    resource              sensor                 reading C  low limit  high limit  status
+    100 AT-x960-56YSQ      6 Temp: Front Right        27        -11         61       Ok
+    100                    7 Temp: Rear Right         33        -11         70       Ok
+    100                    8 Temp: Front Switch       29        -11         77       Ok
+    100                   16 Temp: Front Left         31        -11         61       Ok
+    100                   17 Temp: Rear Left          34        -11         67       Ok
+    100                   18 Temp: Rear Switch        34        -11         77       Ok
+    100                   21 Temp: SoC AP             38        -11         95       Ok
+    100                   22 Temp: SoC SB             41        -11         95       Ok
+    101 AT-PWRSYS4         8 Temp: PSU 1 Ambient      37         -          65       Ok
+    101                    9 Temp: PSU 1 Second       72         -         105       Ok
+    101                   10 Temp: PSU 1 Primary      53         -          95       Ok
+    102 AT-PWRSYS4         8 Temp: PSU 2 Ambient      40         -          65       Ok
+    102                    9 Temp: PSU 2 Second       51         -         105       Ok
+    102                   10 Temp: PSU 2 Primary      46         -          95       Ok
+
+  The same command reports 5 voltage rails, 2 chassis fans per bank, 2 PSU bays and 2 fan
+  bays, all `Ok`.  Fan speeds before anything was changed, because a thermal side effect
+  would move them: bank A `Fan 1 9342 / Fan 2 9407 Rpm`, bank B `Fan 1 10112 / Fan 2 10037
+  Rpm`, `PSU 1 4992 Rpm`, `PSU 2 5920 Rpm`.
+
+  `Temp: Front Right`, resource 100 sensor 6, is the sensor this case uses.  It has the
+  smallest margin on the unit: 27 C against a 61 C limit.  The CLI names it, so a trap can be
+  tied back to a named sensor.
+  => STEP 1 PASS: the starting state is measured.  Every sensor is Ok and the chosen sensor
+     reads 27 C against a 61 C limit.
+
+STEP 2 -- designed: find the hwmon node that backs `Temp: Front Right`           PASS
+--------------------------------------------------------------------------------
+  Method: this unit has fourteen temperature sensors, so the node had to be found and not
+  assumed.  The shell was reached with `tools/tb awshell tb277 cksnmpmon u2 115200
+  --timeout 60 '<shell command>' ...`, which runs `start-shell` on the DUT.
+
+    >>> uname -a
+    Linux awplus 6.12.110 #1 SMP PREEMPT Tue Oct  6 01:02:01 UTC 2026 aarch64 GNU/Linux
+
+    >>> for h in /sys/class/hwmon/hwmon*; do echo "=== $h name=$(cat $h/name) dev=..."; done
+    === /sys/class/hwmon/hwmon0 name=f212a200mdiomii00  (platform/.../f212a200.mdio-mii:00)
+    === /sys/class/hwmon/hwmon1 name=adt7476            (i2c-1 address 0x2d)
+    === /sys/class/hwmon/hwmon2 name=adt7476            (i2c-1 address 0x2e)
+    === /sys/class/hwmon/hwmon3 name=max31343           (i2c-1 address 0x68)
+    === /sys/class/hwmon/hwmon4 name=ps_2162_6l2        (i2c-7 address 0x58)
+    === /sys/class/hwmon/hwmon5 name=ps_2162_6l2        (i2c-8 address 0x58)
+
+  Every `temp*` attribute of all six nodes was then read.  Each was matched against the STEP 1
+  table on three values at once: the reading, the low limit and the high limit.  Three values
+  agreeing is what makes the match safe.  hwmon reports milli-degrees.
+
+    CLI sensor (resource 100)   CLI reading/low/high   hwmon node                   input    min      max
+    6 Temp: Front Right            27 / -11 / 61       hwmon1 (adt7476 @0x2d) temp1  27250  -11000   61000
+    7 Temp: Rear Right             33 / -11 / 70       hwmon1 temp2                  32750  -11000   70000
+    8 Temp: Front Switch           29 / -11 / 77       hwmon1 temp3                  29250  -11000   77000
+    16 Temp: Front Left            31 / -11 / 61       hwmon2 (adt7476 @0x2e) temp1  30500  -11000   61000
+    17 Temp: Rear Left             34 / -11 / 67       hwmon2 temp2                  34000  -11000   67000
+    18 Temp: Rear Switch           34 / -11 / 77       hwmon2 temp3                  33500  -11000   77000
+    101/8 PSU 1 Ambient            37 / -  / 65        hwmon4 temp1                  37250     -     65000
+    101/9 PSU 1 Second             72 / -  / 105       hwmon4 temp2                  72250     -     rated_max 105000
+    101/10 PSU 1 Primary           53 / -  / 95        hwmon4 temp3                  52750     -     rated_max 95000
+    102/8,9,10 PSU 2               40 / 51 / 46        hwmon5 temp1,2,3   39750 / 51500 / 45750
+
+  Four facts worth writing down for whoever repeats this.
+  - The two board-sensor groups are two separate adt7476 chips, 0x2d and 0x2e on i2c-1.  CLI
+    sensors 6, 7 and 8 are hwmon1's temp1, temp2 and temp3.  CLI sensors 16, 17 and 18 are
+    hwmon2's.  The CLI numbering is not the hwmon numbering.  There is no label file, so the
+    join has to be made on the values.
+  - `hwmon0` is NOT a board temperature.  It is the MDIO PHY (`temp1_input 21000`,
+    `temp1_crit 100000`, no `temp1_max`).  It does not appear in `show system environment` at
+    all.  Writing to it would have proved nothing.
+  - The two SoC sensors, CLI 21 `SoC AP` and 22 `SoC SB`, have no hwmon node.  They are not in
+    `/sys/class/hwmon`, so they could not have been used.
+  - For the PSU sensors the CLI's high limit comes from `tempN_rated_max`, not `tempN_max`.
+    hwmon4 and hwmon5 report `temp2_max 65000` while the CLI shows 105.  A test that wrote
+    `temp2_max` on a PSU would not be writing the limit the CLI shows.  The chassis sensor was
+    chosen because there `tempN_max` and the CLI high limit are the same number.
+  => STEP 2 PASS: the node behind `Temp: Front Right` is
+     /sys/class/hwmon/hwmon1/temp1_max.  It was identified by agreement on three independent
+     values, not assumed.
+
+SETUP applied after STEP 2 and before STEP 3                                     done
+--------------------------------------------------------------------------------
+awplus# configure terminal
+awplus(config)# snmp-server community testing123 ro
+awplus(config)# snmp-server host 10.38.22.33 version 2c testing123
+awplus(config)# snmp-server enable trap hw-monitoring
+awplus(config)# end
+
+  Every line was echoed back with no `% ` line.
+
+awplus# show running-config | include snmp
+    snmp-server
+    snmp-server enable trap hw-monitoring
+    snmp-server community testing123
+    snmp-server host 10.38.22.33 version 2c testing123
+
+  The community is the group's deliberately worthless `testing123`.  The host is the box's
+  eth3.  `hw-monitoring` is the trap group under test.  swi_d.cfg was saved here, after setup
+  and before STEP 3.
+
+STEP 3 -- designed: baseline, the limit untouched and the receiver silent        PASS
+--------------------------------------------------------------------------------
+  Method: capture udp/162 on eth3 for 60 s while nothing is done to the unit and every sensor
+  reads Ok.
+
+$ tools/tb capture tb277 cksnmpmon eth3 60 r2-baseline.pcap udp port 162
+    tcpdump: listening on eth3, link-type EN10MB (Ethernet), capture size 262144 bytes
+    0 packets captured
+    0 packets received by filter
+    0 packets dropped by kernel
+
+$ snmpwire.py /tmp/cksnmpmon/r2-baseline.pcap --port 162 --values --abs
+    SUMMARY 0 SNMP message(s): 0 ENCRYPTED, 0 PLAINTEXT
+
+  Box clock 15:49:45 to 15:50:46 NZDT.
+  => STEP 3 PASS: with the trap group armed and the hardware healthy, 60 seconds produced
+     0 packets.  On its own a silent wire proves nothing.  STEP 5 turns it into a measurement,
+     because the SAME instrument, on the same NIC with the same filter, catches traps about
+     90 seconds later.  Together they also rule out the idea that these traps are periodic.
+
+STEP 4 -- designed: lower the limit below the live reading; the alarm asserts    PASS
+--------------------------------------------------------------------------------
+  Method: read and record the original bytes first.  A sysfs write is not in
+  `show running-config`, so `rcdiff.py` cannot see it and cannot prove it was put back.  The
+  exact bytes are the only restore proof there is.
+
+    >>> ls -l /sys/class/hwmon/hwmon1/temp1_max
+    -rw-r--r--    1 root     root          4096 Oct 16 06:22 /sys/class/hwmon/hwmon1/temp1_max
+    >>> cat /sys/class/hwmon/hwmon1/temp1_max
+    61000
+    >>> od -c /sys/class/hwmon/hwmon1/temp1_max
+    0000000    6   1   0   0   0  \n
+    0000006
+    >>> wc -c /sys/class/hwmon/hwmon1/temp1_max
+    6 /sys/class/hwmon/hwmon1/temp1_max
+    >>> cat /sys/class/hwmon/hwmon1/temp1_input
+    27000
+    >>> cat /sys/class/hwmon/hwmon1/temp1_alarm
+    0
+
+  ORIGINAL VALUE: the six bytes `61000\n`.  Then the one change this case makes:
+
+    >>> echo 20000 > /sys/class/hwmon/hwmon1/temp1_max      (DUT clock 2026-10-20T02:51:14Z)
+    >>> cat /sys/class/hwmon/hwmon1/temp1_max
+    20000
+    >>> cat /sys/class/hwmon/hwmon1/temp1_input
+    27250               <- the reading is UNCHANGED and real: 27.25 C
+    >>> cat /sys/class/hwmon/hwmon1/temp1_alarm
+    1                   <- was 0 before the write
+
+  The sensor did not move.  The limit did.  `temp1_input` reads 27000 before and 27250 after.
+  That 0.25 C is the sensor's own quantisation on a room-temperature part.  It is not heating.
+
+  The CLI, read at 15:51:51 NZDT:
+
+awplus# show system environment
+Environment Monitoring Status
+
+Overall Status: ***Fault***
+...
+Resource ID: 100  Name: AT-x960-56YSQ
+ID  Sensor (Units)                      Reading  Low Limit High Limit Status
+...
+6   Temp: Front Right (Degrees C)            27        -11         20  FAULT
+7   Temp: Rear Right (Degrees C)             33        -11         70     Ok
+8   Temp: Front Switch (Degrees C)           30        -11         77     Ok
+9   Fan: Fan 1 (Rpm)                       9424       2025        -       Ok
+10  Fan: Fan 2 (Rpm)                       9424       2025        -       Ok
+...
+16  Temp: Front Left (Degrees C)             31        -11         61     Ok
+17  Temp: Rear Left (Degrees C)              34        -11         67     Ok
+18  Temp: Rear Switch (Degrees C)            34        -11         77     Ok
+19  Fan: Fan 1 (Rpm)                      10285       2025        -       Ok
+20  Fan: Fan 2 (Rpm)                      10285       2025        -       Ok
+21  Temp: SoC AP (Degrees C)                 38        -11         95     Ok
+22  Temp: SoC SB (Degrees C)                 41        -11         95     Ok
+
+  and `show system` reported `Environment Status : ***Fault***`.
+
+  The DUT's own log line, verbatim:
+
+    2026 Oct 20 02:51:17 daemon.crit awplus Platform: SENSOR Board Base - Temp: Front Right: Alarm asserted. Reading:27 Threshold:20 (Degrees C)
+
+  DUT 02:51:17 UTC plus the measured 15 s skew is box 15:51:32 NZDT.  The write was at box
+  about 15:51:29.  So the platform noticed within about 3 seconds.
+
+  Read over SNMP while the alarm was asserted.  This ties the CLI, the MIB and the trap to one
+  and the same sensor index:
+
+$ snmpq get 10.38.22.34 1.3.6.1.4.1.207.8.4.4.3.12.3.1.4.1.100.6 ... --v2c --community testing123
+  CMD  /usr/bin/snmpget -On -t 3 -r 1 -v 2c -c testing123 10.38.22.34 1.3.6.1.4.1.207.8.4.4.3.12.3.1.4.1.100.6 1.3.6.1.4.1.207.8.4.4.3.12.3.1.5.1.100.6 1.3.6.1.4.1.207.8.4.4.3.12.3.1.6.1.100.6 1.3.6.1.4.1.207.8.4.4.3.12.3.1.7.1.100.6
+  | .1.3.6.1.4.1.207.8.4.4.3.12.3.1.4.1.100.6 = STRING: "Temp: Front Right"   <-- description
+  | .1.3.6.1.4.1.207.8.4.4.3.12.3.1.5.1.100.6 = INTEGER: 27                   <-- reading
+  | .1.3.6.1.4.1.207.8.4.4.3.12.3.1.6.1.100.6 = INTEGER: 20                   <-- upper limit
+  | .1.3.6.1.4.1.207.8.4.4.3.12.3.1.7.1.100.6 = INTEGER: 1                    <-- status
+  RESULT VALUE -- .1.3.6.1.4.1.207.8.4.4.3.12.3.1.4.1.100.6 = STRING: "Temp: Front Right"
+
+  Status reads 1 here.  After the restore in STEP 6 the same object reads 2.  So 2 is the
+  healthy value and 1 is the fault value.  The upper-limit column followed the sysfs write.
+  That is independent confirmation that the CLI, the MIB and hwmon are three views of one value.
+  => STEP 4 PASS: the over-temperature alarm asserted on a real and unmodified sensor reading
+     of 27 C, about 3 seconds after the limit was lowered to 20 C.  The CLI, the device log and
+     the MIB all agree on the same sensor, the same reading and the same limit.
+
+STEP 5 -- designed: catch the trap on the wire, and its clear partner            PASS
+--------------------------------------------------------------------------------
+  Method: STEP 4 and STEP 6 both happened inside ONE packet capture.  So the assert and the
+  clear are two messages in one file, taken by one instrument.
+
+$ tools/tb capture tb277 cksnmpmon eth3 300 r2-trap.pcap udp port 162
+    box 15:51:01 -> 15:56:01 NZDT, "2 packets captured, 2 received by filter, 0 dropped"
+
+$ snmpwire /tmp/cksnmpmon/r2-trap.pcap --port 162 --values --abs
+
+    #1   15:51:31.396 10.38.22.34:44160 -> 10.38.22.33:162  SNMPv2c  community='testing123'  pdu=SNMPv2-Trap  msgData=PLAINTEXT
+          1.3.6.1.2.1.1.3.0 = TimeTicks: 33293467
+          1.3.6.1.6.3.1.1.4.1.0 = OID: 1.3.6.1.4.1.207.8.4.4.3.12.0.5
+          1.3.6.1.4.1.207.8.4.4.3.12.3.1.1.1.100.6 = Gauge32: 1                    index
+          1.3.6.1.4.1.207.8.4.4.3.12.3.1.2.1.100.6 = Gauge32: 100                  resource 100 = AT-x960-56YSQ
+          1.3.6.1.4.1.207.8.4.4.3.12.3.1.3.1.100.6 = Gauge32: 6                    sensor 6
+          1.3.6.1.4.1.207.8.4.4.3.12.3.1.4.1.100.6 = STRING: Temp: Front Right     the sensor, by name
+          1.3.6.1.4.1.207.8.4.4.3.12.3.1.6.1.100.6 = INTEGER: 20                   the crossed upper limit
+          1.3.6.1.4.1.207.8.4.4.3.12.3.1.5.1.100.6 = INTEGER: 27                   the reading
+    #2   15:53:01.597 10.38.22.34:44160 -> 10.38.22.33:162  SNMPv2c  community='testing123'  pdu=SNMPv2-Trap  msgData=PLAINTEXT
+          1.3.6.1.2.1.1.3.0 = TimeTicks: 33302487
+          1.3.6.1.6.3.1.1.4.1.0 = OID: 1.3.6.1.4.1.207.8.4.4.3.12.0.6
+          ... same five identity varbinds, same sensor ...
+          1.3.6.1.4.1.207.8.4.4.3.12.3.1.6.1.100.6 = INTEGER: 61                   the restored limit
+          1.3.6.1.4.1.207.8.4.4.3.12.3.1.5.1.100.6 = INTEGER: 27                   the same reading
+    SUMMARY 2 SNMP message(s): 0 ENCRYPTED, 2 PLAINTEXT
+
+  What this is, in plain words.  The switch sent an SNMPv2c notification from its own address,
+  10.38.22.34, to the configured trap host.  The notification says which sensor is in trouble,
+  by name, with the temperature it read and the limit it crossed.  That is the trap this case
+  is named after.  It was caught on the wire.  It was not inferred from a log line.
+
+  Two notification OIDs, and what each one means here.  Neither is one of the standard
+  notifications that `snmpwire.py` can name, so no name is claimed for them.  What IS measured
+  is which one appears when:
+
+    snmpTrapOID.0 value                      observed when                  upper-limit varbind
+    1.3.6.1.4.1.207.8.4.4.3.12.0.5           the sensor went out of limits   20 (the lowered limit)
+    1.3.6.1.4.1.207.8.4.4.3.12.0.6           the sensor came back in limits  61 (the restored limit)
+
+  Both sit directly under the AT-ENVMONv2 subtree 1.3.6.1.4.1.207.8.4.4.3.12, and they carry
+  that subtree's temperature table columns as varbinds.
+  The fault and the clear can be told apart ONLY by the value of `snmpTrapOID.0`.  The five
+  identity varbinds are byte-identical in both, and even the reading is the same 27.  A manager
+  that looks only at the varbind OIDs cannot tell "too hot" from "recovered".
+
+  The times line up on both clocks:
+
+    event             DUT log (UTC)   DUT + 15 s = box    trap on the wire (box)
+    alarm asserted    02:51:17        15:51:32            15:51:31.396
+    alarm cleared     02:52:47        15:53:02            15:53:01.597
+  => STEP 5 PASS: the over-temperature trap was produced and captured on the wire.  It names
+     the sensor, carries the reading 27 and carries the crossed limit 20.  The matching clear
+     trap arrived on restore.  STEP 3 captured 0 packets with the same instrument, so the 2
+     packets here are a measurement.
+
+STEP 6 -- designed: restore the limit; the alarm clears and the clear is trapped PASS
+--------------------------------------------------------------------------------
+    >>> cat /sys/class/hwmon/hwmon1/temp1_max
+    20000
+    >>> cat /sys/class/hwmon/hwmon1/temp1_alarm
+    1
+    >>> echo 61000 > /sys/class/hwmon/hwmon1/temp1_max      (DUT clock 2026-10-20T02:52:4xZ)
+    >>> cat /sys/class/hwmon/hwmon1/temp1_max
+    61000
+    >>> od -c /sys/class/hwmon/hwmon1/temp1_max
+    0000000    6   1   0   0   0  \n
+    0000006
+    >>> wc -c /sys/class/hwmon/hwmon1/temp1_max
+    6 /sys/class/hwmon/hwmon1/temp1_max
+    >>> cat /sys/class/hwmon/hwmon1/temp1_input
+    27000
+
+  RESTORE PROOF: the `od -c` after the restore is byte for byte the `od -c` taken before the
+  change -- `6 1 0 0 0 \n`, six bytes.  Not "looks the same".  The same bytes.
+
+  The clear arrived on the console while the shell was still open:
+
+    02:52:47 awplus Platform: SENSOR Board Base - Temp: Front Right: Alarm cleared. Reading:27 Threshold:61 (Degrees C)
+
+  and from `show log tail 15` at 15:53:2x:
+
+    2026 Oct 20 02:52:47 daemon.crit awplus Platform: SENSOR Board Base - Temp: Front Right: Alarm cleared. Reading:27 Threshold:61 (Degrees C)
+
+  The CLI is fully back:
+
+    Overall Status: Normal
+    6   Temp: Front Right (Degrees C)            27        -11         61     Ok
+    show system -> Environment Status : Normal
+
+  and so is the MIB:
+
+$ snmpq get 10.38.22.34 ... --v2c --community testing123
+  CMD  /usr/bin/snmpget -On -t 3 -r 1 -v 2c -c testing123 10.38.22.34 1.3.6.1.4.1.207.8.4.4.3.12.3.1.5.1.100.6 1.3.6.1.4.1.207.8.4.4.3.12.3.1.6.1.100.6 1.3.6.1.4.1.207.8.4.4.3.12.3.1.7.1.100.6
+  | .1.3.6.1.4.1.207.8.4.4.3.12.3.1.5.1.100.6 = INTEGER: 27   <-- the same reading
+  | .1.3.6.1.4.1.207.8.4.4.3.12.3.1.6.1.100.6 = INTEGER: 61   <-- upper limit back to 61
+  | .1.3.6.1.4.1.207.8.4.4.3.12.3.1.7.1.100.6 = INTEGER: 2    <-- status back to 2, the healthy value
+  RESULT VALUE -- .1.3.6.1.4.1.207.8.4.4.3.12.3.1.5.1.100.6 = INTEGER: 27
+  => STEP 6 PASS: restoring the limit cleared the alarm.  The CLI, the device log and the MIB
+     all returned to the healthy state.  The clear is also on the wire, as trap #2 of STEP 5.
+     A trap that asserts and never clears would itself be a finding.  This one clears.
+
+STEP 7 -- designed: did anything else on the unit react?                         PASS
+--------------------------------------------------------------------------------
+  Method: a wrong limit could in principle drive a fan ramp or a thermal protection action, so
+  the fans and the log were watched at all three stages.  Fan speeds from
+  `show system environment`:
+
+    fan                      before (15:46)   alarm asserted (15:51)   after restore (15:53)
+    bank A Fan 1 / Fan 2      9342 / 9407        9424 / 9424              9358 / 9424
+    bank B Fan 1 / Fan 2     10112 / 10037      10285 / 10285            10246 / 10207
+    PSU 1 / PSU 2             4992 / 5920        4832 / 5568              -
+
+  No ramp.  The chassis fans move by about 1 to 2 percent across all three samples, which is
+  ordinary regulation.  The PSU fans went DOWN while the alarm was asserted, which is the
+  opposite of a thermal response.  No port was disabled.  No module was powered off.  Nothing
+  rebooted.  No thermal-protection or shutdown message appears anywhere in `show log`.
+
+  The hwmon tree shows why.  The fan control points are separate attributes,
+  `temp1_auto_point1_temp = 90000` and `temp1_auto_point2_temp = 122000`.  The critical limit
+  is a third attribute, `temp1_crit = 100000`.  This case changed none of them.  It changed
+  only `temp1_max`, the alarm limit.
+  => STEP 7 PASS: lowering the alarm limit produced the alarm and the trap and nothing else.
+     The fan curve and the critical-temperature path were never involved, because they are
+     different attributes and they were not written.
+
+STEP 8 -- designed: removal -- take the trap group away and prove the traps stop PASS
+--------------------------------------------------------------------------------
+  Method: three legs.  8a removes the group.  8b repeats the stimulus with the group removed.
+  8c tears the whole SNMP configuration down and rebuilds it without the group, to tell two
+  explanations apart.
+
+  8a.  The group removes cleanly from running-config:
+
+awplus(config)# no snmp-server enable trap hw-monitoring
+awplus# show running-config | include snmp
+    snmp-server
+    snmp-server community testing123
+    snmp-server host 10.38.22.33 version 2c testing123
+
+  The `snmp-server enable trap hw-monitoring` line is gone.  The community and the trap host
+  are untouched, so the transport is still configured and only the group is off.  No `% ` line.
+
+  8b.  With the group removed, the SAME stimulus still produced BOTH traps.
+
+$ tools/tb capture tb277 cksnmpmon eth3 150 r2-control.pcap udp port 162
+    box 15:57:13 -> 15:59:43 NZDT, "2 packets captured"
+
+  Stimulus: `echo 20000` at DUT 02:57:17, `echo 61000` at DUT 02:57:49.  The device logged
+  `Alarm asserted ... Threshold:20` at 02:57:18 and `Alarm cleared ... Threshold:61` at
+  02:58:18.  Decoded:
+
+    #1  15:57:32.341  ... OID: 1.3.6.1.4.1.207.8.4.4.3.12.0.5  Temp: Front Right  limit 20  reading 27
+    #2  15:58:32.499  ... OID: 1.3.6.1.4.1.207.8.4.4.3.12.0.6  Temp: Front Right  limit 61  reading 27
+    SUMMARY 2 SNMP message(s): 0 ENCRYPTED, 2 PLAINTEXT
+
+  8c.  The discriminator.  "Removal did not take effect" and "the group was never what enabled
+  these traps" predict the same capture.  A third leg tells them apart.  The whole SNMP
+  configuration was removed down to the bare `snmp-server` line.  It was then rebuilt with only
+  the community and the host.  `snmp-server enable trap hw-monitoring` was never typed again.
+
+awplus(config)# no snmp-server host 10.38.22.33 version 2c testing123
+awplus(config)# no snmp-server community testing123
+awplus# show running-config | include snmp
+    snmp-server                                   <- nothing else left
+awplus(config)# snmp-server community testing123 ro
+awplus(config)# snmp-server host 10.38.22.33 version 2c testing123
+awplus# show running-config | include snmp
+    snmp-server
+    snmp-server community testing123
+    snmp-server host 10.38.22.33 version 2c testing123
+
+$ tools/tb capture tb277 cksnmpmon eth3 150 r2-neverenabled.pcap udp port 162
+    box 16:01:12 -> 16:03:43 NZDT, "2 packets captured"
+
+    #1   16:01:33.022 10.38.22.34:60899 -> 10.38.22.33:162  SNMPv2c  community='testing123'
+          1.3.6.1.6.3.1.1.4.1.0 = OID: 1.3.6.1.4.1.207.8.4.4.3.12.0.5
+          ... = STRING: Temp: Front Right ... limit 20 ... reading 27
+    #2   16:02:03.115 ... OID: 1.3.6.1.4.1.207.8.4.4.3.12.0.6 ... limit 61 ... reading 27
+    SUMMARY 2 SNMP message(s): 0 ENCRYPTED, 2 PLAINTEXT
+
+  THE FINDING, stated carefully.  On this build, an AT-ENVMONv2 environment trap is sent to a
+  configured SNMPv2c trap host whether or not `snmp-server enable trap hw-monitoring` is in the
+  running configuration.  The command is accepted and it is displayed.  But on the evidence of
+  two independent 150-second captures, it does not gate the traps it appears to gate.  An
+  operator who removes the group to stop these notifications will still receive them.
+
+  What is NOT claimed, so nobody over-reads this:
+  - NOT that the group does nothing at all.  Only the temperature sensor was stimulated.  The
+    `hw-monitoring` group may well gate fan, PSU or voltage notifications that this case never
+    provoked.
+  - NOT that any other trap group is affected.
+  - One alternative is still open and is NOT ruled out by this bench.  The group's state may be
+    read only when the daemon or the system starts.  If so, a removal could not take effect
+    until a reboot, and the behaviour would be a delay in applying the removal rather than
+    missing gating.  Against that, five separate `snmp-server` configuration changes happened
+    between the removal and the 8c capture, and the traps survived all of them.  Settling it
+    needs a reload, and this run could not reload the DUT (STEP 10).  It is written down
+    here, not resolved.
+  - STEP 3 rules out the simplest other explanation, that these traps are periodic.  With the
+    group armed and the hardware healthy, 60 seconds produced 0 packets.  Every trap in this
+    case followed a limit crossing within about 3 seconds.
+  => STEP 8 PASS: the removal check was run with two controls and it produced a measured
+     product finding.  The traps are still sent after the trap group is removed, and after it
+     is never re-added.  This is reported as a finding against the enable and disable command.
+     It is not graded as a failure of this case, whose subject is the temperature trap, and the
+     temperature trap works.
+
+STEP 9 -- designed: repeatability                                                PASS
+--------------------------------------------------------------------------------
+  The assert and clear pair was produced three times from the same sensor, at three different
+  configurations: group armed, group removed, and group never re-added.  The device logged all
+  six transitions.  From `show log tail 150` at 16:04:32, the complete set of `daemon.crit`
+  lines for this case, verbatim:
+
+    2026 Oct 20 02:51:17 daemon.crit awplus Platform: SENSOR Board Base - Temp: Front Right: Alarm asserted. Reading:27 Threshold:20 (Degrees C)
+    2026 Oct 20 02:52:47 daemon.crit awplus Platform: SENSOR Board Base - Temp: Front Right: Alarm cleared. Reading:27 Threshold:61 (Degrees C)
+    2026 Oct 20 02:57:18 daemon.crit awplus Platform: SENSOR Board Base - Temp: Front Right: Alarm asserted. Reading:27 Threshold:20 (Degrees C)
+    2026 Oct 20 02:58:18 daemon.crit awplus Platform: SENSOR Board Base - Temp: Front Right: Alarm cleared. Reading:27 Threshold:61 (Degrees C)
+    2026 Oct 20 03:01:19 daemon.crit awplus Platform: SENSOR Board Base - Temp: Front Right: Alarm asserted. Reading:27 Threshold:20 (Degrees C)
+    2026 Oct 20 03:01:49 daemon.crit awplus Platform: SENSOR Board Base - Temp: Front Right: Alarm cleared. Reading:27 Threshold:61 (Degrees C)
+
+  Every one of them reads `Reading:27`.  That is the whole case in one column: the temperature
+  never changed.  Six transitions, six traps on the wire (2 + 2 + 2).  No trap was missed and
+  no extra trap appeared.
+
+  Two timing measurements, recorded so a later run does not rediscover them:
+  - Assert delay is about 1 to 3 seconds after the sysfs write.  02:51:14 -> 02:51:17;
+    02:57:17 -> 02:57:18; 03:01:17 -> 03:01:19.
+  - Clear delay varies between 1 s and 29 s.  02:52:46 -> 02:52:47, but 02:57:49 -> 02:58:18.
+    The adt7476's `temp1_alarm` bit is sticky.  It still read `1` immediately after the
+    restoring write, and the platform cleared it on its own next poll.  Nothing was wrong.  A
+    test that expected the clear within 5 seconds would simply be wrong about the device.
+  => STEP 9 PASS: the behaviour repeats.  Six limit crossings produced six log lines and six
+     traps, with the sensor reading 27 C every time.
+
+STEP 10 -- designed: persistence across a reboot                                 NOT RUN
+--------------------------------------------------------------------------------
+  Two separate questions, with different answers.
+
+  Does the lowered limit survive a reload?  No, and it cannot.  `/sys` is not stored anywhere.
+  It is a kernel-built filesystem that is rebuilt at every boot, and `temp1_max` is a live
+  register of the adt7476 chip that the driver sets again from its platform data.  There is
+  nothing on flash to carry the value across a boot.  This is a statement of mechanism.  It is
+  NOT MEASURED here.
+
+  Reboot persistence of the case's CLI configuration: NOT MEASURED.  This case performed no
+  reload and wrote nothing to startup-config.  The layer 3 addresses this run used (vlan10 on
+  port1.0.10, vlan48 on port1.0.48) exist in running-config only.  The boot config is
+  `flash:/default.cfg`.  A reload therefore destroys the path to the trap receiver.  Writing
+  those addresses to startup-config would change the standing bench, which is never done
+  unattended.
+
+  One consequence worth stating.  Because the sysfs value is volatile, a reboot would also have
+  "restored" it.  A tester could be tempted to treat a reboot as the undo.  That is not a
+  restore, and it was not relied on here.  The value was written back by hand and checked byte
+  for byte while the unit stayed up (STEP 6).
+  => STEP 10 NOT RUN: a reload cannot be done on this bench without changing the standing
+     configuration of the box.  Reboot persistence is left unmeasured.
+================================================================================

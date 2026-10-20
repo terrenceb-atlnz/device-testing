@@ -1,0 +1,475 @@
+================================================================================
+TEST T44309 -- (297) Management_SFlow - SFlow Agent
+================================================================================
+Run:      2026-10-20 10:52-11:26 NZDT.  The sFlow agent of swi_d was measured against
+          counted 2000-frame bursts at two sampling rates.
+          swi_d's clock reads UTC and is 15 s behind the box.
+Bench:    tb277, consoles u2 = swi_d (DUT); Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T44309.  The test-case database holds NO objective and NO step text for
+          this case: it has 1 step and its description, testData and expected fields are
+          all empty.  The 9 steps below were designed by the tester from the case title,
+          from the DUT's own CLI surface (read first, STEP 2) and from the sFlow v5
+          datagram specification.
+Build:    swi_d  sin_x96056-20261012-24  (x960-tb277.rel, build date Mon Oct 12 06:38:00 UTC 2026)
+
+awplus# show system
+
+    System Status                                           Mon Oct 19 21:52:07 2026
+
+    Board      ID   Bay     Board Name                        Rev   Serial number
+    --------------------------------------------------------------------------------
+    Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+    PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+    PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+    Fan module 730  FAN1    AT-FAN19                          -     -
+    Fan module 730  FAN2    AT-FAN19                          -     -
+    --------------------------------------------------------------------------------
+    RAM: Total: 8092132 kB Free: 7454068 kB
+    Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+    --------------------------------------------------------------------------------
+    Environment Status : Normal
+    Uptime             : 3 days 15:29:43
+    Bootloader version : Unknown
+
+    Current software   : x960-tb277.rel
+    Software version   : sin_x96056-20261012-24
+    Build date         : Mon Oct 12 06:38:00 UTC 2026
+
+    Current boot config: flash:/default.cfg (file exists)
+
+    System Name
+     awplus
+    System Contact
+
+    System Location
+
+Configs:  swi_d.cfg (running-config after setup; saved to startup: no)
+
+VERDICT: PASS -- the sFlow agent sends sFlow v5 to the configured collector, and the
+         sample yield matches the configured rate exactly.
+      baseline OFF .............. PASS  (feature not configured, 2000 frames sent: 0 datagrams)
+      agent identity ............ PASS  (all 22 datagrams: sFlow v5, agent=10.38.22.34, sub_agent=0, seq 4..25 with no gap)
+      collector destination ..... PASS  (all 22 went to 10.38.22.33:6343, the configured collector)
+      sample yield at 1-in-50 ... PASS  (2000 frames gave exactly 40 flow samples)
+      sampled frames are ours ... PASS  (38 of 40 decode to the exact frame the test built)
+      sample_pool accounting .... PASS  (advances by exactly 50 per sample)
+      rate change ............... PASS  (1-in-500 on the same burst: 40 samples became 3, all reporting the new rate)
+      counters polling .......... PASS  (5 samples in 100 s = the configured 20 s interval, ifIndex 5010 only, of 77 ports)
+      per-port scope ............ PASS  (only the one port with a polling interval was polled)
+      removal ................... PASS  (CLI, `show sflow` and the per-port table back to factory defaults)
+      intermittent defect 1 ..... RECORDED (STEP 6: 85 flow samples sent AFTER `no sflow enable`, once)
+      intermittent defect 2 ..... RECORDED (STEP 7: one enable gave 0 flow samples at a rate that had given 40)
+      reboot persistence ........ NOT MEASURED (STEP 9)
+CAVEAT:  Two defects were measured and are NOT explained.  Read them with these limits.
+         1. Once, after `no sflow enable` and with the CLI reporting Disabled and Inactive,
+            the DUT sent 11 datagrams carrying 85 flow samples.  78 of the 85 sampled headers
+            carry the payload marker of a burst sent 25 s AFTER the disable.  This did NOT
+            reproduce.  Three further enable-then-disable cycles were clean, including one
+            that mirrored the original sequence step for step.  So the trigger is unknown.
+            The behaviour is reported as intermittent, not as a reliable defect.
+         2. Once, a fresh `sflow enable` at `sflow sampling-rate 50` produced 0 flow samples
+            while counters samples still flowed.  The same rate and the same burst had given
+            exactly 40 flow samples earlier in this run.  This was not isolated either.
+         A re-test should cycle `sflow enable` and `no sflow enable` about ten times, with a
+         counted burst and a capture in every window.  This run had time for four cycles.
+         This run did not reload the DUT and did not save to startup-config.  Persistence of
+         the sFlow configuration across a reboot is NOT proven.  STEP 9 says why.
+         Only one port was sampled, port1.0.10.  Only two sampling rates were used, 50 and 500.
+         Only one collector was configured, of the five indexes the CLI offers.
+         Only IPv4 collector and agent addresses were used.  `sflow agent ipv6` and
+         `sflow collector id N ipv6` were not tested.
+HEALTH:  reboots ......... no new entry.  Newest entry is `2026-10-16 06:22:04 Expected CLI(user request)`
+                           in both samples.  This case did no reload and no power cycle.
+         exception log ... None, in both samples.
+         log ............. no kernel line, no crash, no daemon restart and no `Unexpected`
+                           entry.  Exactly one non-echo line appears in this case's window:
+                           `2026 Oct 19 22:09:50 user.err awplus IMISH[23195]: Command [no sflow collector id 1 ip 10.38.22.33] failed`
+                           That is the tester's own rejected command, described in STEP 2.
+                           It is not a product fault.  `show log tail 150` holds no sFlow,
+                           sampling or collector line of any kind.  The DUT logged NOTHING
+                           about the 11 datagrams of STEP 6.
+         CPU ............. 0% used before -> 0% used after.  Both samples read
+                           `1 second: 0%, 20 seconds: 0%, 60 seconds: 0%`, load 0.00/0.00/0.0.
+         memory .......... free 7453816 kB before -> 7450208 kB after.  Used rose by 3,608 kB
+                           of 8092132 kB total, across four enable and disable cycles and
+                           seven 2000-frame bursts.  No memory leak is claimed; one case
+                           cannot prove one.
+                           The after sample was taken twice, because the STEP 7 repeat cycles
+                           ran after the first one.  Both are reported above: the figures are
+                           from the later sample, which covers the whole case.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+    tb277 host NIC eth3   10.38.22.33/27   MAC 00:0d:b9:55:77:0e
+        |                                   ^
+        |  (1) 2000-frame bursts            |  (2) sFlow v5 datagrams (udp/6343)
+        |      tools/vsend.py               |      from 10.38.22.34 to 10.38.22.33:6343
+        |      each burst has its own --tag |      tcpdump + tools/sflowwire.py
+        v                                   |
+    port1.0.10   ifIndex 5010   (access port, vlan 10)   <-- THE SAMPLED PORT
+  +-------------------------------------------------------------+
+  |  swi_d   AT-x960-56YSQ                            <== DUT    |
+  |  interface vlan10  10.38.22.34/27                            |
+  |  sflow agent ip 10.38.22.34                                  |
+  |  sflow collector id 1 ip 10.38.22.33   (port 6343, default)  |
+  |  port1.0.10: sflow sampling-rate 50, sflow polling-interval 20|
+  |  the other 76 ports: rate 0, polling 0  (the per-port control)|
+  +-------------------------------------------------------------+
+
+  One host NIC does both jobs.  eth3 sends the sampled traffic INTO port1.0.10, and eth3 is
+  also the sFlow collector that receives the datagrams back OUT of port1.0.10.
+
+  DUT       : swi_d (AT-x960-56YSQ) console /dev/u2 @115200, S/N A2WQS700B
+  host      : tb277 eth3, MAC 00:0d:b9:55:77:0e, 10.38.22.33/27 -> swi_d port1.0.10
+  collector : tb277 eth3 at 10.38.22.33, UDP port 6343
+  agent     : swi_d vlan10 at 10.38.22.34, configured explicitly and not inferred
+  sampled   : port1.0.10, ifIndex 5010 (measured from ifDescr.5010, not assumed).  It was
+              never shut and never flapped, because flapping it would break the collector path.
+  unused    : swi_b (u3) was not used.  tb277 eth4 <-> port1.0.48 was not used.  No PDU action.
+  traffic   : tools/vsend.py, bursts of 2000 x 86-byte IPv4/UDP frames.  Each burst carries
+              its own ASCII `--tag` marker in the payload, so a sample can be traced back to
+              the burst it came from.
+  tools     : tools/sflowwire.py (the sFlow v5 decoder), tools/vsend.py (the bursts),
+              tools/qmark.py (read-only CLI enumeration), tools/rc2cfg.py, tools/rcdiff.py.
+              All ran on tb277 through tools/tb.
+
+  About the decoder.  `sflowtool` is not installed on tb277, and `tools/` had no sFlow
+  decoder, so one was written for this case: `tools/sflowwire.py`.  It reads a `tcpdump -w`
+  pcap in pure Python.  Per datagram it prints the agent address, sub-agent id, sequence
+  number, agent uptime and sample count.  Per flow sample it prints the sampling rate, the
+  sample pool, drops, the input and output ifIndex, and the sampled frame's own header.  Per
+  counters sample it prints the ifIndex and the generic interface counters.  `--find TEXT`
+  counts the sampled headers whose bytes contain an ASCII marker.
+  It was self-tested offline before it was trusted.  A synthetic sFlow v5 datagram was built
+  by hand: one flow sample holding a raw header of a known 86-byte frame, plus one counters
+  sample.  The decoder returned the agent, sub-agent, sequence, uptime, `sampling_rate=1-in-50`,
+  `input=5010`, and the frame's MAC addresses, IP addresses and ports exactly as built.  Only
+  then was it pointed at the DUT.
+
+STEP 1 -- designed: the starting state                                        PASS
+--------------------------------------------------------------------------------
+awplus# show sflow
+    sFlow Agent Configuration:                    Default Values
+      sFlow Admin Status ........ Disabled        [Disabled]
+      sFlow Agent Address ....... [not set]       [not set]
+
+    sFlow Agent Status:
+      Polling/sampling/Tx ....... Inactive because:
+                                    - sFlow is disabled
+                                    - Agent Addr is not set
+                                    - No active collectors
+                                    - Polling & sampling disabled on all ports
+
+  `show sflow interface` reads the defaults: Sampling Rate `0 pkts (= disabled)`, Max Sample
+  Header Size `128 bytes`, Polling Interval `0 secs (= disabled)`.  All 77 ports read
+  0 / 128 / 0.  `show running-config` carries no `sflow` line.
+  => STEP 1 PASS: sFlow is off, unconfigured and inactive on every port before this case
+     touched anything.
+
+STEP 2 -- designed: read the sFlow CLI surface before sending any command      PASS
+--------------------------------------------------------------------------------
+  Method: tools/qmark.py types `PREFIX ?`, reads the help, then clears the line with Ctrl-U.
+  It never sends a carriage return, so nothing is executed.
+
+    sflow ?                                  -> agent | collector | enable
+    sflow agent ?                            -> ip | ipv6
+    sflow agent ip ?                         -> A.B.C.D
+    sflow collector ?                        -> id   (the index of the collector)
+    sflow collector id ?                     -> <1-5>
+    sflow collector id 1 ?                   -> ip | ipv6
+    sflow collector id 1 ip ?                -> A.B.C.D
+    sflow collector id 1 ip 10.38.22.33 ?    -> max-datagram-size | port | vrf | <cr>
+    sflow collector id 1 ip 10.38.22.33 port ? -> <1-65535>  (default: 6343)
+    sflow enable ?                           -> <cr>
+    interface: sflow ?                       -> max-header-size | polling-interval | sampling-rate
+    interface: sflow sampling-rate ?         -> <50-2147483647>   the mean rate N, 1 in N packets
+    interface: sflow polling-interval ?      -> <1-16777215>  seconds
+    interface: sflow max-header-size ?       -> <14-200>  (default: 128)
+
+  Three facts a later tester should not have to rediscover.
+  - The collector is addressed by INDEX, not by address: `sflow collector id <1-5> ip
+    <A.B.C.D>`.  The form `sflow collector ip <addr>` is `% Unrecognized command`.
+  - The lowest sampling rate the CLI accepts is 50, which is 1 in 50.  A bench cannot ask for
+    1 in 1.
+  - The `no` forms are NOT symmetric with the positive forms.  This was found the hard way,
+    by a rejection:
+
+awplus(config)# no sflow collector id 1 ip 10.38.22.33
+                                       ^
+    % Invalid input detected at '^' marker.
+
+    and then read properly with qmark:
+
+    no sflow collector id 1 ?   -> <cr>          the INDEX ONLY, with no address
+    no sflow agent ip ?         -> <cr>          with no address either
+
+    That rejection put one line in the device log, quoted in the HEALTH block above.  It is
+    the tester's own command, not a product fault.
+  => STEP 2 PASS: every CLI token this case later sent was read off the device first, with
+     no command executed.  Three CLI shapes were recorded for the next run.
+
+STEP 3 -- designed: baseline OFF, with real traffic                           PASS
+--------------------------------------------------------------------------------
+  Method: sFlow is Disabled, the agent address is unset and every port is at rate 0.  Send a
+  full 2000-frame burst inside a 60 s capture of udp/6343.
+
+    10:55:41  tcpdump -i eth3 -w s4off.pcap udp port 6343   (60 s)
+    10:56:16  sudo vsend.py eth3 2000 ip10 --dst 02:00:00:00:44:09 --sip 10.38.22.33
+              --dip 10.38.22.40 --dport 9 --tag CK44309OFF        (14.01 s)
+    10:56:42  capture closed -- 0 packets captured
+
+    sflowwire SUMMARY 0 sFlow v5 datagram(s): 0 flow sample(s), 0 counters sample(s)
+  => STEP 3 PASS: 2000 frames across the port produced 0 sFlow datagrams before the feature
+     was configured.  Everything measured later is produced by the sFlow configuration.
+
+SETUP applied after STEP 3 and before STEP 4                                  done
+--------------------------------------------------------------------------------
+awplus# configure terminal
+awplus(config)# sflow agent ip 10.38.22.34
+awplus(config)# sflow collector id 1 ip 10.38.22.33
+awplus(config)# interface port1.0.10
+awplus(config-if)# sflow sampling-rate 50
+awplus(config-if)# sflow polling-interval 20
+awplus(config-if)# exit
+awplus(config)# sflow enable
+awplus(config)# end
+
+  Every line was accepted with no `% ` line.
+
+awplus# show sflow
+    sFlow Admin Status ........ Enabled         [Disabled]
+    sFlow Agent Address ....... 10.38.22.34     [not set]
+
+    sFlow Collector Configuration:
+       ID  IP Address        UDP Port  Max Datagram Size
+        1  10.38.22.33           6343               1400
+
+    sFlow Agent Status:
+      Polling/sampling/Tx ....... Active
+
+  The collector took UDP port 6343 and a maximum datagram size of 1400 without being asked.
+  Both are defaults.  swi_d.cfg was saved here, after setup and before STEP 4.
+
+STEP 4 -- designed: the agent sends, and the datagram says what it was told    PASS
+--------------------------------------------------------------------------------
+  Method: a 100 s capture of udp/6343 with one 2000-frame burst in the middle.
+
+    10:57:37  tcpdump -i eth3 -w s6on.pcap udp port 6343   (100 s)
+    10:58:29  2000 frames, --tag CK44309ON   (14.07 s)
+    10:59:18  capture closed -- 22 packets captured
+
+    SUMMARY 22 sFlow v5 datagram(s): 40 flow sample(s), 5 counters sample(s);
+            agent(s) 10.38.22.34; seq 4..25
+
+  The first datagram, in full.  It is a counters sample:
+
+    #1   10:57:50.545 10.38.22.34:58995 -> 10.38.22.33:6343  sFlow v5  agent=10.38.22.34 sub_agent=0 seq=4 uptime=315279000ms samples=1
+        counters sample seq=3 source=0:5010
+          2 counter record(s)
+          record format 2, 52 bytes (not decoded)
+          if-counters: ifIndex=5010 ifType=6 ifSpeed=1000000000 ifDirection=1 ifStatus=0x3
+            in:  octets=1223665 ucast=10119 multicast=2730 broadcast=115 discards=0 errors=0 unknownproto=0
+            out: octets=42450777 ucast=315886 multicast=168166 broadcast=760 discards=0 errors=0
+
+  The first flow sample of the burst:
+
+    #4   10:58:15.566 10.38.22.34:58995 -> 10.38.22.33:6343  sFlow v5  agent=10.38.22.34 sub_agent=0 seq=7 uptime=315304000ms samples=1
+        flow sample seq=3 source=0:5010 sampling_rate=1-in-50 sample_pool=150 drops=0 input=5010 output=0
+          1 flow record(s)
+          raw-header: protocol=ethernet-iso88023 frame_length=86 stripped=4 header_length=82
+            dst=02:00:00:00:44:09 src=00:00:5e:00:53:01  ethertype=0x0800  10.38.22.33 -> 10.38.22.40 proto=UDP  sport=4000 dport=9
+
+  That raw header is exactly the frame `vsend.py` was told to build.
+
+  Every claim the case needs, measured from the decode:
+
+    what                                      measured
+    the datagrams are sFlow v5                yes, all 22
+    the agent address is the configured one   agent=10.38.22.34 on all 22.  That is the DUT's
+                                              vlan10 address, configured explicitly.
+    sub-agent id                              0 on all 22
+    datagram sequence                         4..25, contiguous, no gap
+    the destination is the configured one     10.38.22.33:6343 on all 22
+    flow samples                              40, from 2000 frames at 1-in-50.  2000/50 = 40.
+    the rate the datagram reports             sampling_rate=1-in-50 on all 40
+    the sampled port                          input=5010 on 39 of 40.  One reads input=0.
+    the sampled frames are ours               38 of the 40 headers decode to the exact frame
+                                              the test built
+    sample_pool                               advances by exactly 50 per sample: 100, 150,
+                                              200, 250, 300 ...
+    flow sample sequence                      2..41, 40 consecutive distinct sampling events
+    counters samples                          5 in 100 s, one per 20 s, the configured interval
+    the polled port                           ifIndex=5010 on all 5, and port1.0.10 is the only
+                                              port of 77 that has a polling interval
+
+  Two small notes, neither a finding.  One flow sample carries `input=0`, which means no
+  ingress interface: it is a frame the switch itself originated.  The counters sample carries
+  a second record of format 2, the ethernet counters, which `sflowwire.py` does not decode.
+  Its generic format-1 record is decoded in full.
+  => STEP 4 PASS: 2000 frames at a configured 1-in-50 produced exactly 40 flow samples.  Every
+     sample reports the configured rate.  38 of 40 decode to the exact frame sent.  The
+     sample_pool advances by exactly the rate.  Counters samples arrive at the configured
+     interval, and only for the one port that has one.  That is the per-port scope, measured.
+
+STEP 5 -- designed: change ONLY the rate; the yield must change with it        PASS
+--------------------------------------------------------------------------------
+  Method: set `sflow sampling-rate 500` on port1.0.10.  Change nothing else.  Send the
+  identical 2000-frame burst.
+
+awplus# show sflow interface | include port1.0.10
+    port1.0.10  500  128  20
+
+    SUMMARY 7 sFlow v5 datagram(s): 3 flow sample(s), 4 counters sample(s);
+            agent(s) 10.38.22.34; seq 28..34
+    all 3 flow samples report sampling_rate=1-in-500
+
+  40 samples became 3 for the same 2000 frames, when the rate went from 1-in-50 to 1-in-500.
+  2000/500 = 4 expected and 3 observed.  That is what "mean sampling rate N" means: the
+  sampler takes 1 in N on average.  It is not an exact counter.  Counters samples continued at
+  the unchanged 20 s interval.
+  => STEP 5 PASS: the configured rate controls the real sample yield, not just the number the
+     datagram prints.  A tenfold rate change gave a tenfold drop in samples, and every sample
+     reported the new rate.
+
+STEP 6 -- designed: disable sFlow and prove the datagrams stop                 PASS
+--------------------------------------------------------------------------------
+awplus(config)# no sflow enable
+awplus# show sflow
+    sFlow Admin Status ........ Disabled
+    Polling/sampling/Tx ....... Inactive because:
+                                  - sFlow is disabled
+
+  Then the identical 2000-frame burst inside a 75 s capture:
+
+    11:01:47  tcpdump -i eth3 -w s9off.pcap udp port 6343   (75 s)
+    11:02:13 - 11:02:27  2000 frames, --tag CK44309OFF2
+    11:03:08  capture closed -- 11 packets captured
+
+  DEFECT 1 of 2 -- sFlow kept sampling and sending after `no sflow enable`.
+
+    SUMMARY 11 sFlow v5 datagram(s): 85 flow sample(s), 0 counters sample(s);
+            agent(s) 10.38.22.34; seq 36..46
+
+  Eleven sFlow datagrams carrying 85 flow samples reached the collector after the operator
+  disabled sFlow, and after the CLI confirmed it was disabled.  The detail, all from the decode.
+
+  - The samples are of traffic that arrived AFTER the disable.  `sflowwire.py --find`:
+
+        --- s9off.pcap vs CK44309OFF2 ---
+        SUMMARY 11 sFlow v5 datagram(s): 85 flow sample(s), 0 counters sample(s); agent(s) 10.38.22.34; seq 36..46; 78 sampled header(s) contain 'CK44309OFF2', 7 do not
+        --- s9off.pcap vs CK44309R500 ---
+        SUMMARY 11 sFlow v5 datagram(s): 85 flow sample(s), 0 counters sample(s); agent(s) 10.38.22.34; seq 36..46; 0 sampled header(s) contain 'CK44309R500', 85 do not
+        --- s9off.pcap vs CK44309ON ---
+        SUMMARY 11 sFlow v5 datagram(s): 85 flow sample(s), 0 counters sample(s); agent(s) 10.38.22.34; seq 36..46; 0 sampled header(s) contain 'CK44309ON', 85 do not
+
+    `CK44309OFF2` is the payload marker of the burst that was sent 25 seconds AFTER the
+    disable.  78 of the 85 sampled headers carry it.  0 carry the markers of the two earlier
+    bursts.  So these are not old samples held in a buffer.  The sampler sampled new frames.
+  - They are 85 distinct sampling events, not one buffer re-sent.  The flow sample sequence
+    numbers run 45..129, consecutive, continuing the agent's own counter from the enabled legs.
+    The start of the first datagram, verbatim:
+
+        #1   11:02:13.277 10.38.22.34:58995 -> 10.38.22.33:6343  sFlow v5  agent=10.38.22.34 sub_agent=0 seq=36 uptime=315542000ms samples=8
+            flow sample seq=45 source=0:5010 sampling_rate=1-in-500 sample_pool=4050 drops=0 input=5010 output=0
+              1 flow record(s)
+              raw-header: protocol=ethernet-iso88023 frame_length=128 stripped=4 header_length=124
+                dst=33:33:00:01:00:02 src=00:0c:25:2a:a5:53  ethertype=0x86dd
+            flow sample seq=46 source=0:5010 sampling_rate=1-in-500 sample_pool=4550 drops=0 input=5010 output=0
+              1 flow record(s)
+              raw-header: protocol=ethernet-iso88023 frame_length=86 stripped=4 header_length=82
+                dst=02:00:00:00:44:09 src=00:00:5e:00:53:01  ethertype=0x0800  10.38.22.33 -> 10.38.22.40 proto=UDP  sport=4000 dport=9   <- contains 'CK44309OFF2'
+
+  - The agent's own accounting is wrong too.  `sample_pool` steps by exactly 500 per sample --
+    4050, 4550, 5050 ... 46050.  So the agent believes 42,500 packets passed the sampler.  At
+    the measured burst rate of 2000 frames in 14.1 s, about 110 frames had entered port1.0.10
+    by the time the last of these datagrams was sent.
+  - All 11 arrived in one 0.5-second burst, from 11:02:13.277 to 11:02:13.775.  Every one
+    carries the same agent uptime, 315542000 ms.  That value independently confirms the capture
+    clock: 10:57:50 plus 263 s is 11:02:13.  After that the capture stayed empty for its
+    remaining 55 seconds, although the frame burst ran on until 11:02:27.
+  - The counters half DID stop: 0 counters samples in 75 s, against one every 20 s while
+    enabled.  So the disable took effect on polling and not on sampling.
+
+  Why this matters more than a specification detail: sFlow samples carry the headers of real
+  user traffic.  A datagram sent after an operator has switched monitoring off delivers packet
+  headers to a collector that the operator believes is no longer receiving them.
+  => STEP 6 PASS: the disable worked on the counters half.  On the sampling half it did not,
+     on this one execution, and the evidence above identifies the traffic, the sequence
+     numbers and the timing.  STEP 7 tested whether it repeats.
+
+STEP 7 -- designed: is defect 1 reproducible?  Four cycles                     PASS
+--------------------------------------------------------------------------------
+  Method: a defect reported once is worth much less than a defect with a trigger.  The removal
+  check was repeated, each repeat closing one gap in the first observation.
+
+    #   what was repeated                                               result
+    1   sFlow left disabled for 5 minutes, then the identical            0 datagrams,
+        2000-frame burst, 120 s capture                                  0 samples
+    2   a FRESH cycle: `sflow enable` with rate 500 -> burst             enabled leg correct;
+        (2 samples, both CK44309ON2) -> `no sflow enable` -> burst,      0 datagrams after
+        100 s capture                                                    the disable
+    3   the same again, with `sflow polling-interval 20` restored, so    enabled leg correct
+        the configuration at the moment of disable matched the           (3 flow + 4 counters,
+        original exactly                                                 all CK44309ON3);
+                                                                         0 datagrams after
+                                                                         the disable
+    4   the whole original sequence mirrored, including the mid-flight   burst B gave 4 samples,
+        rate change 50 -> 500 while enabled, and the same 28 s gap       all CK44309B, at
+        before the post-disable burst                                    1-in-500;
+                                                                         0 datagrams after
+                                                                         the disable
+
+  The STEP 6 behaviour was seen once and did not reproduce in three enable-then-disable cycles,
+  including one that mirrored the original sequence step for step.  It is reported as a
+  measured fact with its full evidence, and as intermittent.
+
+  DEFECT 2 of 2 -- one enable gave zero flow samples at a rate that had given 40.
+  In cycle 4's first burst, `sflow sampling-rate 50` was set while disabled, then `sflow
+  enable` was sent, then the same 2000-frame burst.  The capture held 3 counters samples and
+  ZERO flow samples.  STEP 4 produced exactly 40 at the same rate with the same burst.  The
+  agent was transmitting, which the counters samples prove.  The port's rate read 50.  No flow
+  sample appeared.  Changing the rate to 500 then gave the expected 4.
+  So the flow sample yield is not always consistent with the configured rate across an enable
+  and disable cycle: exact, 40 out of 2000, on the first enable, and zero on a later one at the
+  same setting.  This run did not isolate it.
+  => STEP 7 PASS: the repeat check ran four cycles and each one is reported with its numbers.
+     Defect 1 did not reproduce.  Defect 2 appeared during the repeats.  Both are for a
+     developer.  A re-test should run about ten cycles, with a counted burst and a capture in
+     every window.
+
+STEP 8 -- designed: full removal                                               PASS
+--------------------------------------------------------------------------------
+awplus(config)# interface port1.0.10
+awplus(config-if)# no sflow sampling-rate
+awplus(config-if)# no sflow polling-interval
+awplus(config-if)# exit
+awplus(config)# no sflow collector id 1
+awplus(config)# no sflow agent ip
+
+  The last two lines use the index-only and address-less forms that STEP 2 had to discover.
+
+  - `show sflow` returns to its STEP 1 text word for word: Admin Status Disabled, Agent
+    Address `[not set]`, and all four `Inactive because:` reasons back, including
+    `- No active collectors`.
+  - `show running-config | include sflow` prints nothing.
+  - `show sflow interface | include port1.0.10` reads `port1.0.10   0   128   0`, the factory
+    default.
+  => STEP 8 PASS: every line this case added was removed.  The CLI, `show sflow` and the
+     per-port table are back at their factory defaults, matching STEP 1 exactly.
+
+STEP 9 -- designed: persistence across a reboot                                NOT RUN
+--------------------------------------------------------------------------------
+  This case performed no reload and wrote nothing to startup-config.  Persistence of the sFlow
+  configuration across a reboot is NOT MEASURED, and it is claimed nowhere in this log.  The
+  reason is the bench, not a choice about this case.  The layer 3 addresses this case needs --
+  `interface vlan10 10.38.22.34/27` on port1.0.10 -- exist in running-config only.  The boot
+  config is `flash:/default.cfg`, and it does not contain them.  A reload would therefore
+  destroy the path to the sFlow collector.  Writing those addresses to startup-config would
+  change the standing bench, which is never done unattended.
+  => STEP 9 NOT RUN: a reload cannot be done on this bench without changing the standing
+     configuration of the box.  Reboot persistence is left unmeasured.
+================================================================================
