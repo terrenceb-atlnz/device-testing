@@ -144,9 +144,51 @@ case, so a fresh tester can restore the bench from here.
 | T33378 | (229) Management - Telnet Server (IPv4) | mgmt-2026-10-20T0825 | PASS | proven on the wire across off / on / IPv6-only / removed: 4 pkts SYN→RST while disabled; 94 pkts with a real manager session carrying 2045 B of banner and output, the DUT logging telnetd from 10.38.22.33; a bad credential refused at the application on an ESTABLISHED connection; IPv4 refused while `show telnet` still read Enabled/IPv6; 2 pkts after removal; rcdiff byte-identical | T33378/work/run1.log | tester |
 | T47199 | (273) Management_Operation - Show warning message when user continues to use default PW | mgmt-2026-10-20T0825 | **FAIL** | `% Default password needs to be changed.` absent from EVERY access path — 2 console logins on swi_d, telnet, SSH, and 2 console logins on swi_b (different model, 3-week-older build, also still on `friend`) — and absent from the log, while TPS row 271 says Yes at Priority 1 and the DUT still authenticates with the factory password. A `banner exec` marker proved the instruments can see a message in exactly that position | T47199/work/run1.log | tester |
 | T33416 | (283) Management_Triggers - Interface | mgmt-2026-10-20T0825 | PASS | `type interface` exists; proven on three independent instruments — activation counters, the SNMPv2c trap on the wire (AT trigger OID `1.3.6.1.4.1.207.8.4.4.4.53.0.1`, trigger ID in varbind `…53.1.0`), and the DUT's own `TRIGGER[…] activated` log line — with three silent controls under identical stimulus (sibling port, `no active`, `no trigger`), 0 traps in 270 s from the instrument that had just recorded three | T33416/work/run1.log | tester |
+| T33411 | (278) Management_TACACS+ - Authentication | tacacs-2026-10-20T0825 | PASS | a user existing ONLY on the TACACS+ server logged in to the DUT, on three instruments — the DUT log plus `show tacacs+` going Unknown→Alive, 58 packets of TCP/49 against **zero** in both the OFF and removed baselines, and a local-vs-server password discriminator; every failure mode carries its own measured signature; removal complete, rcdiff byte-identical | T33411/work/run1.log | tester |
 | T33427 | (300) Management - Flexera Licensing | — | NOT TESTED | needs a Flexera licence from Chris Robb; installing a licence is the Test Engineer's (STANDING-ORDERS §4). Dropped by the Test Engineer 2026-10-19 | — | Test Engineer |
 
 ## Issues
+
+### 🟠 CORRECTION to `platforms/x960.md` §7E.2 — `Last login:` is keyed on a RECYCLED UID
+
+Found by the group D tester, and it **qualifies a finding the sentinel reported with more
+confidence than it had earned.**
+
+§7E.2 says the `Last login:` banner line discriminates who authenticated a login — present for a
+local account, absent for a server-authenticated one. **That is unsafe in exactly the pattern
+our campaigns use.**
+
+A freshly created `tacuser` reported `Last login: Mon Oct 19 23:00:48 UTC 2026 from 10.38.22.33`
+**before it had ever logged in.** That record belongs to group C's **deleted `ckalt`** account
+(T47199's telnet login, box time 12:01) — the UID was recycled and the lastlog entry came with
+it.
+
+⇒ **Any session that creates and deletes temporary accounts — which is what these campaigns do
+every day — can see a `Last login:` line that belongs to a different, earlier user.** The
+discriminator is still real for a stable account, but it must carry this caveat or it will be
+read as evidence when it is an artefact. Fold into §7E.2 at wrap.
+
+### 🔬 Three TACACS+ wire properties worth keeping (T33411)
+
+1. **An accept and a reject are distinguishable WITHOUT the shared key.** An accepted login is
+   **two** TCP/49 conversations — authentication, then an authorization exchange; a reject is
+   the authentication flow alone. **The second flow's presence is the verdict**, which means a
+   passive observer can grade TACACS+ outcomes without decrypting anything.
+2. **A wrong key is distinguishable from a dead server on TACACS+** — where `platforms/x960.md`
+   §7E.4 records it is **not** on RADIUS. `tac_authen_read_timeout: inconsistent reply body,
+   incorrect key?` versus `tac_connect_single_vrf: connection failed … Transport endpoint is not
+   connected`, plus an inverted wire ratio (41 B out / 72 B in), and the password never reaches
+   the wire at all.
+3. **The obfuscated body is not padded.** Five measurements fit `base + len(username) +
+   len(password)` exactly, so **a passive capture leaks both lengths** even though no credential
+   is readable. A protocol property, not a product defect — but measured here rather than
+   asserted from the RFC.
+
+### 🛠 NOTICE (tooling) — `tools/netlogin.py` could not report a failed SSH control
+
+A refused **ssh** login re-prompts `<user>@<host>'s password:`, and the tool graded that
+`UNKNOWN` — so a control that had genuinely failed could not say so, which would silently weaken
+every negative leg that used it. Fixed to FAIL and regression-tested both ways in the same case.
 
 ### ✅ UNBLOCKED 2026-10-20 13:31 — the Test Engineer started a TACACS+ server
 
@@ -380,17 +422,18 @@ health check. By the eighth case of this campaign the output was mostly the test
 **Consequences:** the signal-to-noise ratio decays through a campaign; a genuine `restart` line
 is easy to miss among the echoes; and each health read costs more context than the last.
 
-**The fix for logged-output.md §2 and STANDING-ORDERS §8** (to apply at wrap, not mid-campaign):
-exclude the command echoes as well as bounding the window — e.g.
+**🔴 CORRECTED 2026-10-20 14:11 — the sentinel's proposed fix was WRONG, and wrong in a
+dangerous way.** The group D tester tested it on hardware: **AW+ does not support a chained
+`| exclude` on this build.** `show log | include <pat> | exclude IMISH` **prints no error** and
+**silently swallows the second filter into the include pattern** — the output *looks* filtered
+and is not. Had that gone into the rules unverified, every tester would have believed it was
+excluding its own echoes while seeing them all.
 
-```
-show log | include kernel|exception|crash|restart|Unexpected | exclude IMISH
-```
+**The correct fix for logged-output.md §2 and STANDING-ORDERS §8:** do the exclusion **on the
+box side, after the read** — pipe the captured output through `grep -v IMISH` there — and keep
+bounding the filter to the case's own time window. Do **not** recommend `| exclude`.
 
-verifying first that AW+ supports a chained `| exclude` on this build; otherwise filter the
-echoes out on the box side after the read. Keep the existing "bound the filter to the case's own
-time window" advice either way — it helps but does not solve this, because the echoes fall
-inside the window too.
+Credit to the tester for testing a proposed rule before it became one.
 
 **Credit where due:** the rule still worked. It surfaced the `[SCRIPT]snmp restart isis` lines
 and gave every case a clean reboot/exception/CPU/memory baseline. This is a refinement, not a
