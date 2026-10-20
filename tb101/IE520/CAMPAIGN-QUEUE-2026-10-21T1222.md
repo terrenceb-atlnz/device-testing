@@ -274,6 +274,43 @@ run `.setup` is the deployed one unchanged (every unit is used); gate 6 prefligh
 CLI + host tools); gate 8 — not a server run. Framework post-failure power cycle: no PDU, so nothing cycles
 (recorded in the working log as the dispatch requires).
 
+## Group lacp-2026-10-21T1222 — bench setup and exact restore recipe (tester, RUN dispatch, written 2026-10-21 12:5x NZDT BEFORE the first device change)
+
+Gate re-run at RUN: `precheck tb101 0-3` FOUND ser2net only (u0–u3 free); `peek` u0–u3 all `IE520#`; probe
+`2026-10-20T234243Z` **MATCH**; sentinel = parent session (device-testing-23). Run `.setup` = the deployed one
+unchanged, copied to `lacp-2026-10-21T1222/tb101-u0u3.setup` (every unit is used: the stack is one device).
+
+**Setup, in this order** (all through `tools/tb … tb101`, scratch `lacp-1222`; stop on any `% ` line):
+1. Host bond (root, the one allowed root change): `tools/tb sudotool tb101 lacp-1222 bondctl up bond0
+   /tmp/lacp-1222/bond-state.json eth3 eth4` — records `ip -br addr` + eth3/eth4 addresses into the state file
+   FIRST, then `ip link add bond0 type bond mode 802.3ad miimon 100 lacp_rate fast xmit_hash_policy layer2`,
+   `ip addr flush` / `link set down` / `set master bond0` on eth3 and eth4, bond0 and both NICs up. (Helper:
+   `tools/bondctl.py`, new, README entry.)
+2. DUT (u0, `cfg`): `configure terminal` / `interface port1.0.1` / `channel-group 1 mode active` /
+   `interface port2.0.1` / `channel-group 1 mode active` / `end`; `copy running-config flash:/t17584.cfg`;
+   `configure terminal` / `boot config-file flash:/t17584.cfg` / `end`; `show boot`. **No `write`**:
+   `flash:/tb101-bench.cfg` stays byte-identical.
+
+**Restore, whatever happened, in this order** (a fresh tester runs exactly this; the master may be on any
+console after E3–E6, so read `show stack` first and use the master's console, or any backup console re-logged in):
+1. DUT (`cfg`): `configure terminal` / `boot config-file flash:/tb101-bench.cfg` / `interface port1.0.1` /
+   `no channel-group` / `interface port2.0.1` / `no channel-group` / `end`. Check `show boot` reads
+   `flash:/tb101-bench.cfg (file exists)` and `show running-config interface port1.0.1` (and 2.0.1) reads
+   `switchport` + `switchport mode access` only; `show etherchannel` Dynamic 0.
+2. DUT files (`ckyn`): `YN?:delete force flash:/t17584.cfg` on the master; then `dir IE520-N/flash:/` for each
+   backup N (memory `ie520-image-update-procedure`: `<hostname>-N/flash:`) and delete any synced copy.
+3. `remote-diff all show running-config` (memory `stack-refused-command-lands-on-backups`), then
+   `tools/rcdiff.py` of the post-run `show running-config` against the pre-run one = no diff.
+4. Host: `tools/tb sudotool tb101 lacp-1222 bondctl down bond0 /tmp/lacp-1222/bond-state.json` — nomaster
+   eth3/eth4, `ip link del bond0`, `ip addr replace 10.37.101.33/27` + `fd32:b1f0:dff7:6503::1/64` on eth3,
+   `10.37.101.65/27` + `fd32:b1f0:dff7:6504::1/64` on eth4, links up, and it prints `RESTORE DIFF: empty`.
+   If the state file is gone (box reboot wipes /tmp): run those four `ip addr replace` lines by hand.
+   No NIC pinning is ever set (`ethtool` untouched).
+5. Consoles u0–u3: `end`, `terminal no monitor`, exec prompt (`peek`). Kill nothing left behind
+   (`tools/tb ps tb101 'linerate|l2flows|tcpdump|vsend'` empty).
+6. `tools/tb probe tb101 --consoles 0-3 --baud 115200 --no-prompt` = MATCH; `show boot` = baseline on every
+   member.
+
 ## Results
 
 | case | title | group | verdict | reason | working log | graded |

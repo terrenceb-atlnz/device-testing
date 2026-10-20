@@ -1,0 +1,52 @@
+# T17584 "LACP - Startup stable with heavy traffic" -- working log, run 1
+# tb101, IE520 4-member stack, group lacp-2026-10-21T1222, tester bench-runner (RUN dispatch), sentinel = parent session device-testing-23
+# Written as the run goes. Times are NZDT (box clock) unless marked UTC. VERDICT: line at the end.
+
+## Session facts (given, never overwritten)
+box tb101; consoles u0,u1,u2,u3 = stack members 1,2,3,4 (all 115200); pdu none (no power-cycle possible; the
+framework's post-failure cycle would silently do nothing -- no framework script runs here anyway); outlets none;
+names u0=swi_a u1=swi_b u2=swi_d u3=swi_c (bench-setup/tb101/tb101.static); constraints none, run window
+"Reloads now" (member and whole-stack reloads in office hours allowed); root on tb101 limited to the bond build
+and its restore (ip link bond0 add/del, enslave/release eth3+eth4, re-add their addresses); root traffic tools
+(linerate/l2flows/vsend/tb capture under sudo -n) are test traffic. Test Engineer terrenceb@terrenceb-dl.
+session dir tb101/IE520/, stamp 2026-10-21T1222, scratch /tmp/lacp-1222/ on the box.
+
+## Case text (ck.db zephyr_cases key AWPTCM-T17584, tools/ckcase.py on tb101, 2026-10-21 12:5x)
+Title: LACP - Startup stable with heavy traffic
+Folder: /VCS (Virtual Chassis Stacking)/VCS (VMAC)/VMAC - L2 Features ; labels Stress, Platform-Test ; status Approved
+Objective: "Conduct several topology changes and check that port interfaces configured of LACP handles heavy
+traffic and still uses the virtual-mac of the stack."
+Steps (one row, verbatim steps_text): "1. Configure as shown in the Setup/Configs 2. Start traffic into all 4
+devices destined for opposite pair e.g. Left<->right/top<->bottom. 3. Conducted multiple port down events so
+that topology had to change totally 4. reboot stack 5. Check traffic and MAC tables of Stack"
+Expected (verbatim): "Traffic should be flowing without a problem The MAC tables should reflect the correct MAC
+addresses"
+The Setup/Configs referred to in step 1 are NOT in ck.db (steps raw column 424 chars, no config block).
+
+## The fit (triage 12:35, accepted by the Test Engineer "Proceed now")
+DUT po1 = port1.0.1 (member 1, master) + port2.0.1 (member 2), `channel-group 1 mode active`, saved to
+flash:/t17584.cfg with the boot config pointer moved there (tb101-bench.cfg untouched, no `write`).
+Partner = tb101 host bond0 (Linux bonding 802.3ad, lacp_rate fast, xmit_hash layer2) = eth3 + eth4.
+Far side = eth2 <-> port3.0.1 (member 3). Member 4 = transit only (no host link).
+Events: E0 LAG up; E1 shut/no-shut port1.0.1; E2 shut/no-shut port2.0.1; E3 reload stack-member 1 (master);
+E4 reload stack-member 2; E5 reload stack-member 4 (master by then, ring->chain); E6 whole-stack reload (step 4).
+NOT MEASURABLE (reported, never a FAIL): step 2's "all 4 devices / opposite pair" -- tb101 has one switch (the
+stack) and three host edges; an AW+-to-AW+ LACP partner; physical cable pulls (CLI shutdown instead).
+
+## Gate (RUN dispatch, 2026-10-21 12:4x-12:5x NZDT)
+- precheck tb101 0-3: exit 5 FOUND, one item: ser2net pid 594 (holds no /dev/u*; normal on tb101 per the
+  dispatch); u0-u3 all free. Proceeded.
+- scratch lacp-1222 refreshed (63 files, then 64 with tools/bondctl.py).
+- template: "/nfsHome not mounted ... no deployed tb101.setup" at the legacy path = expected; the probe's
+  fallback /home/st-art/configs/tb101.setup is the template.
+- peek u0,u1,u2,u3 (115200): every console answered `IE520#` (exec prompt, nothing parked).
+- probe `tools/tb probe tb101 --consoles 0-3 --baud 115200 --no-prompt`: exit 0 MATCH, capture
+  2026-10-20T234243Z (UTC), advisories none.
+- gate 5: run .setup = deployed tb101.setup unchanged (every unit is in the one stack) ->
+  lacp-2026-10-21T1222/tb101-u0u3.setup. gate 6/8: no framework script, no server run. gate 7: baseline boot
+  config flash:/tb101-bench.cfg (checked below). gate 9: sentinel = parent (dispatch). gate 10: commands
+  checked at triage (qmark on interface port1.0.1: channel-group <1-248> mode active|passive).
+- Host (tools/hostinfo.py eth2 eth3 eth4, 12:4x): eth2 00:0d:b9:51:4d:a1 10.37.101.1/27 fd32:b1f0:dff7:6502::1/64;
+  eth3 00:0d:b9:51:4d:a2 10.37.101.33/27 fd32:b1f0:dff7:6503::1/64; eth4 00:0d:b9:51:4d:a3 10.37.101.65/27
+  fd32:b1f0:dff7:6504::1/64; all igb 1000Mb/s UP LOWER_UP; NetworkManager inactive, networkd active (netplan);
+  no bonding interface; bonding.ko present. bootnet 10.36.200.101/17 never touched.

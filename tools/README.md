@@ -587,6 +587,26 @@ config with the echoed command, bare prompts, pager remnants, CRs and blank line
 - **Limits:** it reads the ckcon `HH:MM:SS >>> cmd` stdout format only (as `rcdiff.py` does)
 - **Status:** verified 2026-10-08 on tb470, IE520 stack master (u5): T22650 `stk_a.cfg`, 186 config lines
 
+### `bondctl.py`
+Builds or removes a Linux bonding interface (`802.3ad` by default) from host NICs, for a LAG case
+whose partner is the testbox itself, and restores the NICs' addresses exactly. `up` records
+`ip -br addr` and each NIC's global addresses into a state file FIRST, then creates the bond,
+flushes and enslaves the NICs; `down` releases them, deletes the bond, re-adds every recorded
+address with `ip addr replace`, and diffs `ip -br addr` against the recording (`RESTORE DIFF:
+empty`, else the diff and exit 1). Every `ip` command is printed before it runs and the first
+failure stops it. `status` prints `/proc/net/bonding/<bond>`.
+- **Run:** `sudo bondctl.py up <bond> <state.json> NIC [NIC ...] [--mode 802.3ad] [--miimon 100] [--lacp-rate fast] [--xmit-hash layer2]`;
+  `sudo bondctl.py down <bond> <state.json>`; `bondctl.py status <bond>`
+- **Where:** testbox (root; `tools/tb sudotool <box> <scratch> bondctl ...`); **needs:** iproute2, the bonding module
+- **Imports:** none
+- **Limits:**
+  - It is a root CHANGE on the host, not test traffic: use it only when the Test Engineer has allowed the
+    bond for the case (STANDING-ORDERS §4; tb101 2026-10-21, "sudo -n for the bond and its restore").
+  - It does not stop NetworkManager or systemd-networkd from re-applying addresses to a slave; check
+    `ip -br addr` after `up` and report what the host did.
+  - `up` refuses if the bond already exists; `down` only restores what `up` recorded.
+- **Status:** added 2026-10-21 for tb101 T17584 (host bond0 = eth3 + eth4 as the LACP partner of an IE520 stack po1); see that run's working log for its verification
+
 ### `hostinfo.py`
 Read-only inventory of a testbox HOST before a traffic or bonding case: which service manages
 the NICs (NetworkManager, systemd-networkd, ifupdown, netplan), addresses and link details,
