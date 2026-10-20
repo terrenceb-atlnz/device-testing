@@ -123,7 +123,7 @@ exists**, rather than implying the steps were authored.
 | --- | --- | --- | --- | --- |
 | A | T33407 Local RADIUS Server; T33408 RADIUS Client mode; T33409 RADIUS Proxy | `aaa-2026-10-20T0825` | **DONE — 3 of 3 PASS** | RADIUS only. The tester runs a **second, user-owned freeradius** on unprivileged ports (e.g. 11812/11813) and points the DUT at them with `radius-server host <ip> auth-port/acct-port` — the running system instance needs root to reconfigure. All shared secrets are `testing123` |
 | D | T33411 TACACS+ Authentication; T33410 TACACS+ Accounting; T33412 TACACS+ Logging | `tacacs-2026-10-20T0825` | **DONE -- 3 of 3 PASS** | **UNBLOCKED 2026-10-20 13:31 by the Test Engineer**, who started `tac_plus` on tb277 himself (STANDING-ORDERS §4 respected — the sentinel did not use its own passwordless sudo). Order puts **authentication first**: accounting has nothing to record until a login works |
-| B | **T44308 RMON; T33413 Trap Temperature**; T44301 Per-port link trap; T44309 sFlow Agent | `snmpmon-2026-10-20T0825` | **DONE — 3 PASS, 1 PARTIAL** | **Reordered at the tester's recommendation: RMON runs FIRST**, because T33413's only measurable trap limb is an RMON alarm bound to a temperature OID, so the alarm instrument is already proven when T33413 needs it. T33413's genuine over-temperature limb is **NOT MEASURABLE** — see `## Issues`. T44301 must flap **port1.0.2 or port1.0.16**, never port1.0.10/port1.0.48, which carry the path to the trap receiver |
+| B | **T44308 RMON; T33413 Trap Temperature**; T44301 Per-port link trap; T44309 sFlow Agent | `snmpmon-2026-10-20T0825` | **DONE — 4 PASS** | **Reordered at the tester's recommendation: RMON runs FIRST**, because T33413's only measurable trap limb is an RMON alarm bound to a temperature OID, so the alarm instrument is already proven when T33413 needs it. T33413's genuine over-temperature limb **WAS measured in run 2** via `start-shell` (the Test Engineer's method); run 1's NOT MEASURABLE was wrong — see `## Issues`. T44301 must flap **port1.0.2 or port1.0.16**, never port1.0.10/port1.0.48, which carry the path to the trap receiver |
 | C | **T33378 Telnet Server (IPv4); T47199 default-password warning; T33416 Triggers - Interface** | `mgmt-2026-10-20T0825` | **DONE — 2 PASS, 1 FAIL** | **Reordered at the tester's recommendation: Telnet FIRST**, because the console login shows no default-password warning (measured), so T47199 must look on telnet/SSH/HTTP — and T33378 is the case that turns telnet on. First action for T33416: `trigger 1` → `type ?`, the campaign's one unverified CLI surface |
 | — | T33427 Flexera Licensing | — | **NOT TESTED** | Test Engineer's decision, 2026-10-19: *"Drop it — NOT TESTED"*. Its step 1 is *"Request Chris Robb to generate a Flexera License for a particular feature"*; installing a licence is the Test Engineer's (STANDING-ORDERS §4) and no licence file was available this session |
 
@@ -138,7 +138,7 @@ case, so a fresh tester can restore the bench from here.
 | T33408 | (275) Management_RADIUS - Radius Client mode | aaa-2026-10-20T0825 | PASS | a user existing only on the RADIUS server logged in to the DUT, proven on the wire (24 packets: 7 Access-Request, 3 Accept, 1 Reject, 7 Accounting-Request, 6 Accounting-Response, 10/10 reply authenticators valid), paired Accounting Start/Stop, controls on wrong password / mismatched key / unreachable server, clean removal (rcdiff byte-identical) | T33408/work/run1.log | tester |
 | T33409 | (276) Management_RADIUS - Radius Proxy | aaa-2026-10-20T0825 | PASS | the proxy re-originated each request (new id, Proxy-State carrying the original, added Message-Authenticator, realm stripped); the two legs are cryptographically independent — the same pcap gives authenticator valid=5/invalid=0 on the NAS leg under testing123 and valid=0/invalid=5 on the upstream leg under the same secret | T33409/work/run1.log | tester |
 | T44308 | (296) Management - RMON | snmpmon-2026-10-20T0825 | PASS | statistics, history, event and alarm all measured against counted traffic (history bucket 2 = exactly 1000 packets / 86000 octets); four real SNMPv2c traps caught and decoded on udp/162; a control alarm stayed silent then fired with alarmValue exactly 50; removal proven on the CLI, in the MIB and on the wire | T44308/work/run1.log | tester |
-| T33413 | (280) Management_Trap - Temperature | snmpmon-2026-10-20T0825 | PARTIAL | the over-temperature trap could not be produced on this bench (no settable threshold; coolest sensor 27 °C against a 61 °C hardware limit) AND the RMON-alarm substitute is refused by the product; everything else measurable passed — `hw-monitoring` arms, chains and removes per-group, the AT-ENVMONv2 table matches the CLI on all 14 sensors, and no fault trap fired in a 100 s window in which two known-good RMON traps proved the transport live. **Grade is the Test Engineer's to confirm — see Issues** | T33413/work/run1.log | tester |
+| T33413 | (280) Management_Trap - Temperature | snmpmon-2026-10-20T0825 | **PASS** | **run 2 superseded run 1's PARTIAL.** The over-temperature trap WAS produced and caught on the wire: `/sys/class/hwmon/hwmon1/temp1_max` (Temp: Front Right) lowered 61000 -> 20000 via `start-shell` against an unchanged, real 27 C reading made the DUT log `Alarm asserted. Reading:27 Threshold:20` and send SNMPv2c trap `1.3.6.1.4.1.207.8.4.4.3.12.0.5` naming the sensor, with the matching `...12.0.6` clear on restore, 3x against a silent baseline. Threshold restored byte-identically (`od -c` = `61000\n`, 6 bytes) and rcdiff clean. **One finding: the trap is still sent with `snmp-server enable trap hw-monitoring` removed** — see Issues. Reboot persistence NOT MEASURED (no reload possible in this campaign) | T33413/work/run2.log | tester |
 | T44301 | (281) Management_Trap - Per-port link trap | snmpmon-2026-10-20T0825 | PASS | linkDown/linkUp emitted for the port carrying `snmp trap link-status` and for no other, proven on the wire by measured ifIndex (5002, read from ifDescr not assumed); a sibling port flapped in the same 220 s window was logged by the DUT but produced no trap; empty captures both before arming and after removal under identical stimulus | T44301/work/run1.log | tester |
 | T44309 | (297) Management_SFlow - SFlow Agent | snmpmon-2026-10-20T0825 | PASS | v5 datagrams sent to the configured collector from the configured agent address; 2000 frames at 1-in-50 gave **exactly 40** flow samples, each reporting the configured rate and decoding to the exact frame sent; a tenfold rate change dropped the yield tenfold; counter samples only for the one polled port of 77; nothing before configuration, nothing after removal. **Two intermittent defects — see Issues; FAIL is defensible and is the Test Engineer's call** | T44309/work/run1.log | tester |
 | T33378 | (229) Management - Telnet Server (IPv4) | mgmt-2026-10-20T0825 | PASS | proven on the wire across off / on / IPv6-only / removed: 4 pkts SYN→RST while disabled; 94 pkts with a real manager session carrying 2045 B of banner and output, the DUT logging telnetd from 10.38.22.33; a bad credential refused at the application on an ESTABLISHED connection; IPv4 refused while `show telnet` still read Enabled/IPv6; 2 pkts after removal; rcdiff byte-identical | T33378/work/run1.log | tester |
@@ -150,6 +150,45 @@ case, so a fresh tester can restore the bench from here.
 | T33427 | (300) Management - Flexera Licensing | — | NOT TESTED | needs a Flexera licence from Chris Robb; installing a licence is the Test Engineer's (STANDING-ORDERS §4). Dropped by the Test Engineer 2026-10-19 | — | Test Engineer |
 
 ## Issues
+
+### 🔴 FINDING (T33413, run 2, 2026-10-20) — the hw-monitoring environment trap is sent with its trap group REMOVED
+
+Measured, with controls, by the tester during the T33413 re-run. Evidence
+`snmpmon-2026-10-20T0825/T33413/work/run2.log` and the `r2-s11`..`r2-s15` files beside it.
+
+**What the CLI implies.** `snmp-server enable trap hw-monitoring` reads as the switch that turns
+environment-monitoring notifications on. Run 1 proved the group arms, chains with other groups
+and removes per-group in running-config — all of that is real and still stands.
+
+**What the wire says.** With the real trap finally producible (the `start-shell` threshold
+method), two controlled 150 s captures were taken:
+
+1. **Group removed**, community and host left in place → **both the assert and the clear trap
+   still arrived.**
+2. **Whole SNMP config torn down** to the bare `snmp-server` line, then rebuilt with
+   **community + host only**, the group never re-typed → **both traps still arrived.**
+
+Against a baseline that was silent for 60 s with the group armed and the hardware healthy, so
+the instrument is known to produce a zero when there is nothing to report.
+
+**Deliberately NOT claimed, and this is the useful part of the finding:**
+
+- **Not** that the group gates nothing. Only the *temperature* sensor was stimulated; fan, PSU
+  and voltage notifications were never provoked, so nothing is known about them.
+- **Not** that a reload would behave the same. The live alternative is that the group's state is
+  read once at daemon or system start, which would make this a **latency** in applying the
+  removal rather than an **absence** of gating. Five `snmp-server` config changes happened
+  between the captures and the traps survived all of them, which weakens that reading without
+  killing it.
+- **Settling it needs a reload, which this campaign cannot do** (the L3 underlay is
+  running-config only — see the startup-config notice). This is the second item in this campaign
+  whose answer is gated on that one decision.
+
+**Why it matters to a customer.** An operator who removes the group to stop environment
+notifications — during maintenance, or to quiet a noisy collector — has reason to believe they
+stopped. On this build and this sensor they did not. The notifications keep arriving, and
+nothing in running-config says so.
+
 
 ### 🔴 CORRECTION 2026-10-20 15:40 — T33413 IS measurable. The Test Engineer supplied the method.
 
@@ -716,7 +755,11 @@ The tester wrote the recipe before reading the sFlow CLI surface and guessed
 a restore recipe written before the surface is read can be wrong in a way that only bites the
 person trying to restore from it.
 
-### 🟠 NEEDS TEST ENGINEER (recorded, not asked) — confirm T33413's grade: PARTIAL or UNSUPPORTED?
+### ✅ RETIRED 2026-10-20 16:07 — T33413's grading call no longer exists (run 2 is a PASS)
+
+The question below was whether a case the bench could not drive was PARTIAL or UNSUPPORTED. **Run 2 drove it**, so neither applies: the verdict is **PASS** on measured evidence. The reasoning is kept because the *shape* of the mistake is the lesson — both readings below argued from the CLI surface alone, and both were wrong. Nothing is needed from the Test Engineer on this case.
+
+#### (superseded) NEEDS TEST ENGINEER — confirm T33413's grade: PARTIAL or UNSUPPORTED?
 
 The tester graded **PARTIAL** and set out its reasoning rather than deciding quietly. The
 sentinel did **not** re-grade: logged-output.md §1 makes this a genuine judgement call and
@@ -994,7 +1037,11 @@ points the DUT at those. No root, full control of clients and users, system inst
 **This is why RADIUS is runnable and TACACS+ is not** — RADIUS has a settable port, TACACS+ does
 not.
 
-### NOTICE (campaign) — T33413's true over-temperature limb is NOT MEASURABLE
+### ❌ SUPERSEDED 2026-10-20 16:07 — NOTICE (campaign) — T33413's true over-temperature limb is NOT MEASURABLE
+
+**This notice was wrong and is kept only as the record of the error.** Everything below reasons from the AW+ CLI surface and concludes no threshold can be moved. The threshold is writable from the DUT's Linux shell (`start-shell` -> `/sys/class/hwmon/hwmon1/temp1_max`), and run 2 produced the real trap that way. The generalisable lesson: **the CLI surface is not the device's surface.**
+
+#### (superseded, as written at the time)
 
 `temperature ?` and `environment ?` are both `% Unrecognized command` in config mode, and
 `snmp-server enable trap ?` has **no temperature group**. The limits are fixed in hardware:
