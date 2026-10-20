@@ -122,7 +122,7 @@ exists**, rather than implying the steps were authored.
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
 | A | T33407 Local RADIUS Server; T33408 RADIUS Client mode; T33409 RADIUS Proxy | `aaa-2026-10-20T0825` | **DONE — 3 of 3 PASS** | RADIUS only. The tester runs a **second, user-owned freeradius** on unprivileged ports (e.g. 11812/11813) and points the DUT at them with `radius-server host <ip> auth-port/acct-port` — the running system instance needs root to reconfigure. All shared secrets are `testing123` |
-| A-blocked | T33411 TACACS+ Authentication; T33410 TACACS+ Accounting; T33412 TACACS+ Logging | — | **BLOCKED** | TACACS+ needs a server on **TCP/49**, a privileged port, and the DUT exposes **no alternative**: `tacacs-server host <ip> ?` offers only `key \| vrf \| <cr>` (measured at triage). Binding it is root on the box = STANDING-ORDERS §4, never done unattended. See `## Issues` for the exact unblock |
+| D | T33411 TACACS+ Authentication; T33410 TACACS+ Accounting; T33412 TACACS+ Logging | `tacacs-2026-10-20T0825` | RUNNABLE | **UNBLOCKED 2026-10-20 13:31 by the Test Engineer**, who started `tac_plus` on tb277 himself (STANDING-ORDERS §4 respected — the sentinel did not use its own passwordless sudo). Order puts **authentication first**: accounting has nothing to record until a login works |
 | B | **T44308 RMON; T33413 Trap Temperature**; T44301 Per-port link trap; T44309 sFlow Agent | `snmpmon-2026-10-20T0825` | **DONE — 3 PASS, 1 PARTIAL** | **Reordered at the tester's recommendation: RMON runs FIRST**, because T33413's only measurable trap limb is an RMON alarm bound to a temperature OID, so the alarm instrument is already proven when T33413 needs it. T33413's genuine over-temperature limb is **NOT MEASURABLE** — see `## Issues`. T44301 must flap **port1.0.2 or port1.0.16**, never port1.0.10/port1.0.48, which carry the path to the trap receiver |
 | C | **T33378 Telnet Server (IPv4); T47199 default-password warning; T33416 Triggers - Interface** | `mgmt-2026-10-20T0825` | **DONE — 2 PASS, 1 FAIL** | **Reordered at the tester's recommendation: Telnet FIRST**, because the console login shows no default-password warning (measured), so T47199 must look on telnet/SSH/HTTP — and T33378 is the case that turns telnet on. First action for T33416: `trigger 1` → `type ?`, the campaign's one unverified CLI surface |
 | — | T33427 Flexera Licensing | — | **NOT TESTED** | Test Engineer's decision, 2026-10-19: *"Drop it — NOT TESTED"*. Its step 1 is *"Request Chris Robb to generate a Flexera License for a particular feature"*; installing a licence is the Test Engineer's (STANDING-ORDERS §4) and no licence file was available this session |
@@ -145,11 +145,38 @@ case, so a fresh tester can restore the bench from here.
 | T47199 | (273) Management_Operation - Show warning message when user continues to use default PW | mgmt-2026-10-20T0825 | **FAIL** | `% Default password needs to be changed.` absent from EVERY access path — 2 console logins on swi_d, telnet, SSH, and 2 console logins on swi_b (different model, 3-week-older build, also still on `friend`) — and absent from the log, while TPS row 271 says Yes at Priority 1 and the DUT still authenticates with the factory password. A `banner exec` marker proved the instruments can see a message in exactly that position | T47199/work/run1.log | tester |
 | T33416 | (283) Management_Triggers - Interface | mgmt-2026-10-20T0825 | PASS | `type interface` exists; proven on three independent instruments — activation counters, the SNMPv2c trap on the wire (AT trigger OID `1.3.6.1.4.1.207.8.4.4.4.53.0.1`, trigger ID in varbind `…53.1.0`), and the DUT's own `TRIGGER[…] activated` log line — with three silent controls under identical stimulus (sibling port, `no active`, `no trigger`), 0 traps in 270 s from the instrument that had just recorded three | T33416/work/run1.log | tester |
 | T33427 | (300) Management - Flexera Licensing | — | NOT TESTED | needs a Flexera licence from Chris Robb; installing a licence is the Test Engineer's (STANDING-ORDERS §4). Dropped by the Test Engineer 2026-10-19 | — | Test Engineer |
-| T33411 | (278) Management_TACACS+ - Authentication | — | NOT TESTED | BLOCKED: needs a TACACS+ server on TCP/49; binding a privileged port is root on the box (STANDING-ORDERS §4) and the DUT exposes no alternative port | — | sentinel |
-| T33410 | (277) Management_TACACS+ - Accounting | — | NOT TESTED | BLOCKED: depends on T33411 | — | sentinel |
-| T33412 | (279) Management_TACACS+ - Logging | — | NOT TESTED | BLOCKED: depends on T33411 | — | sentinel |
 
 ## Issues
+
+### ✅ UNBLOCKED 2026-10-20 13:31 — the Test Engineer started a TACACS+ server
+
+T33411 / T33410 / T33412 were BLOCKED because `tacacs-server host <ip>` takes **no port
+argument**, so TACACS+ is locked to **TCP/49**, and binding a privileged port is root on the box.
+
+**The Test Engineer ran the commands himself**, step by step in the session. The sentinel did
+**not** use its own working passwordless sudo: §4 is about authority, not capability.
+
+**Server facts for the group D dispatch — measured, not assumed:**
+
+| fact | value |
+| --- | --- |
+| server address (as the DUT must address it) | **10.38.22.33** (tb277 `eth3`) |
+| port | **49**, confirmed `LISTEN 0.0.0.0:49` and `[::]:49` |
+| service | `tacacs_plus.service`, `systemctl is-active` = **active** |
+| shared key | **`testing123`** |
+| config | `/etc/tacacs+/tac_plus.conf`, parse-checked with `tac_plus -P` |
+| user, priv 15 | **`tacuser`** / `testing123`, `service = exec { priv-lvl = 15 }` |
+| user, priv 1 | **`taclow`** / `testing123`, `service = exec { priv-lvl = 1 }` |
+| accounting file | **`/var/log/tac_plus.acct`**, pre-created `-rw-r--r--` so the tester can read it |
+
+Two privilege levels on purpose: T33411 should prove the server's **authorisation** lands, not
+merely that a login succeeds. The accounting file was pre-created 0644 because a root daemon
+creating it later might have made it unreadable — which would have blocked T33410 and T33412 on
+their own evidence mid-case.
+
+🔴 **The server must be stopped when group D finishes** (`sudo systemctl stop tacacs_plus`) — it
+is a service on a shared box and leaving it running is someone else's surprise later. That is
+the Test Engineer's command, and the sentinel will remind him.
 
 ### NOTICE (scope) — enumerated but NOT graded, across the campaign
 
