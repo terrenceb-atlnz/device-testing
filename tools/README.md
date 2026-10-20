@@ -207,6 +207,44 @@ root shell before a run.
 - **Limits:** it sends one CR, so it is not strictly passive
 - **Status:** verified 2026-10-02 on tb470: IE520 (u3) and x230 (u0, 9600)
 
+### `awshell.py`
+Runs shell commands inside an AlliedWare Plus **`start-shell` root shell** on one console,
+prints each command with its output, and leaves the console back at the AW+ exec prompt.
+- **Run:** `awshell.py <tty> <baud> <transcript> [--member N] [--timeout S] [--keep-shell] CMD [CMD ...]`.
+  Env `CKSHTO` sets the per-command timeout (default 30 s); `CK_USER` / `CK_PASSWORD` as usual.
+  Through the wrapper: `tools/tb awshell <TB> <scratch> <uN> <baud> [opts] CMD ...`
+- **Where:** testbox; **needs:** pyserial
+- **Imports:** console
+- **Why it exists:** *the CLI surface is not the device's surface.* An AW+ switch is Linux, and
+  what no CLI command exposes is often readable and writable in `/sys` or `/proc` -- the hwmon
+  sensor tree above all. The other console drivers cannot reach it: `console.PROMPT_RE` matches
+  `host#` / `host(mode)#` and never the shell's `[root@host flash]#`, so every shell command runs
+  to its full timeout and the driver then abandons the rest of the batch. This one completes a
+  command on the shell's own `]#` / `]$` prompt.
+- **Exit codes:** 0 every command ran · 2 usage · 3 no shell (`start-shell` refused, or the unit
+  lacks the `ACCESS`/`FULL` feature that `start-shell` needs) · 4 a command never returned the
+  shell prompt (a lost quote leaves the shell at its `> ` continuation; it then sends Ctrl-C and
+  carries on) · 5 the console did not come back to the AW+ exec prompt -- the serious one, and it
+  is reported rather than hidden, because a console left in a root shell makes the NEXT run's
+  `show` commands answer `ash: show: not found`.
+- **🔴 It is root on the DEVICE UNDER TEST.** STANDING-ORDERS §1 puts device state in play; §4
+  reserves root on the **testbox**, which is a different machine. But a sysfs write is **not in
+  `show running-config`, so `rcdiff.py` cannot see it and cannot prove you put it back.** Read
+  every value you are about to change first, record the exact bytes (`od -c` and `wc -c`, not
+  just `cat`), and read them back after restoring. A `/sys` write is also volatile: it is gone
+  at the next boot, which is a restore of last resort, never a plan.
+- **Limits:**
+  - one command per argument, no embedded newline; the shell's own quoting applies, so a
+    stray `'` leaves the shell at `> ` (exit 4);
+  - `--member N` gives a stack member's shell, which is **not root**, so it cannot write `/flash`
+    or most of `/sys`;
+  - `start-shell` is logged on the device (`IMISH[...]: [manager@ttyS0]start-shell`), so the
+    shell session is auditable -- say in the log that you used it;
+  - it does not answer (y/n) prompts and does not run CLI commands: it is the shell only.
+- **Status:** verified 2026-10-20 on tb277, x960-56YSQ (T33413 run 2): enumerated
+  `/sys/class/hwmon/hwmon0-5`, read and rewrote `hwmon1/temp1_max` four times, and returned the
+  console to `awplus#` on every one of the five invocations.
+
 ### `conlogin.py`
 Logs a console OUT and back IN as a named user, and reports what the login did. This is the
 instrument an AAA case needs: `aaa authentication login` only runs when somebody really logs
