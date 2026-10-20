@@ -1,3 +1,43 @@
+# Session handover — 2026-10-21 (09:50–10:40 NZDT, second session): orient + wrap only, tb101 read-only, bench whole
+
+Session `b5b3ec8b…` (VS Code), Test Engineer terrenceb@terrenceb-dl. `/orient-dt tb101` then `/wrap-dt`, no task given
+in between. No test case ran, no sentinel (none needed: no campaign). Nothing on the DUTs or the box was changed.
+
+## Session facts
+Test Engineer: terrenceb@terrenceb-dl
+Testbox: tb101
+Consoles: u0,u1,u2,u3 (all 115200)
+PDU: none
+Constraints: none stated
+
+## TL;DR — bench is WHOLE, unchanged since the 09:45 wrap below
+
+- Git at orient (09:52): 2 ahead of `origin/main`, 0 behind, nothing to pull; dirty tb470 probe files belong to
+  another session and were left alone.
+- Orient probe `2026-10-20T205250Z` and wrap probe `2026-10-20T213624Z`: both **MATCH** vs
+  `/home/st-art/configs/tb101.setup`, advisories none; the only diff is the capture stamp.
+- Read on u0 at 09:53 (`tools/tb ckcon tb101 orient u0 115200 …`): `show reboot history` — newest entry on all four
+  members is still `2026-10-20 20:30:19 Expected User Request` (UTC, the 09:29 reload), no new entries; free flash
+  64.9 / 64.7 / 64.6 / 59.2 MB (members 1–4); `show stack detail` 8/8 stackports learnt (ring); boot image and boot
+  config both `(file exists)`; build `awplus_main-20261019-75`, bootloader 9.2.0, identical on all four. Member 1
+  (u0) Active Master.
+- Consoles u0–u3 left at the manager exec prompt (ckcon's `end` preamble; no `configure terminal` sent).
+- Box: only `/tmp/orient/tools/` created (tmpfs scratch, a copy of the repo's `tools/`); losing it is correct.
+- Measured state: [bench-setup/tb101/bench-state.md](../bench-setup/tb101/bench-state.md) (capture `213624Z`).
+
+## Restored / kept / skipped
+- Restored: nothing to restore (read-only session).
+- Kept: everything as the 09:45 handover below left it.
+- Skipped: the OPEN items below (port4.0.26 far end, flash housekeeping, /nfsHome fstab, handover placement) —
+  not asked for. The ser2net daemon is the only `precheck` FOUND item, as before (holds no console).
+
+## Next steps
+1. Terrence: `git push origin main` (count in the brief).
+2. Next session: `/orient-dt tb101`; expect precheck CLEAR (ser2net FOUND is normal) and probe MATCH.
+3. OPEN items are unchanged from the section below.
+
+---
+
 # Session handover — 2026-10-21 (08:15–09:45 NZDT): tb101 4-stack applied, cable fixed, reloaded, member 1 master; git re-synced with origin; orient-dt §0a
 
 Session `f1aa8110…` (VS Code), Test Engineer terrenceb@terrenceb-dl. No test case ran, no sentinel (none needed:
