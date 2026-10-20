@@ -145,9 +145,67 @@ case, so a fresh tester can restore the bench from here.
 | T47199 | (273) Management_Operation - Show warning message when user continues to use default PW | mgmt-2026-10-20T0825 | **FAIL** | `% Default password needs to be changed.` absent from EVERY access path — 2 console logins on swi_d, telnet, SSH, and 2 console logins on swi_b (different model, 3-week-older build, also still on `friend`) — and absent from the log, while TPS row 271 says Yes at Priority 1 and the DUT still authenticates with the factory password. A `banner exec` marker proved the instruments can see a message in exactly that position | T47199/work/run1.log | tester |
 | T33416 | (283) Management_Triggers - Interface | mgmt-2026-10-20T0825 | PASS | `type interface` exists; proven on three independent instruments — activation counters, the SNMPv2c trap on the wire (AT trigger OID `1.3.6.1.4.1.207.8.4.4.4.53.0.1`, trigger ID in varbind `…53.1.0`), and the DUT's own `TRIGGER[…] activated` log line — with three silent controls under identical stimulus (sibling port, `no active`, `no trigger`), 0 traps in 270 s from the instrument that had just recorded three | T33416/work/run1.log | tester |
 | T33411 | (278) Management_TACACS+ - Authentication | tacacs-2026-10-20T0825 | PASS | a user existing ONLY on the TACACS+ server logged in to the DUT, on three instruments — the DUT log plus `show tacacs+` going Unknown→Alive, 58 packets of TCP/49 against **zero** in both the OFF and removed baselines, and a local-vs-server password discriminator; every failure mode carries its own measured signature; removal complete, rcdiff byte-identical | T33411/work/run1.log | tester |
+| T33410 | (277) Management_TACACS+ - Accounting | tacacs-2026-10-20T0825 | PASS | **23 TFS specs measured, 19 PASS outright**; login accounting pairs correctly on both paths, all three modes verified against measured zeros, command accounting gets privilege selection, abbreviation expansion, the `do` exception and the trigger mutual exclusion exactly right; removal complete, rcdiff byte-identical. **Three defects — two for a developer, see Issues** | T33410/work/run1.log | tester |
 | T33427 | (300) Management - Flexera Licensing | — | NOT TESTED | needs a Flexera licence from Chris Robb; installing a licence is the Test Engineer's (STANDING-ORDERS §4). Dropped by the Test Engineer 2026-10-19 | — | Test Engineer |
 
 ## Issues
+
+### 🔴🔥 NEEDS TEST ENGINEER — T33410 FINDING 2: command accounting records the CONSOLE only. **SSH commands are not audited at all.**
+
+**The most consequential finding of the campaign so far, and it is a security one.**
+
+A VTY (SSH) session ran six commands, including privilege-15 `configure terminal` and
+`ip domain-lookup`, and produced **zero accounting records and zero packets on TCP/49** —
+**measured twice**. In the *same file* and the *same configuration*: login accounting for those
+same VTY sessions works perfectly, and command accounting **from the console** works perfectly.
+So the feature is on, reachable and working — just not for VTY.
+
+The tester probed `line vty` read-only: **there is no per-line command-accounting option**, so
+nothing was left unbound. This is not a misconfiguration.
+
+**Authority:** TFS **S1599.1.031** says command accounting is *"globally configured"*;
+**S1599.1.065** explicitly dimensions *"33 concurrent command accounting sessions for vty
+connections"* — the spec contemplates VTY command accounting in so many words. **TPS row 275 =
+Supported: Yes, Priority 1.**
+
+**Why it matters beyond a failed spec:** an administrator working **over SSH — the normal case**
+— leaves **no command audit trail**, while the TACACS+ configuration gives every appearance of
+recording one. A silently absent audit trail is worse than an obviously absent one: nobody goes
+looking for records they believe they already have.
+
+### 🔴 NEEDS TEST ENGINEER — T33410 FINDING 3: a VTY session's interim updates cannot be attributed to it
+
+The periodic accounting update for a VTY session carries **`task_id` 45** where that session's
+own START and STOP are **44**; `port` reads `pts/0` where its START/STOP read `ssh`; and
+`rem_addr` is lost entirely.
+
+Worse: **the next VTY session (START/STOP 46) emits updates carrying the same 45** — so two
+consecutive administrators' interim records are **indistinguishable from each other**.
+
+The console session, in the same file and the same minute, is **correct** (`task_id=4` matching
+its START), which rules out a server-side or clock explanation. S1599.1.053's escape clause does
+not apply: both sessions logged in after the configuration and had already sent their own START.
+Against **S1599.1.052**.
+
+### 🟠 T33410 FINDING 1 (low) — `end` leaves config mode unaccounted; `exit` is recorded
+
+Confirmed in two separate runs, with consecutive `task_id`s either side, so nothing was lost in
+transit. The audit trail shows an operator **entering** configuration mode and what they typed,
+but not that they **left** it. `end` and `exit` are synonyms here; only one is accounted.
+
+### 🔁 CORRECTION to `platforms/x960.md` §7E.4 — TACACS+ and RADIUS differ, and TACACS+ is right
+
+A session that **predates** the accounting configuration correctly produces **no STOP record**
+under TACACS+ (S1599.1.026). §7E.4 records the **opposite** behaviour for RADIUS on this same
+DUT. **TACACS+ is the one that matches its own specification.** Fold the contrast into the
+platform file at wrap — a reader of §7E.4 alone would generalise the wrong way.
+
+### NOTICE (campaign) — S1599.1.105 deliberately NOT MEASURED, and the sentinel agrees
+
+The spec covers CLI blocking when command accounting is on and the server disappears. Running it
+would mean: command accounting on **from the console**, server removed — at which point **every
+console command blocks, including the one that undoes it**, and the console is this bench's only
+administrative path. **It needs its own case on a bench with a second administrative path.**
 
 ### 🟠 CORRECTION to `platforms/x960.md` §7E.2 — `Last login:` is keyed on a RECYCLED UID
 
