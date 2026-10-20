@@ -150,6 +150,30 @@ case, so a fresh tester can restore the bench from here.
 
 ## Issues
 
+### 🔎 CROSS-CASE (sentinel) — the DUT handles management secrets THREE different ways
+
+Visible only across groups A, B and D; no single case could see it. Measured, same device, same
+session:
+
+| secret | stored in running-config as | in the device log |
+| --- | --- | --- |
+| **TACACS+** key (T33411/T33410) | **AES, type 9** — `key 9 kh3afe…=` | **masked**: `key ********` |
+| **RADIUS** key (T33408) | **encrypted** — `key h+EeD…= encrypted` | not observed |
+| **SNMP** community (T44308/T33413/T44301/T33416) | 🔴 **PLAINTEXT** — `snmp-server community testing123` | not observed |
+
+**SNMP is the outlier.** TACACS+ gets the strongest treatment — encrypted at rest *and* redacted
+in the audit trail, so an operator reading the log sees that a key was set without learning it.
+RADIUS is encrypted at rest. The SNMP community is neither.
+
+**Two consequences.** For this campaign, the throwaway-secret instruction was doing real work on
+the SNMP cases and was merely belt-and-braces on the AAA ones — so a future campaign that
+reuses a real community string leaks it into an uploadable `.cfg`. And as a product observation,
+a consistent story across management protocols would be better than three; the SNMP community
+is the one a reviewer would question.
+
+Not a defect against any single spec, which is exactly why it needs recording here rather than
+in a case log.
+
 ### 🔴🔥 NEEDS TEST ENGINEER — T33410 FINDING 2: command accounting records the CONSOLE only. **SSH commands are not audited at all.**
 
 **The most consequential finding of the campaign so far, and it is a security one.**
