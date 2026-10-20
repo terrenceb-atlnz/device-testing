@@ -587,6 +587,17 @@ config with the echoed command, bare prompts, pager remnants, CRs and blank line
 - **Limits:** it reads the ckcon `HH:MM:SS >>> cmd` stdout format only (as `rcdiff.py` does)
 - **Status:** verified 2026-10-08 on tb470, IE520 stack master (u5): T22650 `stk_a.cfg`, 186 config lines
 
+### `hostinfo.py`
+Read-only inventory of a testbox HOST before a traffic or bonding case: which service manages
+the NICs (NetworkManager, systemd-networkd, ifupdown, netplan), addresses and link details,
+bonding interfaces already present, the bonding module, whether `sudo -n` is available, and the
+tcpreplay / tcpdump / scapy versions. It changes nothing.
+- **Run:** `hostinfo.py [NIC ...]` (per-NIC `ip -d link`, `ethtool`, routes for each NIC named)
+- **Where:** testbox (no root); **needs:** nothing beyond Python; `nmcli`/`ethtool` optional
+- **Imports:** none
+- **Limits:** `sudo -n true` is the only privileged call, and it only reports yes/no
+- **Status:** added 2026-10-21 for the tb101 T17584 triage (host bond for LACP); verified that day on tb101
+
 ### `ckcase.py`
 Prints a test case's authored text (objective, precondition, steps) from the Ask-CK database.
 Lookup order: `zephyr_cases` keyed on the AWPTCM id exactly as the Test Engineer writes it
