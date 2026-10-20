@@ -122,7 +122,7 @@ exists**, rather than implying the steps were authored.
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
 | A | T33407 Local RADIUS Server; T33408 RADIUS Client mode; T33409 RADIUS Proxy | `aaa-2026-10-20T0825` | **DONE — 3 of 3 PASS** | RADIUS only. The tester runs a **second, user-owned freeradius** on unprivileged ports (e.g. 11812/11813) and points the DUT at them with `radius-server host <ip> auth-port/acct-port` — the running system instance needs root to reconfigure. All shared secrets are `testing123` |
-| D | T33411 TACACS+ Authentication; T33410 TACACS+ Accounting; T33412 TACACS+ Logging | `tacacs-2026-10-20T0825` | RUNNABLE | **UNBLOCKED 2026-10-20 13:31 by the Test Engineer**, who started `tac_plus` on tb277 himself (STANDING-ORDERS §4 respected — the sentinel did not use its own passwordless sudo). Order puts **authentication first**: accounting has nothing to record until a login works |
+| D | T33411 TACACS+ Authentication; T33410 TACACS+ Accounting; T33412 TACACS+ Logging | `tacacs-2026-10-20T0825` | **DONE -- 3 of 3 PASS** | **UNBLOCKED 2026-10-20 13:31 by the Test Engineer**, who started `tac_plus` on tb277 himself (STANDING-ORDERS §4 respected — the sentinel did not use its own passwordless sudo). Order puts **authentication first**: accounting has nothing to record until a login works |
 | B | **T44308 RMON; T33413 Trap Temperature**; T44301 Per-port link trap; T44309 sFlow Agent | `snmpmon-2026-10-20T0825` | **DONE — 3 PASS, 1 PARTIAL** | **Reordered at the tester's recommendation: RMON runs FIRST**, because T33413's only measurable trap limb is an RMON alarm bound to a temperature OID, so the alarm instrument is already proven when T33413 needs it. T33413's genuine over-temperature limb is **NOT MEASURABLE** — see `## Issues`. T44301 must flap **port1.0.2 or port1.0.16**, never port1.0.10/port1.0.48, which carry the path to the trap receiver |
 | C | **T33378 Telnet Server (IPv4); T47199 default-password warning; T33416 Triggers - Interface** | `mgmt-2026-10-20T0825` | **DONE — 2 PASS, 1 FAIL** | **Reordered at the tester's recommendation: Telnet FIRST**, because the console login shows no default-password warning (measured), so T47199 must look on telnet/SSH/HTTP — and T33378 is the case that turns telnet on. First action for T33416: `trigger 1` → `type ?`, the campaign's one unverified CLI surface |
 | — | T33427 Flexera Licensing | — | **NOT TESTED** | Test Engineer's decision, 2026-10-19: *"Drop it — NOT TESTED"*. Its step 1 is *"Request Chris Robb to generate a Flexera License for a particular feature"*; installing a licence is the Test Engineer's (STANDING-ORDERS §4) and no licence file was available this session |
@@ -146,6 +146,9 @@ case, so a fresh tester can restore the bench from here.
 | T33416 | (283) Management_Triggers - Interface | mgmt-2026-10-20T0825 | PASS | `type interface` exists; proven on three independent instruments — activation counters, the SNMPv2c trap on the wire (AT trigger OID `1.3.6.1.4.1.207.8.4.4.4.53.0.1`, trigger ID in varbind `…53.1.0`), and the DUT's own `TRIGGER[…] activated` log line — with three silent controls under identical stimulus (sibling port, `no active`, `no trigger`), 0 traps in 270 s from the instrument that had just recorded three | T33416/work/run1.log | tester |
 | T33411 | (278) Management_TACACS+ - Authentication | tacacs-2026-10-20T0825 | PASS | a user existing ONLY on the TACACS+ server logged in to the DUT, on three instruments — the DUT log plus `show tacacs+` going Unknown→Alive, 58 packets of TCP/49 against **zero** in both the OFF and removed baselines, and a local-vs-server password discriminator; every failure mode carries its own measured signature; removal complete, rcdiff byte-identical | T33411/work/run1.log | tester |
 | T33410 | (277) Management_TACACS+ - Accounting | tacacs-2026-10-20T0825 | PASS | **23 TFS specs measured, 19 PASS outright**; login accounting pairs correctly on both paths, all three modes verified against measured zeros, command accounting gets privilege selection, abbreviation expansion, the `do` exception and the trigger mutual exclusion exactly right; removal complete, rcdiff byte-identical. **Three defects — two for a developer, see Issues** | T33410/work/run1.log | tester |
+| T33411 | (278) Management_TACACS+ - Authentication | tacacs-2026-10-20T0825 | PASS | a user existing ONLY on the TACACS+ server (`taclow`, no local entry) logged in over SSH, and `tacuser` -- deliberately given different local and server passwords -- was admitted with the server's and refused with the local one, so the server decided; 58 packets of TCP/49 against zero in both the OFF and the removed baselines under identical stimulus; every failure mode has its own measured signature (a Reject is one flow not two, a wrong key inverts the byte ratio and never puts the password on the wire, an unreachable server never gets past ARP); rcdiff byte-identical | T33411/work/run1.log | tester |
+| T33410 | (277) Management_TACACS+ - Accounting | tacacs-2026-10-20T0825 | PASS | 23 TFS specs measured, **19 PASS**: paired START/STOP with matching sequential task_ids and an accurate `elapsed_time`, all three modes verified against measured zeros on two instruments, command accounting correct on privilege selection, abbreviation expansion, the `do` exception, `task_id` uniqueness and the trigger mutual exclusion both ways; removal leaves zero records and zero packets where 44 records were produced. **Three defects -- two need a developer, see Issues** | T33410/work/run1.log | tester |
+| T33412 | (279) Management_TACACS+ - Logging | tacacs-2026-10-20T0825 | PASS | five of the seven TFS logging specs driven on hardware: login success, login failure (with the TACACS+ status code AND the session-level refusal), accounting-notification failure (distinguishing a lost START from a lost STOP, with the server index and the exhaustion line), no `debug tacacs+` and the `debug aaa` surface -- all satisfied. **Two gaps: S1599.1.080 and .081 produce no log message at all** (see Issues). S1599.1.084/.085 NOT MEASURED -- a rejected `enable` is unrecoverable without a reload | T33412/work/run1.log | tester |
 | T33427 | (300) Management - Flexera Licensing | — | NOT TESTED | needs a Flexera licence from Chris Robb; installing a licence is the Test Engineer's (STANDING-ORDERS §4). Dropped by the Test Engineer 2026-10-19 | — | Test Engineer |
 
 ## Issues
@@ -301,6 +304,126 @@ their own evidence mid-case.
 🔴 **The server must be stopped when group D finishes** (`sudo systemctl stop tacacs_plus`) — it
 is a service on a shared box and leaving it running is someone else's surprise later. That is
 the Test Engineer's command, and the sentinel will remind him.
+
+### 🔴🔥 NEEDS TEST ENGINEER — group D findings: two developer-grade accounting defects, two logging gaps
+
+Found by the group D tester, 2026-10-20 14:1x–14:5x NZDT. Every one is measured on at least
+two independent instruments, with the control in the same file.
+
+**T33410 — FINDING 2 (developer): TACACS+ command accounting records CONSOLE commands only.**
+A VTY (SSH) session running six commands, including privilege-15 `configure terminal` and
+`ip domain-lookup`, produced **zero accounting records and zero packets on TCP/49** — measured
+twice. In the same configuration and the same file, **login** accounting for those same VTY
+sessions works, and **command** accounting from the console works. `line vty` was probed
+read-only and offers `accounting login` only — there is no per-line command-accounting binding
+to be missing. Against TFS **S1599.1.031** ("Command accounting will be globally configured")
+and **S1599.1.065**, which dimensions VTY command accounting at 33 concurrent sessions.
+TPS row 275 = Supported: Yes, Priority 1. ⇒ **An administrator working over SSH leaves no
+command audit trail, while the TACACS+ configuration gives every appearance of recording one.**
+
+**T33410 — FINDING 3 (developer): a VTY session's periodic update cannot be attributed to its
+session.** Its `task_id` is 45 where the session's own START/STOP are 44; `port` reads `pts/0`
+where the session's records read `ssh`; `rem_addr` is lost. The **next** VTY session
+(START/STOP 46) then emits updates carrying **the same 45**, so successive administrators'
+interim records are indistinguishable from each other. The console session, in the same file
+and the same minute, is correct (`task_id=4` matching its START). S1599.1.053's escape clause
+does not apply — both sessions logged in after the configuration and had already sent a START.
+Against **S1599.1.052**.
+
+**T33410 — FINDING 1 (low): `end` leaves configuration mode with no accounting record, while
+`exit` — the synonym — is recorded.** Confirmed in two runs with consecutive task_ids either
+side, so nothing was lost in transit. Not in the TFS's "will not be implemented" list.
+
+**T33412 — FINDING 1 (🟠): S1599.1.080 is not implemented.** Two successful round trips to the
+server, proven by the server's own accounting file, produced **no log message** about
+communication being established — and neither did a server recovering from `Dead` to `Alive`.
+
+**T33412 — FINDING 2 (🟠): S1599.1.081 is satisfied only by a `show` command.** The DUT detects
+loss of communication well enough to move a server from `Alive` to `Dead` — a four-state column
+(`Unknown`, `Alive`, `Error`, `Dead`) that even separates "never reached" from "was reachable"
+— but emits no log line saying so. The loss case is logged **less** than the never-established
+case, because the TCP-timeout path produces no `tac_connect_single_vrf` line.
+**Why these two matter more than they look:** TFS **S1599.2.25** deliberately omits a
+`debug tacacs+` command on the grounds that *"log messages are considered sufficient"* — the
+tester confirmed its absence against a 47-entry `debug ?` list in which `radius`, `ldap` and
+`dot1x` all have one. So for these two events there is no diagnostic at all except a `show`
+nobody is watching.
+
+### 🔴 NEEDS TEST ENGINEER (recorded, raised at the start of group D) — enable authentication via TACACS+ is NOT MEASURED
+
+`aaa authentication enable default group tacacs+ ...` was deliberately never configured. Per
+x960 §7E.1 — re-confirmed for TACACS+ in T33411 — a Reject is honoured and the fallback is not
+consulted, and the server has no enable credential for these users. **A rejected `enable`
+leaves the operator at `awplus>` with no route to configuration mode on any access path**
+(console and every VTY share one enable method list), and AW+ offers no recovery except a
+reload — which this session forbids, because the L3 underlay carrying the path to the server
+exists in running-config only. This blocks TFS S1599.1.011–016 for T33411 and S1599.1.084/.085
+for T33412, so **T33412 covers 5 of the 7 logging specifications**. The safe half was measured:
+the method list falling back to `local` when every server is unreachable (T33411 STEP 12).
+Running the full limb needs either the Test Engineer's acceptance of the risk or an enable
+credential added to `tac_plus`.
+
+### 🛠 ANSWERED — AW+ does NOT support a chained `| exclude` on this build
+
+The §8 process notice above proposed
+`show log | include kernel|exception|crash|restart|Unexpected | exclude IMISH` and asked that
+chained-filter support be verified first. **It is not supported, and it fails silently.** No
+`%` error is printed; AW+ takes the whole string after `include` as one alternation pattern, so
+` exclude IMISH` simply becomes another alternative and the IMISH lines remain. The output
+looks filtered and is not — the worst of the three possible outcomes. ⇒ the fix to
+STANDING-ORDERS §8 / logged-output.md §2 should say **filter the echoes out on the box side
+after the read** (`grep -v IMISH` over the saved output), which is what all three group D cases
+did.
+
+### ⚠️ `platforms/x960.md` §7E.2 — the `Last login:` discriminator now needs THREE caveats
+
+It is not safe as written. Measured in group D:
+
+1. **Absent** for a login with no local account — the original rule, confirmed for TACACS+ by
+   `taclow` in T33411 STEP 13.
+2. **Carries a DELETED user's timestamp when the UID is recycled.** A freshly created
+   `username tacuser` reported `Last login: Mon Oct 19 23:00:48 UTC 2026 from 10.38.22.33`
+   before it had ever logged in; that record belongs to group C's `ckalt`, whose telnet login
+   from the box T47199 recorded at exactly that time. AW+ lastlog is keyed on the underlying
+   UID.
+3. **Duplicated when the login waited on an unreachable AAA server.** With the accounting
+   server black-holed, one console login printed two `Last login:` lines ~7 s apart (4 logins
+   in the window, 6 lines; every login outside it printed one). Correlation clear, mechanism
+   not isolated.
+
+Caveats 2 and 3 arise from exactly what campaigns do — create and delete temporary accounts,
+and break a server on purpose — so anyone using the discriminator will meet them.
+
+### NOTICE (product, for platforms/x960.md) — TACACS+ differs from RADIUS in three measured ways
+
+All on the same DUT, same session, against §7E.4's RADIUS findings:
+
+1. **A wrong shared key is distinguishable from a dead server.** RADIUS says `failed to
+   respond` for both; TACACS+ prints `tac_authen_read_timeout: inconsistent reply body,
+   incorrect key?` versus `tac_connect_single_vrf: connection failed ... Transport endpoint is
+   not connected`. A consequence of TCP: a connect failure and a decode failure are at
+   different layers.
+2. **A session that predates the accounting configuration produces NO stop record**
+   (S1599.1.026). RADIUS on this DUT still produces one. TACACS+ is the one matching its spec.
+3. **The fallback delay is 3.6–3.9 s, not RADIUS's 25.5 s** — TACACS+ fails at ARP/TCP connect
+   rather than waiting out a UDP retransmit schedule, so a console-login tool's settle timeout
+   need not be as generous.
+
+Plus, from the wire: **an ACCEPTED login is two TCP/49 conversations** (authentication, then
+authorization) **and a REJECTED one is a single authentication flow** — a complete accept/reject
+discriminator from a passive capture without the shared key. And the obfuscated body is **not
+padded**: five measurements fit `base + len(username) + len(password)` exactly, so a capture
+leaks both lengths.
+
+### 🛠 NOTICE (tooling) — two repo tools changed in group D
+
+* **`tools/filewin.py` (new, with its README entry)** — reads the window a growing file gained
+  since a recorded byte offset. Written because grading against the Test Engineer's
+  `/var/log/tac_plus.acct` needs **"zero new records" to be a measurement**, and a `tail -n` is
+  not a window. Used on every leg of all three cases.
+* **`tools/netlogin.py` fixed** — a refused **ssh** login re-prompts `<user>@<host>'s
+  password:` and the tool graded that `UNKNOWN`, so a control that had genuinely failed could
+  not report failure. Now FAIL, regression-tested both ways inside T33411.
 
 ### NOTICE (scope) — enumerated but NOT graded, across the campaign
 
