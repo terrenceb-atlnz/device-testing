@@ -21,6 +21,12 @@ Constraints: "Reloads allowed now" (option text: "The two cases may reload / pow
 Test Engineer's rulings carried into this campaign (2026-10-21):
 - The `Unexpected System reboot` entries on the x230 dated 2026-10-19/20 are his unplugging ("i unplugged it a few times"). *"if there are any more, notify me."*
 
+**Test Engineer's answers to the triage, 2026-10-21 09:0x (word for word):**
+- Q1 T46810 definition: *"the backup should be with the provisioned node."* (sentinel's reading, relayed to the tester as an assumption: T46810 = the x230 joins the 4050's AMF network and is backed up to the master's USB media; that backup is the file-set T28218's provisioned node is built from; backup first, one AMF session.)
+- Q2 T28218 file-set: "(b1) x230's own files via backup (Recommended)"
+- Q3 network: "Yes, Enterprise-AMF, omit device (Recommended)"
+- Go: "Proceed (Recommended)"
+
 ## Rules carried with the queue
 
 - Verdicts, working logs, the `RESULT` line, the results list: [logged-output.md](../../logged-output.md).
