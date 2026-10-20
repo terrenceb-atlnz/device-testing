@@ -1,0 +1,469 @@
+================================================================================
+TEST T33407 -- (274) Management_RADIUS - Local RADIUS Server
+================================================================================
+Run:      2026-10-20 08:59-09:12 NZDT.  The DUT's Local RADIUS Server was switched on,
+          measured on the wire, and removed again.
+          The DUT clock runs in UTC, 13 h behind the box; DUT log times below are UTC,
+          tool times NZDT.
+Bench:    tb277, consoles u2 = swi_d (DUT); Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     T33407.  The test-case database holds NO authored objective, NO step text, NO test
+          data and NO expected result for this case. Its single step is empty.
+          The tester designed the objective and all 7 steps below.
+          Objective (designed by the tester), in five parts.
+          1. The built-in Local RADIUS Server of the AT-x960-56YSQ can be enabled with a
+             NAS client and local users.
+          2. It then answers real RADIUS Access-Requests on the wire. A valid user gets an
+             Access-Accept. An invalid user gets an Access-Reject.
+          3. Every reply is bound to the configured shared secret.
+          4. A host that is not a configured NAS gets no answer at all.
+          5. The whole configuration can be removed again.
+Build:    swi_d  sin_x96056-20261012-24  (flash:/x960-tb277.rel, build date Mon Oct 12
+          06:38:00 UTC 2026), AT-x960-56YSQ, S/N A2WQS700B
+
+awplus# show system
+    System Status                                           Mon Oct 19 19:59:06 2026
+
+    Board      ID   Bay     Board Name                        Rev   Serial number
+    --------------------------------------------------------------------------------
+    Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+    PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+    PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+    Fan module 730  FAN1    AT-FAN19                          -     -
+    Fan module 730  FAN2    AT-FAN19                          -     -
+    --------------------------------------------------------------------------------
+    RAM: Total: 8092132 kB Free: 7454864 kB
+    Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+    --------------------------------------------------------------------------------
+    Environment Status : Normal
+    Uptime             : 3 days 13:36:42
+    Bootloader version : Unknown
+
+    Current software   : x960-tb277.rel
+    Software version   : sin_x96056-20261012-24
+    Build date         : Mon Oct 12 06:38:00 UTC 2026
+
+    Current boot config: flash:/default.cfg (file exists)
+
+    System Name
+     awplus
+    System Contact
+
+    System Location
+
+Configs:  swi_d.cfg (running-config after setup; saved to startup: no)
+
+VERDICT: PASS -- the Local RADIUS Server served real RADIUS on the wire, accepted a valid
+user, rejected every invalid one, and removed cleanly.
+      server enabled ............. yes      (show radius local-server statistics: "Server status : Run")
+      valid user accepted ........ yes      (Access-Accept id=112, reply authenticator VALID)
+      wrong password rejected .... yes      (Access-Reject id=232)
+      unknown user rejected ...... yes      (Access-Reject id=2)
+      wrong shared secret ........ not accepted  (Access-Reject id=129; our client could not verify it)
+      MAC-format user accepted ... yes      (Access-Accept id=38)
+      unknown NAS ignored ........ yes      (2 requests sent, 0 replies)
+      device counters agree ...... yes      (Successes 2, Failed Logins 3)
+      removal takes effect ....... yes      (UDP/1812 closed again, no radius line left)
+CAVEAT:  This run proves PAP and the MAC-format user only. It does NOT prove EAP-MD5,
+         EAP-TLS, EAP-PEAP or 802.1X, which need a supplicant on a switched port. It does
+         NOT prove that the configuration survives a reboot: the DUT was never reloaded,
+         because the bench path lives in running-config only. It does not cover the
+         `group`, `vlan`, `domain-style` or `message-authenticator` options.
+HEALTH:  read on the DUT before step 1 (08:59) and after step 7 (09:12)
+         reboots ......... no new entry; newest is 2026-10-16 06:22:04 Expected CLI(user request) in both samples
+         exception log ... None in both samples
+         log ............. no crash, no kernel line, no daemon restart we did not cause; every radiusd line matches a packet this case sent
+         CPU ............. 0% used before -> 0% after (show cpu: 1 second 0%, 20 seconds 0%, 60 seconds 0%, both samples)
+         memory .......... free 7454864 kB before -> 7453380 kB after; 1484 kB less free, which is 0.02% of 8 GB. No leak is claimed, and one case cannot show one.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  Main path, used by steps 1, 3, 4, 6 and 7:
+
+        tb277 eth3  10.38.22.33/27  MAC 00:0d:b9:55:77:0e
+        (the NAS: radsend.py.  Also the capture point: tcpdump)
+             |
+             |  Access-Request, UDP port 1812
+             v
+    +------------------------------------------------+
+    |  swi_d   AT-x960-56YSQ                   DUT    |
+    |  port1.0.10, interface vlan10 10.38.22.34/27    |
+    |  runs the Local RADIUS Server under test        |
+    +------------------------------------------------+
+             |
+             |  Access-Accept / Access-Reject, UDP port 1812
+             v
+        tb277 eth3  10.38.22.33/27
+
+  Second path, used by step 5 only (the host is NOT a configured NAS):
+
+        tb277 eth4  10.38.22.65/27
+             |
+             |  Access-Request, UDP port 1812
+             v
+        swi_d port1.0.48, interface vlan48 10.38.22.66/27   --> no reply comes back
+
+  DUT     : swi_d (AT-x960-56YSQ) console u2 at 115200 baud, S/N A2WQS700B
+  host    : tb277 eth3, MAC 00:0d:b9:55:77:0e, 10.38.22.33/27 -> swi_d port1.0.10
+  host    : tb277 eth4, 10.38.22.65/27 -> swi_d port1.0.48  (step 5 only)
+  link    : tb277 eth3 <-> swi_d port1.0.10 (copper, DUT SVI vlan10 10.38.22.34/27)
+  link    : tb277 eth4 <-> swi_d port1.0.48 (copper, DUT SVI vlan48 10.38.22.66/27)
+  not used: swi_b. Its console u3 was never opened by this case.
+  tools   : tools/radsend.py (sends the RADIUS request and checks the reply authenticator),
+            tools/radwire.py (decodes and counts the RADIUS packets in the pcap),
+            tools/qmark.py (reads the CLI help surface), tools/cfg.py (sends configuration),
+            tools/radius.py (the shared RADIUS codec). All ran on tb277.
+
+STEP 1 -- baseline, the feature is OFF: the DUT must not answer RADIUS      PASS
+--------------------------------------------------------------------------------
+  Method: no Local RADIUS Server is configured. The NAS sends one Access-Request to the
+  DUT's vlan10 address. Expected (designed): no RADIUS reply at all.
+  Capture on the box: tools/tb capture tb277 ckaaa eth3 20 t33407-off.pcap udp and port 1812
+  or port 1813 or port 11812 or port 11813
+
+tb277$ radsend 10.38.22.34 --port 1812 --secret testing123 --user testuser --password testing123 --bind 10.38.22.33 --timeout 3 --retries 1
+    -> Access-Request id=113 to 10.38.22.34:1812 from 10.38.22.33  User-Name='testuser',
+       User-Password=<hidden,16 bytes>, NAS-IP-Address=10.38.22.33, NAS-Port=0,
+       NAS-Port-Type=5, Service-Type=1(Login)
+    <- NO REPLY after 3.0s (x2)  [ICMP port unreachable: nothing listening on that UDP port]
+    radsend: sent=1 replies=0 no_reply=1 rejects=0 bad_authenticator=0      (exit 1)
+
+tb277$ radwire /tmp/ckaaa/t33407-off.pcap --secret testing123
+       0.000  10.38.22.33:34026 -> 10.38.22.34:1812  Access-Request id=49  len=72
+      14.192  10.38.22.33:38368 -> 10.38.22.34:1812  Access-Request id=113 len=72
+      14.192  10.38.22.33:38368 -> 10.38.22.34:1812  Access-Request id=113 len=72
+    radwire: 3 RADIUS packet(s) in /tmp/ckaaa/t33407-off.pcap
+      Access-Request         3
+      authenticator check: valid=0 invalid=0 unpaired=0
+                                           <-- 3 requests left the box, 0 RADIUS replies came back
+  => STEP 1 PASS: 3 Access-Requests left the box and 0 RADIUS packets came back. The DUT
+     answered with ICMP port unreachable. That is positive proof: no process on the DUT is
+     listening on UDP port 1812. Silence alone could also mean a lost packet, so this is the
+     stronger result. The OFF baseline is now established at frame level.
+
+STEP 2 -- read the Local RADIUS Server CLI surface, read-only               PASS
+--------------------------------------------------------------------------------
+  Method: qmark.py types "<prefix> ?" with NO carriage return, then Ctrl-U to clear the
+  line. Nothing is executed. Its own self-test passed first.
+
+awplus(config)# radius-server ?
+      deadtime       Amount of time to skip for dead servers
+      host           Configure RADIUS server
+      key            Set shared key with RADIUS servers
+      key-encrypted  Set encrypted shared key with RADIUS servers
+      local          Local Radius server
+      proxy-server   Proxy server
+      retransmit     Set the maximum retries to active servers
+      timeout        Set time to wait for a server reply
+
+awplus(config)# aaa authentication login default group ?
+      NAME     Server group name
+      ldap     Use all LDAP servers
+      radius   Use all RADIUS servers
+      tacacs+  Use all TACACS+ servers
+
+awplus(config-radsrv)# ?
+    Local Radius Server Configuration commands:
+      auth-mac-promiscuous  Move the radius server in to promiscuous mode for authmac supplicants
+      authentication        RADIUS authentication configuration commands
+      domain-style          Enable domain styles
+      group                 Create Radius server group
+      nas                   RADIUS NAS configuration commands
+      server                RADIUS local server configuration commands
+      user                  RADIUS user database configuration commands
+
+    server ?         auth-port | enable | trustpoint
+    nas ?            A.B.C.D
+    nas 10.38.22.33 ?  key | message-authenticator
+    user ?           WORD
+    user testuser ?  encrypted | password | reject
+    authentication ? eapmd5 | eaptls | mac | peap        <-- there is no `pap` keyword
+    group ?          WORD
+  => STEP 2 PASS: the CLI surface is read and the commands used in step 3 are confirmed to
+     exist. The server offers MAC, EAP-MD5, EAP-TLS and EAP-PEAP as authentication methods.
+     There is no `pap` keyword, so PAP needs no enabling command.
+
+STEP 3 -- configure the Local RADIUS Server                                 PASS
+--------------------------------------------------------------------------------
+  Method: cfg.py sends each line and stops at the first "% " error line. It returned 0, and
+  every command echoed back with a clean prompt. The secret `testing123` is worthless on
+  purpose, so nothing here needs hiding.
+
+awplus# configure terminal
+awplus(config)# radius-server local
+awplus(config-radsrv)# server enable
+awplus(config-radsrv)# nas 10.38.22.33 key testing123
+awplus(config-radsrv)# user testuser password testing123
+awplus(config-radsrv)# user 00-0d-b9-55-77-0e password 00-0d-b9-55-77-0e
+awplus(config-radsrv)# authentication mac
+awplus(config-radsrv)# end
+
+  The second user name is the box's eth3 MAC address, written in the AW+ MAC-authentication
+  format: lower case, with hyphens.
+
+awplus# show radius local-server
+    % Incomplete command.                 <-- the bare command needs a sub-command
+awplus# show radius local-server nas
+    Total NAS: 2
+    Maximum NAS allowed by license: 1000
+    RADIUS Local Server Secure (TLS) Proxy:
+      Trustpoints         : (None)
+      Mutual Auth         : on
+      Cert Name Check     : global default on
+      Proxy Status        : not running (not configured)
+
+                                                                             Message
+    NAS-Address      Shared-Key (encrypted)                            Authenticator
+    --------------------------------------------------------------------------------
+    10.38.22.33      h+EeDXRN2hiSvhQ4iErCYKh+SaDpWqcKIQ88roqWCBw=               auto
+    127.0.0.1        dbSQ8EDlsS3xUeNxNmelt3ya+mDgdWCOegX15FooG8E=           optional
+
+    TLS Client Host/IP Address        Cert Name Check
+    -------------------------------------------------
+awplus# show radius local-server user
+    Total users: 2
+    Maximum users allowed by license: 5000
+
+    User-Name                                     Group             Vlan
+    --------------------------------------------------------------------------------
+    00-0d-b9-55-77-0e
+    testuser
+awplus# show radius local-server statistics
+    Server status      : Run (administrative status is enable)
+    Enabled methods    : MAC EAP-MD5 EAP-TLS EAP-PEAP
+    Available methods  : MAC EAP-MD5 EAP-TLS EAP-PEAP
+    EAP trustpoints    : local
+    Promiscuous mode   : Disabled
+    Successes              :0              Unknown NAS            :0
+    Failed Logins          :0              Invalid packet from NAS:0
+    Internal Error         :0              Unknown Error          :0
+                                           <-- all counters start at 0, before any traffic
+awplus# show running-config | include radius
+    radius-server local
+
+  The running-config block the case created:
+
+    radius-server local
+     server enable
+     nas 10.38.22.33 key h+EeDXRN2hiSvhQ4iErCYKh+SaDpWqcKIQ88roqWCBw= encrypted
+     nas 127.0.0.1 key dbSQ8EDlsS3xUeNxNmelt3ya+mDgdWCOegX15FooG8E= encrypted
+     user 00-0d-b9-55-77-0e encrypted password mssv+c7URUgtfltKy46Rt+tOKI9+yzaOv/EHE2+6h28=
+     user testuser encrypted password f9HAiTAGXaMyI3TUeWx1F94OUCu9b2aSg3ngxZc9uP8=
+
+  Three measured observations:
+  1. `nas 127.0.0.1` was NOT configured by this case. The baseline running-config held no
+     radius line at all. Turning the Local RADIUS Server on creates this loopback NAS entry
+     by itself, with a generated key and `message-authenticator optional`.
+  2. The shared key is stored and shown only in encrypted form. The plain text `testing123`
+     never appears in any `show` output.
+  3. `authentication mac` added no line to the running-config. MAC, EAP-MD5, EAP-TLS and
+     EAP-PEAP are already enabled by default, so the command changed nothing.
+  => STEP 3 PASS: the server is configured and running. The device reports
+     "Server status : Run", 2 NAS entries and 2 users, with every counter still at 0.
+     swi_d.cfg was saved at this point.
+
+STEP 4 -- the measurement: the server answers real RADIUS on the wire       PASS
+--------------------------------------------------------------------------------
+  Method: the NAS sends five Access-Requests from 10.38.22.33. Only one thing changes
+  between them, so each one is a control for the first.
+      A  valid user, correct password, correct secret   -> expected Access-Accept
+      B  valid user, WRONG password                     -> expected Access-Reject
+      C  UNKNOWN user                                   -> expected Access-Reject
+      D  correct user, WRONG shared secret              -> expected: not accepted
+      E  MAC-format user, correct secret                -> expected Access-Accept
+  Capture on the box: tools/tb capture tb277 ckaaa eth3 75 t33407-on.pcap udp and port 1812
+
+tb277$ radsend 10.38.22.34 --port 1812 --secret testing123 --user testuser --password testing123 --bind 10.38.22.33 --timeout 4   (and the four variants below)
+    === A: valid user + correct password + correct secret (expect Access-Accept) ===
+    -> Access-Request id=112 to 10.38.22.34:1812 from 10.38.22.33  User-Name='testuser', User-Password=<hidden,16 bytes>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+    <- Access-Accept id=112 in 0.003s  authenticator=VALID (responder holds the secret)  Message-Authenticator=0x65faf5a042a92ebbff660dca97a1062e
+    radsend: sent=1 replies=1 no_reply=0 rejects=0 bad_authenticator=0
+    rc=0
+    === B: valid user, WRONG password (control: expect Access-Reject) ===
+    -> Access-Request id=232 to 10.38.22.34:1812 from 10.38.22.33  User-Name='testuser', User-Password=<hidden,16 bytes>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+    <- Access-Reject id=232 in 1.002s  authenticator=VALID (responder holds the secret)  Message-Authenticator=0x2030b484c63174bfb0935d1eed57af92
+    radsend: sent=1 replies=1 no_reply=0 rejects=1 bad_authenticator=0
+    rc=4
+    === C: UNKNOWN user (control: expect Access-Reject) ===
+    -> Access-Request id=2 to 10.38.22.34:1812 from 10.38.22.33  User-Name='nosuchuser', User-Password=<hidden,16 bytes>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+    <- Access-Reject id=2 in 1.002s  authenticator=VALID (responder holds the secret)  Message-Authenticator=0xf49e851ac50830cca7b4fdc0d7295fdb
+    radsend: sent=1 replies=1 no_reply=0 rejects=1 bad_authenticator=0
+    rc=4
+    === D: correct user, WRONG shared secret (control: expect no reply) ===
+    -> Access-Request id=129 to 10.38.22.34:1812 from 10.38.22.33  User-Name='testuser', User-Password=<hidden,16 bytes>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+    <- Access-Reject id=129 in 1.002s  authenticator=INVALID  Message-Authenticator=0x84ed473e04ead75b2624f47179beb950
+    radsend: sent=1 replies=1 no_reply=0 rejects=1 bad_authenticator=1
+    rc=3
+    === E: MAC-format user, correct secret (expect Access-Accept) ===
+    -> Access-Request id=38 to 10.38.22.34:1812 from 10.38.22.33  User-Name='00-0d-b9-55-77-0e', User-Password=<hidden,32 bytes>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+    <- Access-Accept id=38 in 0.001s  authenticator=VALID (responder holds the secret)  Message-Authenticator=0x48553e569bf8ff267e6d6e328708e86c
+    radsend: sent=1 replies=1 no_reply=0 rejects=0 bad_authenticator=0
+    rc=0
+
+tb277$ radwire /tmp/ckaaa/t33407-on.pcap --secret testing123
+   0.000  10.38.22.33:46682 -> 10.38.22.34:1812  Access-Request       id=112 len=72  User-Name='testuser', User-Password=<hidden,16b>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+   0.002  10.38.22.34:1812 -> 10.38.22.33:46682  Access-Accept        id=112 len=38  Message-Authenticator=0x65faf5a042a92ebbff660dca97a1062e  [authenticator VALID for the given secret]
+   0.538  10.38.22.33:48813 -> 10.38.22.34:1812  Access-Request       id=232 len=72  User-Name='testuser', User-Password=<hidden,16b>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+   1.540  10.38.22.34:1812 -> 10.38.22.33:48813  Access-Reject        id=232 len=38  Message-Authenticator=0x2030b484c63174bfb0935d1eed57af92  [authenticator VALID for the given secret]
+   2.122  10.38.22.33:48934 -> 10.38.22.34:1812  Access-Request       id=2   len=74  User-Name='nosuchuser', User-Password=<hidden,16b>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+   3.124  10.38.22.34:1812 -> 10.38.22.33:48934  Access-Reject        id=2   len=38  Message-Authenticator=0xf49e851ac50830cca7b4fdc0d7295fdb  [authenticator VALID for the given secret]
+   3.709  10.38.22.33:33950 -> 10.38.22.34:1812  Access-Request       id=129 len=72  User-Name='testuser', User-Password=<hidden,16b>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+   4.711  10.38.22.34:1812 -> 10.38.22.33:33950  Access-Reject        id=129 len=38  Message-Authenticator=0x84ed473e04ead75b2624f47179beb950  [authenticator VALID for the given secret]
+   5.291  10.38.22.33:57589 -> 10.38.22.34:1812  Access-Request       id=38  len=97  User-Name='00-0d-b9-55-77-0e', User-Password=<hidden,32b>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+   5.291  10.38.22.34:1812 -> 10.38.22.33:57589  Access-Accept        id=38  len=38  Message-Authenticator=0x48553e569bf8ff267e6d6e328708e86c  [authenticator VALID for the given secret]
+radwire: 10 RADIUS packet(s) in /tmp/ckaaa/t33407-on.pcap
+  Access-Accept          2
+  Access-Reject          3
+  Access-Request         5
+  authenticator check: valid=5 invalid=0 unpaired=0
+
+  The device's own counters, read straight after the five sends:
+
+awplus# show radius local-server statistics
+    Server status      : Run (administrative status is enable)
+    Enabled methods    : MAC EAP-MD5 EAP-TLS EAP-PEAP
+    Available methods  : MAC EAP-MD5 EAP-TLS EAP-PEAP
+    EAP trustpoints    : local
+    Promiscuous mode   : Disabled
+    Successes              :2              Unknown NAS            :0
+    Failed Logins          :3              Invalid packet from NAS:0
+    Internal Error         :0              Unknown Error          :0
+
+    NAS : 10.38.22.33
+    Successes              :2              Shared key mismatch    :0
+    Failed Logins          :3              Unknown RADIUS message :0
+    Unknown EAP message    :0              Unknown EAP auth type  :0
+    Corrupted packet       :0
+
+    NAS : 127.0.0.1
+    Successes              :0              Shared key mismatch    :0
+    Failed Logins          :0              Unknown RADIUS message :0
+    Unknown EAP message    :0              Unknown EAP auth type  :0
+    Corrupted packet       :0
+
+
+    Users present in the User Database:
+    Username                               Successes  Failures  Last Interaction
+                                                                Local time (+00:00)
+    00-0d-b9-55-77-0e                              1         0  19 Oct 2026 20:09:28
+    testuser                                       1         2  19 Oct 2026 20:09:27
+
+    Users NOT present in the User Database:
+    Username                               Successes  Failures  Last Interaction
+                                                                Local time (+00:00)
+    nosuchuser                                     0         1  19 Oct 2026 20:09:25
+
+  How to read control D, the wrong shared secret. The two tools disagree about the SAME
+  packet, and that disagreement is the measurement.
+    * radsend built the request with `wrongsecret1`. It reported the reply authenticator
+      INVALID. It cannot verify a reply when it does not hold the right secret.
+    * radwire was given the DUT's real secret `testing123`. It reported the same reply VALID.
+  So the DUT computed the Reject with the configured secret. It did not throw the request
+  away. The DUT's `Shared key mismatch` counter stayed at 0. With PAP there is nothing in the
+  packet that lets the server check the secret. A wrong secret only decodes the password to
+  garbage, so the server counts a failed login. The DUT log says the same thing:
+
+    2026 Oct 19 20:09:27 daemon.notice awplus radiusd[19826]: (3) Login incorrect
+      (pap: Cleartext password does not match "known good" password): [testuser]
+      (from client 10.38.22.33 port 0)
+
+  A client without the right secret does get an answer, but it cannot trust that answer.
+  RFC 2865 describes this behaviour. It is correct, not a defect.
+  => STEP 4 PASS: 5 requests went out and 5 replies came back: 2 Access-Accept and 3
+     Access-Reject. Every one of the 5 replies verifies against the configured secret
+     (valid=5, invalid=0). Case A was accepted while B, C and D were rejected, with
+     everything else held the same. The device counters agree exactly: Successes 2, Failed
+     Logins 3. This proves the Local RADIUS Server really authenticates users on the wire.
+
+STEP 5 -- control: a request from a host that is NOT a configured NAS       PASS
+--------------------------------------------------------------------------------
+  Method: send the same user and the same secret from 10.38.22.65 (box eth4) to the DUT's
+  other address 10.38.22.66. That source address is not in the DUT's NAS list.
+  Capture on the box: tools/tb capture tb277 ckaaa eth4 25 t33407-unknownnas.pcap udp and
+  port 1812
+
+tb277$ radsend 10.38.22.66 --port 1812 --secret testing123 --user testuser --password testing123 --bind 10.38.22.65 --timeout 5 --retries 1
+    === F: request from 10.38.22.65, which is NOT a configured NAS (expect no reply) ===
+    -> Access-Request id=252 to 10.38.22.66:1812 from 10.38.22.65  User-Name='testuser', User-Password=<hidden,16 bytes>, NAS-IP-Address=10.38.22.65, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+    <- NO REPLY after 5.0s (x2)
+    radsend: sent=1 replies=0 no_reply=1 rejects=0 bad_authenticator=0
+    rc=1
+
+tb277$ radwire /tmp/ckaaa/t33407-unknownnas.pcap
+   0.000  10.38.22.65:55442 -> 10.38.22.66:1812  Access-Request       id=252 len=72  User-Name='testuser', User-Password=<hidden,16b>, NAS-IP-Address=10.38.22.65, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+   5.001  10.38.22.65:55442 -> 10.38.22.66:1812  Access-Request       id=252 len=72  User-Name='testuser', User-Password=<hidden,16b>, NAS-IP-Address=10.38.22.65, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+radwire: 2 RADIUS packet(s) in /tmp/ckaaa/t33407-unknownnas.pcap
+  Access-Request         2
+  authenticator check: valid=0 invalid=0 unpaired=0
+                                           <-- 2 requests out, nothing back, and no ICMP either
+
+  The DUT log names the reason:
+
+    2026 Oct 19 20:10:05 daemon.err awplus radiusd[19826]: Ignoring request to auth address *
+      port 1812 bound to server default from unknown client 10.38.22.65 port 55442 proto udp
+
+  The `Unknown NAS` counter stayed at 0. The packet is dropped before the counted path, so
+  that counter name is misleading on this platform. This is recorded as an observation, not
+  as a defect.
+  => STEP 5 PASS: 2 requests went out and 0 replies came back. There was no ICMP port
+     unreachable this time, unlike step 1, because the socket IS open. The server simply
+     refuses to serve a client that is not in its NAS list.
+
+STEP 6 -- removal takes effect at once: remove one user                     PASS
+--------------------------------------------------------------------------------
+  Method: remove only the user `testuser` and leave the server running. Then send exactly
+  the same request as case A in step 4. Nothing else is changed.
+
+awplus# configure terminal
+awplus(config)# radius-server local
+awplus(config-radsrv)# no user testuser
+awplus(config-radsrv)# end
+
+tb277$ radsend 10.38.22.34 --port 1812 --secret testing123 --user testuser --password testing123 --bind 10.38.22.33
+    === G2: same request as A -- expect Access-Reject now ===
+    -> Access-Request id=176 to 10.38.22.34:1812 from 10.38.22.33  User-Name='testuser', User-Password=<hidden,16 bytes>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+    <- Access-Reject id=176 in 1.002s  authenticator=VALID (responder holds the secret)  Message-Authenticator=0x713574bcc8a4360fabf4098ca5051b7a
+    radsend: sent=1 replies=1 no_reply=0 rejects=1 bad_authenticator=0
+    rc=4
+
+  On the wire:
+
+   0.000  10.38.22.33:58357 -> 10.38.22.34:1812  Access-Request       id=176 len=72  User-Name='testuser', User-Password=<hidden,16b>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+   1.002  10.38.22.34:1812 -> 10.38.22.33:58357  Access-Reject        id=176 len=38  Message-Authenticator=0x713574bcc8a4360fabf4098ca5051b7a  [authenticator VALID for the given secret]
+  => STEP 6 PASS: the same credentials that were accepted in step 4 are now rejected. Only
+     the user was removed. This proves that `no user <name>` takes effect at once, with no
+     reload and no restart.
+
+STEP 7 -- remove the whole feature and return to the step 1 baseline        PASS
+--------------------------------------------------------------------------------
+awplus# configure terminal
+awplus(config)# no radius-server local
+awplus(config)# end
+
+tb277$ radsend 10.38.22.34 --port 1812 --secret testing123 --user 00-0d-b9-55-77-0e --password 00-0d-b9-55-77-0e --bind 10.38.22.33 --timeout 4 --retries 1
+    === H2: same request as A -- expect the OFF behaviour again ===
+    -> Access-Request id=30 to 10.38.22.34:1812 from 10.38.22.33  User-Name='00-0d-b9-55-77-0e', User-Password=<hidden,32 bytes>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+    <- NO REPLY after 4.0s (x2)  [ICMP port unreachable: nothing listening on that UDP port]
+    radsend: sent=1 replies=0 no_reply=1 rejects=0 bad_authenticator=0
+    rc=1
+
+  On the wire, the two requests at t=17.463 and t=17.464 get no reply:
+
+  17.463  10.38.22.33:40029 -> 10.38.22.34:1812  Access-Request       id=30  len=97  User-Name='00-0d-b9-55-77-0e', User-Password=<hidden,32b>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+  17.464  10.38.22.33:40029 -> 10.38.22.34:1812  Access-Request       id=30  len=97  User-Name='00-0d-b9-55-77-0e', User-Password=<hidden,32b>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+radwire: 4 RADIUS packet(s) in /tmp/ckaaa/t33407-removal.pcap
+  Access-Reject          1
+  Access-Request         3
+  authenticator check: valid=1 invalid=0 unpaired=0
+
+  `show running-config` afterwards holds no `radius` line of any kind. The auto-created
+  `nas 127.0.0.1` entry is gone too. The DUT log records both ends of the case:
+
+    2026 Oct 19 20:06:59 user.notice awplus IMI[903]: Local radius server created
+    2026 Oct 19 20:11:37 user.notice awplus IMI[903]: Local radius server deleted
+  => STEP 7 PASS: after `no radius-server local` the DUT again answers ICMP port
+     unreachable, exactly as in the step 1 baseline. The feature is fully removable, the
+     UDP socket closes with it, and the running-config is left clean.
+================================================================================

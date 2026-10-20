@@ -1,0 +1,452 @@
+================================================================================
+TEST T33409 -- (276) Management_RADIUS - Radius Proxy
+================================================================================
+Run:      2026-10-20 09:38-09:46 NZDT.  The DUT's RADIUS proxy server was configured,
+          measured on both of its legs, and removed again.
+          The DUT clock runs in UTC, 13 h behind the box; DUT log times below are UTC,
+          tool and server log times NZDT.
+Bench:    tb277, consoles u2 = swi_d (DUT); Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     T33409.  The test-case database holds NO authored objective, NO step text, NO test
+          data and NO expected result for this case. Its single step is empty.
+          The tester designed the objective and all 7 steps below.
+          Objective (designed by the tester), in five parts.
+          1. The AT-x960-56YSQ RADIUS proxy server accepts RADIUS requests from a
+             configured NAS.
+          2. It chooses an upstream server by a realm rule.
+          3. It forwards the request as a NEW RADIUS transaction. That new request is
+             signed with the upstream server's own shared secret.
+          4. It relays the upstream's Accept or Reject back to the NAS. That answer is
+             signed with the NAS's secret.
+          5. Realm stripping does what it claims, and the whole configuration can be
+             removed.
+Build:    swi_d  sin_x96056-20261012-24  (flash:/x960-tb277.rel, build date Mon Oct 12
+          06:38:00 UTC 2026), AT-x960-56YSQ, S/N A2WQS700B
+
+awplus# show system
+    System Status                                           Mon Oct 19 20:37:45 2026
+
+    Board      ID   Bay     Board Name                        Rev   Serial number
+    --------------------------------------------------------------------------------
+    Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+    PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+    PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+    Fan module 730  FAN1    AT-FAN19                          -     -
+    Fan module 730  FAN2    AT-FAN19                          -     -
+    --------------------------------------------------------------------------------
+    RAM: Total: 8092132 kB Free: 7459156 kB
+    Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+    --------------------------------------------------------------------------------
+    Environment Status : Normal
+    Uptime             : 3 days 14:15:21
+    Bootloader version : Unknown
+
+    Current software   : x960-tb277.rel
+    Software version   : sin_x96056-20261012-24
+    Build date         : Mon Oct 12 06:38:00 UTC 2026
+
+    Current boot config: flash:/default.cfg (file exists)
+
+    System Name
+     awplus
+    System Contact
+
+    System Location
+
+Configs:  swi_d.cfg (running-config after setup; saved to startup: no)
+
+VERDICT: PASS -- the DUT proxied RADIUS between two legs that use different shared secrets,
+and each leg was cryptographically correct on its own.
+      proxy listens when enabled ....... yes   (Access-Accept id=155 to the NAS)
+      upstream chosen by realm rule .... yes   (rule 1 realm example.com group upstream1)
+      request is re-originated ......... yes   (NAS id=155 becomes upstream id=197)
+      Proxy-State carries the NAS id ... yes   (Proxy-State='155' on the upstream request)
+      realm stripped by default ........ yes   (radclient1@example.com becomes radclient1)
+      proxy adds Message-Authenticator . yes   (the NAS sent none; the upstream request has one)
+      the two legs are independent ..... yes   (NAS leg valid=5 under testing123; upstream leg invalid=5 under the same secret)
+      upstream Reject is relayed ....... yes   (3 Access-Reject controls)
+      nostrip changes the outcome ...... yes   (same request, Accept becomes Reject)
+      removal takes effect ............. yes   (UDP/1812 closed, no radius line left)
+CAVEAT:  This run proves proxied AUTHENTICATION only. No Accounting-Request ever went
+         through the proxy, and the capture shows 0 packets on ports 1813 and 11813. Only
+         `realm` rules were used, so `rule N attribute ...` was not tested. Rule precedence
+         between two or more rules and the '*' realm wildcard were not tested. The group
+         held one upstream server, so failover, `server deadtime` and `server timeout` were
+         not tested. The DUT was never reloaded, so persistence across a reboot is not
+         proven.
+HEALTH:  read on the DUT before step 1 (09:38) and after step 7 (09:46)
+         reboots ......... no new entry; newest is 2026-10-16 06:22:04 Expected CLI(user request) in both samples
+         exception log ... None in both samples
+         log ............. no crash, no kernel line, no exception. The proxy daemon ran under two process ids (radiusd[22309], radiusd[22508]) because this case deleted and re-created rule 1 in step 6. Nothing restarted on its own.
+         CPU ............. 0% used before -> 0% after (show cpu: 1 second 0%, 20 seconds 0%, 60 seconds 0%, both samples)
+         memory .......... free 7459452 kB before -> 7457812 kB after; 1640 kB less free, which is 0.02% of 8 GB, with a radiusd started and stopped in between. No leak is claimed, and one case cannot show one.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  The box plays both ends. It is the NAS and it is the upstream server. Both legs run over
+  the same cable, so one capture holds the whole transaction twice.
+
+        tb277 eth3  10.38.22.33/27  MAC 00:0d:b9:55:77:0e
+        role 1: the NAS (radsend.py).  Also the capture point (tcpdump)
+             |
+             |  (1) Access-Request, UDP 1812, secret testing123
+             v
+    +--------------------------------------------------+
+    |  swi_d   AT-x960-56YSQ                     DUT    |
+    |  the RADIUS PROXY under test                      |
+    |  port1.0.10, interface vlan10 10.38.22.34/27      |
+    +--------------------------------------------------+
+             |                                   ^
+             | (2) Access-Request,               | (3) Access-Accept / Reject,
+             |     UDP 11812, secret testing456  |     UDP 11812, secret testing456
+             v                                   |
+        tb277 eth3  10.38.22.33/27
+        role 2: the upstream "home" server (radsrv.py on port 11812)
+
+             |
+             |  (4) Access-Accept / Access-Reject, UDP 1812, secret testing123
+             v
+        tb277 eth3  (back to role 1, the NAS)
+
+  DUT      : swi_d (AT-x960-56YSQ) console u2 at 115200 baud, S/N A2WQS700B
+  NAS      : tb277 eth3, MAC 00:0d:b9:55:77:0e, 10.38.22.33/27. Secret to the proxy:
+             `testing123`
+  upstream : tb277 eth3, 10.38.22.33, UDP 11812 and 11813. Secret to the proxy:
+             `testing456`
+  link     : tb277 eth3 <-> swi_d port1.0.10 (copper, DUT SVI vlan10 10.38.22.34/27)
+  not used : swi_b. Its console u3 was never opened by this case.
+  tools    : tools/radsend.py (the NAS: sends the request and checks the reply
+             authenticator), tools/radsrv.py (the upstream server, one log line per
+             packet), tools/radwire.py (decodes and counts the RADIUS packets in the pcap),
+             tools/qmark.py (reads the CLI help surface), tools/cfg.py (sends
+             configuration), tools/radius.py (the shared RADIUS codec). All ran on tb277.
+
+  The two legs were given DIFFERENT shared secrets on purpose. A device that only forwarded
+  packets could not produce a correct result on both legs at once.
+
+STEP 1 -- baseline, the proxy is OFF                                        PASS
+--------------------------------------------------------------------------------
+tb277$ radsend 10.38.22.34 --port 1812 --secret testing123 --user radclient1@example.com --password radpass123 --bind 10.38.22.33 --timeout 3 --retries 1
+    === OFF baseline: the proxy is not configured, so UDP/1812 on the DUT must be closed ===
+    -> Access-Request id=113 to 10.38.22.34:1812 from 10.38.22.33  User-Name='radclient1@example.com', User-Password=<hidden,16 bytes>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+    <- NO REPLY after 3.0s (x2)  [ICMP port unreachable: nothing listening on that UDP port]
+    radsend: sent=1 replies=0 no_reply=1 rejects=0 bad_authenticator=0
+    rc=1
+  => STEP 1 PASS: the DUT answered ICMP port unreachable. Nothing is listening on UDP port
+     1812. The OFF baseline is established.
+
+STEP 2 -- read the proxy CLI surface, read-only                             PASS
+--------------------------------------------------------------------------------
+  Method: qmark.py types "<prefix> ?" with no carriage return. Its self-test passed each
+  time.
+
+awplus(config-radproxy)# ?
+      group | nas | proxy | rule | server | source-interface
+    proxy ?             acct-port | auth-port | enable
+    server ?            A.B.C.D | deadtime | timeout
+    server <ip> ?       acct-port | auth-port | key
+    nas ?               A.B.C.D ;  nas <ip> ?  ->  key
+    group ?             NAME (max 64 letters, numbers, hyphens and underscores)
+    rule ?              <1-65535> Rule ID
+    rule 1 ?            attribute | realm
+    rule 1 realm ?      WORD  Realm pattern to match ('*' is wildcard)
+    rule 1 realm <r> ?  group | nostrip | server
+    rule 1 realm <r> nostrip ?   group | server
+    rule 1 attribute ?  WORD | called-station-id | calling-station-id | nas-identifier
+                        | nas-ip-address | user-name
+    source-interface ?  A.B.C.D | IFNAME
+awplus(config-radproxy-group)# ?      ->  server
+    group <name> server <ip> ?            ->  acct-port | auth-port | <cr>
+
+  `realm` and `client` are not commands of this mode. The device answers
+  `% Unrecognized command`. Realms are written as `rule N realm`, and the list of allowed
+  NAS clients is written with `nas`.
+
+  One side effect to know about: reading the group sub-mode needs the device to ENTER that
+  mode, and entering it CREATES `group upstream1` in the running-config. A help probe of a
+  mode-entering command is therefore not read-only on this platform. That group is named in
+  step 7 and was removed with everything else.
+  => STEP 2 PASS: the proxy CLI surface is read, and the commands used in step 3 are
+     confirmed to exist.
+
+STEP 3 -- configure the proxy                                               PASS
+--------------------------------------------------------------------------------
+  Measured limit: `rule N ... server <ip>` cannot reach a server on a non-default port.
+  The obvious configuration was refused:
+
+awplus(config-radproxy)# server 10.38.22.33 auth-port 11812 acct-port 11813 key testing456
+awplus(config-radproxy)# rule 1 realm example.com server 10.38.22.33
+    % Server 10.38.22.33 (1812,1813) is not configured
+                                           <-- the rule looked for ports 1812 and 1813 only
+
+  The `rule ... server <ip>` form finds the server by IP address plus the DEFAULT ports,
+  1812 and 1813. It offers no way to name other ports. So it can never point at a server
+  configured on a different port, even one that is already in the running-config two lines
+  above. cfg.py stopped the batch at that "% " line, so `proxy enable` was never sent and
+  the DUT was never left half configured.
+
+  The form that works is a server GROUP. A group's own `server <ip> auth-port <n>
+  acct-port <n>` does take port numbers:
+
+awplus# configure terminal
+awplus(config)# radius-server proxy-server
+awplus(config-radproxy)# group upstream1
+awplus(config-radproxy-group)# server 10.38.22.33 auth-port 11812 acct-port 11813
+awplus(config-radproxy-group)# exit
+awplus(config-radproxy)# rule 1 realm example.com group upstream1
+awplus(config-radproxy)# proxy enable
+awplus(config-radproxy)# end
+
+  cfg.py returned 0 and every command echoed back a clean prompt. The running-config block,
+  holding the two deliberately different keys:
+
+    radius-server proxy-server
+     server 10.38.22.33 auth-port 11812 acct-port 11813 key jQYFBpWNTbzG9aSAztLu6KUBYDCi9VMQVCj2//jSiBg= encrypted
+     group upstream1
+      server 10.38.22.33 auth-port 11812 acct-port 11813
+     nas 10.38.22.33 key h+EeDXRN2hiSvhQ4iErCYKh+SaDpWqcKIQ88roqWCBw= encrypted
+     rule 1 realm example.com group upstream1
+     proxy enable
+
+  The `nas` key is `testing123` and the `server` key is `testing456`. Both are stored and
+  displayed only in encrypted form.
+
+awplus# show radius proxy-server
+                                   Auth  Acct  Auth           Acct
+    Server Host/IP Address         Port  Port  Status         Status
+    ------------------------------------------------------------------------
+    10.38.22.33                    11812 11813 Unknown        Unknown
+                                           <-- Unknown until the first exchange
+  => STEP 3 PASS: the proxy is configured and enabled, with one NAS, one upstream group and
+     one realm rule. swi_d.cfg was saved from this configuration.
+
+STEP 4 -- the measurement: a request is proxied, and both legs are real RADIUS   PASS
+--------------------------------------------------------------------------------
+  Method: one 90 s capture on eth3 covers UDP ports 1812, 1813, 11812 and 11813, so it holds
+  both legs. The NAS sends one request for a user in the realm example.com.
+
+tb277$ radsend 10.38.22.34 --port 1812 --secret testing123 --user radclient1@example.com --password radpass123 --bind 10.38.22.33
+    === P1: matching realm -- must be proxied to the upstream and Accepted ===
+    -> Access-Request id=155 to 10.38.22.34:1812 from 10.38.22.33  User-Name='radclient1@example.com', User-Password=<hidden,16 bytes>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+    <- Access-Accept id=155 in 0.004s  authenticator=VALID (responder holds the secret)  Message-Authenticator=0x4f0e350eb09b4b886b3d8585bab70f15, Reply-Message='Access granted by radsrv.py'
+    radsend: sent=1 replies=1 no_reply=0 rejects=0 bad_authenticator=0
+    rc=0
+
+  The upstream server's own log for the same transaction:
+
+    09:42:34 Access-Request         from 10.38.22.34 id=197 user='radclient1' | Message-Authenticator=0xb23f7a062710cced05549863218b3ebd, User-Name='radclient1', User-Password=<hidden>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login), Proxy-State='155'
+    09:42:34 Access-Accept          to 10.38.22.34 id=197 user='radclient1' (ok)
+
+  Four things are measured in that pair. No `show` command gives any of them.
+  1. The proxy starts a new transaction. The upstream request carries a DIFFERENT RADIUS
+     identifier, 197, from the NAS request, 155. It also comes from the DUT's own address.
+  2. It carries `Proxy-State='155'`, which is RFC 2865 section 5.33. The proxy stores the
+     original identifier in the request so it can match the answer back to the NAS.
+  3. The realm was STRIPPED. The NAS asked about `radclient1@example.com`. The upstream was
+     asked about `radclient1`. This is the rule's default behaviour. Step 6 changes it.
+  4. The proxy ADDS a Message-Authenticator to the upstream request. The NAS sent none, and
+     the DUT's log says so: "Received packet from NAS 10.38.22.33 without
+     Message-Authenticator / This NAS is vulnerable to the BlastRADIUS attack".
+
+  The decisive check: the two legs are cryptographically independent. The SAME pcap is
+  decoded three times, with different ports and different secrets:
+
+tb277$ radwire t33409-on.pcap --port 1812  --port 1813  --secret testing123
+      Access-Accept 2, Access-Reject 3, Access-Request 5
+      authenticator check: valid=5 invalid=0 unpaired=0
+
+tb277$ radwire t33409-on.pcap --port 11812 --port 11813 --secret testing456
+      Access-Accept 2, Access-Reject 3, Access-Request 5
+      authenticator check: valid=5 invalid=0 unpaired=0
+
+tb277$ radwire t33409-on.pcap --port 11812 --port 11813 --secret testing123   <-- cross-check
+      authenticator check: valid=0 invalid=5 unpaired=0
+
+  The full decode of the NAS leg, ports 1812 and 1813, secret testing123:
+
+   0.000  10.38.22.33:60672 -> 10.38.22.34:1812  Access-Request       id=155 len=86  User-Name='radclient1@example.com', User-Password=<hidden,16b>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+   0.003  10.38.22.34:1812 -> 10.38.22.33:60672  Access-Accept        id=155 len=67  Message-Authenticator=0x4f0e350eb09b4b886b3d8585bab70f15, Reply-Message='Access granted by radsrv.py'  [authenticator VALID for the given secret]
+   0.581  10.38.22.33:50363 -> 10.38.22.34:1812  Access-Request       id=62  len=84  User-Name='radclient1@other.com', User-Password=<hidden,16b>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+   0.584  10.38.22.34:1812 -> 10.38.22.33:50363  Access-Reject        id=62  len=62  Message-Authenticator=0xcc4c6dd3c62f62fec6e3122ba292b567, Reply-Message='Rejected: no such user'  [authenticator VALID for the given secret]
+   1.165  10.38.22.33:44983 -> 10.38.22.34:1812  Access-Request       id=173 len=86  User-Name='radclient1@example.com', User-Password=<hidden,16b>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+   1.168  10.38.22.34:1812 -> 10.38.22.33:44983  Access-Reject        id=173 len=64  Message-Authenticator=0xf8bb2107019511c3392caa026a944352, Reply-Message='Rejected: wrong password'  [authenticator VALID for the given secret]
+   1.700  10.38.22.33:41401 -> 10.38.22.34:1812  Access-Request       id=65  len=86  User-Name='radclient1@example.com', User-Password=<hidden,16b>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+   1.703  10.38.22.34:1812 -> 10.38.22.33:41401  Access-Reject        id=65  len=64  Message-Authenticator=0x7ed2f488cd1b8fd5b39074d39688ac7d, Reply-Message='Rejected: wrong password'  [authenticator VALID for the given secret]
+  37.811  10.38.22.33:47101 -> 10.38.22.34:1812  Access-Request       id=247 len=86  User-Name='radclient1@example.com', User-Password=<hidden,16b>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+  37.814  10.38.22.34:1812 -> 10.38.22.33:47101  Access-Accept        id=247 len=67  Message-Authenticator=0xa83d742301ddbb76b56075cdd6569972, Reply-Message='Access granted by radsrv.py'  [authenticator VALID for the given secret]
+radwire: 10 RADIUS packet(s) in /tmp/ckaaa/t33409-on.pcap
+  Access-Accept          2
+  Access-Reject          3
+  Access-Request         5
+  authenticator check: valid=5 invalid=0 unpaired=0
+
+  The full decode of the upstream leg, ports 11812 and 11813, secret testing456:
+
+   0.000  10.38.22.34:53330 -> 10.38.22.33:11812  Access-Request       id=197 len=97  Message-Authenticator=0xb23f7a062710cced05549863218b3ebd, User-Name='radclient1', User-Password=<hidden,16b>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login), Proxy-State='155'
+   0.001  10.38.22.33:11812 -> 10.38.22.34:53330  Access-Accept        id=197 len=49  Reply-Message='Access granted by radsrv.py'  [authenticator VALID for the given secret]
+   0.581  10.38.22.34:53330 -> 10.38.22.33:11812  Access-Request       id=30  len=106  Message-Authenticator=0x5a1eb2a716ca1adac3af514853f4de0a, User-Name='radclient1@other.com', User-Password=<hidden,16b>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login), Proxy-State='62'
+   0.582  10.38.22.33:11812 -> 10.38.22.34:53330  Access-Reject        id=30  len=44  Reply-Message='Rejected: no such user'  [authenticator VALID for the given secret]
+   1.165  10.38.22.34:53330 -> 10.38.22.33:11812  Access-Request       id=13  len=97  Message-Authenticator=0xdcec32fcb6e61506a3b3165c979f2d46, User-Name='radclient1', User-Password=<hidden,16b>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login), Proxy-State='173'
+   1.166  10.38.22.33:11812 -> 10.38.22.34:53330  Access-Reject        id=13  len=46  Reply-Message='Rejected: wrong password'  [authenticator VALID for the given secret]
+   1.700  10.38.22.34:53330 -> 10.38.22.33:11812  Access-Request       id=158 len=96  Message-Authenticator=0x76aeca026c10f7001b0edc6088a9a9d2, User-Name='radclient1', User-Password=<hidden,16b>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login), Proxy-State='65'
+   1.701  10.38.22.33:11812 -> 10.38.22.34:53330  Access-Reject        id=158 len=46  Reply-Message='Rejected: wrong password'  [authenticator VALID for the given secret]
+  37.811  10.38.22.34:53330 -> 10.38.22.33:11812  Access-Request       id=170 len=97  Message-Authenticator=0xc27c5907335c06f62d898448ee0a80bf, User-Name='radclient1', User-Password=<hidden,16b>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login), Proxy-State='247'
+  37.812  10.38.22.33:11812 -> 10.38.22.34:53330  Access-Accept        id=170 len=49  Reply-Message='Access granted by radsrv.py'  [authenticator VALID for the given secret]
+radwire: 10 RADIUS packet(s) in /tmp/ckaaa/t33409-on.pcap
+  Access-Accept          2
+  Access-Reject          3
+  Access-Request         5
+  authenticator check: valid=5 invalid=0 unpaired=0
+
+  The DUT's own log agrees, and uses the words "home server":
+
+    2026 Oct 19 20:42:21 daemon.notice radiusd[22309]: (0) Marking home server 10.38.22.33 port 11812 alive
+    2026 Oct 19 20:42:21 daemon.notice radiusd[22309]: (0) Login OK: [radclient1] (from client 10.38.22.33 port 0)
+  => STEP 4 PASS: every reply on the NAS leg verifies under `testing123`, which is 5 of 5.
+     None of the upstream replies verify under that same secret, which is 0 of 5. A device
+     that only forwarded packets could not produce that result. The DUT ends the RADIUS
+     transaction from the NAS. It then runs a new transaction with the upstream, using the
+     upstream's key. It signs its answer to the NAS with the NAS's key. That is what a
+     RADIUS proxy is. It is measured here, not assumed.
+
+STEP 5 -- three controls on the ON configuration                            PASS
+--------------------------------------------------------------------------------
+  Method: send three more requests. Each changes exactly one thing.
+      P2  user radclient1@other.com   -- a realm that matches NO rule
+      P3  user radclient1@example.com -- the WRONG user password
+      P4  user radclient1@example.com -- the WRONG NAS-to-proxy secret
+
+tb277$ radsend 10.38.22.34 --port 1812 ... (three runs, see the user and secret in each block)
+    === P2 control: a realm that matches NO rule ===
+    -> Access-Request id=62 to 10.38.22.34:1812 from 10.38.22.33  User-Name='radclient1@other.com', User-Password=<hidden,16 bytes>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+    <- Access-Reject id=62 in 0.004s  authenticator=VALID (responder holds the secret)  Message-Authenticator=0xcc4c6dd3c62f62fec6e3122ba292b567, Reply-Message='Rejected: no such user'
+    radsend: sent=1 replies=1 no_reply=0 rejects=1 bad_authenticator=0
+    rc=4
+    === P3 control: matching realm, WRONG user password -- upstream must Reject and the proxy relay it ===
+    -> Access-Request id=173 to 10.38.22.34:1812 from 10.38.22.33  User-Name='radclient1@example.com', User-Password=<hidden,16 bytes>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+    <- Access-Reject id=173 in 0.004s  authenticator=VALID (responder holds the secret)  Message-Authenticator=0xf8bb2107019511c3392caa026a944352, Reply-Message='Rejected: wrong password'
+    radsend: sent=1 replies=1 no_reply=0 rejects=1 bad_authenticator=0
+    rc=4
+    === P4 control: matching realm, WRONG NAS secret to the proxy ===
+    -> Access-Request id=65 to 10.38.22.34:1812 from 10.38.22.33  User-Name='radclient1@example.com', User-Password=<hidden,16 bytes>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+    <- Access-Reject id=65 in 0.004s  authenticator=INVALID  Message-Authenticator=0x7ed2f488cd1b8fd5b39074d39688ac7d, Reply-Message='Rejected: wrong password'
+    radsend: sent=1 replies=1 no_reply=0 rejects=1 bad_authenticator=1
+    rc=3
+
+  What the upstream server saw for the same three requests:
+
+    09:42:35 Access-Request         from 10.38.22.34 id=30 user='radclient1@other.com' | Message-Authenticator=0x5a1eb2a716ca1adac3af514853f4de0a, User-Name='radclient1@other.com', User-Password=<hidden>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login), Proxy-State='62'
+    09:42:35 Access-Reject          to 10.38.22.34 id=30 user='radclient1@other.com' (no such user)
+    09:42:36 Access-Request         from 10.38.22.34 id=13 user='radclient1' | Message-Authenticator=0xdcec32fcb6e61506a3b3165c979f2d46, User-Name='radclient1', User-Password=<hidden>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login), Proxy-State='173'
+    09:42:36 Access-Reject          to 10.38.22.34 id=13 user='radclient1' (wrong password)
+    09:42:36 Access-Request         from 10.38.22.34 id=158 user='radclient1' | Message-Authenticator=0x76aeca026c10f7001b0edc6088a9a9d2, User-Name='radclient1', User-Password=<hidden>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login), Proxy-State='65'
+    09:42:36 Access-Reject          to 10.38.22.34 id=158 user='radclient1' (wrong password)
+
+  Read P2 carefully, because the result is not what a reader would guess.
+    * P2: a realm that matches no rule is STILL proxied, and it is NOT stripped. The
+      upstream was asked about `radclient1@other.com`, exactly as sent. So `rule N realm`
+      picks the upstream group and controls realm stripping. It does NOT decide whether a
+      request is proxied at all. The Reject came from the upstream, not from the DUT, and
+      the DUT's log says so: `Login incorrect (Home Server says so): [radclient1@other.com]`.
+      Anyone who expects an unmatched realm to be dropped by the DUT would be wrong here.
+    * P3: the proxy relayed the upstream's refusal. The meaning is unchanged and the reply
+      is re-signed for the NAS.
+    * P4: the proxy does NOT detect a wrong NAS secret. It forwards the result anyway. With
+      PAP there is nothing in the request that lets the proxy check the key, and the NAS
+      sent no Message-Authenticator. So the proxy decrypted the password with its own key,
+      got garbage, encrypted that garbage again for the upstream, and the upstream answered
+      "wrong password". The Reject is signed with the proxy's real NAS key, and our client
+      was using the wrong key, so our client reported the authenticator INVALID. Both halves
+      are correct. Together they mean a wrong NAS key cannot be told apart from a wrong
+      password here.
+  => STEP 5 PASS: all three controls behaved as the design expected. Each Reject on the NAS
+     leg has a matching upstream Reject with the same Proxy-State value, so each answer can
+     be traced from end to end.
+
+STEP 6 -- `nostrip`: an A/B test on the same request                        PASS
+--------------------------------------------------------------------------------
+  Two CLI facts found while setting this up. First, `nostrip` goes BEFORE the target, not
+  after it:
+
+awplus(config-radproxy)# rule 1 realm example.com group upstream1 nostrip
+    rule 1 realm example.com group upstream1 nostrip
+                                                                     ^
+    % Invalid input detected at '^' marker.
+
+  Second, a rule cannot be edited in place:
+
+awplus(config-radproxy)# rule 1 realm example.com nostrip group upstream1
+    % Rule 1 already exists
+
+  So the rule must be deleted and created again:
+
+awplus# configure terminal
+awplus(config)# radius-server proxy-server
+awplus(config-radproxy)# no rule 1
+awplus(config-radproxy)# rule 1 realm example.com nostrip group upstream1
+awplus(config-radproxy)# end
+
+  Both "% " lines stopped the cfg.py batch, so nothing was half applied. The measurement
+  below was taken only after `show running-config` confirmed the rule had really changed.
+
+  The A/B test. Everything is held the same except the rule.
+
+    A  rule 1 realm example.com group upstream1            (strip, the default)
+       NAS sends  radclient1@example.com  ->  upstream receives User-Name='radclient1'
+                                              -> Access-Accept  -> NAS gets Access-Accept
+
+    B  rule 1 realm example.com nostrip group upstream1
+       NAS sends  radclient1@example.com  ->  upstream receives User-Name='radclient1@example.com'
+                                              -> Access-Reject (no such user) -> NAS gets Access-Reject
+
+  The upstream server's log lines for the two halves:
+
+    09:43:57 Access-Request from 10.38.22.34 id=213 user='radclient1'             ... Proxy-State='209'
+    09:44:31 Access-Request from 10.38.22.34 id=40  user='radclient1@example.com' ... Proxy-State='108'
+
+  The NAS side of half B:
+
+    === P5 (final): nostrip applied ===
+    -> Access-Request id=108 to 10.38.22.34:1812 from 10.38.22.33  User-Name='radclient1@example.com', User-Password=<hidden,16 bytes>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+    <- Access-Reject id=108 in 0.004s  authenticator=VALID (responder holds the secret)  Message-Authenticator=0x61049697b7aac0521b35098c681bc042, Reply-Message='Rejected: no such user'
+    radsend: sent=1 replies=1 no_reply=0 rejects=1 bad_authenticator=0
+    rc=4
+  => STEP 6 PASS: the same request from the NAS produced a different User-Name at the
+     upstream, and therefore the opposite answer. Only the rule changed. This proves the
+     stripping is done by the proxy. It is not an effect of the NAS or of the upstream
+     server. The rule was then set back to its stripping form.
+
+STEP 7 -- removal, in two stages                                            PASS
+--------------------------------------------------------------------------------
+  Stage 1: turn the proxy off but leave the rest of the configuration in place.
+
+awplus# configure terminal
+awplus(config)# radius-server proxy-server
+awplus(config-radproxy)# no proxy enable
+awplus(config-radproxy)# end
+
+tb277$ radsend 10.38.22.34 --port 1812 --secret testing123 --user radclient1@example.com --password radpass123 --bind 10.38.22.33 --timeout 4 --retries 1
+    --- same request as P1 ---
+    -> Access-Request id=139 to 10.38.22.34:1812 from 10.38.22.33  User-Name='radclient1@example.com', User-Password=<hidden,16 bytes>, NAS-IP-Address=10.38.22.33, NAS-Port=0, NAS-Port-Type=5, Service-Type=1(Login)
+    <- NO REPLY after 4.0s (x2)  [ICMP port unreachable: nothing listening on that UDP port]
+    radsend: sent=1 replies=0 no_reply=1 rejects=0 bad_authenticator=0
+    rc=1
+
+  Stage 2: remove the whole block.
+
+awplus# configure terminal
+awplus(config)# no radius-server proxy-server
+awplus(config)# end
+
+awplus# show radius proxy-server
+                                           <-- no output at all
+awplus# show running-config | include radius|aaa
+    aaa authentication enable default local
+    aaa authentication login default local
+  => STEP 7 PASS: `no proxy enable` on its own closes the listening socket, because the DUT
+     answers ICMP port unreachable again while the rest of the configuration is still
+     there. `no radius-server proxy-server` then removes the whole block, including the
+     `group upstream1` that the step 2 help probe had created. No radius line is left.
+================================================================================

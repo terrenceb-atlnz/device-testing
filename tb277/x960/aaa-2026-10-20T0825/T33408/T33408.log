@@ -1,0 +1,451 @@
+================================================================================
+TEST T33408 -- (275) Management_RADIUS - Radius Client mode
+================================================================================
+Run:      2026-10-20 09:17-09:32 NZDT.  The DUT was configured as a RADIUS client and a
+          user that exists only on the RADIUS server logged in to it.
+          The DUT clock runs in UTC, 13 h behind the box; DUT log times below are UTC,
+          tool and server log times NZDT.
+Bench:    tb277, consoles u2 = swi_d (DUT); Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     T33408.  The test-case database holds NO authored objective, NO step text, NO test
+          data and NO expected result for this case. Its single step is empty.
+          The tester designed the objective and all 9 steps below.
+          Objective (designed by the tester): prove that the AT-x960-56YSQ acts as a RADIUS
+          client. A RADIUS client is also called a Network Access Server (NAS).
+          1. A real login on the DUT produces an Access-Request to the configured server.
+          2. The DUT acts on the server's answer.
+          3. Accounting produces matching Start and Stop records.
+          4. The method list behaves correctly for an Accept, a Reject, a wrong shared key
+             and an unreachable server.
+          5. The whole configuration can be removed.
+Build:    swi_d  sin_x96056-20261012-24  (flash:/x960-tb277.rel, build date Mon Oct 12
+          06:38:00 UTC 2026), AT-x960-56YSQ, S/N A2WQS700B
+
+awplus# show system
+    System Status                                           Mon Oct 19 20:16:57 2026
+
+    Board      ID   Bay     Board Name                        Rev   Serial number
+    --------------------------------------------------------------------------------
+    Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+    PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+    PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+    Fan module 730  FAN1    AT-FAN19                          -     -
+    Fan module 730  FAN2    AT-FAN19                          -     -
+    --------------------------------------------------------------------------------
+    RAM: Total: 8092132 kB Free: 7452464 kB
+    Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+    --------------------------------------------------------------------------------
+    Environment Status : Normal
+    Uptime             : 3 days 13:54:33
+    Bootloader version : Unknown
+
+    Current software   : x960-tb277.rel
+    Software version   : sin_x96056-20261012-24
+    Build date         : Mon Oct 12 06:38:00 UTC 2026
+
+    Current boot config: flash:/default.cfg (file exists)
+
+    System Name
+     awplus
+    System Contact
+
+    System Location
+
+Configs:  swi_d.cfg (running-config after setup; saved to startup: no)
+
+VERDICT: PASS -- the DUT works as a RADIUS client: it asked the server, it obeyed the
+answer, it sent matching accounting records, and it removed cleanly.
+      RADIUS-only user logs in ....... yes       (Access-Request id=228 -> Access-Accept id=228)
+      no local account for that user . confirmed (no `username radclient1` in running-config)
+      accounting Start and Stop ...... yes       (Acct-Session-Id 00021146 on both records)
+      wrong password rejected ........ yes       (Access-Reject id=254, login refused in 1.4 s)
+      wrong shared key ............... server discards the request, login refused in 21.9 s
+      measured timers on the wire .... 5 s apart, 3 retransmits (Timeout 5 sec, Retransmit Count 3)
+      unreachable server ............. falls back to `local` in 25.5 s
+      an Access-Reject is final ...... yes       (the DUT does NOT then try `local`)
+      removal takes effect ........... yes       (0 RADIUS packets, refusal in 2.1 s)
+CAVEAT:  This run proves console login only. It does NOT prove authentication over SSH,
+         HTTP or telnet, and it does not cover `aaa authentication enable default group
+         radius`. One server was configured, so `deadtime`, several servers and server
+         ordering were not tested. `radius-server source-interface` was left not
+         configured. The DUT was never reloaded, so persistence across a reboot is not
+         proven.
+HEALTH:  read on the DUT before step 1 (09:17) and after step 9 (09:32)
+         reboots ......... no new entry; newest is 2026-10-16 06:22:04 Expected CLI(user request) in both samples
+         exception log ... None in both samples
+         log ............. no crash, no kernel line, no exception. One daemon restart, caused by this case's own login step: "20:22:41 daemon.notice systemd[1]: serial-getty@ttyS0.service: Main process exited, code=exited, status=1/FAILURE". The console came straight back with a login prompt.
+         CPU ............. 0% used before -> 0% after (show cpu: 1 second 0%, 20 seconds 0%, 60 seconds 0%, both samples)
+         memory .......... free 7452220 kB before -> 7459888 kB after; 7668 kB MORE free after the case than before it. No leak is claimed, and one case cannot show one.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  One link carries everything in this case. The DUT starts every exchange.
+
+    +--------------------------------------------------+
+    |  swi_d   AT-x960-56YSQ                     DUT    |
+    |  the RADIUS client (NAS) under test               |
+    |  port1.0.10, interface vlan10 10.38.22.34/27      |
+    |  console u2: the login attempts happen here       |
+    +--------------------------------------------------+
+             |                             ^
+             | Access-Request UDP 11812    | Access-Accept / Access-Reject
+             | Accounting-Request UDP 11813| Accounting-Response
+             v                             |
+        tb277 eth3  10.38.22.33/27  MAC 00:0d:b9:55:77:0e
+        (the RADIUS server: radsrv.py on ports 11812 and 11813.
+         Also the capture point: tcpdump)
+
+  DUT     : swi_d (AT-x960-56YSQ) console u2 at 115200 baud, S/N A2WQS700B
+  server  : tb277 eth3, MAC 00:0d:b9:55:77:0e, 10.38.22.33/27, auth port 11812,
+            accounting port 11813, shared secret `testing123`
+  link    : tb277 eth3 <-> swi_d port1.0.10 (copper, DUT SVI vlan10 10.38.22.34/27)
+  not used: swi_b. Its console u3 was never opened by this case.
+  users   : `radclient1` exists ONLY on the RADIUS server. `manager` exists on the DUT and,
+            for part of this case, on the RADIUS server as well.
+  tools   : tools/conlogin.py (logs the console out and back in as a named user, and
+            reports PRIV, USER, FAIL or TIMEOUT), tools/radsrv.py (the RADIUS server, one
+            log line per packet), tools/radwire.py (decodes and counts the RADIUS packets
+            in the pcap), tools/qmark.py (reads the CLI help surface), tools/cfg.py (sends
+            configuration), tools/radius.py (the shared RADIUS codec). All ran on tb277.
+
+  The server was started with this command:
+
+    tools/tb tool tb277 ckaaa radsrv --bind 10.38.22.33 --auth-port 11812 --acct-port 11813 \
+      --secret testing123 --client 10.38.22.34 --client 10.38.22.66 \
+      --user radclient1:radpass123 --user manager:friend \
+      --reply-attr 6=0x00000006 \
+      --reply-attr 26=0x0000000901137368656c6c3a707269762d6c766c3d3135 \
+      --log /tmp/ckaaa/radsrv4.log --seconds 2400 --stopfile /tmp/ckaaa/stop4
+
+  `6=0x00000006` is Service-Type = Administrative. Attribute 26 is the vendor attribute
+  `shell:priv-lvl=15`. Step 4 explains why both are needed.
+
+STEP 1 -- instrument check: a local login still works                       PASS
+--------------------------------------------------------------------------------
+  Method: `aaa authentication login` only runs when somebody really logs in. No `show`
+  command can exercise it. So a real console login is the only possible instrument.
+  conlogin.py logs the console out and back in, and reports what prompt it reached.
+
+tb277$ tools/tb conlogin tb277 ckaaa u2 115200 --user manager --password friend
+    === BASELINE-OFF L1: local login as manager must succeed (instrument check) ===
+    LOGIN RESULT: USER  user=manager  seconds=0.4  prompt='awplus>'
+    conlogin: expected PRIV, got USER -- MISMATCH
+    conlogin: restore login as manager -> USER ('awplus>')
+    rc=5
+                                           <-- the login worked; only the expectation was wrong
+
+  Measured platform fact: an AW+ console login lands at privilege level 1, with the prompt
+  `awplus>`, even for a user defined as `username manager privilege 15`. The command
+  `enable` then raises the level to 15, and `show privilege` prints "Current privilege level
+  is 15". So on this platform a console login test passes when it reaches `>`, which
+  conlogin reports as USER. It does not have to reach `#`.
+  => STEP 1 PASS: the local user `manager` logged in on the console in 0.4 s and reached the
+     prompt `awplus>`. The login instrument works, and the correct success criterion for the
+     later steps is now known.
+
+STEP 2 -- baseline, RADIUS client mode is OFF                               PASS
+--------------------------------------------------------------------------------
+  Method: the DUT has `aaa authentication login default local` and no `radius-server host`.
+  Try to log in as a user that does not exist on the DUT. Expected (designed): the login
+  fails and the DUT sends no packet at all.
+  Capture on the box: tools/tb capture tb277 ckaaa eth3 45 t33408-off.pcap udp and port
+  11812 or port 11813
+
+tb277$ tools/tb conlogin tb277 ckaaa u2 115200 --user raduser --password radpass123 --expect fail
+    === BASELINE-OFF L2: raduser login with aaa=local only -- must FAIL, and NO packet may leave the DUT ===
+    LOGIN RESULT: FAIL  user=raduser  seconds=2.6  prompt='awplus login:'
+    conlogin: expected FAIL, got FAIL -- MATCH
+    conlogin: restore login as manager -> USER ('awplus>')
+    rc=0
+
+tb277$ radwire /tmp/ckaaa/t33408-off.pcap
+radwire: 0 RADIUS packet(s) in /tmp/ckaaa/t33408-off.pcap
+  authenticator check: valid=0 invalid=0 unpaired=0
+
+  The RADIUS server's own log shows nothing in the same window except its own START line.
+  => STEP 2 PASS: the login was refused in 2.6 s and the DUT sent 0 RADIUS packets. This
+     zero is a real measurement, not a broken instrument. The same capture filter, the same
+     NIC and the same decoder counted 24 packets in step 5 below.
+
+STEP 3 -- read the AAA CLI surface, read-only                               PASS
+--------------------------------------------------------------------------------
+  Method: qmark.py types "<prefix> ?" with no carriage return. Nothing is executed. Its own
+  self-test passed first.
+
+awplus(config)# aaa authentication login default ?
+      group  Use server group
+      local  Use local username database
+awplus(config)# aaa accounting login default ?
+      none        No accounting record to be sent
+      start-stop  Start and stop records to be sent
+      stop-only   Stop records to be sent
+awplus(config)# radius-server host 10.38.22.33 auth-port 11812 ?
+      acct-port | timeout | retransmit | key | key-encrypted | <cr>
+awplus(config)# aaa authentication ?
+      auth-mac | auth-web | dot1x | enable | http | login
+awplus(config)# aaa local ?
+      authentication  Authentication settings
+  => STEP 3 PASS: the commands needed in step 4 exist, and `radius-server host` accepts a
+     non-default authentication port, an accounting port and a key.
+
+STEP 4 -- configure RADIUS client mode                                      PASS
+--------------------------------------------------------------------------------
+  Method: cfg.py sends each line and stops at the first "% " error line. It returned 0.
+  The secret `testing123` is worthless on purpose.
+
+awplus# configure terminal
+awplus(config)# radius-server host 10.38.22.33 auth-port 11812 acct-port 11813 key testing123
+awplus(config)# aaa authentication login default group radius local
+awplus(config)# aaa accounting login default start-stop group radius
+awplus(config)# end
+
+awplus# show radius
+    RADIUS Global Configuration
+      Source Interface    : not configured
+      Secret Key          : <not reproduced here. This key was already on the DUT before
+                             this test started. This case did not set it and did not change it.>
+      Timeout             : 5 sec
+      Retransmit Count    : 3
+      Deadtime            : 0 min
+
+    Server Host : 10.38.22.33
+      Authentication Port : 11812
+      Accounting Port     : 11813
+      Secret Key          : h+EeDXRN2hiSvhQ4iErCYKh+SaDpWqcKIQ88roqWCBw=
+
+    Server Host/IP       Auth  Acct             Auth           Acct
+    Address              Port  Port  VRF        Status         Status
+    -------------------------------------------------------------------------
+    10.38.22.33          11812 11813            Alive          Alive
+                                           <-- Timeout 5 sec and Retransmit Count 3 are
+                                               measured again on the wire in steps 7 and 8
+
+  The three lines this case added to the running-config:
+
+    radius-server host 10.38.22.33 auth-port 11812 acct-port 11813 key h+EeDXRN2hiSvhQ4iErCYKh+SaDpWqcKIQ88roqWCBw= encrypted
+    aaa authentication login default group radius local
+    aaa accounting login default start-stop group radius
+
+  The key is stored and displayed only in encrypted form. The plain text never appears.
+
+  Measured requirement: the Access-Accept must carry an authorization attribute.
+  A RADIUS server that answers with an Access-Accept holding only a Reply-Message is not
+  enough for this DUT. The DUT accepts the reply and then drops the session:
+
+    awplus login: radclient1
+    Password:
+    login:
+    Session setup problem, abort.
+
+  The server log proves the authentication itself succeeded:
+
+    09:22:50 Access-Request  from 10.38.22.34 id=195 user='radclient1' | Message-Authenticator=0x451a...,
+             User-Name='radclient1', User-Password=<hidden>, NAS-Identifier='console',
+             NAS-Port=20833, NAS-Port-Type=5, Service-Type=8(Authenticate-Only)
+    09:22:50 Access-Accept   to 10.38.22.34 id=195 user='radclient1' (ok)
+
+  and the DUT's own log names what then went wrong:
+
+    2026 Oct 19 20:22:36 authpriv.err awplus login: Invalid user name "radclient1". Abort.
+    2026 Oct 19 20:22:41 daemon.notice awplus systemd[1]: serial-getty@ttyS0.service: Main process exited, code=exited, status=1/FAILURE
+
+  Adding `Service-Type = Administrative (6)` and the vendor attribute `shell:priv-lvl=15` to
+  the Access-Accept made the same login succeed, which step 5 shows. This matters to anyone
+  repeating the case. The console message "Session setup problem, abort." does not say what
+  is missing. What is missing is an authorization attribute in the RADIUS reply.
+  => STEP 4 PASS: the DUT is configured as a RADIUS client. It reports the server as Alive
+     on both the authentication and the accounting port, and the key is stored encrypted.
+     swi_d.cfg was saved at this point.
+
+STEP 5 -- the measurement: a RADIUS-only user logs in to the DUT            PASS
+--------------------------------------------------------------------------------
+  Method: `radclient1` exists only on the RADIUS server. There is no `username radclient1`
+  in the DUT's running-config. So a successful login cannot come from the local database.
+  Capture on the box covers UDP ports 11812 and 11813.
+
+tb277$ tools/tb conlogin tb277 ckaaa u2 115200 --user radclient1 --password radpass123 --logout --settle 60
+    === ON M2: radclient1 with Service-Type=Administrative + shell:priv-lvl=15 in the Accept ===
+    LOGIN RESULT: USER  user=radclient1  seconds=0.6  prompt='awplus>'
+    conlogin: logged out again
+    conlogin: restore login as manager -> USER ('awplus>')
+    rc=1
+
+  The RADIUS server's own packet log:
+
+    09:26:26 Access-Request         from 10.38.22.34 id=228 user='radclient1' | Message-Authenticator=0xe7539fc4f5bfc0283df0dea89cb0af88, User-Name='radclient1', User-Password=<hidden>, NAS-Identifier='console', NAS-Port=21146, NAS-Port-Type=5, Service-Type=8(Authenticate-Only)
+    09:26:26 Access-Accept          to 10.38.22.34 id=228 user='radclient1' (ok)
+    09:26:27 Accounting-Request     from 10.38.22.34 id=179 user='radclient1' Acct-Status-Type=Start | User-Name='radclient1', NAS-Identifier='console', NAS-Port=21146, NAS-Port-Type=5, Acct-Status-Type=1(Start), Acct-Session-Id='00021146', Acct-Authentic=1
+    09:26:27 Accounting-Response    to 10.38.22.34 id=179
+    09:26:27 Accounting-Request     from 10.38.22.34 id=156 user='radclient1' Acct-Status-Type=Stop | User-Name='radclient1', NAS-Identifier='console', NAS-Port=21146, NAS-Port-Type=5, Acct-Status-Type=2(Stop), Acct-Session-Id='00021146', Acct-Authentic=1, Acct-Session-Time=0
+    09:26:27 Accounting-Response    to 10.38.22.34 id=156
+
+  The same exchange seen on the wire:
+
+   1.556  10.38.22.34:22171 -> 10.38.22.33:11812  Access-Request       id=228 len=95  Message-Authenticator=0xe7539fc4f5bfc0283df0dea89cb0af88, User-Name='radclient1', User-Password=<hidden,16b>, NAS-Identifier='console', NAS-Port=21146, NAS-Port-Type=5, Service-Type=8(Authenticate-Only)
+   1.557  10.38.22.33:11812 -> 10.38.22.34:22171  Access-Accept        id=228 len=80  Reply-Message='Access granted by radsrv.py', Service-Type=6(Administrative), Vendor-Specific=0x0000000901137368656c6c3a707269762d6c766c3d3135  [authenticator VALID for the given secret]
+   1.611  10.38.22.34:22171 -> 10.38.22.33:11813  Accounting-Request   id=179 len=75  User-Name='radclient1', NAS-Identifier='console', NAS-Port=21146, NAS-Port-Type=5, Acct-Status-Type=1(Start), Acct-Session-Id='00021146', Acct-Authentic=1
+   1.612  10.38.22.33:11813 -> 10.38.22.34:22171  Accounting-Response  id=179 len=20  (no attributes)  [authenticator VALID for the given secret]
+   1.964  10.38.22.34:22171 -> 10.38.22.33:11813  Accounting-Request   id=156 len=81  User-Name='radclient1', NAS-Identifier='console', NAS-Port=21146, NAS-Port-Type=5, Acct-Status-Type=2(Stop), Acct-Session-Id='00021146', Acct-Authentic=1, Acct-Session-Time=0
+   1.965  10.38.22.33:11813 -> 10.38.22.34:22171  Accounting-Response  id=156 len=20  (no attributes)  [authenticator VALID for the given secret]
+
+  Totals for the whole ON capture window:
+
+radwire: 24 RADIUS packet(s) in /tmp/ckaaa/t33408-on2.pcap
+  Access-Accept          3
+  Access-Reject          1
+  Access-Request         7
+  Accounting-Request     7
+  Accounting-Response    6
+  authenticator check: valid=10 invalid=0 unpaired=0
+
+  What the DUT puts in its Access-Request, measured and not assumed: a Message-Authenticator,
+  `User-Name`, a PAP `User-Password`, `NAS-Identifier='console'`, a `NAS-Port` that changes
+  per session, and `Service-Type = 8 (Authenticate-Only)`. It does not send NAS-IP-Address.
+
+  A second measured detail on the DUT console: a login served by RADIUS prints no
+  `Last login:` line, while a local login always prints one. Five local logins in this case
+  printed it. Three RADIUS-served logins did not. There was no exception. The reason is
+  plain: `Last login:` is read from the Linux lastlog of a local account, and a
+  RADIUS-authenticated session has no local account to read. This is offered as a
+  corroborating sign that is visible on the DUT alone. The server log and the wire capture
+  stay the authoritative instruments.
+  => STEP 5 PASS: a user who exists only on the RADIUS server logged in to the DUT in 0.6 s.
+     Three independent views agree: the console reached `awplus>`, the server logged
+     Access-Request id=228 and Access-Accept id=228, and the wire shows the same pair with a
+     valid authenticator. Accounting is paired: a Start on login and a Stop on logout, both
+     carrying Acct-Session-Id '00021146', with Acct-Session-Time on the Stop.
+
+STEP 6 -- control: the wrong password                                       PASS
+--------------------------------------------------------------------------------
+tb277$ tools/tb conlogin tb277 ckaaa u2 115200 --user radclient1 --password definitely-wrong --expect fail
+    === CONTROL C1: radclient1 with the WRONG password -- expect Access-Reject and a refused login ===
+    LOGIN RESULT: FAIL  user=radclient1  seconds=1.4  prompt='awplus login:'
+    conlogin: expected FAIL, got FAIL -- MATCH
+    conlogin: restore login as manager -> USER ('awplus>')
+    rc=0
+
+  Server log:
+
+    09:27:17 Access-Request         from 10.38.22.34 id=254 user='radclient1' | Message-Authenticator=0x65bd7b0815bfed4009cfc707deeea7c2, User-Name='radclient1', User-Password=<hidden>, NAS-Identifier='console', NAS-Port=21283, NAS-Port-Type=5, Service-Type=8(Authenticate-Only)
+    09:27:17 Access-Reject          to 10.38.22.34 id=254 user='radclient1' (wrong password)
+
+  Wire:
+
+  52.284  10.38.22.34:22308 -> 10.38.22.33:11812  Access-Request       id=254 len=95  Message-Authenticator=0x65bd7b0815bfed4009cfc707deeea7c2, User-Name='radclient1', User-Password=<hidden,16b>, NAS-Identifier='console', NAS-Port=21283, NAS-Port-Type=5, Service-Type=8(Authenticate-Only)
+  52.285  10.38.22.33:11812 -> 10.38.22.34:22308  Access-Reject        id=254 len=46  Reply-Message='Rejected: wrong password'  [authenticator VALID for the given secret]
+
+  Measured behaviour: `local` in the method list is a fallback for an unreachable server,
+  not for a Reject. The method list was `aaa authentication login default group radius
+  local`. The server answered Access-Reject for the user `manager`, because the test server
+  did not know that user. The DUT obeyed the Reject. It did not then try the local database:
+
+    09:22:57 Access-Request from 10.38.22.34 id=134 user='manager' ...
+    09:22:57 Access-Reject  to 10.38.22.34 id=134 user='manager' (no such user)
+    console: `Login incorrect`
+
+  This follows the RFC: a Reject is authoritative. The practical consequence is important.
+  Once the method list points at RADIUS, every account you still need must also exist on the
+  RADIUS server. Writing `local` at the end of the list does not protect you. Only two
+  patterns are safe: the RADIUS server also knows the administrative account, or the RADIUS
+  server is unreachable, where the fallback does work (step 7).
+  => STEP 6 PASS: the wrong password produced an Access-Reject from the server and a refused
+     login in 1.4 s. The request reached the server, so this is a RADIUS rejection and not a
+     local lockout.
+
+STEP 7 -- control: an unreachable server, and the measured fallback delay   PASS
+--------------------------------------------------------------------------------
+  Method: stop the RADIUS server and change nothing else. Then log in as `manager`, who
+  exists in the DUT's local database.
+
+tb277$ tools/tb conlogin tb277 ckaaa u2 115200 --user manager --password friend --settle 90
+    === RECOVERY / MEASUREMENT: server stopped -> unreachable -> method list must fall through to local ===
+    box 09:24:21
+    LOGIN RESULT: USER  user=manager  seconds=25.5  prompt='awplus>'
+    conlogin: expected USER, got USER -- MATCH
+    rc=0
+
+  DUT log:
+
+    2026 Oct 19 20:24:14 authpriv.err awplus login: pam_radius_auth: RADIUS server 10.38.22.33 failed to respond
+    2026 Oct 19 20:24:29 authpriv.err awplus login: pam_radius_auth: All RADIUS servers failed to respond.
+  => STEP 7 PASS: the same credentials took 25.5 s here against 0.4 s with a plain `local`
+     method list in step 1. The DUT tried RADIUS first. It waited Timeout 5 sec times
+     1 attempt plus 3 retransmits, which is 20 s, and then used `local`. The fallback works
+     and its cost is 25.5 s.
+
+STEP 8 -- control: a mismatched shared key                                  PASS
+--------------------------------------------------------------------------------
+  Method: start the server again with the correct secret, then set a different key on the
+  DUT. Everything else stays the same.
+
+awplus# configure terminal
+awplus(config)# radius-server host 10.38.22.33 auth-port 11812 acct-port 11813 key wrongkey99
+awplus(config)# end
+
+tb277$ tools/tb conlogin tb277 ckaaa u2 115200 --user radclient1 --password radpass123 --settle 90 --expect fail
+    === C2: radclient1 with correct password but a MISMATCHED shared key -- expect refusal ===
+    LOGIN RESULT: FAIL  user=radclient1  seconds=21.9  prompt='awplus login:'
+    conlogin: expected FAIL, got FAIL -- MATCH
+
+  Server log. The requests do arrive, and the server discards each one without answering,
+  which is what RFC 3579 requires when the Message-Authenticator does not verify:
+
+    09:27:55 DROP-bad-msg-auth      from 10.38.22.34 user='radclient1'
+    09:28:00 DROP-bad-msg-auth      from 10.38.22.34 user='radclient1'
+    09:28:05 DROP-bad-msg-auth      from 10.38.22.34 user='radclient1'
+    09:28:10 DROP-bad-msg-auth      from 10.38.22.34 user='radclient1'
+
+  Wire. The same request id and the same Message-Authenticator, sent again 5.003 s apart:
+
+  90.220  10.38.22.34:22359 -> 10.38.22.33:11812  Access-Request       id=183 len=95  Message-Authenticator=0x427895c597978bdc97aeecf98c95610c, User-Name='radclient1', User-Password=<hidden,16b>, NAS-Identifier='console', NAS-Port=21334, NAS-Port-Type=5, Service-Type=8(Authenticate-Only)
+  95.223  10.38.22.34:22359 -> 10.38.22.33:11812  Access-Request       id=183 len=95  Message-Authenticator=0x427895c597978bdc97aeecf98c95610c, User-Name='radclient1', User-Password=<hidden,16b>, NAS-Identifier='console', NAS-Port=21334, NAS-Port-Type=5, Service-Type=8(Authenticate-Only)
+ 100.228  10.38.22.34:22359 -> 10.38.22.33:11812  Access-Request       id=183 len=95  Message-Authenticator=0x427895c597978bdc97aeecf98c95610c, User-Name='radclient1', User-Password=<hidden,16b>, NAS-Identifier='console', NAS-Port=21334, NAS-Port-Type=5, Service-Type=8(Authenticate-Only)
+
+  The accounting packets with the wrong key were discarded the same way, through the
+  Accounting Request Authenticator. The server logged 4 of them as
+  `DROP-bad-acct-auth ... (wrong secret)`.
+
+  One limit of the NAS view. The DUT's own log says `pam_radius_auth: RADIUS server
+  10.38.22.33 failed to respond` here, and it says the same in step 7, where the server was
+  really gone. A discarded packet and a dead server look the same to a NAS. That is by
+  design.
+  The DUT's key was set back to `testing123` straight after this step.
+  => STEP 8 PASS: the wrong key made the server discard every request. The DUT retried the
+     same request 3 times, 5.003 s apart. That measures Timeout 5 sec and Retransmit Count 3
+     on the wire, instead of reading them from a `show` command. The login then fell through
+     to `local`, where `radclient1` has no account, so it was refused after 21.9 s.
+
+STEP 9 -- removal                                                           PASS
+--------------------------------------------------------------------------------
+awplus# configure terminal
+awplus(config)# aaa authentication login default local
+awplus(config)# no aaa accounting login default
+awplus(config)# no radius-server host 10.38.22.33 auth-port 11812 acct-port 11813
+awplus(config)# end
+
+awplus# show radius
+    No RADIUS servers currently defined
+awplus# show running-config | include aaa|radius
+    aaa authentication enable default local
+    aaa authentication login default local
+                                           <-- no radius-server line is left
+
+tb277$ tools/tb conlogin tb277 ckaaa u2 115200 --user radclient1 --password radpass123 --expect fail
+    === REMOVAL R2: radclient1 must fail again, and NO packet may leave the DUT ===
+    LOGIN RESULT: FAIL  user=radclient1  seconds=2.1  prompt='awplus login:'
+    conlogin: expected FAIL, got FAIL -- MATCH
+    conlogin: restore login as manager -> USER ('awplus>')
+    rc=0
+
+tb277$ radwire /tmp/ckaaa/t33408-removal.pcap
+radwire: 0 RADIUS packet(s) in /tmp/ckaaa/t33408-removal.pcap
+  authenticator check: valid=0 invalid=0 unpaired=0
+
+  The RADIUS server's log holds nothing at all after the removal.
+  => STEP 9 PASS: the configuration is gone and the DUT sends 0 RADIUS packets. Two
+     independent instruments both report zero, and both gave non-zero counts minutes earlier
+     on the same path. The refusal also took 2.1 s here against 21.9 s in step 8: with no
+     server configured the DUT does not wait for any timeout.
+================================================================================
