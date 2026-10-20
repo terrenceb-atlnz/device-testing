@@ -1,6 +1,6 @@
 # tb101 — bench state
 
-> **Generated 2026-10-20T030414Z by `bench_probe.py`** from `captures/2026-10-20T030414Z/` on tb101. Measured state only;
+> **Generated 2026-10-20T192814Z by `bench_probe.py`** from `captures/2026-10-20T192814Z/` on tb101. Measured state only;
 > nothing here is hand-written. Regenerate with `./bench_probe.py --box tb101 run` on tb101. The
 > `setup` fence at the end IS `tb101.setup`; `./bench_probe.py apply` writes it to the box.
 > Names and PDU outlets come from `tb101.static`; platform mechanics live in the orient-dt
@@ -32,7 +32,7 @@
 ## tb101.setup
 
 ```setup
-### GENERATED 2026-10-20T030414Z by bench_probe.py from a console capture -- DO NOT HAND-EDIT.
+### GENERATED 2026-10-20T192814Z by bench_probe.py from a console capture -- DO NOT HAND-EDIT.
 ### Source: claude/device-testing/bench-setup/bench-state.md (regenerate with
 ### `bench_probe.py run` on tb101; `bench_probe.py apply` writes this file).
 ### Names and PDU outlets come from bench-setup/tb101/tb101.static.
@@ -79,5 +79,5 @@ eth4 up swi_a:port1.0.1
 ```
 
 ```probe-meta
-capture 2026-10-20T030414Z
+capture 2026-10-20T192814Z
 ```
