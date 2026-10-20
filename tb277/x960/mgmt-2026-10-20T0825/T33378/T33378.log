@@ -1,0 +1,468 @@
+================================================================================
+TEST T33378 -- (229) Management - Telnet Server (IPv4)
+================================================================================
+Run:      2026-10-20 11:34-11:50 NZDT.  One run, clean, on swi_d alone.
+          The DUT clock reads UTC and runs 15 s behind the box, so a DUT time plus
+          13 h 15 s gives the box time used in STEP 3.
+Bench:    tb277, consoles u2 = swi_d (DUT), u3 = swi_b, u5 = swi_a; Test Engineer
+          bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T33378.  The test-case database holds NO step text for this case: there
+          is no objective, and the single step has an empty description, empty test data
+          and an empty expected result (ck.db `zephyr_cases`).  No STEP heading below can
+          therefore quote authored text.  The six steps were designed by the tester from
+          three sources: the case title, the "X960 platform support TPS" row 227
+          (Management / Telnet Server(IPv4) / Priority 1 / Supported: Yes), and the DUT's
+          own CLI surface, read with no carriage return before anything was configured:
+            (config)# service telnet ?     -> ip  "IP telnet server" | ipv6  "IPv6 telnet
+                                              server" | <cr>
+            (config)# no service telnet ?  -> ip | ipv6 | <cr>
+          So `service telnet ip` is the IPv4-only form the title names, and it exists.
+          No Telnet feature overview guide exists in `Feature Overview Guides/`, and the
+          lab wiki has no telnet-server feature page.  Both were looked for.
+Build:    swi_d  sin_x96056-20261012-24  (flash:/x960-tb277.rel, build date Mon Oct 12
+          2026), AT-x960-56YSQ, S/N A2WQS700B, standalone Active Master, console u2
+          @115200
+
+          The DUT's own `show system`, read at 11:39:07 NZDT, verbatim and in full:
+
+awplus# show system
+  System Status                                           Mon Oct 19 22:38:52 2026
+
+  Board      ID   Bay     Board Name                        Rev   Serial number
+  --------------------------------------------------------------------------------
+  Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+  PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+  PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+  Fan module 730  FAN1    AT-FAN19                          -     -
+  Fan module 730  FAN2    AT-FAN19                          -     -
+  --------------------------------------------------------------------------------
+  RAM: Total: 8092132 kB Free: 7456296 kB
+  Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+  --------------------------------------------------------------------------------
+  Environment Status : Normal
+  Uptime             : 3 days 16:16:28
+  Bootloader version : Unknown
+
+  Current software   : x960-tb277.rel
+  Software version   : sin_x96056-20261012-24
+  Build date         : Mon Oct 12 06:38:00 UTC 2026
+
+  Current boot config: flash:/default.cfg (file exists)
+
+  System Name
+   awplus
+  System Contact
+
+  System Location
+
+Configs:  swi_d.cfg (running-config after setup, before step 1; saved to startup: no)
+
+VERDICT: PASS -- the IPv4 telnet server works on this platform.  It was measured on the
+wire at every stage: off, on, IPv6-only and removed.
+      server off, TCP/23 ........... REFUSED, SYN answered by RST  (2 flows, 4 packets)
+      `service telnet ip` .......... accepted; `show telnet` reads Enabled / IPv4 / 23
+      a real login ................. `manager` authenticated over telnet and ran three
+                                     commands  (63 packets, 2045 B sent by the DUT)
+      the DUT agrees ............... `show users` lists `vty 0 manager 10.38.22.33`, and
+                                     the DUT logged `telnetd: Connection from
+                                     10.38.22.33 received.`
+      a bad credential ............. refused by the application on an ESTABLISHED
+                                     connection  (94 B, `Login incorrect`)
+      IPv4 turned off alone ........ TCP/23 refused again, while `show telnet` still read
+                                     Enabled with Protocol IPv6
+      IPv4 turned back on .......... the same client logged in again  (49 packets)
+      `no service telnet` .......... `show telnet` back to Disabled / None / 23, and
+                                     TCP/23 refused  (2 packets in 40 s)
+CAVEAT:  Three things this run did NOT establish.
+         1. Reboot persistence was not measured.  The DUT's vlan10 and vlan48 underlay
+            exists in the running configuration only, and the boot config is
+            `flash:/default.cfg`.  A reload would destroy the path this case measures
+            through, so no reload was done.
+         2. The IPv6 telnet listener was never connected to.  The DUT's SVIs have no IPv6
+            address.  Its existence is taken from `show telnet` only.
+         3. Only one telnet session was open at a time.  `line vty 0 7` was left at its
+            default, so the number of simultaneous sessions was not tested.
+HEALTH:  reboots ......... no new entry.  Newest is `2026-10-16 06:22:04 Expected
+                           CLI(user request)` in both samples.  The DUT was never
+                           reloaded or power-cycled.
+         exception log ... None in both samples.
+         log ............. no crash, no daemon restart, no kernel error.  Every new line
+                           in the case window is this case's own work: three
+                           `IMI[903]: Warning: Telnet is insecure and deprecated. Please
+                           use SSH.`, three `telnetd[...]: Connection from 10.38.22.33
+                           received.`, and the PAM lines of the refused login in STEP 4.
+         CPU ............. 0% before -> 0% after.  `show cpu` prints load, not idle:
+                           "1 second: 0%, 20 seconds: 0%, 60 seconds: 0%" and
+                           "userspace: 0%, kernel: 0%, interrupts: 0% iowaits: 0%" in
+                           both samples.  Nothing was still busy after the test traffic.
+         memory .......... free 7456300 kB before -> 7460352 kB after.  Memory in use
+                           FELL by 4052 kB.  No step change, and no leak is claimed.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+   tb277 eth3  10.38.22.33/27                tb277 eth4  10.38.22.65/27
+   mac 00:0d:b9:55:77:0e                     mac 00:0d:b9:55:77:0f
+   (telnet client + tcpdump capture)         (one attempt in STEP 1 only)
+        |                                         |
+        |  telnet TCP/23  -->                     |  telnet TCP/23  -->
+        |  <--  RST, or banner and output         |  <--  RST
+        v                                         v
+   port1.0.10                                port1.0.48
+  +--------------------------------------------------------------------+
+  |  swi_d   AT-x960-56YSQ   *** DUT ***   console u2 @115200           |
+  |  vlan10 10.38.22.34/27 on port1.0.10                                |
+  |  vlan48 10.38.22.66/27 on port1.0.48                                |
+  +--------------------------------------------------------------------+
+
+  DUT   : swi_d (AT-x960-56YSQ) console u2 @115200, S/N A2WQS700B, standalone Active
+          Master, hostname `awplus`.  Both SVIs share MAC e0:1a:ea:d4:70:43.
+  host  : tb277 eth3, mac 00:0d:b9:55:77:0e, 10.38.22.33/27 -> swi_d port1.0.10 (vlan10
+          10.38.22.34/27).  Every telnet session and every capture used this link.
+  host  : tb277 eth4, mac 00:0d:b9:55:77:0f, 10.38.22.65/27 -> swi_d port1.0.48 (vlan48
+          10.38.22.66/27).  Used by one connection attempt in STEP 1, to show the refusal
+          came from both SVIs.  It was not captured, because the capture ran on eth3.
+  tools : tools/netlogin.py was the telnet client, run on tb277 through `tools/tb tool`.
+          tcpdump ran on tb277 eth3 through `tools/tb capture`, filtered to `tcp port 23`.
+          tools/tcpflow.py decoded each pcap.  The DUT's own `show log` was the third,
+          independent instrument.
+  note  : swi_b and swi_a took no part in this case and are not drawn.
+
+STEP 1 -- baseline, the telnet server is OFF (designed by the tester)      PASS
+--------------------------------------------------------------------------------
+  Method: read `show telnet`, then try three telnet connections from the box while the
+  server is disabled.  A capture on eth3 records what the DUT answered on the wire.
+  Expected: `show telnet` reads Disabled, and every connection gets a RST.
+
+awplus# show telnet
+  Telnet Server Configuration
+  ------------------------------------------------------------
+  Telnet server                      : Disabled
+  Protocol                           : None
+  Port                               : 23
+awplus# show running-config | include telnet
+  no service telnet
+
+box$ tools/tb capture tb277 ckmgmt eth3 25 t33378-off.pcap tcp port 23
+
+  Three connection attempts, all from the box, all while the server was Disabled:
+
+box$ tools/tb tool tb277 ckmgmt netlogin --proto telnet --host 10.38.22.34 --user manager
+       --password friend --login-timeout 12
+  -> TRANSPORT FAILED: telnet 10.38.22.34:23 -- [Errno 111] Connection refused   (exit 4)
+box$ (the same command again, 10.38.22.34)
+  -> TRANSPORT FAILED: telnet 10.38.22.34:23 -- [Errno 111] Connection refused   (exit 4)
+box$ (the same command to the vlan48 SVI, 10.38.22.66, which leaves the box by eth4)
+  -> TRANSPORT FAILED: telnet 10.38.22.66:23 -- [Errno 111] Connection refused   (exit 4)
+
+box$ tools/tb tool tb277 ckmgmt tcpflow /tmp/ckmgmt/t33378-off.pcap --port 23
+  file /tmp/ckmgmt/t33378-off.pcap: 4 packet(s) total, 2 TCP flow(s) on port 23
+
+  flow 10.38.22.33:57706 <-> 10.38.22.34:23  packets=2  duration=0.000s
+       => REFUSED (SYN answered by RST)
+     10.38.22.33:57706 -> 10.38.22.34:23  pkts=1  payload=0 B  flags={SYN}
+     10.38.22.34:23 -> 10.38.22.33:57706  pkts=1  payload=0 B  flags={RST.ACK}
+
+  flow 10.38.22.33:57708 <-> 10.38.22.34:23  packets=2  duration=0.000s
+       => REFUSED (SYN answered by RST)
+     10.38.22.33:57708 -> 10.38.22.34:23  pkts=1  payload=0 B  flags={SYN}
+     10.38.22.34:23 -> 10.38.22.33:57708  pkts=1  payload=0 B  flags={RST.ACK}
+
+  The 10.38.22.66 attempt left the box by eth4, so it is not in an eth3 capture.  Its
+  exit code 4 (ECONNREFUSED) is the record for it.
+  Third instrument: the DUT logged NO `telnetd ... Connection from` line for any of the
+  three attempts.
+  => STEP 1 PASS: with the server off, the DUT answers TCP/23 with a RST from both of its
+     SVIs.  The RST comes from the kernel because no program is listening.  The telnet
+     daemon never saw a connection, so this is a stronger baseline than silence.
+
+STEP 2 -- enable the IPv4 telnet server (designed by the tester)           PASS
+--------------------------------------------------------------------------------
+  Method: send `service telnet ip`, then read the state back.
+  Expected: the command is accepted, `show telnet` reads Enabled / IPv4 / 23, and the
+  configuration is stored.
+
+awplus# configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+awplus(config)# service telnet ip
+  % Warning: Telnet is insecure and deprecated. Please use SSH.
+awplus(config)#
+
+  The `% ` line above is a WARNING, not a rejection: the prompt advanced and the command
+  took effect.  Read back 24 seconds later:
+
+awplus# show telnet
+  Telnet Server Configuration
+  ------------------------------------------------------------
+  Telnet server                      : Enabled
+  Protocol                           : IPv4
+  Port                               : 23
+awplus# show running-config | include telnet
+  service telnet
+  no service telnet ipv6
+
+  The DUT recorded the same warning itself:
+  2026 Oct 19 22:45:02 user.warning awplus IMI[903]: Warning: Telnet is insecure and
+  deprecated. Please use SSH.
+
+  A product fact worth recording.  The IPv4-only state is stored as the generic
+  `service telnet` PLUS an explicit `no service telnet ipv6`.  It is NOT stored as
+  `service telnet ip`.  With both protocols on, only `service telnet` is stored (STEP 5).
+  So the running-config tells the three states apart by which negation is present.  Read
+  a `| include telnet` grep with that in mind.
+  => STEP 2 PASS: the IPv4-only form of the command is accepted and the server reports
+     itself Enabled with Protocol IPv4 on port 23.
+
+STEP 3 -- a real authenticated telnet session (designed by the tester)     PASS
+--------------------------------------------------------------------------------
+  Method: log in over telnet from the box as `manager` and run three commands.  Capture
+  the whole conversation on eth3.
+  Expected: the client reaches a login prompt, authenticates, and sees real command
+  output.  The DUT must list the session as a vty line from the box's address.  The whole
+  exchange must appear as one ESTABLISHED TCP/23 conversation carrying cleartext.
+
+box$ tools/tb capture tb277 ckmgmt eth3 45 t33378-on.pcap tcp port 23
+box$ tools/tb tool tb277 ckmgmt netlogin --proto telnet --host 10.38.22.34 --user manager
+       --password friend --login-timeout 20 --cmd "show users" --cmd "show telnet"
+       --cmd "show system"
+
+  === telnet 10.38.22.34:23 as manager ===
+  --- bytes before the username prompt ---
+  awplus login:
+  --- bytes between username and password prompt ---
+  Password:
+  --- bytes after the password was sent (THE LOGIN BANNER) ---
+
+  Last login: Mon Oct 19 22:34:43 UTC 2026 on ttyS0
+  No entry for terminal type "network";
+  using vt100 terminal settings.
+  AlliedWare Plus (TM) 0.0.0 10/12/26 06:38:00
+
+  awplus>
+  LOGIN RESULT: USER  proto=telnet  user=manager  seconds=0.2
+
+  === CMD: show users ===
+  Line    User            Host(s)  Idle      Location        Priv Idletime Timeout
+  con 0   manager         idle     00:00:43  ttyS0           15   10       N/A
+  vty 0   manager         idle     00:00:01  10.38.22.33     1    10       N/A
+
+  === CMD: show telnet ===
+  Telnet server : Enabled / Protocol : IPv4 / Port : 23
+  === CMD: show system ===
+  (the full System Status block, matching the console's, RAM free 7453236 kB,
+   uptime 3 days 16:23:40)
+
+  Three separate facts come out of that one exchange.
+  (a) The session authenticated with the local `manager` account and landed at `awplus>`,
+      privilege 1.  That is the correct AW+ result for a login, even for a `privilege 15`
+      username.
+  (b) The DUT itself lists the session: `vty 0  manager  10.38.22.33  Priv 1`.  The
+      Location column holds the box's eth3 address, so the DUT agrees about who connected.
+  (c) `show system` returned real, current data over the telnet session.
+
+box$ tools/tb tool tb277 ckmgmt tcpflow /tmp/ckmgmt/t33378-on.pcap --port 23 --quiet
+  file /tmp/ckmgmt/t33378-on.pcap: 94 packet(s) total, 2 TCP flow(s) on port 23
+
+  flow 10.38.22.33:57712 <-> 10.38.22.34:23  packets=63  duration=0.991s
+       => ESTABLISHED+DATA then RST
+     10.38.22.33:57712 -> 10.38.22.34:23  pkts=35  payload=106 B
+          flags={ACK, PSH.ACK, RST.ACK, SYN}
+     10.38.22.34:23 -> 10.38.22.33:57712  pkts=28  payload=2045 B
+          flags={ACK, FIN.ACK, PSH.ACK, PSH.ACK.URG, SYN.ACK}
+
+  The cleartext the DUT sent, decoded from the same pcap (`tcpflow --ascii`, the first
+  900 B of the 1266 B captured):
+
+  ..... ..#..'..............!........awplus login: Password:
+  Last login: Mon Oct 19 22:34:43 UTC 2026 on ttyS0
+  No entry for terminal type "network";
+  using vt100 terminal settings.
+  AlliedWare Plus (TM) 0.0.0 10/12/26 06:38:00
+
+  awplus>terminal length 0
+  awplus>show users
+  Line    User            Host(s)  Idle      Location        Priv Idletime Timeout
+  con 0   manager         idle     00:00:43  ttyS0           15   10       N/A
+  vty 0   manager         idle     00:00:01  10.38.22.33     1    10       N/A
+  awplus>show telnet
+  Telnet Server Configuration
+  ------------------------------------------------------------
+  Telnet server                      : Enabled
+  Protocol                           : IPv4
+  Port                               : 23
+  awplus>show system
+  System Status                                           Mon Oct 19 22:46:04 2026
+  ...
+
+  The leading bytes `..... ..#..'...` are the telnet option negotiation, which the client
+  refuses.  After that the protocol is cleartext, as telnet is.
+
+  Third instrument, the DUT's own log:
+  2026 Oct 19 22:46:03 daemon.notice awplus telnetd[30356]: Connection from 10.38.22.33
+  received.
+  DUT 22:46:03 UTC + 13 h + 15 s = box 11:46:18 NZDT, which is inside the capture window.
+  => STEP 3 PASS: a real user logged in over TCP/23 and ran commands.  Three independent
+     instruments describe the same session: the client's own bytes, the capture on the
+     wire, and the DUT's log and `show users`.  This is the telnet server working.
+
+STEP 4 -- control, a bad credential is refused (designed by the tester)    PASS
+--------------------------------------------------------------------------------
+  Method: with the server on, try a username the DUT does not hold.  A NON-EXISTENT user
+  was used, not a wrong password for `manager`.  AW+ locks an account after 5 failed
+  logins, and swi_a on this bench is already locked out that way.  A failure against an
+  unknown user cannot count against `manager`.  The password used is a worthless one,
+  `testing123`.
+  Expected: the TCP connection is ESTABLISHED, and the login is refused by the
+  application.  This separates "the server is listening" from "anything can get in".
+
+box$ tools/tb tool tb277 ckmgmt netlogin --proto telnet --host 10.38.22.34 --user ckbogus
+       --password testing123 --login-timeout 20 --expect fail
+
+  === telnet 10.38.22.34:23 as ckbogus ===
+  --- bytes before the username prompt ---
+  awplus login:
+  --- bytes between username and password prompt ---
+  Password:
+  --- bytes after the password was sent (THE LOGIN BANNER) ---
+
+  Login incorrect
+
+  awplus login:
+  LOGIN RESULT: UNKNOWN  proto=telnet  user=ckbogus  seconds=2.5
+
+  The DEVICE's answer is clear: `Login incorrect`, then a fresh `login:` prompt.  The
+  `UNKNOWN` on the last line is the client tool's own grading, not the DUT's answer.
+
+  On the wire, from the same capture as STEP 3:
+
+  flow 10.38.22.33:57714 <-> 10.38.22.34:23  packets=31  duration=2.463s
+       => ESTABLISHED+DATA
+     10.38.22.33:57714 -> 10.38.22.34:23  pkts=17  payload=52 B
+          flags={ACK, FIN.ACK, PSH.ACK, SYN}
+     10.38.22.34:23 -> 10.38.22.33:57714  pkts=14  payload=94 B
+          flags={ACK, FIN.ACK, PSH.ACK, PSH.ACK.URG, SYN.ACK}
+  payload 10.38.22.34:23 -> 10.38.22.33:57714 (94 B):
+     awplus login: Password:
+     Login incorrect
+
+     awplus login:
+
+  Third instrument, the DUT's own log:
+  2026 Oct 19 22:46:15 daemon.notice awplus telnetd[30403]: Connection from 10.38.22.33
+    received.
+  2026 Oct 19 22:46:15 authpriv.notice awplus login: pam_unix(vty0:auth): check pass;
+    user unknown
+  2026 Oct 19 22:46:15 authpriv.notice awplus login: pam_unix(vty0:auth): authentication
+    failure; logname= uid=0 euid=0 tty=/dev/pts/0 ruser= rhost=10.38.22.33
+  2026 Oct 19 22:46:18 authpriv.notice awplus login: FAILED LOGIN 1 FROM 10.38.22.33 FOR
+    (unknown), User not known to the underlying authentication module
+  => STEP 4 PASS: the DUT sent 94 B and refused, against 2045 B for the accepted session.
+     The TCP connection reached ESTABLISHED, so the server really is listening, and the
+     refusal happened in the application.  The log counts the failure against `(unknown)`,
+     not against `manager`, which is why a non-existent username was chosen.
+
+STEP 5 -- the "(IPv4)" in the title is a real control (designed by tester) PASS
+--------------------------------------------------------------------------------
+  Method: turn the IPv6 half on, then remove the IPv4 half alone, then put it back.  Try
+  the same IPv4 login at each stage.
+  Expected: the two halves are controlled separately.  Turning IPv4 off must stop IPv4
+  connections even while the server as a whole still reads Enabled.  No `show` command
+  can grade this step; only the wire can.
+
+  5a. Add IPv6 (11:47:40):
+
+awplus(config)# service telnet ipv6
+  % Warning: Telnet is insecure and deprecated. Please use SSH.
+awplus# show telnet
+  Telnet server : Enabled / Protocol : IPv4,IPv6 / Port : 23
+awplus# show running-config | include telnet
+  service telnet
+
+  5b. Remove the IPv4 half only, leaving IPv6 (11:48:10):
+
+awplus(config)# no service telnet ip
+awplus# show telnet
+  Telnet Server Configuration
+  ------------------------------------------------------------
+  Telnet server                      : Enabled
+  Protocol                           : IPv6
+  Port                               : 23
+awplus# show running-config | include telnet
+  service telnet
+  no service telnet ip
+
+box$ tools/tb tool tb277 ckmgmt netlogin --proto telnet --host 10.38.22.34 --user manager
+       --password friend --login-timeout 10
+  -> TRANSPORT FAILED: telnet 10.38.22.34:23 -- [Errno 111] Connection refused  (exit 4)
+
+  on the wire (t33378-v6only.pcap):
+  flow 10.38.22.33:57716 <-> 10.38.22.34:23  packets=2  => REFUSED (SYN answered by RST)
+     10.38.22.33:57716 -> 10.38.22.34:23  pkts=1  payload=0 B  flags={SYN}
+     10.38.22.34:23 -> 10.38.22.33:57716  pkts=1  payload=0 B  flags={RST.ACK}
+                                          <-- `show telnet` says Enabled at this moment,
+                                              and IPv4 is refused at the same moment
+
+  5c. Put IPv4 back and take IPv6 away again (11:48:4x):
+
+awplus(config)# service telnet ip
+awplus(config)# no service telnet ipv6
+awplus# show telnet
+  Telnet server : Enabled / Protocol : IPv4 / Port : 23
+awplus# show running-config | include telnet
+  service telnet
+  no service telnet ipv6
+
+box$ tools/tb tool tb277 ckmgmt netlogin --proto telnet --host 10.38.22.34 --user manager
+       --password friend --login-timeout 15 --cmd "show telnet"
+  -> LOGIN RESULT: USER  proto=telnet  user=manager  seconds=0.2
+     Telnet server : Enabled / Protocol : IPv4 / Port : 23
+  on the wire (t33378-v6only.pcap, same window):
+  flow 10.38.22.33:57718 <-> 10.38.22.34:23  packets=49  duration=0.812s
+       => ESTABLISHED+DATA then RST
+     10.38.22.33:57718 -> 10.38.22.34:23  pkts=27  payload=83 B
+     10.38.22.34:23 -> 10.38.22.33:57718  pkts=22  payload=519 B
+  => STEP 5 PASS: the IPv4 and IPv6 halves are separate.  With IPv6 only, the same client
+     at the same address was refused on the wire while `show telnet` still read Enabled.
+     One configuration line later the same client logged in again.  This is why the case
+     is graded on the wire: a run graded from `show telnet` could have passed with the
+     IPv4 half switched off.  The IPv6 half was not tested on the wire, because the DUT's
+     SVIs have no IPv6 address.
+
+STEP 6 -- removal, `no service telnet` (designed by the tester)            PASS
+--------------------------------------------------------------------------------
+  Method: remove the feature and repeat the identical connection attempt.
+  Expected: the feature disappears from `show telnet` and from the running-config, and
+  the connection is refused again.
+
+box$ tools/tb capture tb277 ckmgmt eth3 40 t33378-removed.pcap tcp port 23
+awplus# configure terminal
+awplus(config)# no service telnet
+awplus(config)# end
+awplus# show telnet
+  Telnet Server Configuration
+  ------------------------------------------------------------
+  Telnet server                      : Disabled
+  Protocol                           : None
+  Port                               : 23
+awplus# show running-config | include telnet
+  no service telnet
+
+  That is identical to the STEP 1 baseline.  The `no service telnet ipv6` line that the
+  IPv4-only state had added is gone as well.
+
+box$ tools/tb tool tb277 ckmgmt netlogin --proto telnet --host 10.38.22.34 --user manager
+       --password friend --login-timeout 10
+  -> TRANSPORT FAILED: telnet 10.38.22.34:23 -- [Errno 111] Connection refused  (exit 4)
+
+  file /tmp/ckmgmt/t33378-removed.pcap: 2 packet(s) total, 1 TCP flow(s) on port 23
+  flow 10.38.22.33:57720 <-> 10.38.22.34:23  packets=2  duration=0.000s
+       => REFUSED (SYN answered by RST)
+     10.38.22.33:57720 -> 10.38.22.34:23  pkts=1  payload=0 B  flags={SYN}
+     10.38.22.34:23 -> 10.38.22.33:57720  pkts=1  payload=0 B  flags={RST.ACK}
+  => STEP 6 PASS: 2 packets in the whole 40 s window.  The same instrument recorded 94
+     packets while the server was on.  The zero is a measurement, because the same
+     instrument gave a non-zero minutes earlier.  The feature is fully removed.
+================================================================================

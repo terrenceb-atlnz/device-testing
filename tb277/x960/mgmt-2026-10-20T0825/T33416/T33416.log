@@ -1,0 +1,602 @@
+================================================================================
+TEST T33416 -- (283) Management_Triggers - Interface
+================================================================================
+Run:      2026-10-20 12:17-12:31 NZDT.  One run, clean, on swi_d.
+          The DUT clock reads UTC and runs 15 s behind the box, so a DUT time plus
+          13 h 15 s gives the box time used to match each trap to its activation.
+Bench:    tb277, consoles u2 = swi_d (DUT), u3 = swi_b, u5 = swi_a; Test Engineer
+          bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T33416.  The test-case database holds NO step text for this case: there
+          is no objective, and the single step has an empty description, empty test data
+          and an empty expected result (ck.db `zephyr_cases`).  No STEP heading below can
+          therefore quote authored text.  The eight steps were designed by the tester
+          from the case title, the "X960 platform support TPS" row 281 (Triggers /
+          INTERFACE / Priority 1 / Supported: YES), and the DUT's own CLI surface, read
+          with no carriage return before anything was configured.
+          No Triggers feature overview guide exists in `Feature Overview Guides/`.  The
+          lab wiki has a guide for log-driven triggers only, which is `type log`, not
+          `type interface`.  Both were looked for.
+Build:    swi_d  sin_x96056-20261012-24  (flash:/x960-tb277.rel, build date Mon Oct 12
+          2026), AT-x960-56YSQ, S/N A2WQS700B, standalone Active Master, console u2
+          @115200
+          swi_b  AT-x960-28YSQ, console u3 @9600 -- the link partner at the far end of
+          port1.0.2 and port1.0.16.  Not configured and not logged in to by this case.
+
+          The DUT's own `show system`, read at 12:17:12 NZDT, verbatim and in full:
+
+awplus# show system
+  System Status                                           Mon Oct 19 23:16:58 2026
+
+  Board      ID   Bay     Board Name                        Rev   Serial number
+  --------------------------------------------------------------------------------
+  Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+  PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+  PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+  Fan module 730  FAN1    AT-FAN19                          -     -
+  Fan module 730  FAN2    AT-FAN19                          -     -
+  --------------------------------------------------------------------------------
+  RAM: Total: 8092132 kB Free: 7455336 kB
+  Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+  --------------------------------------------------------------------------------
+  Environment Status : Normal
+  Uptime             : 3 days 16:54:35
+  Bootloader version : Unknown
+
+  Current software   : x960-tb277.rel
+  Software version   : sin_x96056-20261012-24
+  Build date         : Mon Oct 12 06:38:00 UTC 2026
+
+  Current boot config: flash:/default.cfg (file exists)
+
+  System Name
+   awplus
+  System Contact
+
+  System Location
+
+Configs:  swi_d.cfg (running-config after setup, before step 1; saved to startup: no)
+
+VERDICT: PASS -- an interface trigger works on this platform.  A link event on the named
+port activated the matching trigger, sent one SNMP trap and ran the trigger's action.
+Three independent instruments agree, and three controls stayed silent under the same
+stimulus.
+      `type interface` exists ...... "Monitor the link status of an interface", one of 15
+                                     trigger types the CLI offers
+      baseline, no trigger ......... 0 traps in a 75 s window holding a full down and up
+      `shutdown` on port1.0.2 ...... trigger 1 fired once, trigger 2 did not fire
+      `no shutdown` on port1.0.2 ... trigger 2 fired once, trigger 1 did not fire again
+      on the wire .................. exactly 2 SNMPv2c traps for exactly 2 activations,
+                                     each naming its own trigger in varbind
+                                     1.3.6.1.4.1.207.8.4.4.4.53.1.0 (INTEGER 1, then 2)
+      times agree .................. each trap arrived within 1 s of the activation time
+                                     the DUT recorded, once the clock skew is applied
+      the action runs .............. the DUT logged `TRIGGER[1411]: Trigger 1 (ck down on
+                                     port1.0.2) activated` and then its attempt to open
+                                     the configured script file
+      control, sibling port ........ a full flap of port1.0.16 moved neither counter
+      control, `no active` ......... the same port flapped, neither counter moved
+      control, `no trigger` ........ the same port flapped, no trap and no TRIGGER log
+                                     line.  0 traps in 270 s across the controls, from
+                                     the instrument that had just recorded 3
+      removal ...................... gone from `show trigger` and from running-config
+CAVEAT:  Four things this run did NOT establish.
+         1. The script's CONTENT was never run.  A trigger's action is a `.scp` file on
+            the device.  There is no such file on this DUT's flash, and putting one there
+            needs a root write on the testbox, which is not done unattended.  This run
+            shows the trigger reaches the point of opening its script.  It does not show
+            what a script does once it runs.
+         2. Reboot persistence was not measured.  The DUT's underlay exists in the
+            running configuration only, and the boot config is `flash:/default.cfg`.  A
+            reload would destroy the path this case measures through.
+         3. The third keyword `type interface port1.0.2 any`, and the bare form, were not
+            used.  `down` and `up` were, and they are what tells the two triggers apart.
+            `day`, `time`, `repeat <n>`, `repeat once` and `test` mode were read from the
+            CLI but not graded.
+         4. The trigger was never bound to a port with no cable, so an admin-down on a
+            dark port is not covered.
+HEALTH:  reboots ......... no new entry.  Newest is `2026-10-16 06:22:04 Expected
+                           CLI(user request)` in both samples.  The DUT was never
+                           reloaded or power-cycled.  The five flaps of port1.0.2 and the
+                           one flap of port1.0.16 are interface events, not device events.
+         exception log ... None in both samples.
+         log ............. no crash, no daemon restart, no kernel error.  Sample 1 holds
+                           two `kern.err` lines from the 2026-10-16 boot,
+                           `boardinfo-eeprom-i2c ... Failed to read eeprom data`.  Both
+                           pre-date this run and are not a finding.  Every new
+                           line in sample 2 is this case's own work: the MSTP and NSM
+                           pairs of each port flap, the TRIGGER lines, one `user.err`
+                           from the deliberately absent script file, and a
+                           `DHCP Client: Do PREINIT6` after each recovery because
+                           `interface vlan1` carries `ipv6 address dhcp`.
+         CPU ............. 0% before -> 0% after.  `show cpu` prints load, not idle:
+                           "1 second: 0%, 20 seconds: 0%, 60 seconds: 0%" and
+                           "userspace: 0%, kernel: 0%, interrupts: 0% iowaits: 0%" in
+                           both samples.  Nothing was still busy after the flapping
+                           stopped.
+         memory .......... free 7454328 kB before -> 7456956 kB after.  Memory in use
+                           FELL by 2628 kB.  No step change, and no leak is claimed.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+   tb277 eth3  10.38.22.33/27  mac 00:0d:b9:55:77:0e
+   (trap receiver address + tcpdump capture, udp port 162)
+        ^
+        |  SNMPv2c trap, udp/162  <--  sent BY the DUT
+        |
+   port1.0.10  (vlan10 10.38.22.34/27, the trap source address)
+  +--------------------------------------------------------------------+
+  |  swi_d   AT-x960-56YSQ   *** DUT ***   console u2 @115200           |
+  |  trigger 1 = type interface port1.0.2 down                          |
+  |  trigger 2 = type interface port1.0.2 up                            |
+  +--------------------------------------------------------------------+
+     | port1.0.2                      | port1.0.16
+     | (the trigger's port,           | (sibling control port,
+     |  shut and un-shut 5 times)     |  shut and un-shut once)
+     v                                v
+  +--------------------------------------------------------------------+
+  |  swi_b   AT-x960-28YSQ   link partner only, never configured        |
+  +--------------------------------------------------------------------+
+
+  DUT     : swi_d (AT-x960-56YSQ) console u2 @115200, S/N A2WQS700B, standalone Active
+            Master, hostname `awplus`.
+  partner : swi_b (AT-x960-28YSQ) console u3 @9600.  It only holds the far end of the two
+            cables, so that port1.0.2 and port1.0.16 are real links that can go up and
+            down.  Nothing was configured on it and no console session was opened to it
+            by this case.
+  host    : tb277 eth3, mac 00:0d:b9:55:77:0e, 10.38.22.33/27 -> swi_d port1.0.10 (vlan10
+            10.38.22.34/27).  This is the only IP path between box and DUT, and it is the
+            trap instrument, so port1.0.10 was never touched.
+  links   : swi_d port1.0.2  <-> swi_b  (1000BASE-T copper, vlan 1) -- the trigger's port
+            swi_d port1.0.16 <-> swi_b  (1000BASE-T copper, vlan 1) -- the control port
+  tools   : tcpdump ran on tb277 eth3 through `tools/tb capture`, filtered to
+            `udp port 162`.  tools/snmpwire.py decoded each pcap.  No new tool was
+            needed.  The DUT's own `show trigger <n>` counters and its `show log` were
+            the second and third instruments.
+
+STEP 0 -- does `type interface` exist at all? (designed by the tester)    PASS
+--------------------------------------------------------------------------------
+  Method: enter `trigger 1` and read the `type` keyword list with no carriage return.
+  This could not be read in advance, because `type ?` only exists inside a `trigger N`
+  sub-mode.  The case was to be graded UNSUPPORTED, with this output as the proof, if
+  `interface` were absent.
+
+awplus# configure terminal
+awplus(config)# trigger 1
+awplus(config-trigger)# type ?
+    atmf           Manage ATMF feature
+    cpu            Monitor CPU usage levels
+    env-sensor     Monitor environment sensor
+    interface      Monitor the link status of an interface      <<<<<<
+    linkmon-probe  Monitor a Link Health Monitoring probe
+    log            Monitor log message text
+    main-pse       Monitor overall power-inline budget
+    memory         Monitor memory usage levels
+    periodic       Activate the trigger at regular intervals
+    ping-poll      Monitor ping poll behaviour
+    pse-port       Monitor interface power-inline power usage
+    reboot         Monitor when the device is rebooted
+    stack          Monitor stack events
+    time           Activate at a specified time of day
+    usb            Monitor USB event
+
+  The rest of the surface, same method:
+
+awplus(config-trigger)# type interface ?               -> IFNAME  Interface name
+awplus(config-trigger)# type interface port1.0.2 ?     -> any   Activate when any
+                                                                interface link status
+                                                                event occurs
+                                                          down  Activate when the
+                                                                interface closes
+                                                          up    Activate when the
+                                                                interface becomes
+                                                                operational
+                                                          <cr>
+awplus(config-trigger)# script ?                       -> <1-5>  The list position of the
+                                                                 script
+awplus(config-trigger)# script 1 ?                     -> FILE   The file containing the
+                                                                 script
+awplus(config-trigger)# trap ?                         -> <cr>
+awplus(config-trigger)# active ?                       -> <cr>
+awplus(config-trigger)# test ?                         -> <cr>
+awplus(config-trigger)# repeat ?                       -> <1-4294967294> | forever | no |
+                                                          once | yes
+
+  Reading the surface changed nothing on the device.  Immediately afterwards:
+
+awplus# show running-config | include trigger
+  (no output)
+awplus# show trigger
+  TR# Type & Details     Description          Ac Te Tr Repeat     #Scr Days/Date
+  -------------------------------------------------------------------------------
+  % No triggers currently defined
+  -------------------------------------------------------------------------------
+                                     <-- entering `trigger N` and leaving without setting
+                                         a `type` creates nothing
+  => STEP 0 PASS: `type interface` exists on this platform and is described as "Monitor
+     the link status of an interface".  The case is not UNSUPPORTED and must be measured
+     properly.
+
+STEP 1 -- baseline, a flap with NO trigger defined (designed by tester)   PASS
+--------------------------------------------------------------------------------
+  Method: with the SNMP trap host configured but no trigger created, shut and un-shut
+  port1.0.2 while capturing udp/162 on eth3.
+  Expected: no trap at all, and `show trigger` stays empty.  This is what makes the later
+  zeroes meaningful.  It also proves the trap host alone does not generate link traps.
+
+  The case's own setup, applied before this step, is the trap instrument only:
+
+awplus# configure terminal
+awplus(config)# snmp-server community testing123 ro
+awplus(config)# snmp-server host 10.38.22.33 version 2c testing123
+awplus(config)# end
+awplus# show running-config | include snmp
+  snmp-server
+  snmp-server community testing123
+  snmp-server host 10.38.22.33 version 2c testing123
+
+  There is deliberately no `snmp-server enable trap` line.  `snmp-server enable trap ?`
+  offers 33 groups and NONE of them is a trigger group, so the per-trigger `trap` command
+  is self-contained.  That was measured, not assumed.  The triggers themselves are not
+  setup: creating them is the subject under test and is STEP 2.
+
+  The two ports this case uses, before anything was done to them:
+
+  Port        Name               Status      Vlan      Duplex Speed   Type
+  --------------------------------------------------------------------------------
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+  port1.0.16  -                  connected           1 a-full a-1000  1000BASE-T
+
+box$ tools/tb capture tb277 ckmgmt eth3 75 t33416-notrig.pcap udp port 162
+awplus# configure terminal
+awplus(config)# interface port1.0.2
+awplus(config-if)# shutdown
+awplus(config-if)# end
+awplus# show interface port1.0.2 status
+  port1.0.2   -                  disabled            1 auto   auto    1000BASE-T
+awplus# show trigger
+  % No triggers currently defined
+awplus# configure terminal
+awplus(config)# interface port1.0.2
+awplus(config-if)# no shutdown
+awplus(config-if)# end
+awplus# show interface port1.0.2 status
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+
+box$ tools/tb tool tb277 ckmgmt snmpwire /tmp/ckmgmt/t33416-notrig.pcap --port 162 --oids
+       --values --abs
+  SUMMARY 0 SNMP message(s): 0 ENCRYPTED, 0 PLAINTEXT
+  => STEP 1 PASS: zero traps across a 75 s window that held a complete down and up.  The
+     baseline is clean, so any trap seen later comes from a trigger.
+
+STEP 2 -- create the two triggers (designed by the tester)                PASS
+--------------------------------------------------------------------------------
+  Method: build two triggers on the same port, one for `down` and one for `up`, so that
+  each event can tell them apart.  One `shutdown` must fire trigger 1 and only trigger 1.
+  One `no shutdown` must fire trigger 2 and only trigger 2.  `type` is sent before
+  `description`, because the DUT refuses a description before a type.
+  Expected: both are accepted, appear in `show trigger`, and start at zero activations.
+
+awplus# configure terminal
+awplus(config)# trigger 1
+awplus(config-trigger)# type interface port1.0.2 down
+awplus(config-trigger)# description ck down on port1.0.2
+awplus(config-trigger)# trap
+awplus(config-trigger)# repeat forever
+awplus(config-trigger)# exit
+awplus(config)# trigger 2
+awplus(config-trigger)# type interface port1.0.2 up
+awplus(config-trigger)# description ck up on port1.0.2
+awplus(config-trigger)# trap
+awplus(config-trigger)# repeat forever
+awplus(config-trigger)# end
+
+  Every command was accepted and no `% ` line was printed.
+
+awplus# show trigger
+  TR# Type & Details     Description          Ac Te Tr Repeat     #Scr Days/Date
+  -------------------------------------------------------------------------------
+  001 Interface (port... ck down on port1.0.2 Y  N  Y Continuous  0   smtwtfs
+  002 Interface (port... ck up on port1.0.2   Y  N  Y Continuous  0   smtwtfs
+  -------------------------------------------------------------------------------
+
+awplus# show trigger 1
+  Trigger Configuration Details
+  ------------------------------------------------------------
+  Trigger ..................... 1
+  Description ................. ck down on port1.0.2
+  Type and details ............ Interface (port1.0.2 down)
+  Days ........................ smtwtfs
+  After ....................... 00:00:00
+  Before ...................... 23:59:59
+  Active ...................... Yes
+  Test ........................ No
+  Trap ........................ Yes
+  Repeat ...................... Continuous
+  Modified .................... Mon Oct 19 23:19:28 2026
+  Number of activations ....... 0
+  Last activation ............. not activated
+  Number of scripts ........... 0
+    1. <not configured>
+    2. <not configured>
+    3. <not configured>
+    4. <not configured>
+    5. <not configured>
+  ------------------------------------------------------------
+
+awplus# show trigger 2        (identical except:)
+  Trigger ..................... 2
+  Description ................. ck up on port1.0.2
+  Type and details ............ Interface (port1.0.2 up)
+  Modified .................... Mon Oct 19 23:19:33 2026
+  Number of activations ....... 0
+
+  A note for whoever reads a running-config next.
+  `show running-config | include trigger` prints only:
+    trigger 1
+    trigger 2
+  The sub-mode lines (`type interface port1.0.2 down`, `description ...`, `trap`,
+  `repeat forever`) do not contain the word "trigger", so the filter drops them.  That
+  grep tells you a trigger EXISTS and nothing about what it does.  `show trigger <n>` is
+  the command that does.  Do not read the short output as "the sub-commands were lost".
+  => STEP 2 PASS: both triggers were created type-first, are Active with Trap Yes, and
+     start from zero activations.
+
+STEP 3 -- fire it: the event activates the matching trigger, and only it  PASS
+--------------------------------------------------------------------------------
+  Method: shut port1.0.2, read both counters, then un-shut it and read them again.
+  Capture udp/162 on eth3 for the whole time.
+  Expected: one `shutdown` activates trigger 1 exactly once and trigger 2 not at all.
+  One `no shutdown` does the reverse.  Each activation sends one trap, and the DUT logs
+  it.
+
+box$ tools/tb capture tb277 ckmgmt eth3 115 t33416-fire.pcap udp port 162
+awplus# configure terminal
+awplus(config)# interface port1.0.2
+awplus(config-if)# shutdown
+awplus(config-if)# end
+
+  (a) The counters, read straight afterwards:
+
+  Trigger ..................... 1
+  Number of activations ....... 1
+  Last activation ............. Mon Oct 19 23:20:19 2026
+  Trigger ..................... 2
+  Number of activations ....... 0
+  Last activation ............. not activated
+
+  Then the matching up event:
+
+awplus# configure terminal
+awplus(config)# interface port1.0.2
+awplus(config-if)# no shutdown
+awplus(config-if)# end
+awplus# show interface port1.0.2 status
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+
+  Trigger ..................... 1
+  Number of activations ....... 1
+  Last activation ............. Mon Oct 19 23:20:19 2026     <-- UNCHANGED by the up event
+  Trigger ..................... 2
+  Number of activations ....... 1
+  Last activation ............. Mon Oct 19 23:20:47 2026     <-- fired by the up event
+
+  (b) On the wire:
+
+box$ tools/tb tool tb277 ckmgmt snmpwire /tmp/ckmgmt/t33416-fire.pcap --port 162 --oids
+       --values --abs
+  #1   12:20:33.664 10.38.22.34:40273 -> 10.38.22.33:162  SNMPv2c  community='testing123'
+       pdu=SNMPv2-Trap  msgData=PLAINTEXT
+        1.3.6.1.2.1.1.3.0 = TimeTicks: 32027696
+        1.3.6.1.6.3.1.1.4.1.0 = OID: 1.3.6.1.4.1.207.8.4.4.4.53.0.1
+        1.3.6.1.4.1.207.8.4.4.4.53.1.0 = INTEGER: 1
+  #2   12:21:01.696 10.38.22.34:40273 -> 10.38.22.33:162  SNMPv2c  community='testing123'
+       pdu=SNMPv2-Trap  msgData=PLAINTEXT
+        1.3.6.1.2.1.1.3.0 = TimeTicks: 32030499
+        1.3.6.1.6.3.1.1.4.1.0 = OID: 1.3.6.1.4.1.207.8.4.4.4.53.0.1
+        1.3.6.1.4.1.207.8.4.4.4.53.1.0 = INTEGER: 2
+  SUMMARY 2 SNMP message(s): 0 ENCRYPTED, 2 PLAINTEXT
+
+  Reading those two traps:
+  * each was sent from 10.38.22.34, the DUT's vlan10 SVI, to the configured host
+    10.38.22.33 on udp/162, as SNMPv2c with community `testing123`.  All as configured.
+  * the trap OID 1.3.6.1.6.3.1.1.4.1.0 carries 1.3.6.1.4.1.207.8.4.4.4.53.0.1.  That is
+    an Allied Telesis enterprise (207) trap, object 53, the trigger facility.
+  * the one payload varbind 1.3.6.1.4.1.207.8.4.4.4.53.1.0 carries the TRIGGER ID:
+    INTEGER 1 in the first trap, INTEGER 2 in the second.  So the trap is not a general
+    "something happened".  It names which trigger fired, and the two traps name different
+    triggers in the right order.
+
+  (c) The times agree, and that is a measurement.  Using the measured skew, DUT time plus
+  13 h 15 s gives box time:
+    trigger 1  activation 23:20:19 UTC  -> expected 23:20:34  -> trap at 23:20:33.664
+    trigger 2  activation 23:20:47 UTC  -> expected 23:21:02  -> trap at 23:21:01.696
+  Each trap is within 1 s of its activation.
+  => STEP 3 PASS: each trigger fired exactly once, on its own event, and neither fired on
+     the other's event.  The counters and the packets on the wire describe the same two
+     events.
+
+STEP 4 -- control A, a different port's flap (designed by the tester)     PASS
+--------------------------------------------------------------------------------
+  Method: shut and un-shut port1.0.16, the sibling link to the same partner switch, with
+  the same speed and media.  Both triggers stay armed.
+  Expected: neither counter moves and no trap is sent.  The triggers are bound to
+  port1.0.2.
+
+box$ tools/tb capture tb277 ckmgmt eth3 180 t33416-ctrl.pcap udp port 162
+awplus(config)# interface port1.0.16
+awplus(config-if)# shutdown         ... then ... no shutdown
+awplus# show interface port1.0.16 status
+  port1.0.16  -                  connected           1 a-full a-1000  1000BASE-T
+
+  Trigger ..................... 1
+  Number of activations ....... 1
+  Last activation ............. Mon Oct 19 23:20:19 2026     <-- UNCHANGED
+  Trigger ..................... 2
+  Number of activations ....... 1
+  Last activation ............. Mon Oct 19 23:20:47 2026     <-- UNCHANGED
+  => STEP 4 PASS: neither counter moved and neither timestamp changed.  The trigger binds
+     to the named interface, not to "any interface".
+
+STEP 5 -- control B, `no active` makes a trigger inert (tester design)    PASS
+--------------------------------------------------------------------------------
+  Method: set both triggers `no active`, leaving everything else the same, then flap
+  port1.0.2 -- the very event that fired them in STEP 3.  This runs in the same capture
+  window as control A.
+  Expected: neither counter moves and no trap is sent.  This separates "the trigger
+  exists" from "the trigger is armed".  It is a cleaner control than deleting the
+  trigger, because everything else stays identical.
+
+awplus(config)# trigger 1
+awplus(config-trigger)# no active
+awplus(config-trigger)# exit
+awplus(config)# trigger 2
+awplus(config-trigger)# no active
+awplus(config-trigger)# end
+awplus# show trigger
+  001 Interface (port... ck down on port1.0.2 N  N  Y Continuous  0   smtwtfs
+  002 Interface (port... ck up on port1.0.2   N  N  Y Continuous  0   smtwtfs
+                                              ^ the Ac column is now N
+awplus# show trigger 1 / show trigger 2
+  Active ...................... No   (both)
+
+awplus(config)# interface port1.0.2 / shutdown / end   ... then ... no shutdown
+awplus# show interface port1.0.2 status
+  port1.0.2   -                  connected           1 a-full a-1000  1000BASE-T
+
+  Trigger ..................... 1
+  Number of activations ....... 1
+  Last activation ............. Mon Oct 19 23:20:19 2026     <-- UNCHANGED
+  Trigger ..................... 2
+  Number of activations ....... 1
+  Last activation ............. Mon Oct 19 23:20:47 2026     <-- UNCHANGED
+
+  And on the wire, for controls A and B together:
+
+box$ tools/tb tool tb277 ckmgmt snmpwire /tmp/ckmgmt/t33416-ctrl.pcap --port 162 --oids
+       --values --abs
+  SUMMARY 0 SNMP message(s): 0 ENCRYPTED, 0 PLAINTEXT
+  => STEP 5 PASS: zero traps in a 180 s window that held TWO complete port flaps.  One
+     was on the sibling port with the triggers armed.  One was on the trigger's own port
+     with the triggers inactive.  The same instrument had recorded two traps in the
+     previous window, so this zero is a measurement.
+
+STEP 6 -- the action: the trigger runs its script list (tester design)    PASS
+--------------------------------------------------------------------------------
+  Method: a trigger's action is a script from its list of 5.  No `.scp` file exists on
+  this DUT's flash and none can be put there from this seat.  But the ATTEMPT is
+  observable.  A reference to a file that does not exist is accepted and stored, so a
+  deliberately absent file turns "did the trigger run its action?" into a question the
+  DUT's own log answers.  Trigger 1 was re-armed; trigger 2 was deliberately left
+  inactive, so the following up event is also a control.
+  Expected: trigger 1 activates again, the DUT logs the activation, and the DUT logs its
+  attempt to open the script file.
+
+awplus(config)# trigger 1
+awplus(config-trigger)# active
+awplus(config-trigger)# script 1 flash:/cktrig.scp
+  % Script /flash/cktrig.scp does not exist. Please ensure it is created before the
+    trigger is activated
+awplus(config-trigger)# end
+awplus# show trigger 1
+  Active ...................... Yes
+  Number of activations ....... 1
+  Number of scripts ........... 1
+    1. flash:/cktrig.scp
+    2. <not configured>
+                                     <-- the reference IS stored, although the file is
+                                         absent
+
+box$ tools/tb capture tb277 ckmgmt eth3 110 t33416-script.pcap udp port 162
+awplus(config)# interface port1.0.2 / shutdown / end   ... then ... no shutdown
+
+  Trigger ..................... 1
+  Number of activations ....... 2                            <-- fired again
+  Last activation ............. Mon Oct 19 23:26:46 2026
+  Trigger ..................... 2
+  Number of activations ....... 1
+  Last activation ............. Mon Oct 19 23:20:47 2026     <-- UNCHANGED: still inactive
+
+  The DUT's own log, verbatim, which is the evidence for this step:
+
+  2026 Oct 19 23:26:05 user.warning awplus IMI[903]: Script /flash/cktrig.scp does not
+    exist. Please ensure it is created before the trigger is activated
+  2026 Oct 19 23:26:46 user.notice  awplus TRIGGER[1411]: Trigger 1 (ck down on
+    port1.0.2) activated
+  2026 Oct 19 23:26:46 user.err     awplus TRIGGER[1411]: Unable to activate script
+    /flash/cktrig.scp (File not found)
+
+  The `user.err` line is caused by this tester's deliberately absent file.  It is the
+  measurement, not a device fault.
+
+  On the wire:
+
+  SUMMARY 1 SNMP message(s): 0 ENCRYPTED, 1 PLAINTEXT
+  #1   12:27:00.040 10.38.22.34:40273 -> 10.38.22.33:162  SNMPv2c  community='testing123'
+       pdu=SNMPv2-Trap  msgData=PLAINTEXT
+        1.3.6.1.2.1.1.3.0 = TimeTicks: 32066333
+        1.3.6.1.6.3.1.1.4.1.0 = OID: 1.3.6.1.4.1.207.8.4.4.4.53.0.1
+        1.3.6.1.4.1.207.8.4.4.4.53.1.0 = INTEGER: 1
+  => STEP 6 PASS: the trigger did not merely count.  It activated and then worked through
+     its action list, as far as opening the script file.  Exactly one trap arrived, and
+     it names trigger 1, in a window that held both a down and an up event, because
+     trigger 2 was inactive.  DUT 23:26:46 plus 15 s is 23:27:01, and the trap arrived at
+     23:27:00.040.  Only the script's CONTENT is unmeasured.
+
+STEP 7 -- removal, `no trigger` (designed by the tester)                  PASS
+--------------------------------------------------------------------------------
+  Method: delete both triggers and repeat the identical stimulus.
+  Expected: they disappear from the CLI and from the running-config, and the same flap
+  produces nothing on any of the three instruments.
+
+awplus# configure terminal
+awplus(config)# no trigger 1
+awplus(config)# no trigger 2
+awplus(config)# end
+awplus# show trigger
+  TR# Type & Details     Description          Ac Te Tr Repeat     #Scr Days/Date
+  -------------------------------------------------------------------------------
+  % No triggers currently defined
+  -------------------------------------------------------------------------------
+awplus# show running-config | include trigger
+  (no output)
+
+box$ tools/tb capture tb277 ckmgmt eth3 90 t33416-removed.pcap udp port 162
+awplus(config)# interface port1.0.2 / shutdown / end   ... then ... no shutdown
+
+box$ tools/tb tool tb277 ckmgmt snmpwire /tmp/ckmgmt/t33416-removed.pcap --port 162
+       --oids --values --abs
+  SUMMARY 0 SNMP message(s): 0 ENCRYPTED, 0 PLAINTEXT
+
+  The DUT's log for that same flap, verbatim.  It carries the NSM and MSTP lines of a
+  normal port flap and NO `TRIGGER[...]` line at all:
+
+  23:29:18 user.notice MSTP[1090]: CIST root port changed: port1.0.2->port1.0.16
+  23:29:18 user.notice MSTP[1090]: CIST port1.0.16 now forwarding, propagating TC to
+           other ports
+  23:29:18 user.notice NSM[946]: Port down notification received for port1.0.2
+  23:29:18 user.notice NSM[946]: port1.0.2 user shutdown
+  23:29:28 user.notice NSM[946]: port1.0.2 user no shutdown
+  23:29:28 user.notice NSM[946]: Port up notification received for port1.0.2
+  23:29:32 user.notice MSTP[1090]: CIST root port changed: port1.0.16->port1.0.2
+  23:29:32 user.notice MSTP[1090]: CIST port1.0.2 now forwarding, propagating TC to
+           other ports
+  23:29:34 daemon.notice root: DHCP Client: Do PREINIT6
+
+  Compare that with the same window in STEP 6, where trigger 1 was armed.  There the DUT
+  logged the same NSM and MSTP lines PLUS:
+  23:26:46 user.notice TRIGGER[1411]: Trigger 1 (ck down on port1.0.2) activated
+  23:26:46 user.err    TRIGGER[1411]: Unable to activate script /flash/cktrig.scp
+           (File not found)
+
+  The MSTP pairs are single-instance RSTP moving the CIST root port to port1.0.16 while
+  port1.0.2 is down, and back again afterwards.  The network reconverged each time, and
+  port1.0.2 is forwarding at the end.  `DHCP Client: Do PREINIT6` follows each recovery
+  because `interface vlan1` carries `ipv6 address dhcp`.  Neither is related to triggers.
+  => STEP 7 PASS: all three instruments are back at the STEP 1 state.  The TRIGGER log
+     lines appear only in the window where the trigger was armed, and in neither window
+     where it was not, under an identical stimulus each time.
+================================================================================

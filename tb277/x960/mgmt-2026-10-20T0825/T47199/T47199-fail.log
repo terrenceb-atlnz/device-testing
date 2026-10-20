@@ -1,0 +1,567 @@
+================================================================================
+TEST T47199 -- (273) Management_Operation - Show warning message when user continues to
+               use default PW
+================================================================================
+Run:      2026-10-20 11:57-12:07 NZDT.  One run, clean, on swi_d, with swi_b as a
+          second-unit control.
+          The DUT clock reads UTC and runs 15 s behind the box, so a DUT time plus
+          13 h 15 s gives the box time.
+Bench:    tb277, consoles u2 = swi_d (DUT), u3 = swi_b, u5 = swi_a; Test Engineer
+          bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T47199.  The test-case database holds NO step text for this case: there
+          is no objective, and the single step has an empty description, empty test data
+          and an empty expected result (ck.db `zephyr_cases`).  No STEP heading below can
+          therefore quote authored text.  The expected behaviour used to grade this case
+          comes from the product's own documents, quoted here because the whole case
+          turns on them.
+            1. "X960 platform support TPS", row 271:
+                 Management | Show warning message when user continue to use default PW
+                 | Priority 1 | Supported: YES
+            2. "Warning when using default password TFS", project 2616, revision 0.3,
+               approved October 2021.  Spec 2616.1, verbatim:
+                 "The system will check at every login using the default account
+                  'manager' if the factory default password 'friend' is set, if it is,
+                  the system will warn the user that the default password should be
+                  changed."
+               and its worked example, verbatim:
+                 awplus login: manager
+                 Password:
+                 AlliedWare Plus (TM) 0.0.0 09/26/21 21:23:17
+                 % Default password needs to be changed.
+                 awplus>
+               The same TFS says: new commands None, logging specifications None,
+               licensing none, Initial Release Targets "all platforms in 5.5.1-2",
+               Excluded Targets None.
+            So the expected string is exactly `% Default password needs to be changed.`.
+            It must appear after the version banner and just before the first prompt, at
+            EVERY login as `manager` while the password is `friend`.  It needs no
+            configuration and no licence.  The DUT runs a build far newer than 5.5.1-2.
+            The TFS names no log line and no show command, so the login byte stream is
+            the only place this can be graded.
+          The eight steps below were designed by the tester from those documents.
+Build:    swi_d  sin_x96056-20261012-24  (flash:/x960-tb277.rel, build date Mon Oct 12
+          2026), AT-x960-56YSQ, S/N A2WQS700B, standalone Active Master, console u2
+          @115200
+          swi_b  sin_x96056-20260921-9  (build Mon Sep 21 2026), AT-x960-28YSQ,
+          S/N A10737A261700021, standalone Active Master, console u3 @9600 -- the
+          second-unit control in STEP 6
+
+          The DUT's own `show system`, read at 11:57:29 NZDT, verbatim and in full:
+
+awplus# show system
+  System Status                                           Mon Oct 19 22:57:29 2026
+
+  Board      ID   Bay     Board Name                        Rev   Serial number
+  --------------------------------------------------------------------------------
+  Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+  PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+  PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+  Fan module 730  FAN1    AT-FAN19                          -     -
+  Fan module 730  FAN2    AT-FAN19                          -     -
+  --------------------------------------------------------------------------------
+  RAM: Total: 8092132 kB Free: 7458832 kB
+  Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+  --------------------------------------------------------------------------------
+  Environment Status : Normal
+  Uptime             : 3 days 16:35:05
+  Bootloader version : Unknown
+
+  Current software   : x960-tb277.rel
+  Software version   : sin_x96056-20261012-24
+  Build date         : Mon Oct 12 06:38:00 UTC 2026
+
+  Current boot config: flash:/default.cfg (file exists)
+
+  System Name
+   awplus
+  System Contact
+
+  System Location
+
+Configs:  swi_d.cfg (running-config after setup, before step 1; saved to startup: no)
+
+VERDICT: FAIL -- the DUT never warned the user about the factory default password.  The
+`manager` account still authenticates with the factory password `friend`, and the warning
+line `% Default password needs to be changed.` appeared 0 times in 6 logins.
+      console login, swi_d ......... 2 logins, no warning
+      telnet login, swi_d .......... 1 login, no warning
+      SSH login, swi_d ............. 1 login, no warning
+      console login, swi_b ......... 2 logins, no warning (a different model, a build
+                                     3 weeks older, also still on `friend`)
+      the DUT's log ................ no `Default password for user 'manager' needs to be
+                                     changed.` line anywhere
+      instrument check ............. a `banner exec` marker DID appear on all 3 paths, in
+                                     exactly the position the warning is specified for
+      HTTP cross-check ............. RestCONF answered 200 OK with 11848 B, not the 403
+                                     that the factory-default-password state specifies
+
+FAIL CONDITION:
+  WHICH CHECK FAILED.  The DUT must print the line `% Default password needs to be
+  changed.` at every login as `manager` while that account holds the factory password
+  `friend`.  It printed that line 0 times in 6 logins.
+
+  AGAINST WHICH EXPECTED RESULT.  TFS 2616 spec 2616.1 requires the warning at every
+  `manager` login when the password is `friend`.  The TFS worked example places the line
+  after the version banner and immediately before the first prompt.  TPS row 271 marks
+  this feature Supported: YES on the x960 at Priority 1.  The TFS lists no new command,
+  no licence and no excluded platform.  So nothing had to be configured to make the
+  warning appear.
+
+  THE PRECONDITION HELD.  `manager` / `friend` authenticated on swi_d (STEP 1) and on
+  swi_b (STEP 6).  The factory password is still in place on both units.
+
+  WHY THIS IS A PRODUCT FAILURE AND NOT A METHOD FAILURE.  Four reasons, each measured.
+  1. The instrument was proved able to see a message at that exact point.  A
+     `banner exec CKPROBE-EXEC-BANNER-MARKER` line was configured, and the marker then
+     appeared on the console, on telnet and on SSH, in the position the TFS example uses
+     (STEP 7).  So the warning really was not sent.  The instrument did not miss it.
+  2. Every access path the DUT offers was used: console, telnet and SSH.  The fourth path,
+     HTTP, has no login to observe, because no Web GUI file is installed.
+  3. A second x960 showed the same result.  swi_b is a different model on a build three
+     weeks older, also still on `friend`, and it printed no warning either (STEP 6).
+  4. A second subsystem agrees the DUT does not know its password is the factory one.
+     The product's engineering page says an unchanged factory password puts the HTTP
+     server in login-only mode, where most APIs return 403 with `API access requires
+     admin password to be configured`.  RestCONF instead returned 200 OK with a normal
+     11848-byte body (STEP 5c).  So this is not the CLI alone being quiet.  The internal
+     check itself is not firing.
+
+  THE LIKELY CAUSE, FROM THE PRODUCT'S OWN DOCUMENT.  The current "Forced Default Password
+  Change" engineering page says, verbatim:
+    "Currently, we only check that the password has been encrypted with an MD5 hash, as
+     the default-generated config contains this but a user-generated config will not."
+  The DUT stores the password as SHA-256, not MD5.  Measured:
+    username manager privilege 15 password 8 $5$bJozIP4D$orvkW78S6QHN65L3EGGJpHS.QlHSjwuYbMynH5.Ifp2
+  `$5$` is the crypt(3) prefix for SHA-256.  MD5 is `$1$`.  swi_b is the same: `$5$bJom.f4D$...`.
+  A check that looks for an MD5 hash cannot match a SHA-256 hash, even when the password
+  really is `friend`.  A developer needs to look at this.
+
+TRIED:
+  1. Console login as `manager`/`friend`, twice (STEP 2) ...... no warning.  Banner is
+     `Last login:`, then the version line, then the prompt.
+  2. Telnet login as `manager`/`friend` (STEP 3) .............. no warning.
+  3. SSH login as `manager`/`friend` (STEP 3) ................. no warning.
+  4. Search of the DUT log for any password line (STEP 3) ..... nothing.  ER361.1.02
+     specifies a WARNING log entry when this check is active; there is none.
+  5. Control login as `ckalt`/`testing123` (STEP 4) ........... no warning, as expected.
+     The login path is otherwise identical, so a difference would have shown.
+  6. HTTP / Web GUI login (STEP 5a, 5b) ....................... NOT MEASURABLE.  `show
+     http` reports `GUI file in use : -`, so no GUI is installed.  Every URL tried
+     returned HTTP 404 from nginx.
+  7. RestCONF API call as `manager`/`friend` (STEP 5c) ........ HTTP 200 OK, 11848 B.
+     Login-only mode would have given 403.  This is the cross-check that failed.
+  8. Console login as `manager`/`friend` on swi_b, twice (STEP 6) .. no warning.
+  9. `banner exec` marker on all three paths (STEP 7) ......... the marker APPEARED on
+     all three.  The instruments are valid.
+ 10. Read the detection state from the CLI ................... impossible.
+     `default-password ?` and `show default-password ?` both answer
+     `% Unrecognized command`.
+
+CAVEAT:  Three things this run did NOT establish.
+         1. The `def_pwd_chg` boot variable was not read.  The older, gated feature (FDPC)
+            is switched on by a U-Boot environment variable.  No CLI reports it, and
+            reaching the bootloader needs a reboot.  No reload was done in this run,
+            because the measurement path lives in the running configuration only.  So it
+            is not proven that the warning is simply switched off on these units.  Against
+            that reading: TFS 2616 is the later, ungated, warn-only feature, it names no
+            gate, its excluded targets are None, and the TPS row for the x960 says Yes.
+         2. The MD5 cause was not proved on hardware.  It rests on the engineering page
+            plus the measured `$5$` hash.  The one experiment that would prove it is
+            written out at the end of this log.  It was not run, because it touches the
+            DUT's only administrative account on an unattended run.
+         3. The manager password was never changed, so this run does not show what the
+            DUT does after a password change.
+HEALTH:  reboots ......... no new entry.  Newest is `2026-10-16 06:22:04 Expected
+                           CLI(user request)` in both samples.  The DUT was never
+                           reloaded or power-cycled.
+         exception log ... None in both samples.
+         log ............. no crash, no daemon restart, no kernel error.  Sample 1 shows
+                           two `kern.err` lines from the 2026-10-16 boot,
+                           `boardinfo-eeprom-i2c 1-0050: Failed to read eeprom data for
+                           board_index 0` and the same for `1-0052`.  Both lines
+                           pre-date this run and are not a finding of this case.
+                           Sample 2 adds two `daemon.err nginx[...]: open()
+                           "/usr/html/public/login.html" failed (2: No such file or
+                           directory)` lines.  Those are this case's own HTTP probes
+                           hitting a GUI that is not installed, not a device fault.
+         CPU ............. 0% before -> 0% after.  `show cpu` prints load, not idle:
+                           "1 second: 0%, 20 seconds: 0%, 60 seconds: 0%" and
+                           "userspace: 0%, kernel: 0%, interrupts: 0% iowaits: 0%" in
+                           both samples.
+         memory .......... free 7458832 kB before -> 7455052 kB after.  Memory in use
+                           rose by 3780 kB, which is 0.05% of RAM.  That is ordinary
+                           movement, not a step change.  No leak is claimed.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+   tb277 eth3  10.38.22.33/27  mac 00:0d:b9:55:77:0e
+   (telnet client, SSH client, HTTP client)
+        |
+        |  telnet TCP/23, SSH TCP/22, HTTPS TCP/443  -->
+        |  <--  the login byte stream, read for the warning line
+        v
+   port1.0.10  (vlan10 10.38.22.34/27)
+  +--------------------------------------------------------------------+
+  |  swi_d   AT-x960-56YSQ   *** DUT ***                                |
+  |  S/N A2WQS700B,  manager password still the factory `friend`        |
+  +--------------------------------------------------------------------+
+        ^
+        |  console u2 @115200  (login 1 of 3 paths, read from the transcript)
+   tb277 /dev/u2
+
+   tb277 /dev/u3
+        |  console u3 @9600  (second-unit control, STEP 6)
+        v
+  +--------------------------------------------------------------------+
+  |  swi_b   AT-x960-28YSQ   (control, read only)                       |
+  |  S/N A10737A261700021,  manager password also still `friend`        |
+  +--------------------------------------------------------------------+
+
+  DUT     : swi_d (AT-x960-56YSQ) console u2 @115200, S/N A2WQS700B, standalone Active
+            Master, hostname `awplus`, software sin_x96056-20261012-24.  SVI MAC
+            e0:1a:ea:d4:70:43.
+  control : swi_b (AT-x960-28YSQ) console u3 @9600, S/N A10737A261700021, standalone
+            Active Master, hostname `x960-28YSQ`, software sin_x96056-20260921-9.
+            NOTHING was configured on it.  It was read and logged in to only.
+  host    : tb277 eth3, mac 00:0d:b9:55:77:0e, 10.38.22.33/27 -> swi_d port1.0.10
+            (vlan10 10.38.22.34/27).  Every telnet, SSH and HTTP request used this link.
+  tools   : tools/netlogin.py was the telnet and SSH client, and tools/httpq.py the HTTP
+            client; both ran on tb277 through `tools/tb tool`.  tools/conlogin.py drove
+            the console logins on u2 and u3.  The console transcripts hold the raw login
+            bytes; the login tools print only a summary line.
+  note    : no traffic flowed between swi_d and swi_b in this case.  swi_a took no part.
+
+STEP 1 -- precondition, `manager` still has the factory password          PASS
+--------------------------------------------------------------------------------
+  Method: log in on the console as `manager` with the password `friend`.
+  Expected: the login succeeds.  If it does not, the case has no precondition and nothing
+  after it means anything.
+
+box$ tools/tb conlogin tb277 ckmgmt u2 115200 --user manager --password friend --logout
+       --settle 30
+  LOGIN RESULT: USER  user=manager  seconds=0.4  prompt='awplus>'
+  conlogin: logged out again
+  conlogin: restore login as manager -> USER ('awplus>')   (exit 0)
+  => STEP 1 PASS: `friend` authenticates, so the account is still on the factory
+     password.  Landing at `awplus>` rather than `awplus#` is correct for AW+, even for a
+     `privilege 15` username.
+
+STEP 2 -- access path 1 of 4, the CONSOLE                                 FAIL
+--------------------------------------------------------------------------------
+  Method: log in twice on the console and read every byte of the login from the console
+  transcript.
+  Expected (TFS 2616.1 example): the line `% Default password needs to be changed.` after
+  the `AlliedWare Plus (TM)` banner and before `awplus>`.
+
+  The byte stream, verbatim, two logins one after the other:
+
+  awplus#exit
+
+  awplus login: manager
+  Password:
+  Last login: Mon Oct 19 22:48:24 UTC 2026 from 10.38.22.33
+  AlliedWare Plus (TM) 0.0.0 10/12/26 06:38:00
+
+  awplus>exit                        <-- no warning line between the banner and the prompt
+
+  awplus login:
+  awplus login: manager
+  Password:
+  Last login: Mon Oct 19 22:58:09 UTC 2026 on ttyS0
+  AlliedWare Plus (TM) 0.0.0 10/12/26 06:38:00
+
+  awplus>enable                      <-- no warning line on the second login either
+  awplus#
+  => STEP 2 FAIL: the warning is absent on the console, on both logins.  The place the
+     TFS puts it, between the version line and the prompt, holds nothing at all.
+
+STEP 3 -- access paths 2 and 3, TELNET and SSH                            FAIL
+--------------------------------------------------------------------------------
+  Method: log in over telnet and over SSH as `manager`/`friend`, and print every byte of
+  each login exchange.
+  Expected: the same warning.  TFS 2616.1 says "at every login using the default account
+  'manager'" and names no access path.
+
+box$ tools/tb tool tb277 ckmgmt netlogin --proto telnet --host 10.38.22.34 --user manager
+       --password friend --login-timeout 20
+
+  === telnet 10.38.22.34:23 as manager ===
+  --- bytes before the username prompt ---
+  awplus login:
+  --- bytes between username and password prompt ---
+  Password:
+  --- bytes after the password was sent (THE LOGIN BANNER) ---
+
+  Last login: Mon Oct 19 22:58:11 UTC 2026 on ttyS0
+  No entry for terminal type "network";
+  using vt100 terminal settings.
+  AlliedWare Plus (TM) 0.0.0 10/12/26 06:38:00
+
+  awplus>                            <-- no warning line
+  LOGIN RESULT: USER  proto=telnet  user=manager  seconds=0.2
+
+box$ tools/tb tool tb277 ckmgmt netlogin --proto ssh --host 10.38.22.34 --user manager
+       --password friend --login-timeout 40
+
+  === ssh 10.38.22.34:22 as manager ===
+  --- bytes before the username prompt ---
+  Password:
+  --- bytes after the password was sent (THE LOGIN BANNER) ---
+
+  Last login: Mon Oct 19 22:58:33 UTC 2026 from 10.38.22.33
+  AlliedWare Plus (TM) 0.0.0 10/12/26 06:38:00
+
+  awplus>                            <-- no warning line
+  LOGIN RESULT: USER  proto=ssh  user=manager  seconds=0.4
+
+  The DUT confirms both were real logins:
+  2026 Oct 19 22:58:31 daemon.notice awplus telnetd[31340]: Connection from 10.38.22.33
+    received.
+  2026 Oct 19 22:58:33 auth.notice awplus sshd-session[31376]: Accepted
+    keyboard-interactive/pam for manager from 10.38.22.33 port 55180 ssh2
+  2026 Oct 19 22:58:33 auth.notice awplus sshd-session[31379]: Session open for user
+    manager from 10.38.22.33 port 55180
+
+  The log was also searched for any password-related line.  ER361.1.02 specifies the log
+  entry `Default password for user 'manager' needs to be changed.` when this check is
+  active.  `show log | include password|default|Default` over the case window returned
+  only the echo of the command itself.
+  => STEP 3 FAIL: the warning is absent on telnet and absent on SSH.  The DUT's log holds
+     no warning entry either.  Three of the four access paths are now silent.
+
+STEP 4 -- negative control, an account NOT on the factory password        PASS
+--------------------------------------------------------------------------------
+  Method: log in as `ckalt`, a second privilege-15 account whose password is
+  `testing123`, over telnet.
+  Expected: no warning.  TFS 2616.1 scopes the check to the default account `manager`.
+  This control shows the login path is otherwise the same, so a difference would have
+  been visible if there had been one.
+
+box$ tools/tb tool tb277 ckmgmt netlogin --proto telnet --host 10.38.22.34 --user ckalt
+       --password testing123 --login-timeout 20
+
+  --- bytes after the password was sent (THE LOGIN BANNER) ---
+
+  No entry for terminal type "network";
+  using vt100 terminal settings.
+  AlliedWare Plus (TM) 0.0.0 10/12/26 06:38:00
+
+  awplus>
+  LOGIN RESULT: USER  proto=telnet  user=ckalt  seconds=0.2
+  => STEP 4 PASS: no warning for `ckalt`, which is correct.  The byte stream has the same
+     shape as `manager`'s telnet login, minus one line: `ckalt` has no `Last login:`
+     because it had never logged in before.  SSH was not used for this control, because
+     `ssh server allow-users manager` restricts SSH to the `manager` account.
+
+STEP 5 -- access path 4, HTTP, and a cross-check of the internal state    PASS
+--------------------------------------------------------------------------------
+  Method, part one: if a Web GUI is installed, log in through it and look for the warning.
+  Method, part two: ask the HTTP server a question that depends on the SAME internal
+  check.  The "Forced Default Password Change" engineering page says that while the
+  device is in the factory-default-password state, the HTTP server runs in login-only
+  mode and most APIs return 403 Forbidden with the message `API access requires admin
+  password to be configured`.  That tests the same internal check through a different
+  subsystem, and it needs no login.
+
+  5a. Is there a GUI?
+
+awplus# show http
+  Web GUI Information / GUI file in use : -
+  => no GUI file is installed.  Installing one needs `activate flash:/Load-gui9.sh`, a
+     temporary IP and a route off the bench.  That is a bench change, not made unattended.
+
+  5b. What does the web server answer?
+
+box$ tools/tb tool tb277 ckmgmt httpq <url> ...
+  GET http://10.38.22.34/           -> 301 to https, then HTTP 404 Not Found, nginx, 146 B
+  GET https://10.38.22.34/          -> HTTP 404 Not Found, nginx, 146 B
+  GET https://10.38.22.34/login     -> HTTP 404 Not Found  (with manager/friend basic auth)
+  POST https://10.38.22.34/ username=manager&password=friend -> HTTP 404 Not Found
+
+  The server is alive: TLS is up and it sends `Content-Security-Policy: frame-ancestors
+  'self'`, `X-Frame-Options: SAMEORIGIN` and `Server: nginx`.  It has nothing to serve,
+  which matches `GUI file in use : -`.  The DUT says the same from the inside:
+  2026 Oct 19 22:59:42 daemon.err awplus nginx[2192]: open()
+  "/usr/html/public/login.html" failed (2: No such file or directory), client:
+  10.38.22.33, ... request: "GET /public/login.html HTTP/1.1"
+  => there is no HTTP login to observe on this DUT.  That limb is NOT MEASURABLE, and the
+     reason is measured, not assumed.
+
+  5c. The login-only-mode cross-check, which IS measurable:
+
+  GET https://10.38.22.34/api            (manager/friend) -> HTTP 404, Content-Length 0
+  GET https://10.38.22.34/api/v1/system  (manager/friend) -> HTTP 501
+      {"code":"ANT_CODE_UNIMPLEMENTED","message":"Unknown url and verb combination"}
+  GET https://10.38.22.34/restconf/data  (manager/friend) -> *** HTTP 200 OK ***
+      Content-Type: application/yang-data+json, Content-Length: 11848
+      {"ietf-yang-library:yang-library": {"module-set": [{"name": "common", "module":
+       [{"name": "AT-POWER-ETHERNET-MIB-DEVIATION", ...
+  => STEP 5 PASS: the HTTP login limb is NOT MEASURABLE, because no GUI is installed.  The
+     cross-check did run, and it is decisive.  RestCONF returned a normal 11848-byte
+     answer.  In the factory-default-password state it would have returned 403 with
+     `API access requires admin password to be configured`.  So the HTTP subsystem agrees
+     with the CLI: the DUT does not believe its manager password is the factory one, even
+     though that password really is `friend`.  Two subsystems, one answer.
+
+STEP 6 -- cross-unit control, a second x960 on a different build          FAIL
+--------------------------------------------------------------------------------
+  Method: repeat the console login on swi_b.  swi_b is an AT-x960-28YSQ, a different
+  model, running a build three weeks older, with no `security-password` configuration at
+  all.
+  Expected: if the absence were peculiar to swi_d, its history or its saved config, the
+  second unit should behave differently.
+
+box$ tools/tb ckcon tb277 ckmgmt u3 9600 "show system"
+       "show running-config | include username|security-password|aaa authentication"
+  Base  704  Base  AT-x960-28YSQ  X1-0  A10737A261700021
+  Software version   : sin_x96056-20260921-9
+  Build date         : Mon Sep 21 11:25:03 UTC 2026
+  username manager privilege 15 password 8 $5$bJom.f4D$KWOFQMYaIy9o9sFqFoCt37yquRIzc4VMZftD6e2HhAD
+  aaa authentication enable default local
+  aaa authentication login default local
+  (no security-password line at all)
+
+box$ tools/tb conlogin tb277 ckmgmt u3 9600 --user manager --password friend --logout
+       --settle 40
+  LOGIN RESULT: USER  user=manager  seconds=0.6  prompt='x960-28YSQ>'   (exit 0)
+
+  The console transcript, verbatim, two logins:
+
+  x960-28YSQ login: maPassword:
+  Last login: Mon Oct 19 23:02:08 UTC 2026 on ttyS0
+  AlliedWare Plus (TM) 0.0.0 09/21/26 11:25:03
+
+  x960-28YSQ>exit
+
+  x960-28YSQ login:
+  x960-28YSQ login: maPassword:
+  Last login: Mon Oct 19 23:02:34 UTC 2026 on ttyS0
+  AlliedWare Plus (TM) 0.0.0 09/21/26 11:25:03
+
+  x960-28YSQ>enable
+  x960-28YSQ#
+
+  `maPassword:` is the 9600 console mixing the username echo into the password prompt.
+  That is a console artefact.  The login plainly succeeded.
+  => STEP 6 FAIL: swi_b is also still on the factory password `friend`, and it also shows
+     no warning.  Two units, two models, two builds, one result.  The behaviour is not
+     specific to swi_d.
+
+STEP 7 -- instrument check, can a message at that point be seen at all?   PASS
+--------------------------------------------------------------------------------
+  Method: configure `banner exec <LINE>`, which writes a chosen string at exactly the
+  position the TFS example puts the warning: after the login, just before the first
+  prompt.  Then repeat the same three logins with the same tools.
+  Expected: the marker appears on all three paths.  This is what turns the absences above
+  into a measurement.  An absence proves nothing until the same instrument is shown to
+  catch a message that IS there.
+
+  Surface read first, with no carriage return:
+    (config)# banner exec ?    ->  LINE "Custom string" | default "Default string"
+    (config)# no banner exec ? ->  <cr>
+
+awplus# configure terminal
+awplus(config)# banner exec CKPROBE-EXEC-BANNER-MARKER
+awplus(config)# end
+awplus# show running-config | include banner
+  banner exec CKPROBE-EXEC-BANNER-MARKER
+  no banner motd
+  (the DUT logged: 2026 Oct 19 23:01:07 user.notice awplus IMI[903]: Exec banner updated)
+
+  TELNET:
+  --- bytes after the password was sent (THE LOGIN BANNER) ---
+
+  Last login: Mon Oct 19 22:58:33 UTC 2026 from 10.38.22.33
+  No entry for terminal type "network";
+  using vt100 terminal settings.
+  CKPROBE-EXEC-BANNER-MARKER                 <-- seen
+  awplus>
+
+  SSH:
+  --- bytes after the password was sent (THE LOGIN BANNER) ---
+
+  Last login: Mon Oct 19 23:01:11 UTC 2026 from 10.38.22.33
+  CKPROBE-EXEC-BANNER-MARKER                 <-- seen
+  awplus>
+
+  CONSOLE:
+  awplus login: manager
+  Password:
+  Last login: Mon Oct 19 23:01:29 UTC 2026 on ttyS0
+  CKPROBE-EXEC-BANNER-MARKER                 <-- seen
+  awplus>
+  => STEP 7 PASS: the marker appeared on all three paths, in the exact position where
+     `% Default password needs to be changed.` is specified to appear.  (`banner exec`
+     replaces the default version banner, which is why the version line is gone.  The
+     position, last thing before the prompt, is identical.)  So the console, telnet and
+     SSH instruments all do capture a message printed at that point.  So in STEPS 2, 3
+     and 6 the DUT really printed nothing.  The instruments did not miss it.
+
+STEP 8 -- the mechanism, read from the product's own documents            done
+--------------------------------------------------------------------------------
+  This step is analysis against the authority plus one measured value.  It is not a new
+  measurement, and it is labelled as such.
+
+  The "Forced Default Password Change" engineering page says, verbatim:
+    "Currently, we only check that the password has been encrypted with an MD5 hash, as
+     the default-generated config contains this but a user-generated config will not.
+     This means that the most likely way to see the password warning is if the user has
+     copied the value from the factory-generated config into a new config."
+
+  The DUT's stored password, measured:
+  username manager privilege 15 password 8 $5$bJozIP4D$orvkW78S6QHN65L3EGGJpHS.QlHSjwuYbMynH5.Ifp2
+
+  `$5$` is the crypt(3) prefix for SHA-256.  MD5 is `$1$`.  swi_b is the same,
+  `$5$bJom.f4D$KWOF...`.  On both units the manager password is stored as SHA-256, so a
+  check that looks for an MD5 hash cannot match, even though the password is `friend` and
+  authenticates as such.
+
+  Three supporting facts, all measured:
+  * `flash:/default.cfg` is the DUT's boot config, 1049 bytes, dated Oct 16 2026 06:22:58.
+    It starts `! Startup-config saved on Wed Mar 22 17:15:11 2000 +0000 by manager via
+    con0 (ttyS0)` and holds `service password-encryption` and the same `$5$bJozIP4D$...`
+    line.  So it is a SAVED startup config, not a pristine factory file.  It is therefore
+    NOT established from the bench whether the `$5$` form came from the factory or from a
+    `copy running-config startup-config` done while the unit still had `friend`.  Either
+    way the user sees the same thing, and it is not what the TPS row promises.
+  * The salt lengths differ by origin.  Both units' `manager` hashes use an 8-character
+    salt (`bJozIP4D`, `bJom.f4D`).  The password this case set through the CLI (`ckalt`)
+    got a 16-character salt (`ifckkga8G0b4V0Gt`).  Two different generators, so the
+    `manager` hashes were not made by an ordinary CLI `username ... password` command.
+  * The state cannot be read from the CLI.  `default-password ?` and
+    `show default-password ?` both answer `% Unrecognized command`.
+  => STEP 8 done: the absence fits, end to end, a check that keys on the MD5 hash FORMAT
+     rather than on the password VALUE, running on a build that stores SHA-256.
+
+--------------------------------------------------------------------------------
+THE ONE EXPERIMENT THAT WOULD CLOSE THIS, AND WHY IT WAS NOT RUN
+--------------------------------------------------------------------------------
+  STEP 8's conclusion comes from the documents plus the measured hash format.  One
+  experiment would measure it directly: set the manager password to an MD5-crypt (`$1$`)
+  hash of `friend`, log in, and look for the warning.
+
+    show running-config | include username manager      <- record the EXACT line first
+    configure terminal
+    username manager privilege 15 password 8 $1$<salt>$<md5crypt of 'friend'>
+    end
+    (then a console or telnet login as manager/friend, and look for the warning)
+    restore:  username manager privilege 15 password 8 \
+              $5$bJozIP4D$orvkW78S6QHN65L3EGGJpHS.QlHSjwuYbMynH5.Ifp2
+
+  If the warning appears under `$1$` and not under `$5$`, the cause is proved on hardware.
+
+  It was not run, for four measured reasons.
+  1. It touches the DUT's only administrative account, on an unattended run.
+  2. `security-password history 1` is configured.  It may refuse the restoring command,
+     which would leave the unit on an MD5 hash of `friend` with no way back from here.
+  3. If the device then decides it IS in the factory-default state, the older feature
+     forces a password change instead of warning.  The login would demand a new password
+     in a dialogue, and the console driver refuses such a dialogue by design.
+  4. swi_a on this bench is already unusable because of a login lockout.
+     A second lost unit would be a serious bench incident.
+  It needs an attended session.
+================================================================================
