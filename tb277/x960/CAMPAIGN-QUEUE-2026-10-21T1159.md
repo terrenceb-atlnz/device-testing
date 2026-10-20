@@ -185,5 +185,112 @@ inherit it.** Reboot-persistence limbs are now measurable for the first time in 
 | T33388 | (239) EnhancedOperationManagement - Hardware Watchdog | — | NOT TESTED | Dropped by the Test Engineer 2026-10-21. No user-facing watchdog CLI exists on this platform and **TPS 5.3.6 says so deliberately** (*"can be enabled or disabled by user command"* = No): no `show watchdog`, nothing in config mode. The only trigger available was deliberate crash injection via `start-shell`, which was not authorised | — | Test Engineer |
 | T33389 | (240) EnhancedOperationManagement - Software Watchdog | — | NOT TESTED | Dropped by the Test Engineer 2026-10-21, same reason as T33388 | — | Test Engineer |
 
+## 🔧 Group A bench setup and its EXACT restore recipe (written before group A's first case)
+
+Written 2026-10-21 12:5x NZDT by the group-A tester **before** the first case, so a tester that
+dies mid-group leaves a recoverable bench (dispatch requirement). Run `.setup` bound by this
+group: `tb277/x960/access-2026-10-21T1159/tb277-u2u3.setup` — **swi_d and swi_b only**, swi_a
+deliberately absent so the framework's post-failure power cycle can never reach it.
+
+### What group A puts on the bench
+
+**(a) The layer-3 underlay — swi_d only, and it IS SAVED (`write`).** The Test Engineer's
+2026-10-21 decision, overriding STANDING-ORDERS §1 for the underlay only. B, C and D inherit it;
+**group A does not tear it down.**
+
+```
+! swi_d (u2), config mode
+vlan database
+ vlan 10 name ckUNDERLAY-eth3
+ vlan 48 name ckUNDERLAY-eth4
+ vlan 10,48 state enable
+interface port1.0.10
+ switchport mode access
+ switchport access vlan 10
+interface port1.0.48
+ switchport mode access
+ switchport access vlan 48
+interface vlan10
+ ip address 10.38.22.34/27
+interface vlan48
+ ip address 10.38.22.66/27
+! then, at exec:   write
+```
+Testbox side, already in place and unchanged: eth3 `10.38.22.33/27`, eth4 `10.38.22.65/27`.
+
+**(b) A swi_d↔swi_b management VLAN — group A's own, NOT saved, removed at group end.**
+The three group-A cases all need the DUT to originate telnet/SSH **to a far end**, and swi_b
+had no IPv4 address on any SVI (only `eth0 169.254.42.42/16`, which the testbox cannot reach
+and swi_d is not cabled to). swi_d port1.0.2 ↔ swi_b port1.0.2 is the one inter-switch link
+RSTP leaves **Forwarding**, so vlan 60 is carried as a *tagged* VLAN on that link with vlan1
+left as the native VLAN — the flat vlan1 domain, LLDP and the RSTP tree are untouched.
+
+```
+! BOTH swi_d (u2) and swi_b (u3), config mode
+vlan database
+ vlan 60 name ckMGMT-A
+ vlan 60 state enable
+interface port1.0.2
+ switchport mode trunk
+ switchport trunk allowed vlan add 60
+ switchport trunk native vlan 1
+interface vlan60
+ ip address 10.38.22.97/27     ! swi_d
+ ip address 10.38.22.98/27     ! swi_b
+! NOT written to startup-config on either unit.
+```
+
+**(c) Far-end services on swi_b — NOT saved, removed at group end.**
+```
+! swi_b (u3), config mode
+service telnet                       ! T33379 needs a telnet SERVER to connect to
+username cktmp privilege 1 password <throwaway, >= 8 chars, never in this repo>
+ssh server allow-users cktmp         ! swi_b carries `ssh server allow-users manager`,
+                                     ! so a new account is refused without this line
+```
+🔴 **swi_d's own `no service telnet` is left exactly as found** — the DUT's telnet *server* is
+not under test in group A (T33378 covered it on 2026-10-20).
+
+### Restore recipe — undo (b) and (c), keep (a)
+
+```
+! swi_b (u3), config mode
+no ssh server allow-users cktmp
+no username cktmp
+no service telnet
+interface port1.0.2
+ switchport trunk allowed vlan remove 60
+ switchport mode access
+ switchport access vlan 1
+no interface vlan60
+vlan database
+ no vlan 60
+
+! swi_d (u2), config mode
+interface port1.0.2
+ switchport trunk allowed vlan remove 60
+ switchport mode access
+ switchport access vlan 1
+no interface vlan60
+vlan database
+ no vlan 60
+! swi_d: do NOT `write` after this — startup-config must keep (a) and nothing else.
+```
+Neither unit is reloaded by group A. If one has been reloaded, (b) and (c) are gone already and
+only (a) survives, which is the intended steady state for groups B–D.
+
+### Baseline this group must return to
+
+| unit | boot image | boot config | telnet server | ssh server |
+| --- | --- | --- | --- | --- |
+| swi_d (u2) | `flash:/x960-tb277.rel` | `flash:/default.cfg` | Disabled (`no service telnet`) | Enabled, `ssh server allow-users manager` |
+| swi_b (u3) | `flash:/backup.rel` | `flash:/default.cfg` | Disabled (`no service telnet`) | Enabled, `ssh server allow-users manager` |
+
+Both units' `flash:/default.cfg` already carried `service ssh`, `no service telnet`,
+`ssh server allow-users manager`, `aaa authentication login default local`,
+`security-password minimum-length 8` and `security-password history 1` **before** group A
+touched anything — measured 2026-10-21 12:42/12:43 NZDT. The `write` in (a) adds the underlay
+to that file and changes nothing else.
+
 ## Issues
 

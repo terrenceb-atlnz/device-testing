@@ -9,6 +9,10 @@ of matching free-form `SSH_AUTH_SOCK=... ssh tbNNN '...'` strings. The wrapper s
 SSH_AUTH_SOCK itself (the keyring agent, TESTBOX-ACCESS.md §0), validates every argument, and
 quotes everything it sends. It runs the step locally when the host IS <box>.
 
+Login secrets: CK_USER / CK_PASSWORD and the per-console CK_USER_U<N> / CK_PASSWORD_U<N>
+are forwarded to the box over STDIN and exported there before the tool runs -- never on the
+remote command line, which `ps` shows to every other user on a shared box (2026-10-21).
+
 Read-only / gate actions
   hostname                                reachability (BatchMode ssh)
   precheck <consoles>                     bench_probe.py precheck (no console opened); exit 0 CLEAR / 5 FOUND
@@ -70,6 +74,7 @@ SUDO_TOOLS = {'linerate', 'l2flows', 'vsend', 'igmp', 'nsresp', 'dhc6', 'rs', 'l
 NOT_ON_BOX = {'case_tokens'}                         # dev-host only
 BOX_PY = {'tb105': 'python3.8', 'tb277': 'python3.8', 'tb101': 'python3.8'}  # orient-dt §1: their python3 is 3.6
 READ_ROOTS = ('/tmp/', '/home/st-art/pytest-create/')
+SECRET_RE = re.compile(r'^CK_(USER|PASSWORD)(_U[0-9]+)?$')   # forwarded over stdin, never argv
 q = shlex.quote
 
 
@@ -108,6 +113,28 @@ def held_check(con):
             'ps -o pid,user,lstart,cmd -p $(echo $h | tr " " ,); exit 5; fi; ' % (con, con, con))
 
 
+def secrets():
+    """The login secrets to forward to the box, as NAME=value lines.
+
+    CK_USER / CK_PASSWORD and the per-console CK_USER_U<N> / CK_PASSWORD_U<N> that
+    console.py and bench_probe.py read. ssh forwards no environment, and a password
+    on the remote command line is visible in `ps` to every other user on a shared
+    box -- so these go over STDIN and are exported remotely before the tool runs.
+    """
+    return ['%s=%s' % (k, os.environ[k]) for k in sorted(os.environ)
+            if SECRET_RE.match(k) and os.environ[k] != '' and '\n' not in os.environ[k]]
+
+
+def with_secrets(remote):
+    """Wrap a remote command so it first reads len(secrets()) NAME=value lines from stdin."""
+    sec = secrets()
+    if not remote or not sec:
+        return remote, None
+    reader = ('i=0; while [ $i -lt %d ]; do IFS= read -r __L || break; export "$__L"; '
+              'i=$((i+1)); done; unset __L i; ' % len(sec))
+    return reader + remote, ''.join(l + '\n' for l in sec)
+
+
 def run(box, remote, local_files=None, dest=None):
     env = dict(os.environ)
     sock = '/run/user/%d/keyring/ssh' % os.getuid()
@@ -123,8 +150,12 @@ def run(box, remote, local_files=None, dest=None):
         if remote is None:
             return 0
     if socket.gethostname().split('.')[0] == box:
-        return subprocess.call(['bash', '-c', remote], env=env)
-    return subprocess.call(['ssh', '-o', 'BatchMode=yes', box, remote], env=env)
+        return subprocess.call(['bash', '-c', remote], env=env)   # env already carries the secrets
+    cmd, stdin_data = with_secrets(remote)
+    if stdin_data is None:
+        return subprocess.call(['ssh', '-o', 'BatchMode=yes', box, cmd], env=env)
+    return subprocess.run(['ssh', '-o', 'BatchMode=yes', box, cmd], env=env,
+                          input=stdin_data, universal_newlines=True).returncode
 
 
 def capture_out(box, remote):
@@ -132,8 +163,13 @@ def capture_out(box, remote):
     sock = '/run/user/%d/keyring/ssh' % os.getuid()
     if os.path.exists(sock):
         env['SSH_AUTH_SOCK'] = sock
-    cmd = ['bash', '-c', remote] if socket.gethostname().split('.')[0] == box else ['ssh', '-o', 'BatchMode=yes', box, remote]
-    p = subprocess.run(cmd, env=env, stdout=subprocess.PIPE, universal_newlines=True)
+    if socket.gethostname().split('.')[0] == box:
+        cmd, stdin_data = ['bash', '-c', remote], None
+    else:
+        r, stdin_data = with_secrets(remote)
+        cmd = ['ssh', '-o', 'BatchMode=yes', box, r]
+    p = subprocess.run(cmd, env=env, stdout=subprocess.PIPE, universal_newlines=True,
+                       input=stdin_data)
     return p.returncode, p.stdout
 
 
