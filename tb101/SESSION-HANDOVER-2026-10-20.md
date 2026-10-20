@@ -41,10 +41,10 @@ Measured: [bench-setup/tb101/bench-state.md](../bench-setup/tb101/bench-state.md
 
 | member | console | S/N | name | role | host NIC | notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | u0 | 264A23061 | swi_a | Backup, **priority 1** | eth4 10.37.101.65/27 ↔ port1.0.1 | wins the NEXT election (no pre-emption) |
+| 1 | u0 | 264A23061 | swi_a | **Active Master** since the 2026-10-21 reload (priority 1) | eth4 10.37.101.65/27 ↔ port1.0.1 | wins the NEXT election (no pre-emption) |
 | 2 | u1 | 264A23068 | swi_b | Backup | eth3 10.37.101.33/27 ↔ port2.0.1 | |
 | 3 | u2 | 264A23052 | swi_d | Backup | eth2 10.37.101.1/27 ↔ port3.0.1 | IXIA TOP on port3.0.25 → VLAN 3, 3.3.3.3/24 |
-| 4 | u3 | 264A23066 | swi_c | **Active Master** | — | IXIA BOTTOM on port4.0.25 → VLAN 2, 2.2.2.2/24; port4.0.26 (copper SFP) is `connected` in vlan1 — unknown peer |
+| 4 | u3 | 264A23066 | swi_c | Backup since the 2026-10-21 reload | — | IXIA BOTTOM on port4.0.25 → VLAN 2, 2.2.2.2/24; port4.0.26 (copper SFP) is `connected` in vlan1 — unknown peer |
 
 - Hostname `IE520`, chassis-id **3439**, virtual MAC **0000.cd37.0d6f** (was 0000.cd37.0a66 before the
   re-form: IXIA must re-resolve both gateways). All four run `awplus_main-20261019-75` from flash, bootloader
@@ -96,9 +96,12 @@ Measured: [bench-setup/tb101/bench-state.md](../bench-setup/tb101/bench-state.md
 ## Open (updated 2026-10-21)
 1. ~~`apply` + MATCH probe (you).~~ DONE 2026-10-21 08:22/08:28 by Terrence: MATCH, no advisories (`tools/tb` now
    picks python3.8 on tb101; the first probe attempt failed under python3 = 3.6).
-2. Stack link port4.0.28 ↔ port1.0.27 down (cable) — Terrence reseating it 2026-10-21; a whole-stack `reload`
-   follows (also makes member 1 master, item 3), then a re-probe expecting all eight stackports up.
-3. ~~Decide on `stack 1 priority 1`~~ KEPT (Terrence, 2026-10-21): takes effect at the item-2 reload.
+2. ~~Stack link port4.0.28 ↔ port1.0.27 down (cable)~~ DONE 2026-10-21: Terrence reseated the cable (09:28: all eight
+   stackports `Learnt neighbor`, `Operational Status: Normal operation`); whole-stack `reload` from u0 09:29,
+   login back 09:33 (~65 s of console output); probe `2026-10-20T203454Z` MATCH, no advisories.
+3. ~~Decide on `stack 1 priority 1`~~ KEPT (Terrence, 2026-10-21) and in effect since the item-2 reload: **member 1
+   (u0) is Active Master**, members 2-4 Backup. Boot image and `flash:/tb101-bench.cfg` boot config confirmed after
+   the reload.
 4. `port4.0.26` copper SFP `connected` in vlan1 on member 4: what is on the other end? (not in the probe's links: no
    LLDP neighbour, no host MAC).
 5. Flash housekeeping (old `.cfg`, debug tarballs) if wanted.
