@@ -1607,28 +1607,53 @@ def run_diff(live_path, tmpl_path):
 # 4. apply -- write the fence to the box
 # =============================================================================
 
-def on_box():
-    return os.uname().nodename == BOX and os.path.exists(os.path.dirname(REMOTE))
-
-
 def ssh(args, stdin=None):
     env = dict(os.environ, SSH_AUTH_SOCK=SOCK)
     return subprocess.run(["ssh", BOX] + args, env=env, input=stdin,
                           stdout=subprocess.PIPE, check=True).stdout
 
 
+_REMOTE_RESOLVED = {}
+
+
+def remote_path():
+    """The deployed .setup path ON THE BOX. Normally REMOTE (/home/st-art/st-art/configs/<box>.setup,
+    where /home/st-art/st-art -> /nfsHome/st-art). On a box whose /nfsHome is not mounted that
+    symlink dangles; when the same 10.36.250.11:/home share is mounted at /home instead (tb101,
+    2026-10-20), /home/st-art/configs IS that directory, so the file goes there. Resolved once."""
+    if BOX not in _REMOTE_RESOLVED:
+        fb = REMOTE.replace("/home/st-art/st-art/configs/", "/home/st-art/configs/")
+        d1, d2 = os.path.dirname(REMOTE), os.path.dirname(fb)
+        if os.uname().nodename == BOX:
+            ok1, ok2 = os.path.isdir(d1), os.path.isdir(d2)
+        else:
+            out = ssh(["[ -d {} ] && echo D1; [ -d {} ] && echo D2; true".format(d1, d2)]).decode("utf-8")
+            ok1, ok2 = "D1" in out, "D2" in out
+        path = REMOTE if (ok1 or not ok2) else fb
+        if path != REMOTE:
+            print("note: {} has no {} (/nfsHome not mounted); the deployed .setup is {}".format(BOX, d1, path))
+        _REMOTE_RESOLVED[BOX] = path
+    return _REMOTE_RESOLVED[BOX]
+
+
+def on_box():
+    return os.uname().nodename == BOX and os.path.exists(os.path.dirname(remote_path()))
+
+
 def live_setup():
     """The deployed template, or '' when the box has none yet (a new testbox)."""
+    r = remote_path()
     if on_box():
-        return io.open(REMOTE, encoding="utf-8").read() if os.path.exists(REMOTE) else ""
-    return ssh(["cat " + REMOTE + " 2>/dev/null || true"]).decode("utf-8")
+        return io.open(r, encoding="utf-8").read() if os.path.exists(r) else ""
+    return ssh(["cat " + r + " 2>/dev/null || true"]).decode("utf-8")
 
 
 def write_setup(text):
+    r = remote_path()
     if on_box():
-        io.open(REMOTE, "w", encoding="utf-8").write(text)
+        io.open(r, "w", encoding="utf-8").write(text)
     else:
-        ssh(["cat > " + REMOTE], stdin=text.encode("utf-8"))
+        ssh(["cat > " + r], stdin=text.encode("utf-8"))
 
 
 def render():
@@ -1676,7 +1701,7 @@ def apply(force=False):
         return 0
     if cur is not None and have != cur and not force:
         print("\nREFUSING: the live file does not match {} -- someone edited".format(os.path.basename(CURRENT)))
-        print("{}:{} by hand. Look at it first; re-run with --force to overwrite (it is".format(BOX, REMOTE))
+        print("{}:{} by hand. Look at it first; re-run with --force to overwrite (it is".format(BOX, remote_path()))
         print("snapshotted into backups/ regardless).")
         return 2
     os.makedirs(os.path.dirname(CURRENT), exist_ok=True)
@@ -1864,7 +1889,7 @@ def _facts(items):
 
 
 def default_template():
-    return REMOTE if on_box() and os.path.exists(REMOTE) else CURRENT
+    return remote_path() if on_box() and os.path.exists(remote_path()) else CURRENT
 
 
 def main(argv=None):

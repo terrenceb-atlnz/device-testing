@@ -1,6 +1,6 @@
 ---
 name: orient-dt
-description: Orient a device-testing bench session on ANY testbox — work out which bench this session is about (a box the Test Engineer names, else the last test bench run they recorded, else this dev host's line in bench-setup/default-boxes, else SKIPPED), run the no-console occupancy check and bench_probe.py on that box's consoles to regenerate its bench-state.md (the ONLY home for measured bench facts), load the platform/driver/framework traps that don't rot, then brief the user and wait. Use at the start of any session that will touch testbox hardware. Pairs with /wrap-dt.
+description: Orient a device-testing bench session on ANY testbox — first sync this repo with origin (fetch, fast-forward or rebase with peers on hold, report unpushed commits), then work out which bench this session is about (a box the Test Engineer names, else the last test bench run they recorded, else this dev host's line in bench-setup/default-boxes, else SKIPPED), run the no-console occupancy check and bench_probe.py on that box's consoles to regenerate its bench-state.md (the ONLY home for measured bench facts), load the platform/driver/framework traps that don't rot, then brief the user and wait. Use at the start of any session that will touch testbox hardware. Pairs with /wrap-dt.
 ---
 
 # Orient — device-testing bench (any testbox)
@@ -15,7 +15,9 @@ only, with no prose (bench owner, 2026-09-25). This file holds what does not rot
 - driver and framework mechanics;
 - the traps that have each cost a session.
 
-**Which bench** is decided first (§0b). It is never assumed: a dev host has a default box only if
+**Git comes first** (§0a): fetch, fast-forward or rebase, and a clean picture of the tree
+before anything else, because other seats commit to the same GitHub repo and other sessions
+share this very working tree. **Which bench** is decided next (§0b). It is never assumed: a dev host has a default box only if
 it has a line in `bench-setup/default-boxes`. Then establish state from **reality**, load the facts
 that don't rot, brief the user and wait.
 
@@ -123,6 +125,56 @@ needs an explicit `SSH_AUTH_SOCK`, and a `.setup` file is declarative and may no
 Working style is the **"How we work"** section (§0): no time pressure, verify facts yourself,
 **ask about decisions**, and don't work beyond the literal ask.
 
+## 0a. Git first — a fresh pull and a sorted tree before anything else (Terrence, 2026-10-21)
+
+Run this at the very start, before §0b, before any ssh. Two facts make it necessary:
+- **Several seats commit to `origin/main`** (the tb277 x960 campaigns alone pushed 231 commits
+  between 2026-10-07 and 2026-10-20) while this host's commits wait for Terrence's push
+  ([[claude-cannot-push-terrence-pushes]]). Left alone, the branches diverge and the eventual
+  rebase lands on someone mid-session (2026-10-21: three conflicts, in MEMORY.md, .gitignore and
+  tools/tb).
+- **This working tree is shared.** Every Claude session on this host, visible in `ListAgents` or
+  not, runs in the same NFS checkout: a rebase, checkout or reset here rewrites THEIR files too,
+  and their uncommitted probe output shows up in YOUR `git status`.
+
+```bash
+cd <repo root>
+git fetch origin                                   # allowed; only push is denied
+git status --short                                 # dirty files: yours, a peer's, or a stale probe
+git stash list; ls .git/rebase-merge .git/MERGE_HEAD 2>/dev/null   # a half-done operation = STOP, report
+git rev-list --left-right --count main...origin/main   # "<ahead> <behind>"
+```
+
+Then exactly one of:
+
+| state | do |
+| --- | --- |
+| `0 0`, tree clean | nothing; say `Git: in sync with origin/main` |
+| behind only | `git pull --ff-only origin main` |
+| ahead only | nothing to pull; the commits await Terrence's push — say how many |
+| ahead AND behind | `ListAgents` first: tell every peer in this repo root to **hold git** (no commit, reset, checkout) and wait for its acknowledgement; then `git rebase --autostash origin/main`; then tell the peers main is stable and that the hashes changed |
+| a rebase/merge in progress, or a stash you did not make | do NOT continue, skip or abort it; report it to the Test Engineer with `git status` and stop |
+
+**Conflicts in a rebase — keep BOTH sides' facts, never pick one.** Each side is a real
+session's record. Worked example, 2026-10-21: `MEMORY.md` had the same index line extended at
+its start by one seat and at its end by the other → the merged line carries both; `tools/tb`
+`BOX_PY` gained `tb277` on one side and `tb101` on the other → the union; `.gitignore` had the
+same rule added twice with different comments → drop the duplicate comment, keep the rule once.
+`git rebase --skip` throws away a commit and `reset --hard` throws away others' work: neither is
+ever the answer. If a hunk is not obviously mergeable, `git rebase --abort`, tell the Test
+Engineer what conflicted, and stop. Never `--force` anything.
+
+**Dirty files that are not yours** (a `.current` file, `backups/`, a `bench-state.md` the probe
+just rewrote for another session): leave them alone; `--autostash` carries them across the rebase.
+Commit only what this session produced.
+
+**Say it in the brief** (§9 (0)): `Git: fetched HH:MM; <ahead> unpushed (Terrence to push);
+<behind> pulled | rebased (<n> conflicts merged)`. An unpushed count is a prompt for Terrence,
+not an error: the longer it waits, the bigger the next rebase. `/wrap-dt` fetches again and
+reports the final count to push.
+
+---
+
 ## 0b. Which bench — the last test bench run, or SKIPPED
 
 Decide this before anything touches a box, and say in the brief (§9) how it was decided. Take the
@@ -181,7 +233,7 @@ SSH_AUTH_SOCK=$sock ssh -o BatchMode=yes <TB> \
   'cd ~/claude/device-testing/bench-setup && <PY> bench_probe.py --box <TB> precheck --consoles <list>'
 ```
 
-- `<PY>` is a Python ≥ 3.7 with pyserial on the box (tb105: `python3.8`).
+- `<PY>` is a Python ≥ 3.7 with pyserial on the box (tb105, tb277 and tb101: `python3.8`; `tools/tb` picks it by itself from `BOX_PY`).
 - **FOUND (exit 5) or UNKNOWN: stop and tell the Test Engineer what was found.** Never displace
   anyone. Idle is not free.
 - `fuser` on the device node is the only reliable holder test. On 2026-09-09 minicom held three
@@ -680,7 +732,8 @@ Dense and skimmable, with clickable relative paths.
   - `Bench: SKIPPED — no test bench identified yet`. With SKIPPED, (a) reads "skipped", and the
     rest of the brief covers only what does not need a bench.
 
-  Add the consoles used and the occupancy result (CLEAR / FOUND, with what was found).
+  Add the consoles used and the occupancy result (CLEAR / FOUND, with what was found), and the
+  `Git:` line from §0a (fetched when, unpushed count, pulled or rebased).
 - **(a) Live bench state** — per DUT: console, S/N, **stack ID** (not role — see §1), boot pointers, what is
   in flash and how much is free, and whether it is usable *now*; for failover work, **which member
   is currently master**, and on a netbooting bench whether the TFTP boot path is up. From §1
