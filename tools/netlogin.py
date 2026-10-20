@@ -312,9 +312,15 @@ def main():
     # UNKNOWN (measured on tb277 2026-10-20, T33378's bad-credential control).
     pats = [("fail", FAIL_RE), ("login", LOGIN_RE), ("password", PASSWORD_RE),
             ("priv", PRIV_RE), ("user", USER_RE)]
-    # After the password has been sent, a fresh "login:" prompt IS the refusal.
+    # After the password has been sent, a fresh "login:" prompt IS the refusal (telnet), and so
+    # is a fresh password prompt: the ssh client re-prompts up to three times, so
+    # "<user>@<host>'s password:" coming back is ssh's way of saying the credential was rejected.
+    # Grading that as UNKNOWN cost a control its verdict on tb277 2026-10-20 (T33411, the
+    # wrong-shared-key leg: the login really had failed and the tool would not say so).
+    # Caveat: a device that forces a password change at first login also re-prompts, but with
+    # "Enter new password:", which FAIL_RE/PASSWORD_RE do not match in that wording.
     post_pats = [("fail", FAIL_RE), ("priv", PRIV_RE), ("user", USER_RE),
-                 ("relogin", LOGIN_RE), ("password", PASSWORD_RE)]
+                 ("relogin", LOGIN_RE), ("repassword", PASSWORD_RE)]
 
     print("=== %s %s:%d as %s ===" % (args.proto, args.host, port, args.user))
 
@@ -343,7 +349,7 @@ def main():
 
     secs = round(time.time() - t0, 1)
     outcome = {"priv": "PRIV", "user": "USER", "fail": "FAIL", "relogin": "FAIL",
-               "EOF": "EOF", None: "TIMEOUT"}.get(name, "UNKNOWN")
+               "repassword": "FAIL", "EOF": "EOF", None: "TIMEOUT"}.get(name, "UNKNOWN")
     print("LOGIN RESULT: %s  proto=%s  user=%s  seconds=%s" %
           (outcome, args.proto, args.user, secs))
 

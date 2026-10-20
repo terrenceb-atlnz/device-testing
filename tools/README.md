@@ -269,6 +269,12 @@ console, this one drives the network management paths.
     test's success is `USER`, not `PRIV` (`platforms/x960.md` §7E.6).
   - It writes **no** host trust: ssh runs with `UserKnownHostsFile=/dev/null`,
     `GlobalKnownHostsFile=/dev/null`, `StrictHostKeyChecking=no`, `PubkeyAuthentication=no`.
+  - **A refusal is a re-prompt, and it differs per protocol.** A refused AW+ telnet login
+    re-presents `<host> login:`; a refused **ssh** login re-presents
+    `<user>@<host>'s password:`, because the ssh client retries up to three times. Both are
+    graded FAIL (the ssh case was added 2026-10-20 in T33411, where the wrong-shared-key
+    control had really failed and the tool reported `UNKNOWN`). A device that forces a
+    password change also re-prompts, but with `Enter new password:`, which does not match.
   - It counts against the device's failed-login lockout like any other login. AW+ locks an
     account at 5 failures with a timer that restarts on each attempt, so for a *refusal*
     control prefer a **non-existent username** over a wrong password for an account you still
@@ -283,7 +289,11 @@ console, this one drives the network management paths.
   `show system`; a refused telnet login for a non-existent user; and three
   `Connection refused` results used as the OFF controls of an on/off arc. Fixed in that same
   case: a refused AW+ login re-presents `<host> login:`, so the failure pattern is now tested
-  FIRST and a re-presented login prompt after the password grades FAIL.
+  FIRST and a re-presented login prompt after the password grades FAIL. Extended 2026-10-20 on
+  the same box (T33411): an **ssh** password re-prompt after the password was sent now grades
+  FAIL too -- verified on a TACACS+ login refused because of a wrong shared key (was
+  `UNKNOWN`), and against the three TACACS+-served ssh logins in the same case that still
+  grade `USER`.
 
 ### `poll.py`
 Runs commands every `interval_s` for `duration_s`, stamped with epoch times. It logs in again
