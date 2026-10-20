@@ -1,6 +1,6 @@
 ---
 name: tb101-ie520-bench-map
-description: "tb101 (2026-10-20) = the four ex-tb470 IE520s as ONE 4-member stack `IE520`, members 1-4 = consoles u0-u3 (S/N 061/068/052/066 = swi_a/b/d/c), chassis-id 3439, eth4->port1.0.1, eth3->port2.0.1, eth2->port3.0.1, IXIA on port3.0.25 (vlan3) + port4.0.25 (vlan2); no PDU; TB_PY=python3.8; /nfsHome unmounted so the deployed .setup is /home/st-art/configs/tb101.setup; `apply` is hard-denied for sessions"
+description: "tb101 (2026-10-20) = the four ex-tb470 IE520s as ONE 4-member stack `IE520`, members 1-4 = consoles u0-u3 (S/N 061/068/052/066 = swi_a/b/d/c), chassis-id 3439, eth4->port1.0.1, eth3->port2.0.1, eth2->port3.0.1, IXIA on port3.0.25 (vlan3) + port4.0.25 (vlan2); no PDU; python3.8 (tools/tb picks it); /nfsHome unmounted so the deployed .setup is /home/st-art/configs/tb101.setup; `apply` is hard-denied for sessions"
 metadata:
   node_type: memory
   type: project
@@ -20,7 +20,7 @@ metadata:
 
 - Hostname `IE520`, chassis-id 3439, VMAC 0000.cd37.0d6f, build `awplus_main-20261019-75`, bootloader 9.2.0,
   boot config `flash:/tb101-bench.cfg` (vlan1 = .10/27 + .40/27 + .70/27 secondaries so every host NIC pings).
-- All consoles 115200. `tools/tb` needs `TB_PY=python3.8` (python3 is 3.6.9). No PDU: `tb101.static` has no
+- All consoles 115200. `tools/tb` runs `python3.8` here by itself since 2026-10-21 (python3 is 3.6.9; bench_probe.py needs 3.7+). No PDU: `tb101.static` has no
   `[pdu]` and every outlet `-`.
 - **Probe path:** `/home/st-art/st-art -> /nfsHome/st-art` dangles (no fstab entry); tb101 mounts the same
   `10.36.250.11:/home` share at `/home`, so `bench_probe.py remote_path()` (added 2026-10-20) uses
