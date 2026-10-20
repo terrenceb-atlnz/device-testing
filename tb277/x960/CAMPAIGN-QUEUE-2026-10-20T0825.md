@@ -1074,3 +1074,145 @@ version banner and before the first prompt, on **every** login as `manager` whil
 place it can be graded — which is why this group needed a network login driver
 (`tools/netlogin.py`, new).
 
+
+---
+
+## Group D `tacacs-2026-10-20T0825` — bench setup and the exact restore recipe
+
+Written by the group's tester (bench-runner) before the group's first case, so a fresh tester
+can restore the bench from this file alone if the session dies mid-group.
+
+**Consoles used:** /dev/u2 (swi_d, the DUT) only; /dev/u3 (swi_b) is opened only if a case needs
+a second device, and no case in this group does. /dev/u5 and /dev/u1 are never opened.
+Box scratch: `/tmp/cktac/` (`tools/tb scratch tb277 cktac`).
+
+**Occupancy, 2026-10-20 13:3x NZDT:** `tools/tb precheck tb277 u2,u3` → exit 5 FOUND, the single
+item being `process 744 (root) /usr/sbin/ser2net` — the box's own console daemon, the **same
+item the Test Engineer already answered "Proceed" on at 2026-10-19 16:53** and that groups A, B
+and C all ran under. Both session consoles read **free**. u2 was at a clean `awplus login:`
+prompt (gate 2), i.e. logged out, not parked mid-state.
+
+**Physical/bench setup this group needs: NONE beyond what is already standing.** No recable, no
+VLAN change, no new SVI, no PDU action, and **no reload** (the L3 underlay is running-config
+only; boot config is `flash:/default.cfg`). The group uses the standing L3 underlay:
+
+    tb277 eth3 10.38.22.33/27  <->  swi_d port1.0.10, DUT `interface vlan10` 10.38.22.34/27
+    tb277 eth4 10.38.22.65/27  <->  swi_d port1.0.48, DUT `interface vlan48` 10.38.22.66/27
+
+⛔ Do NOT shut port1.0.10 or port1.0.48. **10.38.22.33 is the TACACS+ server address**, so
+port1.0.10 IS the path under test.
+
+**The server is the Test Engineer's, not the tester's.** `tac_plus -C /etc/tacacs+/tac_plus.conf`,
+pid 3491, started 2026-10-20 13:29:56 NZDT. 🔴 The tester never restarts, reconfigures or stops
+it, and never edits `/etc/tacacs+/tac_plus.conf` — both are root (STANDING-ORDERS §4). Stopping
+it when the group finishes is the Test Engineer's command.
+`/var/log/tac_plus.acct` measured **size 0** before the group's first command: a true empty
+baseline for every accounting window.
+
+**What each case adds to the DUT, and the exact command that removes it:**
+
+| case | added on swi_d (u2) | removed by |
+| --- | --- | --- |
+| T33411 | `tacacs-server host 10.38.22.33 key testing123`, `aaa authentication login default group tacacs+ local`, a temporary local `username tacuser privilege 15 password …` (the escape route to config mode) | `no tacacs-server host 10.38.22.33`, `aaa authentication login default local`, `no username tacuser` |
+| T33410 | the T33411 pair, plus `aaa accounting login default start-stop group tacacs+` / `stop-only`, `aaa accounting commands <N> default start-stop group tacacs+`, possibly `aaa accounting update` and a temporary `trigger` for the S1599.1.045/046 mutual-exclusion check | `no aaa accounting login default`, `no aaa accounting commands <N> default`, `no aaa accounting update`, `no trigger <N>`, then the T33411 removals |
+| T33412 | the T33411 pair plus a second, deliberately unreachable `tacacs-server host 10.38.22.40` | `no tacacs-server host 10.38.22.40`, then the T33411 removals |
+
+**The baseline the group must return to** (the AAA-relevant lines of `show running-config`; there
+is no `tacacs-server` line of any kind at baseline, and group A left the box clean):
+
+    username manager privilege 15 password 8 $5$bJozIP4D$orvkW78S6QHN65L3EGGJpHS.QlHSjwuYbMynH5.Ifp2
+    service ssh
+    no service telnet
+    service http
+    aaa authentication enable default local
+    aaa authentication login default local
+
+**🔴 The restore that matters most, and the lockout rule this group runs under.**
+`platforms/x960.md` §7E.1: `local` at the end of a method list is a fallback for an
+**UNREACHABLE** server, never for a Reject. The TACACS+ server does not know `manager`, so the
+moment `aaa authentication login default group tacacs+ local` is applied, **`manager` cannot log
+in to the console.** This group therefore never enters that state without a proven way back:
+
+1. **Before** the method list is changed, a local `username tacuser privilege 15 password
+   localonly1` is created and a console login as `tacuser` is proven to reach `>` and then `#`
+   via `enable` (which stays on `aaa authentication enable default local`).
+2. The method list is then changed. `tacuser` still authenticates — now by the TACACS+ server,
+   with the *different* password `testing123` — and `enable` still reaches `#` from the local
+   privilege-15 entry. **That is the escape route.**
+3. Every `conlogin.py` call in this state uses `--restore-user tacuser --restore-password
+   testing123`, never the default `manager`/`friend`, which would return exit 4.
+
+**🔴 `aaa authentication enable default tacacs+` is NOT configured by this group, on purpose.**
+A rejected `enable` leaves the operator at `awplus>` with no way to reach configuration mode,
+and on this bench the only recovery is a reload — which this session forbids. See the Issues
+entry; it is declared NOT MEASURED, not skipped silently.
+
+**The restore command, in full:**
+
+    configure terminal
+    aaa authentication login default local
+    no aaa accounting login default
+    no aaa accounting commands 15 default
+    no aaa accounting commands 1 default
+    no aaa accounting update
+    no tacacs-server host 10.38.22.33
+    no tacacs-server host 10.38.22.40
+    no tacacs-server timeout
+    no username tacuser
+    end
+
+**Verification after every case:** `python3 tools/rcdiff.py <pre>.log <post>.log` must print
+nothing, and `show boot` must still read boot image `flash:/x960-tb277.rel`, boot config
+`flash:/default.cfg`.
+
+**Authority consulted before the first command** (`review-feature-docs-before-testing`). The
+case-title numbers map to **X960 platform support TPS** rows with the same constant −2 offset
+group C verified:
+
+| case | TPS row | TPS feature | Pri | Supported |
+| --- | --- | --- | --- | --- |
+| T33410 *(277)* | **275** | Management / TACACS+ / Accounting | 1 | **Yes** |
+| T33411 *(278)* | **276** | Management / TACACS+ / Authentication | 1 | **Yes** |
+| T33412 *(279)* | **277** | Management / TACACS+ / Logging | 1 | **Yes** |
+
+⇒ **All three are declared supported on this platform**, so an absent behaviour is a FINDING,
+not a platform limit.
+
+**Behavioural authority: the "TACACS+ AAA" TFS** (`https://wiki.atlnz.lc/awpwiki/index.php/
+TACACS%2B_AAA_TFS`, project 1599), fetched 2026-10-20. It is what each case is graded against,
+because none of the three has any authored step text. The specs that carry this group:
+
+- **T33411** — S1599.1.010 (authentication request format), S1599.1.004 (multiple servers tried
+  sequentially), S1599.1.011–016 (enable authentication — NOT MEASURED, above).
+- **T33410** — S1599.1.022 (no `tacacs+` option ⇒ no login accounting at all), .023 (START on
+  login), .024 (STOP on logout), .027/.028 (`task_id` sequential, and identical in the STOP of a
+  session), .025 (global, same on console and VTY), .030–.046 (command accounting: .034 no
+  command output, .036 abbreviations expanded, .041 config-mode commands accounted at privilege
+  15, .043 unique task_id per command, .045/.046 command accounting and triggers are mutually
+  exclusive), S1599.2.06–2.09 (no record for `enable`, an incomplete command, `?`, an invalid
+  command, or a command that did not execute).
+- **T33412** — the seven logging specs **S1599.1.080–086**: a log message when communication with
+  a server is established (.080) and lost (.081), when login authentication succeeds (.082) and
+  fails (.083), when enable authentication succeeds (.084) and fails (.085), and when accounting
+  notification fails after every configured server has been tried (.086). Note S1599.2.25: there
+  is deliberately **no `debug TACACS+` command** — "log messages are considered sufficient" — so
+  the log IS the specified interface, and a missing log line is a finding against a spec.
+
+**Instruments, and which one proves what** (STANDING-ORDERS §7 — three independent instruments):
+
+1. **The DUT**: `show tacacs+`, `show running-config`, and the DUT's own `show log`.
+2. **The server's accounting file** `/var/log/tac_plus.acct`, read in a bounded window with the
+   new `tools/filewin.py` (mark the byte offset before the step, read the delta after it), so a
+   zero is a measurement and not an absence of output.
+3. **The wire**: `tools/tb capture tb277 cktac eth3 <secs> <out>.pcap tcp port 49` decoded with
+   `tools/tcpflow.py --port 49`. TACACS+ bodies are obfuscated with the shared key, but the TCP
+   flow, packet count, direction, timing and handshake verdict are all measurable, and
+   `tcpflow.py` tells `REFUSED` from `NO-ANSWER` from `ESTABLISHED+DATA` — which is exactly the
+   off / on / wrong-key / unreachable discrimination this group needs.
+
+🔴 `/tmp` on tb277 is 95% full. Every capture in this group is bounded in seconds and filtered
+to `tcp port 49`.
+
+**Clock.** The DUT is UTC, **+13 h behind the box and ~15 s slow** (measured by group B and
+corrected in `## Issues`). Every correlation between a DUT log line and a server-side accounting
+record or a capture timestamp in this group applies that offset explicitly.

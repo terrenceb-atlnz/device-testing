@@ -485,6 +485,35 @@ The IPv4 counterpart of `nsresp.py` (which answers IPv6 Neighbor Solicitations).
   a clean Up -> Down -> Up transition pair that the DUT's own trigger log matched to within
   1 s, with a never-muted second address as the in-leg control.
 
+### `filewin.py`
+Reads a **window** of a growing text file: the bytes it gained since a byte offset the caller
+recorded earlier. The instrument for grading a case against a file some **other** process keeps
+appending to -- a TACACS+ accounting file, a syslog, a RADIUS detail file, a daemon log -- where
+the whole file is history and only this case's own window is evidence.
+- **Why an offset and not `tail -n`:** a tail of N lines is not a window. It silently drops
+  evidence when the writer is busy and silently re-reads old records when it is idle, and
+  neither failure is visible in the output. An offset recorded before the step bounds the window
+  exactly, and the header says how many bytes arrived -- so **zero new bytes is a measurement**,
+  not an absence of output.
+- **Run:** `filewin.py <path> [--from OFFSET] [--grep REGEX] [--max-lines N] [--quiet]`, or
+  `tools/tb tool <TB> <scratch> filewin /var/log/tac_plus.acct --from 1234`.
+  To mark: `--quiet` with no `--from`, and record `size=` from the header.
+- **Where:** anywhere (on the box for a server-side file); **needs:** nothing beyond Python
+- **Imports:** none
+- **Output:** one header line
+  `FILEWIN <path> size= from= new-bytes= new-lines= matched=`, then the matching new lines
+  unchanged
+- **Exit:** 0 read; 3 absent or not readable (a first-class result: a server that never wrote
+  anything, or a file the case may not read); 4 the file SHRANK below `--from` -- it was rotated
+  or truncated, the window is not trustworthy, and everything from byte 0 is printed instead;
+  6 usage
+- **Limits:** text files only (bytes are decoded UTF-8 with replacement); it does not follow a
+  rotation to the rotated-out file; a trailing partial line is printed, because a writer caught
+  mid-append is still evidence. It reads only and writes nothing anywhere.
+- **Status:** verified 2026-10-20 on tb277, x960-56YSQ (T33411/T33410/T33412): marking and
+  windowing `/var/log/tac_plus.acct` across every accounting leg, the rotation guard and the
+  unreadable-file exit tested offline
+
 ### `rcdiff.py`
 Unified diff of the first `show running-config` in two saved `ckcon.py` **stdouts** (not the `<transcript>` argument, which has no `HH:MM:SS >>>` headers). This is the
 pre-case versus post-case teardown check (STANDING-ORDERS §1).
