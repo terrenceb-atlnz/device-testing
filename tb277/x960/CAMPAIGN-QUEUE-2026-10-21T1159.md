@@ -819,3 +819,79 @@ and `show lldp neighbors` (4 neighbours: 1.0.2 and 1.0.16 → swi_b `0000.cd42.3
 
 Startup-config on swi_d ends as: group A's underlay + vlan 60 + the LLDP baseline, and nothing
 of group C's own. The Test Engineer removes vlan 60 at campaign end.
+
+### 🔧 What group C left on the bench (written at hand-back, 2026-10-21 16:1x NZDT)
+
+**On swi_d, in running-config: nothing.** Both cases ended with the DUT's `show running-config`
+**byte-for-byte identical** to the state group C inherited at 14:52 NZDT — verified twice over,
+against each case's own pre-case capture and against group C's starting capture. 112 lines both
+ways, after two cases, **two reloads** and four `write`s.
+
+**In startup-config, three things, all intended:**
+1. group A's layer-3 underlay (`vlan10 10.38.22.34/27`, `vlan48 10.38.22.66/27`);
+2. `lldp run` — 🔴 **proven to be swi_d's own SAVED baseline, present in `flash:/default.cfg`
+   before this campaign began, and NOT residue of the 11:59 probe.** The dispatch asked for
+   this to be settled rather than assumed; it is settled by reading `show startup-config`, which
+   no probe writes. See T44296's log;
+3. 🔴 **vlan 60** (`ckMGMT-A`, `10.38.22.97/27`, tagged on port1.0.2), which landed there by the
+   Test Engineer's own 14:0x decision. **Removing it needs `no interface vlan60` / `no vlan 60`,
+   which the permission system refuses for a tester — it is the Test Engineer's own hands at
+   campaign wrap.** The `write` diffs that put it there are quoted line by line in T44296's log.
+
+Nothing of either case's own survives in startup-config: every test line was removed and the
+removal written.
+
+- **Boot pointers close as they opened** on swi_d: `flash:/x960-tb277.rel`,
+  `flash:/default.cfg`, Autoboot disabled.
+- **Two reloads, both swi_d only**, both `Expected CLI(user request)` in `show reboot history`,
+  both 60 s from `reload` to the login prompt. **swi_a was never opened, never configured and
+  never rebooted** — the session constraint was never approached. swi_b was never configured.
+- **Closing probe** (`--consoles u2`, swi_d-only template, `--read-only`): **exit 0 MATCH**.
+  The repo's `bench-state.md` was not overwritten; both probes wrote to `/tmp`.
+- **u2 is at `awplus login:`**, confirmed from the console transcript rather than from a tool's
+  stdout. u3 and u5 were not opened after the incidents below. Nothing of this group's is
+  running on the box.
+- **Host legs:** eth3 → 10.38.22.34 and eth4 → 10.38.22.66 both 3/3, 0% loss, after each reload.
+  (A probe run immediately after a reload reports `CHECK_CABLE` on both legs — that is the
+  DUT's MAC table being empty after the boot, not a cable fault. Ping first, then re-probe.)
+
+**Open, carried forward (all reported to the sentinel, none blocking):**
+
+1. 🔴 **Both partner consoles are locked out, and one of them was locked by this repo's own
+   driver.** swi_a's `manager` was already locked before group C began (the opening probe's
+   single attempt with the correct password returned silence, and re-armed the timer). swi_b's
+   `manager` was locked **by `tools/awlogin.py`** at 14:59:58 — five failed logins in forty
+   seconds from one `ckcon` call. Neither console was retried. Clearing them needs a successful
+   interactive login, which only the Test Engineer can do.
+2. 🔴 **`tools/awlogin.py:login()` is an account-lockout generator and is still unfixed.** Its
+   signature is `login(c, tries=5, ...)` and the loop body sends a complete username and
+   password on every iteration, `continue`-ing past `Login incorrect`. AW+ locks at **five**.
+   The first failure was not a wrong credential: at 9600 the username write is **truncated**
+   (the device echoed `ma` and `manag`, not `manager`), and the control that proves it is
+   `bench_probe.py` logging into the same console with the same password at 14:46. **A
+   dropped-character write makes one failure; the retry loop turns it into five.** Not fixed
+   mid-case deliberately — a login fix cannot be validated without spending more attempts on
+   the only two accounts that matter. Same family as group A's finding, different mechanism;
+   the durable rule covering both is **an explicitly supplied credential is tried once, and a
+   credential dialog is never re-entered by a loop.**
+3. **`swi_a.cfg` and `swi_b.cfg` are absent from both cases**, because capturing a running-config
+   means logging in. A console-lockout limitation, not a bench gap. Both logs say so with the
+   reason.
+4. **Twenty product findings for `platforms/x960.md`**, ten per case, in the case logs. The ones
+   most likely to mislead a later reader:
+   - **by default this platform advertises only the three mandatory LLDP TLVs** plus one Allied
+     Telesis OUI TLV, which is why `show lldp neighbors` has an **empty Sys Name column for
+     every AW+ partner** — correct behaviour that reads as a defect to anyone who has not
+     captured the frames;
+   - 🔥 **`switchport voice vlan` silently adds `spanning-tree portfast`**, and a `write` saves
+     it — a teardown hazard that makes a running-config diff fail for an unrelated-looking
+     reason. `no switchport voice vlan` also leaves `switchport voice vlan priority` and
+     `switchport voice dscp` behind;
+   - **`no lldp receive` drops the frame BEFORE the packet counter**, so `In` counts frames
+     *accepted*, not frames *arrived*;
+   - **an x960-56YSQ cold-boots to its login prompt in 60 s**, measured twice.
+5. **Three tools changed, all committed with their README entries:** `tools/lldpsend.py` and
+   `tools/lldpwire.py` are new (there was no plain LLDP sender and no LLDP decoder in `tools/`);
+   `tools/lldpmed_phone.py` is **hardware-verified for the first time** since it was generalised
+   on 2026-10-02; `tools/rcdiff.py` gains a measured limit (an "empty" diff can print one
+   spurious `-HH:MM:SS` line). `tools/tb` learns `lldpsend` as a root traffic tool.
