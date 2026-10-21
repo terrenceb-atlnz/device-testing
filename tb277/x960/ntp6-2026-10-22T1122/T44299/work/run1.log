@@ -1,0 +1,549 @@
+================================================================================
+WORKING LOG -- AWPTCM-T44299, run 1
+================================================================================
+
+CASE      : AWPTCM-T44299 -- (265) Management_NTP - IPv6 NTP Client
+GROUP     : ntp6-2026-10-22T1122   (group A, one case)
+TESTBOX   : tb277
+CONSOLES  : u2 ONLY (swi_d). u3 and u5 were NOT opened, NOT probed and nothing was
+            typed at their login prompts -- CK_PASSWORD_U3 / CK_PASSWORD_U5 are absent
+            from this session's environment and a default-password fallback is a lockout
+            generator (AW+ locks at five failures; that is what locked swi_b on
+            2026-10-21). The Test Engineer's answer was "DUT only -- don't open u3/u5".
+TEST ENG. : bidhanc@bidhanc-dl
+CONSTRAINT: window partly attended; the Test Engineer is intermittently available, so a
+            NEEDS TEST ENGINEER: may wait and the tester carries on.
+PERMISSION: the Test Engineer granted, 2026-10-22, that swi_d may be written to
+            startup-config and reloaded as often as a case needs, provided the tester
+            removes its own configuration from BOTH running- and startup-config at the
+            end of the case and PROVES the removal by re-reading.
+RUN .setup: tb277/x960/ntp6-2026-10-22T1122/tb277-u2.setup -- declares swi_d and nothing
+            else, so the framework's post-failure power cycle can never reach u3 or u5.
+DATE      : 2026-10-22 (NZDT). The DUT runs UTC; the box displays NZDT (UTC+13).
+
+--------------------------------------------------------------------------------
+1. THE CASE HAS NO AUTHORED TEXT -- what was designed, and from what
+--------------------------------------------------------------------------------
+
+Read from ck.db on tb277 before dispatch: AWPTCM-T44299 has `has_objective = 0` and
+ONE step whose text is the 53-character empty-JSON placeholder. There is no objective,
+no step text and no expected result in the database. Folder
+"/New Platform Test (MASTER)/New Platform Template/Management", status Draft,
+script_type STEP_BY_STEP, label New_Platform_Management.
+
+So the case was designed, before it was run, from the three sources STANDING-ORDERS
+allows, in this order:
+
+  1. THE TITLE: "Management_NTP - IPv6 NTP Client". The subject is the DUT acting as an
+     NTP *client* over *IPv6*.
+  2. THE X960 TPS ROW. The bracketed "(265)" in the title is NOT the TPS row number --
+     on this suite the title brackets are offset +2. The row for this case is
+     **263, "NTP / IPv6 NTP Client", Supported = Yes**. (TPS row 265 is "Syslog stored
+     in NVS", a different case, AWPTCM-T33402.) Because the TPS says Yes, a feature
+     missing on the DUT would be a FINDING, not a bench limit.
+  3. THE DUT'S OWN CLI SURFACE, read read-only before designing:
+       `ntp server ?`  ->  A.B.C.D / WORD / **X:X::X:X**  (an IPv6 server is accepted)
+       `ntp source`    ->  takes an address, which is how a poll is pinned to one leg
+
+OBJECTIVE AS DESIGNED
+  Prove that the AT-x960-56YSQ acts as an NTP client over IPv6: that it originates
+  IPv6 NTP mode-3 requests ON THE WIRE to a configured IPv6 server, that it is answered
+  and reaches synchronisation, that it does NOT use an IPv6 server that answers nothing,
+  that it corrects a real clock error through the IPv6 association, that it stops
+  completely when the configuration is removed, and that the configuration survives a
+  cold boot with nothing typed into the device.
+
+DESIGNED STEPS, WRITTEN DOWN BEFORE THEY WERE RUN
+  STEP 0  baseline OFF, on the wire: with no NTP configured at all, a bounded capture on
+          the box's leg must contain ZERO NTP packets, while the same capture shows live
+          ICMPv6 so the instrument is proven to be looking at the right wire.
+  STEP 1  configure the IPv6 client: one REACHABLE IPv6 server (the testbox's own ntpd)
+          and one UNREACHABLE IPv6 control address on the same /64, together, so the
+          exchange under test and the control that must not match are in the same capture
+          at the same moment through the same interface.
+  STEP 2  the DUT polls over IPv6, is answered and SYNCHRONISES; the control address is
+          not used (reach 0, no system-peer marker).
+  STEP 3  the exchange and the control counted ON THE WIRE with tools/ntpwire.py: paired
+          IPv6 requests/replies to the reachable server, and ZERO packets to the control.
+  STEP 4  a real clock correction THROUGH THE IPv6 ASSOCIATION, of a size known in
+          advance because the tester injected it.
+  STEP 5  the removal limb: after `no ntp server ...` the DUT goes silent on the wire
+          while the leg still pings 4/4, and `show ntp status` returns to empty.
+  STEP 6  reboot persistence: `write`, `reload`, ping the leg to 4/4 (a login prompt is
+          NOT readiness), then with NOTHING typed into the DUT, is it polling over IPv6
+          again?
+  STEP 7  time to re-acquire synchronisation from cold, measured, not assumed.
+  TEARDOWN remove the NTP configuration and the setup IPv6 address from BOTH running-
+          and startup-config, and prove the removal by re-reading, never by the absence
+          of an error.
+
+--------------------------------------------------------------------------------
+2. DEVICES, LINKS AND INSTRUMENTS
+--------------------------------------------------------------------------------
+
+DUT       swi_d, AT-x960-56YSQ, S/N A2WQS700B, console /dev/u2 @ 115200,
+          software sin_x96056-20261019-27, build date Sun Oct 18 23:18:21 UTC 2026,
+          standalone, Active Master. vlan10 MAC e0:1a:ea:d4:70:43.
+PARTNER   tb277 ITSELF. There is no partner switch in this case: the NTP server under
+          test from the DUT's point of view is the testbox's own ntpd.
+          (swi_a served IPv6 NTP on 2026-10-21 but is not available this session.)
+
+LEG USED  box eth3  <->  swi_d port1.0.10  (vlan10)
+          box eth3 : 10.38.22.33/27, fd32:b1f0:dff8:1603::1/64,
+                     MAC 00:0d:b9:55:77:0e, carrier=1
+          swi_d    : vlan10 10.38.22.34/27, and the IPv6 address this case ADDS,
+                     fd32:b1f0:dff8:1603::34/64
+          Other box NICs, not used by this case: eth2 10.38.22.1/27 +
+          fd32:b1f0:dff8:1602::1/64 (cabled to swi_d's out-of-band eth0 management
+          port, not to a switchport); eth4 10.38.22.65/27 +
+          fd32:b1f0:dff8:1604::1/64 -> port1.0.48 (vlan48).
+
+SERVER    tb277's own ntpd: /usr/sbin/ntpd -p /var/run/ntpd.pid -g -c /run/ntp.conf.dhcp
+          -u 108:114, pid 7062. It listens on [fd32:b1f0:dff8:1603::1]:123 among others.
+CONTROL   fd32:b1f0:dff8:1603::99 -- an unused address on the same /64. Nothing is there,
+          so it must never be answered. This is the flow that MUST NOT match.
+
+TOOLS     tools/tb <action> tb277 ...            every step on the box went through it
+          tools/ntpc.py                          crafted NTP client, used as the
+                                                 INSTRUMENT CONTROL before the DUT was
+                                                 involved at all
+          tools/ntpwire.py                       decodes and COUNTS the NTP packets in a
+                                                 tcpdump -w pcap, IPv4 and IPv6, and
+                                                 pairs each reply to the request whose
+                                                 transmit timestamp it echoes
+          tools/tb capture (tcpdump)             bounded, filtered captures on eth3
+          tools/tb health                        the STANDING-ORDERS §8 health samples
+          No framework script was used: this is a manual CLI + traffic case, so the
+          offline pt_preflight.py gate does not apply and nothing was launched with
+          --noupdate --nodefaultcfg.
+
+CLOCK PAIR, recorded once for this group
+          box  2026-10-21 23:06:43 UTC  =  2026-10-22 12:06:43 NZDT
+          DUT  `show clock` -> UTC Time: Wed, 21 Oct 2026 23:06:48 +0000, Timezone UTC
+          The DUT and the box therefore agree on absolute time to within a few seconds;
+          the "13 h" is purely the box's NZDT display offset, not a clock error.
+          A DUT log time is UTC and a box local time is UTC+13: when comparing the two,
+          add 13 h to the DUT's.
+
+--------------------------------------------------------------------------------
+3. PRE-RUN GATE
+--------------------------------------------------------------------------------
+
+tb277$ tools/tb precheck tb277 u2
+  /dev/u2 (/dev/ttyUSB2): free
+  logged in (information only): bidhanc pts/1 10.33.12.21 Wed10 25:23m
+  FOUND -- 1 item: process 744 (root, up 41-00:49:47)
+           /usr/sbin/ser2net -c /etc/ser2net.conf -P /run/ser2net.pid
+  exit 5
+  -> ser2net is the BOX'S OWN console daemon and is the identical process the Test
+     Engineer adjudicated "Proceed" for the 2026-10-20 campaign, the 2026-10-21 campaign
+     and today's triage. It does not hold u2 (`fuser` returns no holder, and
+     /etc/ser2net.conf has no ttyUSB2 line). Treated as a standing adjudication.
+     NOTHING WAS DISPLACED. u3 and u5 were not checked, because they are not opened.
+
+tb277$ tools/tb scratch tb277 ntp61022
+  /tmp/ntp61022/tools refreshed (73 files)
+
+tb277$ tools/tb peek tb277 ntp61022 u2 115200
+  /dev/u2 TAIL: 'awplus login:'
+  -> THE CONSOLE WAS NOT PARKED MID-STATE. No `[root@... ~]#` shell left by a killed run
+     (which would make the next `show` return `ash: show: not found`), and no
+     `(config...)#` prompt. It was at the login prompt, which is the clean state.
+
+tb277$ tools/tb template tb277
+  tb: no deployed tb277.setup
+  -> expected on this box: tb277 has NO /home/st-art/st-art/configs/tb277.setup and none
+     is ever bound. (The `/nfsHome not mounted` line the wrapper also prints is a tb470
+     fact and does not apply to tb277.)
+
+tb277$ tools/tb probe tb277 --consoles u2 --no-prompt --pdu 10.36.230.212 \
+          --outlet u2=1 --name u2=swi_d --baud 115200
+  /dev/u2: ok baud=115200 banner=awplus hostname=awplus
+  capturing 7 commands on 1 device(s) ...
+  capture -> bench-setup/tb277/captures/2026-10-21T230452Z
+$ bench_probe.py --box tb277 diff tb277/bench-state.md \
+      ../tb277/x960/ntp6-2026-10-22T1122/tb277-u2.setup
+  MATCH -- the bench equals the template.      <-- exit 0
+  -> The run .setup was probed against the live bench and MATCHES.
+  -> The probe regenerated bench-setup/tb277/bench-state.md as a swi_d-ONLY record
+     (7 insertions, 25 deletions), dropping swi_a and swi_b, because only u2 was opened.
+     The tracked file was REVERTED to the committed three-unit version, whose
+     "Generated 2026-10-21T201917Z" stamp honestly says when three units were last
+     measured. The swi_d-only regeneration is kept in the tester's scratchpad. Nothing
+     on the bench changed, so no information was lost. (Same handling the sentinel
+     applied at triage.)
+
+GATE 9 (sentinel): this session's shape is `sentinel: parent` -- the session that
+     dispatched this tester IS the sentinel. Nothing to arm.
+GATE 10 (the script's CLI): there is no script. Every command was checked against the
+     platform read-only before it was sent: `ntp server ?` was read with the help probe
+     at triage and offers `X:X::X:X`, so the IPv6 form is accepted by the parser.
+
+BOOT BASELINE this run must return the DUT to (read from the DUT today):
+awplus#show boot
+Boot configuration
+--------------------------------------------------------------------------------
+Current software   : x960-tb277.rel 
+Current boot image : flash:/x960-tb277.rel (file exists)
+Backup  boot image : Not set 
+Default boot config: flash:/default.cfg
+Current boot config: flash:/default.cfg (file exists)
+Backup  boot config: Not set 
+Autoboot status    : disabled
+
+--------------------------------------------------------------------------------
+4. SETUP READS, BEFORE STEP 1
+--------------------------------------------------------------------------------
+
+tb277$ tools/tb ckcon tb277 ntp61022 u2 115200 "terminal length 0" "show system" ...
+
+awplus#show system
+System Status                                           Wed Oct 21 23:06:47 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B       
+PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU 
+PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S 
+Fan module 730  FAN1    AT-FAN19                          -     -               
+Fan module 730  FAN2    AT-FAN19                          -     -               
+--------------------------------------------------------------------------------
+RAM: Total: 8092132 kB Free: 7455296 kB
+Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 18:12:47
+Bootloader version : Unknown
+
+Current software   : x960-tb277.rel
+Software version   : sin_x96056-20261019-27
+Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+Current boot config: flash:/default.cfg (file exists)
+
+System Name
+ awplus
+System Contact
+
+System Location
+
+awplus#show clock
+UTC Time:   Wed, 21 Oct 2026 23:06:48 +0000
+Timezone: UTC
+Timezone Offset: +00:00
+Summer time zone: None
+
+awplus#show running-config | include ntp
+                                           <-- NOTHING. NTP is completely unconfigured.
+awplus#show ntp status
+                                           <-- COMPLETELY EMPTY OUTPUT, not an error
+awplus#show ntp counters
+                                           <-- COMPLETELY EMPTY OUTPUT, not an error
+awplus#show ntp associations
+                                           <-- COMPLETELY EMPTY OUTPUT, not an error
+
+  This confirms platforms/x960.md §7H.5 on this build: the three NTP show commands print
+  COMPLETELY EMPTY output when NTP is not configured -- no error, no message, no header.
+  AN EMPTY READ IS A STATE, NOT A HUNG COMMAND. It is recorded here before the case
+  configures anything, so the "after" reads below mean something.
+
+awplus#show running-config interface vlan10
+!
+interface vlan10
+ ip address 10.38.22.34/27
+!
+awplus#show ipv6 interface brief
+Interface             IP-Address         Status          Protocol
+eth0          fe80::9c31:61ff:fef7:77e7/64    preferred    admin up    running
+lo            unassigned                      N/A          admin up    running
+vlan1         fe80::e21a:eaff:fed4:7043/64    preferred    admin up    running
+vlan10        unassigned                      N/A          admin up    running
+vlan48        unassigned                      N/A          admin up    running
+vlan60        unassigned                      N/A          admin up    running
+
+  -> vlan10, vlan48 and vlan60 have NO IPv6 ADDRESS AT ALL. The DUT cannot be an IPv6
+     NTP client over the leg until one is added, so adding one is part of this case's
+     SETUP, and removing it is part of its teardown.
+
+--------------------------------------------------------------------------------
+5. HEALTH SAMPLE -- BEFORE STEP 1 (STANDING-ORDERS §8)
+--------------------------------------------------------------------------------
+
+tb277$ tools/tb health tb277 ntp61022 u2 115200 --label before
+  raw output saved on the box at /tmp/ntp61022/health-u2-20261022T120721.out
+  (json: /tmp/ntp61022/health-u2-20261022T120721.out.json)
+
+HEALTH u2 12:07:22-12:07:39 before
+  reboots ......... 100 entries, newest 2026-10-21 04:53:40 Expected   CLI(user request)
+  exception log ... None
+  log (filtered) .. 43 lines: 7 echoes of our own commands, 36 other
+      2026 Oct 21 04:54:11 kern.notice awplus kernel: Linux version 6.12.110 (maker@maker33-build) (aarch64-unknown-linux-gnu-gcc (crosstool-NG 1.26.0_dirty) 13.2.0, GNU ld (crosstool-NG 1.26.0_dirty) 2.40) #1 SMP PREEMPT Sun Oct 18 22:07:48 UTC 2026
+      2026 Oct 21 04:54:11 kern.warning awplus kernel: KASLR disabled due to lack of seed
+      2026 Oct 21 04:54:11 kern.warning awplus kernel: Malformed early option 'loglevel'
+      2026 Oct 21 04:54:11 kern.notice awplus kernel: Kernel command line: console=ttyS0,115200 root=/dev/ram0 loglevel= releasefile=x960-tb277.rel crashkernel=32M
+      2026 Oct 21 04:54:11 kern.notice awplus kernel: Unknown kernel command line parameters "releasefile=x960-tb277.rel", will be passed to user space.
+      2026 Oct 21 04:54:11 kern.warning awplus kernel: GIC: Adjusting CPU interface base to 0x00000000f022f000
+      2026 Oct 21 04:54:11 kern.notice awplus kernel: SCSI subsystem initialized
+      2026 Oct 21 04:54:11 kern.notice awplus kernel: mv_xor_v2 f0400000.xor: Marvell Version 2 XOR driver
+  cpu ............. 0% / 0% / 0%  (show cpu prints BUSY averages 1 s / 20 s / 60 s,
+                                   NOT an idle percentage, on this platform); load 0.00
+  memory .......... free 7454792 of 8092132 kB (buffers 1456)
+
+  READING IT. CLEAN.
+   - The newest reboot entry is 2026-10-21 04:53:40, "Expected CLI(user request)" -- that
+     is yesterday's T33400 step-7 `reload`, 18 h ago. It is not new, and `show system`
+     agrees: Uptime 0 days 18:12:47.
+   - The exception log is the word `None`, which is an empty log.
+   - Every kernel line in the filtered set carries the timestamp 2026 Oct 21 04:54:11,
+     i.e. the boot that followed that same reload. They are ordinary boot-time kernel
+     notices (version banner, command line, XOR driver). There is no crash, no restart
+     and no `Unexpected` entry. Severity alone is not a fault.
+   - CPU 0%/0%/0% busy, load 0.00; memory free 7454792 kB.
+
+--------------------------------------------------------------------------------
+6. SETUP APPLIED (not a step -- this is what the case needs in place)
+--------------------------------------------------------------------------------
+
+tb277$ tools/tb cfg tb277 ntp61022 u2 115200 ...
+
+awplus#configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+awplus(config)#interface vlan10
+awplus(config-if)#ipv6 address fd32:b1f0:dff8:1603::34/64
+awplus(config-if)#end
+awplus#show ipv6 interface brief
+Interface             IP-Address         Status          Protocol
+eth0          fe80::9c31:61ff:fef7:77e7/64    preferred    admin up    running
+lo            unassigned                      N/A          admin up    running
+vlan1         fe80::e21a:eaff:fed4:7043/64    preferred    admin up    running
+vlan10        fd32:b1f0:dff8:1603::34/64      preferred    admin up    running
+              fe80::e21a:eaff:fed4:7043/64    preferred 
+vlan48        unassigned                      N/A          admin up    running
+vlan60        unassigned                      N/A          admin up    running
+awplus#show running-config interface vlan10
+!
+interface vlan10
+ ip address 10.38.22.34/27
+ ipv6 address fd32:b1f0:dff8:1603::34/64
+!
+  -> accepted, `preferred`, and a link-local was auto-derived beside it.
+
+The post-setup running configuration was saved to
+  tb277/x960/ntp6-2026-10-22T1122/T44299/swi_d.cfg
+after this setup and BEFORE step 1. It contains the added
+`ipv6 address fd32:b1f0:dff8:1603::34/64` on vlan10 and NO `ntp` line of any kind.
+
+NOT TOUCHED BY THIS CASE, and not this case's residue:
+  - `vlan 60` (on port1.0.2, the RSTP root port) is the Test Engineer's;
+  - the vlan10 / vlan48 IPv4 L3 underlay is campaign infrastructure in startup-config.
+
+
+--------------------------------------------------------------------------------
+STEP 0 -- BASELINE OFF, MEASURED ON THE WIRE                                PASS
+--------------------------------------------------------------------------------
+Method: before anything is configured, prove the DUT sends NO NTP at all, and prove it
+with an instrument that is demonstrably looking at the right wire in the same window.
+A zero is only a measurement once the same instrument has given a non-zero
+(memory tcpdump-nfs-root-squash-capture).
+
+tb277$ tools/tb capture tb277 ntp61022 eth3 80 t44299-s0-baseline.pcap udp port 123 or icmp6
+   (started 12:08:21 NZDT, ran the full 80 s, writer confirmed EXITED before the file was
+    read -- a size or count read taken while tcpdump is still running is not a measurement)
+
+   while it ran:
+tb277$ tools/tb ping tb277 eth3 fd32:b1f0:dff8:1603::34 4
+64 bytes from fd32:b1f0:dff8:1603::34: icmp_seq=1 ttl=64 time=0.805 ms
+64 bytes from fd32:b1f0:dff8:1603::34: icmp_seq=2 ttl=64 time=0.668 ms
+64 bytes from fd32:b1f0:dff8:1603::34: icmp_seq=3 ttl=64 time=0.589 ms
+64 bytes from fd32:b1f0:dff8:1603::34: icmp_seq=4 ttl=64 time=0.567 ms
+--- fd32:b1f0:dff8:1603::34 ping statistics ---
+4 packets transmitted, 4 received, 0% packet loss, time 3005ms
+rtt min/avg/max/mdev = 0.567/0.657/0.805/0.094 ms
+
+tb277$ tools/tb tool tb277 ntp61022 ntpwire /tmp/ntp61022/t44299-s0-baseline.pcap
+ntpwire: /tmp/ntp61022/t44299-s0-baseline.pcap -- 28 frames in the capture,
+         0 NTP packets on port(s) 123
+  NO NTP PACKETS. For a control leg that is the measurement, not an error.
+                                           <-- ntpwire exit 2, the control exit code
+
+  => STEP 0 PASS. The IPv6 leg box eth3 <-> swi_d vlan10 is up and carries traffic both
+     ways (4/4 ICMPv6 echo, 0% loss, sub-millisecond). The capture on that same leg, in
+     that same window, holds 28 frames -- so the instrument was live and recording -- and
+     ZERO of them are NTP. The DUT originates no NTP whatsoever before it is configured.
+     Every NTP packet counted later in this case is therefore caused by this case.
+
+--------------------------------------------------------------------------------
+STEP 1 -- CONFIGURE THE IPv6 CLIENT: ONE REACHABLE SERVER, ONE UNREACHABLE  PASS
+--------------------------------------------------------------------------------
+Method: configure both IPv6 servers in one go, on purpose. The exchange under test and
+the control that must NOT match are then in the same capture, at the same moment, through
+the same interface, so nothing about the two differs except the address.
+
+  reachable : fd32:b1f0:dff8:1603::1   -- tb277's own ntpd, on eth3. MUST be used.
+  control   : fd32:b1f0:dff8:1603::99  -- an unused address on the same /64. Nothing is
+                                          there. MUST NOT be used, and must draw no reply.
+
+The CLI surface was read read-only first (never `<cmd>` + CR):
+awplus(config)#ntp server ?
+  A.B.C.D   IPv4 address of NTP Server
+  WORD      FQDN of NTP Server
+  X:X::X:X  IPv6 address of NTP Server
+                                           <-- an IPv6 server literal IS accepted by the
+                                               parser; there is no separate IPv6 command
+
+The capture was started FIRST, in the background, and only then was the DUT configured --
+two calls issued in one block run one after the other, so a watcher started "beside" a
+change sees nothing of it (memory two-console-calls-in-one-block-run-sequentially):
+
+tb277$ tools/tb capture tb277 ntp61022 eth3 300 t44299-s1-sync.pcap udp port 123 or icmp6
+   (started 12:11:26 NZDT)
+
+tb277$ tools/tb cfg tb277 ntp61022 u2 115200 ...
+awplus#configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+awplus(config)#ntp server fd32:b1f0:dff8:1603::1
+awplus(config)#ntp server fd32:b1f0:dff8:1603::99
+awplus(config)#end
+awplus#show running-config | include ntp
+ntp server fd32:b1f0:dff8:1603::1
+ntp server fd32:b1f0:dff8:1603::99
+   (configuration complete at 12:11:40 NZDT = 23:11:40 UTC)
+
+  Note, against the IPv4 case run on this same DUT yesterday (T33400): there, the two
+  stored `ntp server` lines came back in the REVERSE of the order they were typed. Here,
+  with IPv6 literals, they are stored in the order they were typed. Recorded as an
+  observation, not graded -- running-config ordering is not part of this case.
+
+  => STEP 1 PASS: both IPv6 server addresses were accepted without a `% ` line and both
+     are present in running-config.
+
+--------------------------------------------------------------------------------
+STEP 2 -- THE DUT POLLS OVER IPv6, IS ANSWERED, AND SYNCHRONISES            PASS
+--------------------------------------------------------------------------------
+First read, 17 s after the configuration was applied (12:11:40 -> 12:11:57):
+
+awplus#show ntp status
+Reference ID    : 09D7146F (fd32:b1f0:dff8:1603::1)
+Stratum         : 6
+Ref time (UTC)  : Wed Oct 21 23:11:44 2026
+System time     : 0.000000004 seconds fast of NTP time
+Last offset     : -0.000014020 seconds
+RMS offset      : 0.000014020 seconds
+Frequency       : 1.677 ppm slow
+Residual freq   : +4.847 ppm
+Skew            : 0.491 ppm
+Precision       : -22 (0.000000238 seconds)
+Root delay      : 0.045347422 seconds
+Root dispersion : 0.014524349 seconds
+Update interval : 2.0 seconds
+Leap status     : Normal
+
+   The poll driver matched `Leap status : Normal` on its FIRST read, and the
+   `Ref time (UTC) Wed Oct 21 23:11:44` is 4 SECONDS after the configuration was applied
+   at 23:11:40 UTC. So this DUT synchronised to an IPv6 server in about 4 s.
+   (Contrast, same DUT, same server, IPv4, yesterday: about 75 s. The difference is the
+   size of the error to be corrected -- yesterday the DUT's clock was 14.8 s out and had
+   to be stepped; today it was already within microseconds. It is NOT an IPv6-vs-IPv4
+   difference and must not be reported as one.)
+
+awplus#show ntp associations
+remote          refid           st t when poll reach    delay   offset    disp
+--------------------------------------------------------------------------------
+  fd32:b1f0:dff8:1603::99 
+                  -                0 u    -  128     0        -        -       -
+* fd32:b1f0:dff8:1603::1 
+                  10.32.16.2       5 u   13   64    17    0.639    0.103   0.002
+* system peer, # backup, + candidate, - outlier, x false ticker, @ dynamic
+
+awplus#show ntp counters
+Client Sent               12
+Client Valid Received     4
+Client Received           4
+
+Steady state, three minutes later (12:14:56 - 12:14:59):
+
+awplus#show ntp associations
+remote          refid           st t when poll reach    delay   offset    disp
+--------------------------------------------------------------------------------
+  fd32:b1f0:dff8:1603::99 
+                  -                0 u    -  256     0        -        -       -
+* fd32:b1f0:dff8:1603::1 
+                  10.32.16.2       5 u   61   64    77    0.630   -0.003   0.000
+* system peer, # backup, + candidate, - outlier, x false ticker, @ dynamic
+
+awplus#show ntp status
+Reference ID    : 09D7146F (fd32:b1f0:dff8:1603::1)
+Stratum         : 6
+Ref time (UTC)  : Wed Oct 21 23:13:54 2026
+System time     : 0.000011496 seconds slow of NTP time
+Last offset     : -0.000014109 seconds
+RMS offset      : 0.000078337 seconds
+Frequency       : 1.731 ppm slow
+Residual freq   : -0.529 ppm
+Skew            : 1.033 ppm
+Precision       : -22 (0.000000238 seconds)
+Root delay      : 0.045047373 seconds
+Root dispersion : 0.015044297 seconds
+Update interval : 64.7 seconds
+Leap status     : Normal
+
+awplus#show ntp counters
+Client Sent               15
+Client Valid Received     6
+Client Received           6
+
+awplus#show ipv6 neighbors
+IPv6 Address                            MAC Address    Interface          Port       Type
+fe80::20d:b9ff:fe55:770d                000d.b955.770d eth0               -           dynamic
+fe80::20d:b9ff:fe55:770e                000d.b955.770e vlan10             port1.0.10  dynamic
+fd32:b1f0:dff8:1603::1                  000d.b955.770e vlan10             port1.0.10  dynamic
+
+  Each claim, and the evidence for it:
+
+    claim                              evidence
+    -----                              --------
+    the DUT USED the reachable IPv6    the `*` system-peer marker on
+    server                             fd32:b1f0:dff8:1603::1, reach 17 -> 77
+    it reached that server over the     `show ipv6 neighbors`: fd32:b1f0:dff8:1603::1 is
+    intended LEG, not some other path   resolved on vlan10 / port1.0.10 -- the eth3 leg --
+                                        with MAC 000d.b955.770e, which is the box's eth3
+                                        MAC 00:0d:b9:55:77:0e
+    it is a client of a stratum-5       its own `Stratum : 6` with
+    server                              `Reference ID : 09D7146F (fd32:b1f0:dff8:1603::1)`,
+                                        against the box's measured stratum 5
+    it is SYNCHRONISED, not merely      `Leap status : Normal`, System time 11 microseconds
+    configured                          slow, Last offset -14 microseconds, Skew 1.033 ppm,
+                                        Update interval settled at 64.7 s
+    the server's own upstream is        the association's `refid 10.32.16.2` -- that is the
+    visible through it                  box's ntpd's own reference (ntp.atlnz.lc)
+    THE UNREACHABLE CONTROL WAS NOT     fd32:b1f0:dff8:1603::99: `reach 0`, NO `*`, `st 0`,
+    USED                                no delay, no offset, no dispersion, and the poll
+                                        interval backing off 128 -> 256 s. It also has NO
+                                        entry at all in `show ipv6 neighbors`, so its
+                                        neighbour solicitation was never answered either
+
+  MEASURED PLATFORM FACTS worth recording (both are display/encoding behaviour, not
+  defects, and both would trip a naive parser):
+
+  (a) FOR AN IPv6 SERVER, `Reference ID` IS A HASH, NOT THE ADDRESS. The DUT prints
+      `Reference ID : 09D7146F (fd32:b1f0:dff8:1603::1)`. 09D7146F is NOT any part of
+      that address -- it is the 32-bit refid NTPv4 derives for an IPv6 source (RFC 5905
+      uses the first 32 bits of the MD5 hash of the address, because a 128-bit address
+      cannot fit the 32-bit refid field). For the IPv4 server yesterday the same field
+      read `0A261621 (10.38.22.33)`, which IS the address, byte for byte, in hex. So the
+      hex half of this field means two completely different things depending on family,
+      and only the parenthesised half is the address. Anyone grading an IPv6 NTP case by
+      matching the hex against the configured address will read a correct device as wrong.
+
+  (b) `show ntp associations` WRAPS AN IPv6 REMOTE ONTO ITS OWN LINE. The `remote` column
+      is sized for an IPv4 literal, so an IPv6 address overflows it and the refid,
+      stratum, reach, delay and offset for that peer appear on the FOLLOWING line. The
+      `*` system-peer marker stays on the address line. A single-line regex of the form
+      `^\* <address>.*reach` therefore matches NOTHING on IPv6, although the device is
+      working perfectly. Read the pair of lines, not one line.
+
+  => STEP 2 PASS: the DUT selected the reachable IPv6 server, resolved it on the correct
+     leg, reached stratum 6 from a stratum-5 source, and reported itself synchronised with
+     a microsecond-level offset and a settled 64.7 s poll. The unreachable IPv6 control
+     address was never used: reach 0, no system-peer marker, and a poll interval backing
+     off 128 -> 256 s.
