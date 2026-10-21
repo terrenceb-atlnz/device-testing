@@ -612,7 +612,9 @@ Read-only inventory of a testbox HOST before a traffic or bonding case: which se
 the NICs (NetworkManager, systemd-networkd, ifupdown, netplan), addresses and link details,
 bonding interfaces already present, the bonding module, whether `sudo -n` is available, and the
 tcpreplay / tcpdump / scapy versions. It changes nothing.
-- **Run:** `hostinfo.py [NIC ...]` (per-NIC `ip -d link`, `ethtool`, routes for each NIC named)
+- **Run:** `hostinfo.py [NIC ...]` (per-NIC `ip -d link`, `ethtool`, routes for each NIC named);
+  `hostinfo.py --stats NIC [NIC ...]` prints only each NIC's `ip -s -s link` and `ethtool -S` drop/miss/error/fifo
+  counters (added 2026-10-21: tells a host-side receive loss from a DUT loss after a line-rate window)
 - **Where:** testbox (no root); **needs:** nothing beyond Python; `nmcli`/`ethtool` optional
 - **Imports:** none
 - **Limits:** `sudo -n true` is the only privileged call, and it only reports yes/no
@@ -727,6 +729,17 @@ Unmarked frames are listed separately. It is the receiving side of `vsend.py`.
 - **Imports:** none
 - **Limits:** none known
 - **Status:** verified 2026-10-02 on tb470 (scapy 2.6.1; unmarked frames counted)
+
+### `lacpdu.py`
+Decodes the LACPDUs in a tcpdump pcap (EtherType 0x8809, subtype 1) and prints, per sending MAC, the
+count and the last PDU's actor and partner fields: system priority, system MAC, key, port, and the
+state byte decoded (Act, Short, Agg, Sync, Coll, Dist, Def, Exp). The proof that a LAG partner
+advertises a given system id (a VCStack's virtual MAC) and is Collecting/Distributing.
+- **Run:** `lacpdu.py <pcap> [<pcap> ...]` (capture with `tools/tb capture <box> <scratch> <nic> <secs> <out> ether proto 0x8809`)
+- **Where:** anywhere; **needs:** nothing beyond Python (its own pcap reader, link type 1 only)
+- **Imports:** none
+- **Limits:** classic pcap only (not pcapng); it reports the LAST PDU per sender, not every change
+- **Status:** added 2026-10-21 for tb101 T17584 (IE520 stack po1 <-> host bond0); see that run's working log
 
 ### `mkpcap.py`
 Writes a pcap of routed UDP frames, one per destination address, or all to one address with

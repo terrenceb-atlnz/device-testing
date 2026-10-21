@@ -28,6 +28,13 @@ def section(title, cmd):
 
 def main(argv=None):
     nics = (argv if argv is not None else sys.argv[1:]) or []
+    if '--stats' in nics:                                   # 2026-10-21: NIC drop/miss counters only
+        nics.remove('--stats')
+        for n in nics:
+            section('ip -s -s link show ' + n, 'ip -s -s link show ' + n)
+            section('ethtool -S ' + n + ' (drop/miss/err/fifo/no_buffer)',
+                    'ethtool -S %s 2>&1 | grep -E -i "drop|miss|err|fifo|no_buffer|rx_packets|tx_packets" || echo "ethtool: not found"' % n)
+        return
     section('host', 'hostname; uname -r; cat /etc/os-release 2>/dev/null | head -2')
     section('python', 'for p in python3 python3.8; do command -v $p >/dev/null && $p -V; done')
     section('NetworkManager', 'systemctl is-active NetworkManager 2>&1; nmcli -t dev status 2>&1 || echo "nmcli: not found"')
