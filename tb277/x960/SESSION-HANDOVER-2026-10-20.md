@@ -8,6 +8,19 @@ PDU: 10.36.230.212 outlets u2=1, u3=7; 10.36.230.35 outlet u5=3
 Constraints: None beyond standing orders (full authority within tests; power cycles allowed).
              Unattended overnight.
 
+## 🔴 CORRECTION added 2026-10-22 — read this before the rest of the file
+
+**Everywhere this handover says swi_a has "no boot image pointer" and "may not come back" from a
+reload, that reading is WRONG.** The Test Engineer corrected it on 2026-10-22: **swi_a boots over
+TFTP**, so `Current boot image : Not set` is the correct reading for it, not a fault.
+
+Verified: `/tftproot/x950GEN2-tb277.rel.info` is `x950GEN2-awplus_main-20261019-73.rel`, exactly
+the build swi_a runs; `tftpd-hpa` is active; `/tftpboot -> /tftproot`; the image serves at
+57,869,727 bytes.
+
+The real dependency is that a swi_a reload needs tb277 to be serving TFTP — see `/orient-dt` §1's
+netboot rules, especially never pinning the TFTP-serving NIC. The rest of this file stands.
+
 ## TL;DR
 
 The 14-case x960 Management campaign is **complete and wrapped**. 12 PASS, 1 FAIL, 1 NOT TESTED.

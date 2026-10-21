@@ -438,6 +438,30 @@ above was never needed.
 
 ## Issues
 
+### ✅ CORRECTION 2026-10-22 (Test Engineer) — swi_a's `Current boot image : Not set` is CORRECT, because it NETBOOTS
+
+**The sentinel's reading was wrong, and it shaped this whole campaign.** `Not set` was read as a
+missing boot pointer that might strand the unit on a reload. On that basis the Test Engineer was
+offered, and accepted, a **"swi_a must not be rebooted"** constraint — which is why group C used
+swi_a only as a *passive* LLDP partner.
+
+**The actual reason:** swi_a boots over **TFTP**, so there is no flash boot image to point at.
+Verified end to end on 2026-10-22:
+- `/tftproot/x950GEN2-tb277.rel.info` = **`x950GEN2-awplus_main-20261019-73.rel`**, exactly the
+  build swi_a is running;
+- `tftpd-hpa` **active**, `/tftpboot -> /tftproot`, image served at 57,869,727 bytes;
+- `Autoboot status : disabled` is consistent — that is external-media boot, not netboot.
+
+**The dependency that replaces it:** a swi_a reload needs tb277 to be serving TFTP. Checkable in
+seconds. `/orient-dt` §1's netboot rules apply, above all never leaving the TFTP-serving NIC
+pinned.
+
+**The general lesson, and it is the same shape as this campaign's other near-misses:** a field
+reading `Not set` describes a *configuration*, not a *fault*. Which it is depends on how the unit
+boots — a fact the device's own `show boot` does not state. The constraint was reasonable to
+accept; the reason offered for it was not verified before it was offered.
+
+
 ### 🔴🔥 CAMPAIGN METHOD RULE — after ANY reload, ping to 4/4 on every leg BEFORE reading that leg
 
 **Three sightings today, and the third would have INVERTED a verdict.**

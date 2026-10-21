@@ -8,7 +8,9 @@ Testbox: tb277
 Consoles: u2 = swi_d (DUT), u3 = swi_b, u5 = swi_a
 PDU: 10.36.230.212 outlets u2=1, u3=7; 10.36.230.35 outlet u5=3
 Constraints: None beyond standing orders. Window: partly attended.
-             swi_a must NOT be rebooted or power-cycled (it has no boot image pointer).
+             swi_a was treated as must-NOT-be-rebooted for the whole campaign.
+             🔴 CORRECTED 2026-10-22 by the Test Engineer: the reason given was WRONG --
+             swi_a NETBOOTS, so `Current boot image : Not set` is correct, not a fault.
 
 ## TL;DR
 
@@ -48,7 +50,7 @@ and `bench_probe.py` needs 3.7+, so use `python3.8`.
 | --- | --- | --- | --- |
 | swi_d (DUT, AT-x960-56YSQ, S/N A2WQS700B) | u2 @115200 | on | standalone, Ready, Active Master. `sin_x96056-20261019-27`. Boot image `flash:/x960-tb277.rel` **(file exists)**, boot config `flash:/default.cfg` **(file exists)**. Uptime 15:25 at wrap |
 | swi_b (AT-x960-28YSQ, S/N A10737A261700021) | u3 @9600 | on | standalone, Active Master. `awplus_main-20261020-78`, bootloader 8.24.0. Boot image `flash:/backup.rel` **(file exists)** |
-| swi_a (AT-x950 GEN2-52XSTQm, S/N A10713A262600012) | u5 @9600 | on | standalone, Active Master. `awplus_main-20261019-73`, bootloader 8.24.0. 🔴 **Boot image `Not set`** — see OPEN 2 |
+| swi_a (AT-x950 GEN2-52XSTQm, S/N A10713A262600012) | u5 @9600 | on | standalone, Active Master. `awplus_main-20261019-73`, bootloader 8.24.0. **Boot image `Not set` — because it NETBOOTS**, which is correct for this unit. Its reload depends on tb277 serving TFTP; that path is healthy (below) |
 
 Host NICs eth2, eth3, eth4 all **carrier=1**. The bench flash-boots; no TFTP path to worry about.
 🔴 **`/tmp` on tb277 is 96 % full** (1.9 G of 2.0 G). 1.8 G of that is `wireshark_eth4*.pcapng`
@@ -144,9 +146,26 @@ block above and in `orient-dt` §1.
    The branch is **46 ahead, 39 behind** `origin/main`. **Both `tools/README.md` and `tools/tb`
    were changed on both sides**, so the rebase will conflict there — and §0a's rule is to merge
    **both** sides' facts, never pick one. Whoever owns that stash should resolve it first.
-2. 🔴 **swi_a has no boot image pointer** — `Current boot image : Not set`, where swi_d and swi_b
-   both read `(file exists)`. **Do not reload swi_a until this is understood**; it may not come
-   back. Unchanged since 2026-10-20 and still not investigated.
+2. ✅ **CLOSED 2026-10-22 — swi_a's `Not set` boot image is CORRECT: the unit NETBOOTS.**
+   The Test Engineer supplied the reason; it was then verified end to end:
+   - `/tftproot/x950GEN2-tb277.rel.info` reads **`x950GEN2-awplus_main-20261019-73.rel`**, which
+     is **exactly the build swi_a is running** (`awplus_main-20261019-73`);
+   - `tftpd-hpa` is **active**, `/tftpboot` is a symlink to `/tftproot`, and the image resolves
+     through the served path at 57,869,727 bytes;
+   - `Autoboot status : disabled` is consistent — that setting is about booting from external
+     media, not about netboot.
+
+   **The real dependency, which replaces the old wrong one:** swi_a's reload needs **tb277 to be
+   serving TFTP**. That is a condition to check in seconds, not an unknown that makes the unit
+   untouchable. `/orient-dt` §1's netboot rules apply — above all, never leave the TFTP-serving
+   NIC pinned, or the next unit to reboot boot-loops.
+
+   **What the wrong reading cost.** The sentinel read `Not set` as a missing pointer that could
+   strand the unit, and offered the Test Engineer a "do not reboot swi_a" constraint on that
+   basis. He took it, and it stood for the whole campaign — which is why group C could use swi_a
+   only as a passive LLDP partner. The constraint was not wrong to accept; the reason given for
+   it was.
+
 3. 🔴 **vlan 60 is in swi_d's running-config AND startup-config** (`vlan 60 name ckMGMT-A`,
    `interface vlan60 / ip address 10.38.22.97/27`, plus port1.0.2's trunk lines). It is campaign
    infrastructure the Test Engineer approved saving. Removing it needs
@@ -176,7 +195,7 @@ block above and in `orient-dt` §1.
 2. Fix `tools/awlogin.py:login()` (OPEN 4) — it is the highest-value fix available and it costs
    nothing on the bench.
 3. Remove vlan 60 from swi_d (OPEN 3).
-4. Decide swi_a's boot pointer (OPEN 2) before anything reloads it.
+4. Nothing to decide for swi_a (OPEN 2 is closed); before reloading it, just confirm tb277 is serving TFTP.
 5. Run T33384's automatable half, or book a person with a USB stick.
 
 ## Recipes

@@ -54,6 +54,15 @@ to close a measurement gap.
 port ID and TTL, so ageing was graded against a TTL we set rather than waiting out 120 s. Ask
 whether a crafted partner is better before calling a case blocked.
 
+**A sentinel misreading shaped the whole campaign, and the Test Engineer corrected it at the
+wrap.** swi_a's `Current boot image : Not set` was read as a missing boot pointer that might
+strand the unit, and on that basis a **"do not reboot swi_a"** constraint was offered and
+accepted — which is why group C could use swi_a only as a *passive* LLDP partner. **swi_a
+netboots**, so `Not set` is correct for it; the real dependency is that a reload needs the box
+to be serving TFTP. `platforms/x960.md` §7I. The constraint was reasonable to accept; the reason
+given for it had not been verified before it was offered — **a field describing a configuration
+is not evidence of a fault until you know which configuration the unit is in.**
+
 **Both partner consoles were locked out mid-campaign by our own tooling** — see
 [[console-driver-retries-are-lockout-generators]]. The campaign finished DUT-only and said so in
 every affected log, as a console-lockout limitation rather than a bench gap.
