@@ -1,0 +1,426 @@
+================================================================================
+TEST T33399 -- (262) Management_NTP - IPv4 NTP Server
+================================================================================
+Run:      2026-10-21 03:23-03:46 UTC.  The DUT was configured as an IPv4 NTP server and
+          every result was graded on captured packets.
+Bench:    tb277, console u2; Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T33399.  There is NO authored authority for this case beyond its title.
+          The test-case database holds no objective and no step text: the case carries one
+          empty placeholder step. The 9 steps below were designed from three sources:
+          the title; the X960 TPS row 260 "NTP Server(IPv4)" = Yes, which is the authority
+          for what the platform must support; and the DUT's own CLI surface, read read-only
+          with the question-mark help before anything was configured.
+Build:    swi_d AT-x960-56YSQ, software sin_x96056-20261019-27 (flash:/x960-tb277.rel,
+          build date Sun Oct 18 23:18:21 UTC 2026), S/N A2WQS700B
+          The NTP client in this case is the testbox tb277 itself, not a partner switch.
+
+awplus#show system
+System Status                                           Wed Oct 21 03:23:50 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+Fan module 730  FAN1    AT-FAN19                          -     -
+Fan module 730  FAN2    AT-FAN19                          -     -
+--------------------------------------------------------------------------------
+RAM: Total: 8092132 kB Free: 7462972 kB
+Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 00:24:19
+Bootloader version : Unknown
+
+Current software   : x960-tb277.rel
+Software version   : sin_x96056-20261019-27
+Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+Current boot config: flash:/default.cfg (file exists)
+
+System Name
+ awplus
+System Contact
+
+System Location
+
+Configs:  swi_d.cfg (running-config after setup, with `ntp master 5` applied; saved to
+          startup: no -- step 8 saves the configuration on purpose, as the persistence test)
+          There is no swi_b.cfg and no swi_a.cfg. Both partner consoles (u3 swi_b and
+          u5 swi_a) have a LOCKED manager account, so this run never opened them and
+          neither switch is part of this case. This is a console lockout, not a missing
+          device and not a gap in the measurement: an NTP server case needs a client that
+          reads every field of every reply, and the testbox does that.
+
+VERDICT: PASS -- the x960-56YSQ serves IPv4 NTP, and the saved configuration keeps serving
+         after a cold boot.
+      service before configuration ... none      (3 requests sent, 0 replies; capture shows the requests on the wire)
+      serves time .................... yes       (3 of 3 answered, mode 4, origin timestamp echoed 3 of 3)
+      advertised stratum ............. correct   (`ntp master 5` -> stratum 5; `ntp master 10` -> stratum 10 in the packet)
+      serves on every IP interface ... yes       (same stratum and refid on vlan10 and on vlan48)
+      per-client deny works .......... yes       (denied client 0 of 3 answered, allowed client 2 of 2 answered, same minute)
+      survives a cold boot ........... yes       (stratum 10 served 13 s after the login prompt, nothing typed in)
+      removal stops the service ...... yes       (0 of 4 answered after `no ntp master`)
+CAVEAT:  This case measured the NTP server role only. It did not test NTP authentication
+         keys, `ntp peer`, `ntp pool` or an upstream server, so the DUT was always its own
+         time reference (refid 127.127.1.1). One client host was used, so this run does not
+         show how the server behaves under many clients at once.
+HEALTH:  reboots ......... 1 new entry: 2026-10-21 03:37:28 Expected CLI(user request).
+                           That is this case's own step 8 reload. Matched and expected.
+         exception log ... None
+         log ............. no crash, no daemon restart and no new kernel error. The only
+                           matching lines are the 03:38:00 boot sequence of that same
+                           reload, line for line the same set as the before sample.
+         CPU ............. `show cpu` on this platform prints LOAD, not idle, so no idle
+                           figure is given. Measured load: 1 second 0%, 20 seconds 0%,
+                           60 seconds 0% in both samples; load averages 0.01 / 0.00 / 0.3
+                           before and 0.00 / 0.11 / 0.9 after.
+         memory .......... 7.8% used before -> 7.8% used after (free 7462972 kB ->
+                           7457280 kB of 8092132 kB total). No leak is claimed: two
+                           samples cannot show one, and the case contained a full reboot.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  The NTP client is the testbox itself. It sends the request and reads the reply.
+
+    tb277 eth3 10.38.22.33/27                 tb277 eth4 10.38.22.65/27
+    (NTP client leg A + capture)              (NTP client leg B)
+         |      ^                                  |      ^
+   NTP   |      |  NTP reply                 NTP   |      |  NTP reply
+ request |      |  (mode 4)                request |      |  (mode 4)
+         v      |                                  v      |
+  +--------------------------------------------------------------------+
+  |  swi_d   AT-x960-56YSQ          *** DUT -- the NTP server ***       |
+  |  port1.0.10, access, vlan10 10.38.22.34/27                          |
+  |  port1.0.48, access, vlan48 10.38.22.66/27                          |
+  +--------------------------------------------------------------------+
+
+  DUT      : swi_d (AT-x960-56YSQ) console u2 @115200, S/N A2WQS700B,
+             software sin_x96056-20261019-27. Not a stack: one unit.
+  client   : tb277 itself. It is the NTP client for both legs and also the capture point.
+  link A   : tb277 eth3 00:0d:b9:55:77:0e 10.38.22.33/27 -> swi_d port1.0.10 (copper,
+             access port in vlan10; the DUT's address on that VLAN is 10.38.22.34/27).
+             Pinged 3 of 3, 0% loss, rtt avg 0.537 ms before step 1.
+  link B   : tb277 eth4 00:0d:b9:55:77:0f 10.38.22.65/27 -> swi_d port1.0.48 (copper,
+             access port in vlan48; the DUT's address on that VLAN is 10.38.22.66/27).
+             Pinged 3 of 3, 0% loss, rtt avg 0.347 ms before step 1.
+  tools    : tools/ntpc.py, a crafted NTP client over a plain UDP socket, run on tb277.
+             It builds each 48-byte request itself, decodes every field of the reply, and
+             reports origin_echo=yes when the reply echoes that request's transmit
+             timestamp. Exit code 2 means no reply, which is a valid control result.
+             tools/ntpwire.py, run on tb277 over each tcpdump capture. It counts NTP
+             packets by mode and by address pair, and pairs each reply with its request.
+             It is the independent witness: it proves a request left the box even when
+             no reply came back.
+  clocks   : swi_d and tb277 both run on UTC. Every time in this log is UTC.
+
+STEP 1 -- control: with no NTP configuration, the DUT answers nothing on UDP/123    PASS
+--------------------------------------------------------------------------------
+  Method: send real NTP requests to the DUT before any NTP configuration exists, and
+  capture them at the same time. This proves that every reply counted later is caused by
+  the configuration under test, and not by something that was already answering.
+
+awplus#show running-config | include ntp
+  (nothing -- there is no NTP configuration of any kind on this DUT)
+
+tb277$ tools/tb capture tb277 ntp1021 eth3 16 t33399-s1-off.pcap udp port 123   (background)
+tb277$ tools/tb tool tb277 ntp1021 ntpc 10.38.22.34 --bind 10.38.22.33 --count 3 --gap 2 --timeout 3
+ntpc: IPv4  10.38.22.33:53176 -> 10.38.22.34:123   version=4 mode=3 count=3 gap=2.0s timeout=3.0s
+  #1 sent 2026-10-21 03:31:12.447058Z -> NO REPLY within 3.0 s
+  #2 sent 2026-10-21 03:31:17.453466Z -> NO REPLY within 3.0 s
+  #3 sent 2026-10-21 03:31:22.460192Z -> NO REPLY within 3.0 s
+
+SUMMARY: sent=3 replies=0 origin_echo=0 no_reply=3
+                                           <-- exit code 2, the expected control result
+
+  ntpwire on the capture (the capture window closed before packet #3, so it holds 2 of 3):
+03:31:12.447149 v4  10.38.22.33:53176 -> 10.38.22.34:123  client v4 LI=ok st=0 refid=----
+03:31:17.453631 v4  10.38.22.33:53176 -> 10.38.22.34:123  client v4 LI=ok st=0 refid=----
+  by mode:   client(3)=2
+  pairing:   requests=2 replies=0  paired=0 unpaired=0 unanswered=2
+                                           <-- the requests were on the wire, and nothing came back
+  => STEP 1 PASS: the requests really left the testbox, and the DUT sent nothing back.
+     A `show` command cannot make that distinction, which is why the capture is run even
+     on a leg where nothing is expected. The control is established.
+
+STEP 2 -- configure the DUT as an IPv4 NTP server                                  PASS
+--------------------------------------------------------------------------------
+  Method: read the CLI surface first, read-only, then send the one command the platform
+  offers for the server role.
+
+awplus(config)#ntp ?
+  authentication-key broadcastdelay master peer pool rate-limit restrict server source
+awplus(config)#ntp master ?
+  <1-15>  Stratum number to advertise when no upstreams are present
+  <cr>
+
+awplus(config)#ntp master 5
+awplus(config)#
+                                           <-- no `% ` error line, so the command was accepted
+awplus#show running-config | include ntp
+ntp master 5
+
+  Running-config against the 112-line pre-case baseline, the whole difference:
+> ntp master 5
+> !
+
+  Before `ntp master 5`, `show ntp status` and `show ntp counters` both printed completely
+  empty output. After it:
+
+awplus#show ntp status
+Reference ID    : 7F7F0101 ()
+Stratum         : 5
+Ref time (UTC)  : Wed Oct 21 03:31:59 2026
+System time     : 0.000000000 seconds fast of NTP time
+Last offset     : +0.000000000 seconds
+RMS offset      : 0.000000000 seconds
+Frequency       : 0.000 ppm slow
+Residual freq   : +0.000 ppm
+Skew            : 0.000 ppm
+Precision       : 0 (1.000000000 seconds)
+Root delay      : 0.000000000 seconds
+Root dispersion : 0.000000000 seconds
+Update interval : 0.0 seconds
+Leap status     : Normal
+
+awplus#show ntp counters
+Client Sent               0
+Client Valid Received     0
+Client Received           0
+
+awplus#show ntp associations
+  (still completely empty -- correct: the server-only mode has no associations)
+
+  => STEP 2 PASS: one command, `ntp master 5`, turns the DUT into an NTP server, and it
+     adds exactly one line to the configuration. Note the product behaviour this step
+     also measured: `show ntp status` and `show ntp counters` print COMPLETELY EMPTY
+     output when NTP is not configured. There is no error and no "not configured"
+     message. Both commands fill up the moment NTP is configured, and both go empty again
+     the moment it is removed (step 9 shows that). On a slow console an empty answer
+     looks like a hung command, so a reader can easily think the feature is broken.
+
+STEP 3 -- the DUT serves time: the exchange, field by field                        PASS
+--------------------------------------------------------------------------------
+tb277$ tools/tb capture tb277 ntp1021 eth3 25 t33399-s3-on.pcap udp port 123    (background)
+tb277$ tools/tb tool tb277 ntp1021 ntpc 10.38.22.34 --bind 10.38.22.33 --count 3 --gap 2 --timeout 3
+  #1 sent 2026-10-21 03:32:58.526595Z  reply 48 B from 10.38.22.34:123
+      LI=0(no-warning) VN=4 mode=4(server) stratum=5 poll=4 precision=-25
+      refid=127.127.1.1 (ascii '....')  root_delay=0.000000s root_dispersion=0.000000s
+      reference=2026-10-21 03:31:59.885092Z
+      origin   =2026-10-21 03:32:58.526531Z  origin_echo=yes
+      receive  =2026-10-21 03:32:44.257702Z
+      transmit =2026-10-21 03:32:44.257816Z
+      offset=-14.269142 s  delay=0.000498 s   (server clock minus ours)
+  ... #2 and #3 identical in every field except the timestamps
+
+SUMMARY: sent=3 replies=3 origin_echo=3 no_reply=0
+         reply stratum(s)=5 mode(s)=4
+         offset min=-14.269191 max=-14.269128 mean=-14.269154 s
+
+  Each field, and why it is the right value:
+
+    field          measured                      why it is right
+    -----          --------                      ----------------
+    mode           4 (server)                    the DUT answered as a server, not as a peer
+    LI             0, no warning                 it says it is synchronised, not LI=3
+    stratum        5                             exactly the `ntp master 5` value, so the
+                                                 configuration reached the packet
+    refid          127.127.1.1                   the local-clock reference. It matches
+                                                 `show ntp status`'s `Reference ID : 7F7F0101`
+                                                 byte for byte (0x7F7F0101 = 127.127.1.1)
+    origin         echoes our transmit,          the reply answers THIS request, not stray
+                   origin_echo=yes on all 3      traffic
+    root delay /   0 / 0                         correct for a stand-alone master whose
+    dispersion                                   reference is itself
+    offset         -14.269 s, spread of          the DUT's clock against the testbox clock,
+                   63 microseconds over 3        now measured by NTP itself. Both ends run
+                   samples                       on UTC; this is the real difference between
+                                                 the two clocks
+
+  The precision field disagrees between the CLI and the wire. `show ntp status` in step 2
+  reported `Precision : 0 (1.000000000 seconds)`, and the packet served here carries
+  `precision=-25`, which is about 30 nanoseconds. The two values are 25 binary orders of
+  magnitude apart, so this is not a rounding difference. A client acts on the packet
+  value, because the packet is all a client sees.
+
+  Independent witness, ntpwire on the same capture:
+  by mode:   client(3)=3  server(4)=3
+  10.38.22.33 -> 10.38.22.34   3
+  10.38.22.34 -> 10.38.22.33   3
+  pairing:   requests=3 replies=3  paired=3 unpaired=0 unanswered=0
+  => STEP 3 PASS: the DUT answered all 3 requests as an NTP server at the configured
+     stratum 5, and it echoed each request's own transmit timestamp. The capture agrees
+     with the client exactly: 3 requests, 3 replies, 3 paired, nothing unpaired. Two
+     independent instruments give the same count, so the DUT is really serving time.
+
+STEP 4 -- the server answers on every IP interface, not only one                   PASS
+--------------------------------------------------------------------------------
+  Method: repeat step 3 on the second leg. A different host NIC, a different DUT VLAN
+  and address, the same server, nothing reconfigured.
+
+tb277$ tools/tb tool tb277 ntp1021 ntpc 10.38.22.66 --bind 10.38.22.65 --count 2 --gap 2 --timeout 3
+  -> LI=0 mode=4 stratum=5 refid=127.127.1.1, offset -14.2692 s
+  SUMMARY: sent=2 replies=2 origin_echo=2 no_reply=0
+  => STEP 4 PASS: the DUT served time on vlan48 10.38.22.66 exactly as on vlan10, with
+     the same stratum and the same refid. `ntp master` is a global service. There is no
+     per-interface enable for it, and the CLI offers none.
+
+STEP 5 -- `ntp restrict` refuses one client and keeps serving another              PASS
+--------------------------------------------------------------------------------
+  Method: this is the control that must NOT match. It runs against a live server, not a
+  dead one. The only thing that differs between the two legs is the client's address.
+
+awplus(config)#ntp restrict 10.38.22.33 serve deny
+awplus#show running-config | include ntp
+ntp master 5
+ntp restrict 10.38.22.33 serve deny
+
+    leg       client                 result
+    ---       ------                 ------
+    denied    10.38.22.33 (eth3)     sent=3 replies=0 origin_echo=0 no_reply=3, ntpc exit 2
+    allowed   10.38.22.65 (eth4),    sent=2 replies=2 origin_echo=2 no_reply=0, stratum 5
+              same server, about
+              20 s later
+
+  ntpwire on the denied leg's capture:
+  by mode:   client(3)=3
+  10.38.22.33 -> 10.38.22.34   3
+  pairing:   requests=3 replies=0  paired=0 unpaired=0 unanswered=3
+                                           <-- 3 requests left the box, the DUT answered none
+
+  Removed again, and the service came back on the same leg:
+awplus(config)#no ntp restrict 10.38.22.33
+awplus#show running-config | include ntp
+ntp master 5
+  -> ntpc 10.38.22.34 --bind 10.38.22.33: sent=2 replies=2 origin_echo=2, stratum 5
+  => STEP 5 PASS: the DUT answered 0 of 3 requests from the denied client while it
+     answered 2 of 2 from the other client, in the same minute, from the same server.
+     So the deny rule works per client and not per server. The denial is SILENT: no
+     kiss-o'-death packet, no ICMP, nothing. That is correct NTP server behaviour, and it
+     matters for a tester, because the client side alone cannot tell "denied" from
+     "unreachable". Removing the rule brought the service back on the same leg, so the
+     off / on / removed arc is closed on the wire and not on a `show` command.
+
+STEP 6 -- the advertised stratum is the configured stratum                         PASS
+--------------------------------------------------------------------------------
+awplus(config)#ntp master 10
+                                           <-- replaces `ntp master 5`; the configuration
+                                               keeps ONE such line, it does not add a second
+awplus#show running-config | include ntp
+ntp master 10
+awplus#show ntp status
+Reference ID    : 7F7F0101 ()
+Stratum         : 10
+...
+  -> ntpc: SUMMARY sent=2 replies=2 origin_echo=2; reply stratum(s)=10 mode(s)=4
+  => STEP 6 PASS: the CLI value, the `show ntp status` value and the value inside the
+     served packet are the same number. Changing the configuration changes the wire.
+
+STEP 7 -- the default rate limiter, and why some requests go unanswered            PASS
+--------------------------------------------------------------------------------
+  Method: a 4-packet run was answered 3 times and a 10-packet run was answered 9 times.
+  On a bench that otherwise pings 3 of 3 this looks like noise. It was measured instead
+  of being called noise.
+
+    client send pattern          answered
+    -------------------          --------
+    20 packets, 0.5 s apart      11 / 20
+    5 packets, 8 s apart          4 / 5
+    10 packets, 1 s apart         9 / 10
+
+  The mechanism is in the DUT's own help text:
+awplus(config)#ntp rate-limit ?
+  burst     Maximum number of responses that can be sent in a burst, default: 8
+  interval  Minimum number of seconds between responses in seconds, default: 8 seconds
+  leak      Rate at which responses are allowed to exceed limits, default: 4 (allow every 4th request)
+
+  So rate limiting is ON BY DEFAULT on this platform: burst 8, interval 8 s, leak 4.
+  Nothing in `show running-config` says so. The measured 11 of 20 is exactly a burst of 8
+  followed by one request in four leaking through.
+
+  Proved by changing it. The same 20-packet burst, 0.5 s apart, every time:
+
+    configuration                  answered
+    -------------                  --------
+    default (nothing configured)   11 / 20
+    ntp rate-limit leak 2          16 / 20
+    ntp rate-limit burst 64        20 / 20
+  => STEP 7 PASS: the losses are the product working as designed, not a bench fault and
+     not a server fault. Raising `burst` to 64 made the identical burst 20 of 20. Any NTP
+     measurement on this platform that sends faster than one packet every 8 s will see
+     some requests go unanswered. A tester who does not know this will report a fault
+     that is not there.
+
+STEP 8 -- the configuration survives a cold boot, measured ON THE WIRE             PASS
+--------------------------------------------------------------------------------
+  Method: save the configuration, reload the unit, then measure the service again with
+  NOTHING typed into the DUT. The proof is packets, not a `show` command.
+
+awplus#write
+Building configuration...
+[OK]
+
+  startup-config against the copy taken before this case -- the write added exactly:
+> !
+> ntp master 10
+  plus the updated `! Startup-config saved on Wed Oct 21 03:37:11 2026 +0000 ...` comment.
+  Nothing else was saved.
+
+tb277$ tools/tb ckreload tb277 ntp1021 u2 115200 240
+16:37:42 >>> reload
+reboot question: 'reboot system? (y/n):' -> y
+16:38:43 login seen after 60 s
+                                           <-- 60 s from `reload` to the login prompt
+
+  Then, with nothing typed into the DUT at all -- no login, no configuration -- 13 s after
+  the login prompt appeared:
+
+tb277$ tools/tb capture tb277 ntp1021 eth3 20 t33399-s9-persist.pcap udp port 123  (background)
+tb277$ tools/tb tool tb277 ntp1021 ntpc 10.38.22.34 --bind 10.38.22.33 --count 4 --gap 2 --timeout 3
+  #1 sent 2026-10-21 03:38:56.817055Z  reply 48 B from 10.38.22.34:123
+      LI=0(no-warning) VN=4 mode=4(server) stratum=10 poll=4 precision=-25
+      refid=127.127.1.1   origin_echo=yes
+      offset=-14.835217 s  delay=0.001627 s
+SUMMARY: sent=4 replies=3 origin_echo=3 no_reply=1
+         reply stratum(s)=10 mode(s)=4
+                                           <-- stratum 10 is the SAVED value, not a default
+
+  ntpwire: requests=4 replies=3 paired=3 unpaired=0 unanswered=1
+  The one unanswered request is step 7's default rate limiter, not a persistence failure:
+  a 10-packet run in the same minute was answered 9 times, at the same stratum.
+
+  Two measurements that came out of this step:
+   - the DUT's clock survived the reboot, so the unit has a working real-time clock. It
+     came back 14.835 s behind the testbox, against 14.269 s before the reboot. That is
+     about 0.57 s of drift across one reboot, with no NTP client running to correct it.
+   - `show reboot history` gained exactly one new row, `2026-10-21 03:37:28 Expected
+     CLI(user request)`. That is this step's own reload, and it is matched.
+  => STEP 8 PASS: the saved `ntp master 10` came back by itself after a cold boot. The DUT
+     was serving time at the non-default stratum 10, on the wire, 13 s after the login
+     prompt, before anyone logged in. This is reboot persistence proved as behaviour, not
+     as a line in a configuration file.
+
+STEP 9 -- removal: the service stops, and the counters go dark again               PASS
+--------------------------------------------------------------------------------
+awplus(config)#no ntp rate-limit
+awplus(config)#no ntp master
+awplus#show running-config | include ntp
+  (nothing)
+awplus#show ntp status
+  (completely empty)
+awplus#show ntp counters
+  (completely empty)
+
+  On the wire, immediately after:
+tb277$ tools/tb tool tb277 ntp1021 ntpc 10.38.22.34 --bind 10.38.22.33 --count 4 --gap 1 --timeout 3
+SUMMARY: sent=4 replies=0 origin_echo=0 no_reply=4                      (exit 2)
+  ntpwire: by mode: client(3)=2 ; pairing: requests=2 replies=0 unanswered=2
+  => STEP 9 PASS: after `no ntp master` the DUT is silent on UDP/123 again, and
+     `show ntp status` and `show ntp counters` are empty again. The removal is complete in
+     the configuration and on the wire. This also closes step 2's measurement from the
+     other direction: those two commands print empty output exactly when NTP is not
+     configured, and print content exactly when it is.
+================================================================================

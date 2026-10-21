@@ -1,0 +1,441 @@
+================================================================================
+TEST T33400 -- (263) Management_NTP - IPv4 NTP Client
+================================================================================
+Run:      2026-10-21 03:52-04:21 UTC.  The DUT was configured as an IPv4 NTP client and
+          every result was graded on captured packets.
+          swi_d's clock reads UTC like the testbox clock, but steps 4 and 5 move swi_d's
+          clock on purpose, so swi_d log times inside those steps are not testbox times.
+Bench:    tb277, console u2; Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T33400.  There is NO authored authority for this case beyond its title.
+          The test-case database holds no objective and no step text: the case carries one
+          empty placeholder step. The 8 steps below were designed from three sources:
+          the title; the X960 TPS row 261 "NTP Client(IPv4)" = Yes, which is the authority
+          for what the platform must support; and the DUT's own CLI surface, read read-only
+          with the question-mark help before anything was configured.
+Build:    swi_d AT-x960-56YSQ, software sin_x96056-20261019-27 (flash:/x960-tb277.rel,
+          build date Sun Oct 18 23:18:21 UTC 2026), S/N A2WQS700B
+          The NTP server in this case is the testbox tb277 itself, running ntpd pid 23898
+          (`-g -c /run/ntp.conf.dhcp`), not a partner switch.
+
+awplus#show system
+System Status                                           Wed Oct 21 03:23:50 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+Fan module 730  FAN1    AT-FAN19                          -     -
+Fan module 730  FAN2    AT-FAN19                          -     -
+--------------------------------------------------------------------------------
+RAM: Total: 8092132 kB Free: 7462972 kB
+Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 00:24:19
+Bootloader version : Unknown
+
+Current software   : x960-tb277.rel
+Software version   : sin_x96056-20261019-27
+Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+Current boot config: flash:/default.cfg (file exists)
+
+System Name
+ awplus
+System Contact
+
+System Location
+
+Configs:  swi_d.cfg (running-config with the case's NTP client configuration applied;
+          saved to startup: no -- step 7 saves the configuration on purpose, as the
+          persistence test). Read the file's own header lines: it was captured after the
+          deliberately unreachable control server `ntp server 10.38.22.40` had been
+          removed. Steps 1 to 4 ran with that one extra line, which is quoted in step 1.
+          There is no swi_b.cfg and no swi_a.cfg. Both partner consoles (u3 swi_b and
+          u5 swi_a) have a LOCKED manager account, so this run never opened them and
+          neither switch is part of this case. This is a console lockout, not a missing
+          device. It costs this case nothing: the NTP server the DUT synchronises against
+          is the testbox's own ntpd, which is a real NTP server.
+
+VERDICT: PASS -- the x960-56YSQ works as an IPv4 NTP client, and the saved configuration
+         resumes polling after a cold boot.
+      polls and is answered ......... yes       (7 polls, 7 replies, 7 paired, 0 unanswered)
+      synchronises .................. yes       (its own stratum 6 from a stratum-5 server, Leap status Normal)
+      corrects the clock ............ yes       (chronyd stepped the clock by 14.836050 s)
+      counter matches the wire ...... yes       (Client Valid Received 7 against 7 paired replies)
+      unreachable server not used ... correct   (reach 0, no `*`, and zero NTP packets sent to it)
+      removal stops all polling ..... yes       (0 frames in 110 s, against a 64 s poll interval)
+      survives a cold boot .......... yes       (polling resumed 9 s after the login prompt, nothing typed in)
+CAVEAT:  Two limits on what this run proved.
+         1. NOT MEASURED -- whether the client recovers by itself after a manual
+            `clock set`. Step 4 shows that a running chronyd stays unsynchronised after
+            the clock is moved by hand, while it keeps polling successfully and keeps
+            reporting the true offset. The DUT had NOT recovered within the two windows
+            this run allowed: 90 s at an offset of 3523 s, and a further 75 s at an offset
+            of 2.12 s. Whether chronyd would slew the clock back after a longer time is
+            NOT MEASURED. At a maximum slew rate of 500 ppm, 2.12 s would need about
+            70 minutes, and nothing in this run separates "the daemon refuses" from "the
+            daemon is slewing too slowly to see". What IS measured is that the device sat
+            at `Not synchronised` for both windows with a healthy, fully reachable server,
+            and that restarting the client steps the clock in 2 s.
+         2. This case tested the plain client role only. It did not test NTP
+            authentication keys, `ntp peer`, `ntp pool`, the `prefer` keyword, a VRF, or
+            more than one reachable server at a time.
+HEALTH:  reboots ......... 1 new entry: 2026-10-21 04:07:42 Expected CLI(user request).
+                           That is this case's own step 7 reload. Matched and expected.
+         exception log ... None
+         log ............. no crash, no daemon restart and no new kernel error. The only
+                           matching lines are the 04:08:14 boot sequence of that same
+                           reload, the same line set this unit prints at every boot.
+                           `show log tail 150` holds this case's own command lines and the
+                           chronyd lines quoted in steps 2, 4, 7 and 8. All are this
+                           case's own doing and all are explained above.
+         CPU ............. `show cpu` on this platform prints LOAD, not idle, so no idle
+                           figure is given. Measured load: 1 second 0%, 20 seconds 0%,
+                           60 seconds 0% in both samples.
+         memory .......... 7.9% used before -> 7.8% used after (free 7454556 kB ->
+                           7463144 kB of 8092132 kB total). Free memory ROSE across the
+                           case, which contained a full reboot. There is no step change,
+                           and no leak is claimed: two samples cannot show one.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  The NTP server is the testbox itself. The DUT is the client and sends the polls.
+
+                +----------------------------------------------------+
+                |  swi_d  AT-x960-56YSQ    *** DUT -- NTP client ***  |
+                |  port1.0.10, access, vlan10 10.38.22.34/27          |
+                +----------------------------------------------------+
+                      |    ^                             |
+          NTP poll    |    |  NTP reply                  |  ARP request for
+          (UDP/123,   |    |  (mode 4, stratum 5)        |  10.38.22.40,
+           random     v    |                             v  never answered
+           source port)                                   10.38.22.40
+       tb277 eth3 10.38.22.33/27                          nothing is there
+       NTP SERVER (the box's own ntpd,                    THE CONTROL: this
+       stratum 5) and the capture point                   server must NOT be used
+
+  DUT      : swi_d (AT-x960-56YSQ) console u2 @115200, S/N A2WQS700B,
+             software sin_x96056-20261019-27. Not a stack: one unit.
+  server   : tb277 itself, ntpd pid 23898 (`-g -c /run/ntp.conf.dhcp`). Checked before
+             the DUT was pointed at it: tools/ntpc.py against 127.0.0.1 on the box
+             returned LI=0 mode=4 stratum=5 refid=10.32.16.2, offset under 1 ms,
+             origin_echo=yes. So the server is synchronised and serving at stratum 5.
+             That check is what makes "the DUT reached stratum 6" a meaningful number.
+  control  : 10.38.22.40, an unused address inside vlan10's 10.38.22.32/27. No device
+             holds it. The testbox's own ARP table reads it FAILED.
+  link     : tb277 eth3 00:0d:b9:55:77:0e 10.38.22.33/27 -> swi_d port1.0.10 (copper,
+             access port in vlan10). It carries the polls, the replies and the capture.
+  tools    : tools/ntpc.py, a crafted NTP client over a plain UDP socket, run on tb277.
+             Here it was used only to check the box's own ntpd before the test.
+             tools/ntpwire.py, run on tb277 over each tcpdump capture. It counts NTP
+             packets by mode and by address pair, and pairs each reply with the request
+             whose transmit timestamp it echoes.
+  clocks   : swi_d and tb277 both run on UTC. Every time in this log is UTC. At the start
+             of the case swi_d was about 16 s behind the box, free-running, with no NTP
+             configuration. That 16 s error is what step 2 watches NTP remove.
+
+STEP 1 -- configure the client, with one reachable and one UNREACHABLE server      PASS
+--------------------------------------------------------------------------------
+  Method: configure both servers in one go, on purpose. The exchange under test and the
+  control that must not match are then in the same capture, at the same moment, through
+  the same interface.
+
+awplus(config)#ntp server ?
+  A.B.C.D   IPv4 address of NTP Server
+  WORD      FQDN of NTP Server
+  X:X::X:X  IPv6 address of NTP Server
+awplus(config)#ntp server 10.38.22.33 ?
+  key  prefer  version  vrf  <cr>
+
+awplus(config)#ntp server 10.38.22.33
+awplus(config)#ntp server 10.38.22.40
+awplus#show running-config | include ntp
+ntp server 10.38.22.40
+ntp server 10.38.22.33
+                                           <-- the stored order is the reverse of the
+                                               order they were typed in
+
+tb277$ tools/tb capture tb277 ntp1021 eth3 240 t33400-s1-sync.pcap udp port 123 or arp host 10.38.22.40
+  => STEP 1 PASS: both servers are configured and accepted. 10.38.22.33 is the testbox's
+     own ntpd and must be used. 10.38.22.40 is an unused address on the same VLAN and
+     must not be used. The capture covers the whole window and also records ARP, so it
+     can show what the DUT did about the address that answers nothing.
+
+STEP 2 -- the DUT polls, is answered, and SYNCHRONISES: the 16 s error is removed  PASS
+--------------------------------------------------------------------------------
+  45 s after the configuration was applied:
+
+awplus#show ntp associations
+remote          refid           st t when poll reach    delay   offset    disp
+--------------------------------------------------------------------------------
+* 10.38.22.33     10.32.16.2       5 u   60   64    17    0.540    0.138   0.002
+  10.38.22.40     -                0 u    -  128     0        -        -       -
+                                           <-- `*` marks the server actually in use.
+                                               The unreachable one has reach 0 and no `*`
+
+awplus#show ntp status
+Reference ID    : 0A261621 (10.38.22.33)
+Stratum         : 6
+Ref time (UTC)  : Wed Oct 21 03:53:04 2026
+System time     : 0.000000108 seconds fast of NTP time
+Last offset     : -0.000110448 seconds
+...
+Precision       : -21 (0.000000477 seconds)
+Root delay      : 0.045599692 seconds
+Root dispersion : 0.039116729 seconds
+Update interval : 2.0 seconds
+Leap status     : Normal
+
+awplus#show ntp counters
+Client Sent               12
+Client Valid Received     4
+Client Received           4
+
+  At steady state, two minutes later: `reach 177`, `Last offset +0.000034236 s`,
+  `Skew 1.875 ppm`, `Update interval 64.6 seconds`, `Leap status Normal`,
+  `Client Sent 16 / Valid Received 7`.
+
+  Each claim, and the evidence for it:
+
+    claim                              evidence
+    -----                              --------
+    the DUT USED the reachable server  the `*` system-peer marker on 10.38.22.33, reach 177
+    it is a client of a stratum-5      its own `Stratum : 6` and
+    server                             `Reference ID : 0A261621 (10.38.22.33)`, against the
+                                       box's measured stratum 5
+    it is SYNCHRONISED, not only       `Leap status : Normal`, `System time` 11 microseconds
+    configured                         fast, `Last offset` +34 microseconds, `Skew 1.875 ppm`
+    it CORRECTED the clock             the device's own log, below
+    the UNREACHABLE server was NOT     `10.38.22.40 ... reach 0`, no `*`, `st 0`, no delay,
+    used                               no offset, no dispersion, and the poll interval
+                                       backing off 64 -> 128 -> 256 s
+
+  The clock correction, from the DUT's own log, with its size:
+2026 Oct 21 03:52:48 daemon.warning awplus chronyd[3784]: System clock wrong by 14.836050 seconds
+2026 Oct 21 03:53:03 daemon.warning awplus chronyd[3784]: System clock was stepped by 14.836050 seconds
+
+  Clock after: `show clock` 03:54:04 at console timestamp 03:54:05, so swi_d is now
+  aligned with the box.
+  => STEP 2 PASS: the DUT chose the reachable server, reached stratum 6 from a stratum-5
+     source, and reported itself synchronised with a sub-millisecond offset. It also
+     removed a real clock error: chronyd stepped the clock by 14.836050 s. That is the
+     14.8 s error the DUT started with, measured by the DUT itself and then corrected.
+     The `show clock` read above confirms it: swi_d now agrees with the testbox.
+
+STEP 3 -- the exchange and the control, both counted on the wire                   PASS
+--------------------------------------------------------------------------------
+  tools/ntpwire.py on t33400-s1-sync.pcap:
+03:52:59.170712 v4 10.38.22.34:42599 -> 10.38.22.33:123  client v4 LI=ok st=0 refid=----  xmit=04:39:39.534108
+03:52:59.170985 v4 10.38.22.33:123   -> 10.38.22.34:42599 server v4 LI=ok st=5 refid=10.32.16.2 xmit=03:52:59.170929
+03:53:01.196557 v4 10.38.22.34:36619 -> 10.38.22.33:123  client ... xmit=21:02:48.938483
+03:53:03.201933 v4 10.38.22.34:37753 -> 10.38.22.33:123  client ... xmit=10:31:57.093908
+03:53:05.214598 v4 10.38.22.34:54407 -> 10.38.22.33:123  client ... xmit=19:03:59.702545
+03:54:10.147907 v4 10.38.22.34:50059 -> 10.38.22.33:123  client ... xmit=16:54:51.655083
+03:55:14.834618 v4 10.38.22.34:55646 -> 10.38.22.33:123  client ... xmit=10:15:47.715640
+03:56:19.438462 v4 10.38.22.34:44203 -> 10.38.22.33:123  client ... xmit=18:31:21.863853
+  (each with its server reply)
+
+  29 frames in the capture, 14 NTP packets on port 123
+  by mode:   client(3)=7  server(4)=7
+  10.38.22.34 -> 10.38.22.33   7
+  10.38.22.33 -> 10.38.22.34   7
+  pairing:   requests=7 replies=7  paired=7 unpaired=0 unanswered=0
+
+  Reading it:
+   - 7 polls, 7 replies, 7 paired, 0 unanswered to the reachable server. That count
+     matches `show ntp counters`'s `Client Valid Received 7` exactly. The device's own
+     counter and the wire agree.
+   - ZERO NTP packets went to 10.38.22.40. The control did not merely fail to
+     synchronise. The DUT never even sent it an NTP packet. The capture filter was
+     `udp port 123 or arp host 10.38.22.40`, and of the 29 frames only 14 were NTP, so
+     the other 15 are the DUT's unanswered ARP requests for 10.38.22.40. The DUT tried at
+     layer 2 and nothing was there.
+   - Poll cadence: four polls 2 s apart at the start, then 64 s steady. That matches
+     `Update interval` rising from 2.0 s to 64.6 s.
+  => STEP 3 PASS: the wire confirms the client role completely. 7 of 7 polls were
+     answered and paired, and the deliberately unreachable server got no NTP packet at
+     all. Two product behaviours in these eight lines would mislead a later reader, so
+     they are recorded here. First, the DUT uses a DIFFERENT random UDP source port on
+     every poll (42599, 36619, 37753, 54407, 50059, 55646, 44203). A capture filter, a
+     hardware ACL or a management filter written for "source port 123" will miss every
+     packet this client sends. Second, the DUT puts a RANDOM transmit timestamp in each
+     request (04:39:39, 21:02:48, 10:31:57, 19:03:59, 16:54:51, 10:15:47, 18:31:21), none
+     of them the real time. This is the NTP client privacy behaviour. The exchange still
+     works because the server copies the random value back into the origin field, and
+     `paired=7` proves that. Anyone who reads that field as "the DUT's clock" will think
+     the DUT's clock is wildly and randomly wrong. It is not.
+
+STEP 4 -- a manual `clock set` under a running client breaks synchronisation       PASS
+--------------------------------------------------------------------------------
+  Method: inject a known error into a working, synchronised client, then watch both the
+  traffic and the state.
+
+awplus#show clock              -> Wed, 21 Oct 2026 03:58:42 +0000     (synchronised)
+awplus#clock set 03:00:00 21 October 2026
+awplus#systemd-journald[138]: Time jumped backwards, rotating.
+awplus#show clock              -> Wed, 21 Oct 2026 03:00:01 +0000     (-58 min 42 s)
+
+  90 seconds later:
+awplus#show ntp status
+Reference ID    : 00000000 ()
+Stratum         : 0
+Ref time (UTC)  : Thu Jan 01 00:00:00 1970
+Leap status     : Not synchronised
+awplus#show ntp associations
+  10.38.22.33     10.32.16.2       5 u   44   64   377    0.538 3523229.   0.002
+  10.38.22.40     -                0 u    -   64     0        -        -       -
+                                           <-- reach 377: all of the last eight polls
+                                               succeeded. The offset column reports the
+                                               true error, 3 523 229 ms = 58.7 minutes
+
+  The wire for this window (t33400-s2-step.pcap, 150 s):
+  by mode: client(3)=2  server(4)=2 ; pairing: requests=2 replies=2 paired=2 unanswered=0
+                                           <-- polling continued and was answered throughout
+
+  The DUT's own log, both jumps:
+2026 Oct 21 03:00:00 user.notice awplus IMI[965]: clock set: previous time 03:58:43 21 Oct 2026, new time 03:00:00 21 Oct 2026
+2026 Oct 21 03:00:12 daemon.warning awplus chronyd[3784]: Backward time jump detected!
+2026 Oct 21 04:00:57 user.notice awplus IMI[965]: clock set: previous time 03:02:15 21 Oct 2026, new time 04:00:57 21 Oct 2026
+2026 Oct 21 04:01:02 daemon.warning awplus chronyd[3784]: Forward time jump detected!
+                                           <-- chronyd DETECTED both jumps. It acted on neither
+
+  The clock was then set by hand to within about 2 s of correct
+  (`clock set 04:00:57 21 October 2026`), and 75 s later it was still not corrected:
+Reference ID : 00000000 ()  Stratum : 0  Leap status : Not synchronised
+  10.38.22.33  10.32.16.2  5 u  36  64  377  0.499  2122.966  0.002
+
+  `Last offset` was frozen at `+0.000023680` -- byte for byte the value from before the
+  injection. So the figure a reader might quote as "the current offset" is STALE and does
+  not update while the daemon is unsynchronised. The live figure in that state is the
+  association's `offset` column.
+  => STEP 4 PASS as a measurement. Packets flow perfectly and the clock is NOT corrected.
+     The association says reach 377 and reports the true offset, yet the `*` marker is
+     gone, the stratum is 0, the reference ID is 00000000, the reference time is the UNIX
+     epoch and the leap status is `Not synchronised`. Only reading the traffic AND the
+     state together shows this. The honest limit of the measurement: the DUT had not
+     recovered inside the windows this run allowed, 90 s at a 3523 s offset and 75 s at a
+     2.12 s offset. Whether chronyd would eventually slew the clock back is NOT MEASURED,
+     and the CAVEAT above says so.
+
+STEP 5 -- restarting the client recovers it in seconds, which pins the mechanism   PASS
+--------------------------------------------------------------------------------
+  Method: change exactly one thing. Remove the client configuration and put it back, which
+  restarts the daemon, and leave everything else alone.
+
+awplus(config)#no ntp server 10.38.22.33          (04:03:02)
+awplus(config)#no ntp server 10.38.22.40
+  -> show running-config | include ntp   : nothing
+  -> show ntp status / associations / counters : all three COMPLETELY EMPTY again
+awplus(config)#ntp server 10.38.22.33             (04:05:57)
+
+tb277$ tools/tb ckcon ... '@poll 300 Leap\sstatus.*Normal show ntp status'
+@poll MATCHED after 1.2 s (1 reads)
+
+Reference ID    : 0A261621 (10.38.22.33)
+Stratum         : 6
+System time     : 0.000000002 seconds fast of NTP time
+Last offset     : -0.000002382 seconds
+Leap status     : Normal
+* 10.38.22.33   10.32.16.2   5 u  12  64  17  0.564  -0.000  0.003
+                                           <-- synchronised about 24 s after the re-add
+                                               (04:05:57 -> matched 04:06:21), from a
+                                               clock that was 2.12 s out
+
+  The log gives the mechanism, and proves it was a restart:
+2026 Oct 21 04:06:07 daemon.warning awplus chronyd[4647]: System clock wrong by 2.122975 seconds
+2026 Oct 21 04:06:09 daemon.warning awplus chronyd[4647]: System clock was stepped by 2.122975 seconds
+                                           <-- the chronyd PID changed from 3784 to 4647
+  => STEP 5 PASS: re-applying `ntp server` restarts chronyd, and the restarted daemon
+     stepped the clock in 2 seconds. The size of the step, 2.122975 s, matches the
+     association's `offset 2122.966` ms read before the removal, to within 9 microseconds.
+     So the mechanism is now pinned: a RUNNING chronyd will not step a clock that
+     `clock set` moved under it, but a FRESHLY STARTED one will. That is a product
+     behaviour a developer should see, and a practical rule for anyone on this bench.
+
+STEP 6 -- control: with the client removed, the DUT sends nothing at all           PASS
+--------------------------------------------------------------------------------
+  Measured in the gap between step 5's removal and its re-add.
+
+tb277$ tools/tb capture tb277 ntp1021 eth3 110 t33400-s3-removed.pcap udp port 123
+  ntpwire: 0 frames in the capture, 0 NTP packets on port(s) 123
+  NO NTP PACKETS. For a control leg that is the measurement, not an error.
+                                           <-- ntpwire exit 2, the control exit code
+  => STEP 6 PASS: zero frames in 110 s, against a poll interval of 64 s before removal.
+     So the window covered at least one poll that would have happened and did not. The
+     client stops completely when the configuration is removed. There is no leftover
+     polling.
+
+STEP 7 -- the configuration survives a cold boot, measured ON THE WIRE             PASS
+--------------------------------------------------------------------------------
+awplus#write
+Building configuration...
+[OK]
+
+  The write added to startup-config exactly:
+> !
+> ntp server 10.38.22.33
+  plus its saved-on comment. Nothing else.
+
+tb277$ tools/tb ckreload tb277 ntp1021 u2 115200 240
+17:07:42 >>> reload   (04:07:42 UTC)
+reboot question: 'reboot system? (y/n):' -> y
+17:08:42 login seen after 60 s
+
+  Nine seconds after the login prompt, with nothing typed into the DUT,
+  t33400-s5-persist.pcap:
+04:08:51.165018 v4 10.38.22.34:48817 -> 10.38.22.33:123  client v4 LI=ok     st=0 refid=----
+04:08:51.165147 v4 10.38.22.34:47275 -> 10.38.22.33:123  client v4 LI=ok     st=0 refid=----
+04:08:51.165475 v4 10.38.22.33:123 -> 10.38.22.34:48817  server v4 LI=ok     st=5 refid=10.32.16.2
+04:08:51.165522 v4 10.38.22.33:123 -> 10.38.22.34:47275  server v4 LI=UNSYNC st=0 refid=RATE
+  pairing: requests=2 replies=2 paired=2 unpaired=0 unanswered=0
+  !! 1 kiss-o'-death repl(ies), code(s): RATE
+  !! 1 repl(ies) with LI=3 (server says it is NOT synchronised)
+
+  The kiss-o'-death came from the TESTBOX's own ntpd, whose stock configuration carries
+  the `limited kod` restriction. The DUT's boot-time burst -- two polls in the same
+  millisecond, from two source ports -- tripped the SERVER's rate limiter. The DUT's own
+  log agrees:
+2026 Oct 21 04:08:50 daemon.warning awplus chronyd[2222]: Received KoD RATE from 10.38.22.33
+  The DUT then did the correct thing under the standard: it backed its poll interval off
+  to 128 s and stopped using that source (`refid RATE`, `reach 0`, `Stratum 0`,
+  `Leap status Not synchronised`).
+  => STEP 7 PASS: the saved `ntp server 10.38.22.33` came back by itself after the cold
+     boot, and the client resumed polling 9 s after the login prompt with nothing typed
+     into the device. That is reboot persistence proved by packets. The kiss-o'-death is
+     the test bench server's rate limiter, not a DUT defect, and the DUT answered it
+     correctly.
+
+STEP 8 -- time to re-acquire synchronisation from cold, measured not assumed       PASS
+--------------------------------------------------------------------------------
+  Method: at 180 s after the boot the DUT was still `Not synchronised`. On its own that
+  is ambiguous: it could be an ordinary cold start, a clock too far out to step, or a real
+  failure to resume. So it was polled out to a longer window instead of being graded early.
+
+    time (UTC)           state
+    ----------           -----
+    04:07:42             `reload` issued
+    04:08:42             login prompt -- 60 s
+    04:08:51             first polls on the wire; one answered, one answered with KoD RATE
+    04:09:01 - 04:12:01  `@poll 180 ...` TIMED OUT after 180.6 s (109 reads) -- Stratum 0,
+                         Reference ID 00000000, refid RATE, reach 0, Not synchronised
+    04:17:29             backoff over, polling again: `10.38.22.33 ... reach 1 ...
+                         offset 593.552` ms, still Not synchronised
+    04:19:34             `chronyd[2222]: System clock was stepped by 0.592688 seconds`
+    04:19:37             `@poll ... MATCHED`: Stratum 6, Reference ID 0A261621
+                         (10.38.22.33), Last offset -0.592688382 s, Leap status Normal,
+                         `* 10.38.22.33 ... reach 7 ... offset 592.691`
+  => STEP 8 PASS: the DUT re-acquired synchronisation 10 min 55 s after the login prompt.
+     About nine of those minutes were the kiss-o'-death backoff caused by the SERVER's
+     rate limiter, not by the DUT. For comparison, the same DUT against the same server
+     with no kiss-o'-death took about 75 s from `ntp server` being applied (step 2), and
+     about 24 s on a daemon restart (step 5). It needed four good samples
+     (`Client Valid Received 4`, `reach 7`) at a 64 s poll before it would correct the
+     clock. The size of the step, 0.592688 s, is also a measurement of this DUT's clock
+     drift across a 60 s reboot: the real-time clock keeps time across a power cycle and
+     loses roughly half a second doing it.
+================================================================================

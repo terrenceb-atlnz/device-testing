@@ -1,0 +1,355 @@
+================================================================================
+TEST T44298 -- (264) Management_NTP - IPv6 NTP Server
+================================================================================
+Run:      2026-10-21 04:25-04:32 UTC.  The DUT was configured as an NTP server and served
+          time over IPv6, and every result was graded on captured packets.
+Bench:    tb277, console u2; Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T44298.  There is NO authored authority for this case beyond its title.
+          The test-case database holds no objective and no step text: the case carries one
+          empty placeholder step. The 6 steps below were designed from three sources:
+          the title; the X960 TPS row 262 "IPv6 NTP Server" = Yes, which is the authority
+          for what the platform must support; and the DUT's own CLI surface, read read-only
+          with the question-mark help before anything was configured. That help shows
+          `ntp restrict` and `ntp server` both accepting `X:X::X:X` and `X:X::X:X/M`, and
+          `ntp restrict` offering `default-v6`, so the feature is configurable in both
+          address families.
+Build:    swi_d AT-x960-56YSQ, software sin_x96056-20261019-27 (flash:/x960-tb277.rel,
+          build date Sun Oct 18 23:18:21 UTC 2026), S/N A2WQS700B
+          The NTP client in this case is the testbox tb277 itself, not a partner switch.
+
+awplus#show system
+System Status                                           Wed Oct 21 03:23:50 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+Fan module 730  FAN1    AT-FAN19                          -     -
+Fan module 730  FAN2    AT-FAN19                          -     -
+--------------------------------------------------------------------------------
+RAM: Total: 8092132 kB Free: 7462972 kB
+Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 00:24:19
+Bootloader version : Unknown
+
+Current software   : x960-tb277.rel
+Software version   : sin_x96056-20261019-27
+Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+Current boot config: flash:/default.cfg (file exists)
+
+System Name
+ awplus
+System Contact
+
+System Location
+
+Configs:  swi_d.cfg (running-config after setup: the pre-case baseline plus `ntp master 7`
+          and the two vlan10 lines `ipv6 enable` and
+          `ipv6 address fd32:b1f0:dff8:1603::34/64`; saved to startup: no -- step 5 saves
+          the configuration on purpose, as the persistence test)
+          There is no swi_b.cfg and no swi_a.cfg. Both partner consoles (u3 swi_b and
+          u5 swi_a) have a LOCKED manager account, so this run never opened them and
+          neither switch is part of this case. This is a console lockout, not a missing
+          device. It costs this case nothing: the client that measures the server is the
+          testbox, and it reads every field of every reply.
+
+VERDICT: PASS -- the x960-56YSQ serves NTP over IPv6, and the saved configuration keeps
+         serving after a cold boot.
+      service before configuration ... none      (3 IPv6 requests sent, 0 replies; capture shows the requests on the wire)
+      serves time over IPv6 .......... yes       (3 of 3 answered, mode 4, stratum 7, origin timestamp echoed 3 of 3)
+      one `ntp master` serves both ... yes       (one capture: IPv4=4 and IPv6=6 frames, 5 requests / 5 replies / 5 paired)
+      deny by address family ......... yes       (IPv6 client 0 of 3 answered, IPv4 client 2 of 2 answered, same server)
+      survives a cold boot ........... yes       (IPv6 service back 11 s after the login prompt, nothing typed in)
+      removal stops the service ...... yes       (0 of 3 answered after `no ntp master`, with the IPv6 leg still up)
+CAVEAT:  This case measured the IPv6 NTP server role only. It did not test NTP
+         authentication keys, `ntp peer`, `ntp pool` or an upstream server, so the DUT was
+         always its own time reference (refid 127.127.1.1). One IPv6 client host was used,
+         so this run does not show how the server behaves under many clients at once. The
+         IPv6 leg was a single /64 with no router between the two ends, so this run does
+         not cover a routed or multi-hop IPv6 path.
+HEALTH:  reboots ......... 1 new entry: 2026-10-21 04:28:41 Expected CLI(user request).
+                           That is this case's own step 5 reload. Matched and expected.
+         exception log ... None
+         log ............. no crash, no daemon restart and no new kernel error. Read after
+                           the last step: the only matching lines are the 04:29:1x boot
+                           sequence of that same reload, the same line set this unit
+                           prints at every boot (Linux version 6.12.110; tpm tpm0 TPM
+                           error (256) self test; boardinfo-eeprom-i2c 1-0050 and 1-0052;
+                           HTTP server restarted). `show log tail 150` holds, after the
+                           boot, only this case's own command lines plus
+                           "login: pam_lastlog(console:session): file /var/log/lastlog
+                           created" at 04:30:28 (the first console login after the boot)
+                           and syslog-ng's "Configuration reload request
+                           received/finished" at 04:31:11 (raised by the `show log` read
+                           itself). Nothing is unexplained.
+         CPU ............. `show cpu` on this platform prints LOAD, not idle, so no idle
+                           figure is given. Measured load: 1 second 0%, 20 seconds 0%,
+                           60 seconds 0% in both samples.
+         memory .......... 7.9% used before -> 7.9% used after (free 7456572 kB ->
+                           7454240 kB of 8092132 kB total). That is 2.3 MB across a case
+                           that contained a full reboot. No step change, and no leak is
+                           claimed: two samples cannot show one.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  The NTP client is the testbox itself. One cable carries both address families.
+
+    tb277 eth3   fd32:b1f0:dff8:1603::1/64   (IPv6 NTP client + capture)
+                 10.38.22.33/27              (IPv4 NTP client, comparison legs)
+         |      ^
+   NTP   |      |  NTP reply (mode 4, stratum 7)
+ request |      |
+         v      |
+  +---------------------------------------------------------------------+
+  |  swi_d   AT-x960-56YSQ         *** DUT -- the NTP server ***         |
+  |  port1.0.10, access, vlan10                                          |
+  |    IPv6 fd32:b1f0:dff8:1603::34/64   <- added by this case's setup   |
+  |    IPv4 10.38.22.34/27                                               |
+  +---------------------------------------------------------------------+
+
+  DUT      : swi_d (AT-x960-56YSQ) console u2 @115200, S/N A2WQS700B,
+             software sin_x96056-20261019-27. Not a stack: one unit.
+  client   : tb277 itself. It is the NTP client for both address families and also the
+             capture point.
+  link     : tb277 eth3 -> swi_d port1.0.10 (copper, access port in vlan10). One cable.
+             IPv6: eth3 fd32:b1f0:dff8:1603::1/64 <-> swi_d vlan10
+             fd32:b1f0:dff8:1603::34/64. Both ends sit on one /64 with no router between
+             them. The prefix is not invented: the testbox's eth3 already held
+             fd32:b1f0:dff8:1603::1/64, and eth3 is cabled to port1.0.10.
+             IPv4: eth3 10.38.22.33/27 <-> swi_d vlan10 10.38.22.34/27. Used in steps 3
+             and 4 as the second address family against the same server.
+  tools    : tools/ntpc.py, a crafted NTP client over a plain UDP socket, run on tb277,
+             with `-6` for the IPv6 legs. It builds each 48-byte request itself, decodes
+             every field of the reply, and reports origin_echo=yes when the reply echoes
+             that request's transmit timestamp. Exit code 2 means no reply, which is a
+             valid control result.
+             tools/ntpwire.py, run on tb277 over each tcpdump capture. It counts NTP
+             packets by address family, by mode and by address pair, and pairs each reply
+             with its request.
+  clocks   : swi_d and tb277 both run on UTC. Every time in this log is UTC. swi_d read
+             `Wed, 21 Oct 2026 04:25:15 +0000` before step 1, aligned with the box.
+
+STEP 0 -- setup: give vlan10 a global IPv6 address, and prove the leg works        done
+--------------------------------------------------------------------------------
+  vlan1 already carried a link-local address, so IPv6 was enabled on the box. The transit
+  VLAN had nothing. Baseline, before any configuration:
+
+awplus#show ipv6 interface brief
+Interface             IP-Address         Status          Protocol
+eth0          fe80::c462:afff:fe1b:a060/64    preferred    admin up    running
+lo            unassigned                      N/A          admin up    running
+vlan1         fe80::e21a:eaff:fed4:7043/64    preferred    admin up    running
+vlan10        unassigned                      N/A          admin up    running
+vlan48        unassigned                      N/A          admin up    running
+vlan60        unassigned                      N/A          admin up    running
+awplus#show running-config | include ntp
+  (nothing)
+
+awplus(config)#interface vlan10
+awplus(config-if)#ipv6 enable
+awplus(config-if)#ipv6 address fd32:b1f0:dff8:1603::34/64
+awplus#show ipv6 interface brief
+vlan10        fd32:b1f0:dff8:1603::34/64      preferred    admin up    running
+              fe80::e21a:eaff:fed4:7043/64    preferred
+
+  Reachability proved BEFORE any NTP measurement, so that a silence later can only mean
+  the server is absent:
+tb277$ tools/tb ping tb277 eth3 fd32:b1f0:dff8:1603::34 3
+3 packets transmitted, 3 received, 0% packet loss, rtt min/avg/max/mdev = 0.410/0.543/0.800/0.182 ms
+
+STEP 1 -- control: over IPv6, with no NTP configuration, the DUT answers nothing   PASS
+--------------------------------------------------------------------------------
+  Method: send real IPv6 NTP requests before any NTP configuration exists, and capture
+  them at the same time. The leg is already proved reachable and the DUT already has a
+  global IPv6 address, so a silence here is the server being absent and nothing else.
+
+tb277$ tools/tb capture tb277 ntp1021 eth3 20 t44298-s1-off.pcap udp port 123   (background)
+tb277$ tools/tb tool tb277 ntp1021 ntpc fd32:b1f0:dff8:1603::34 -6 \
+         --bind fd32:b1f0:dff8:1603::1 --count 3 --gap 2 --timeout 3
+ntpc: IPv6  fd32:b1f0:dff8:1603::1:50022 -> fd32:b1f0:dff8:1603::34:123
+  #1 sent 2026-10-21 04:26:09.658858Z -> NO REPLY within 3.0 s
+  #2 sent 2026-10-21 04:26:14.665378Z -> NO REPLY within 3.0 s
+  #3 sent 2026-10-21 04:26:19.672060Z -> NO REPLY within 3.0 s
+SUMMARY: sent=3 replies=0 origin_echo=0 no_reply=3          (exit 2)
+
+  ntpwire on the capture:
+04:26:09.658958 v6 fd32:b1f0:dff8:1603::1:50022 -> fd32:b1f0:dff8:1603::34:123 client ...
+04:26:14.665562 v6 ... client ...
+04:26:19.672241 v6 ... client ...
+  by family: IPv6=3
+  by mode:   client(3)=3
+  pairing:   requests=3 replies=0  paired=0 unpaired=0 unanswered=3
+  => STEP 1 PASS: three IPv6 requests really left the testbox and the DUT sent nothing
+     back. The control is established, so every IPv6 reply counted later is caused by the
+     configuration under test.
+
+STEP 2 -- configure the server, and read the IPv6 reply field by field             PASS
+--------------------------------------------------------------------------------
+awplus(config)#ntp master 7
+awplus#show running-config | include ntp
+ntp master 7
+awplus#show ntp status
+  ... Leap status : Normal ...
+                                           <-- populated. It printed completely empty
+                                               output before the configuration was applied
+
+tb277$ tools/tb capture tb277 ntp1021 eth3 30 t44298-s2-on.pcap udp port 123    (background)
+tb277$ tools/tb tool tb277 ntp1021 ntpc fd32:b1f0:dff8:1603::34 -6 \
+         --bind fd32:b1f0:dff8:1603::1 --count 3 --gap 2 --timeout 3
+  #1 sent 2026-10-21 04:26:59.292399Z  reply 48 B from fd32:b1f0:dff8:1603::34:123
+      LI=0(no-warning) VN=4 mode=4(server) stratum=7 poll=4 precision=-25
+      refid=127.127.1.1 (ascii '....')  root_delay=0.000000s root_dispersion=0.000000s
+      reference=2026-10-21 04:26:38.055104Z
+      origin   =2026-10-21 04:26:59.292335Z  origin_echo=yes
+      receive  =2026-10-21 04:26:59.292503Z
+      transmit =2026-10-21 04:26:59.292614Z
+      offset=-0.000160 s  delay=0.000528 s
+SUMMARY: sent=3 replies=3 origin_echo=3 no_reply=0
+         reply stratum(s)=7 mode(s)=4
+         offset min=-0.000160 max=-0.000101 mean=-0.000122 s
+
+  Each field, and why it is the right value:
+
+    field        measured                        why it is right
+    -----        --------                        ----------------
+    transport    IPv6. Source and destination    this is the IPv6 server case, not IPv4
+                 are both inside                 with an IPv6 address written on it
+                 fd32:b1f0:dff8:1603::/64
+    mode         4 (server)                      the DUT answered as a server
+    LI           0                               it says it is synchronised
+    stratum      7                               exactly the `ntp master 7` value
+    refid        127.127.1.1                     the local-clock reference, the same value
+                                                 the IPv4 server case gave
+    origin       echoes our transmit, 3 of 3     the replies answer THESE requests
+    offset       -122 microseconds, mean of 3    the DUT's clock against the testbox clock
+  => STEP 2 PASS: the DUT answered all 3 IPv6 requests as an NTP server at the configured
+     stratum 7, and echoed each request's own transmit timestamp. The offset is also a
+     measurement in its own right: the DUT's clock sits within 160 microseconds of the
+     testbox clock, with no NTP client configured on the DUT at all.
+
+STEP 3 -- ONE `ntp master` serves BOTH address families, in ONE capture            PASS
+--------------------------------------------------------------------------------
+  Method: with the configuration untouched, query the same server over IPv4 seconds later.
+  The single capture t44298-s2-on.pcap then holds both conversations.
+
+04:26:59.292506 v6 fd32:b1f0:dff8:1603::1:43877   -> fd32:b1f0:dff8:1603::34:123 client
+04:26:59.292888 v6 fd32:b1f0:dff8:1603::34:123    -> fd32:b1f0:dff8:1603::1:43877 server v4 LI=ok st=7 refid=127.127.1.1
+04:27:01.296282 v6 ... client ;  04:27:01.296634 v6 ... server st=7
+04:27:03.300130 v6 ... client ;  04:27:03.300497 v6 ... server st=7
+04:27:03.864682 v4 10.38.22.33:45443 -> 10.38.22.34:123   client
+04:27:03.865032 v4 10.38.22.34:123   -> 10.38.22.33:45443 server v4 LI=ok st=7 refid=127.127.1.1
+04:27:05.868253 v4 ... client ;  04:27:05.868600 v4 ... server st=7
+
+  10 frames in the capture, 10 NTP packets on port 123
+  by family: IPv4=4  IPv6=6
+  by mode:   client(3)=5  server(4)=5
+  10.38.22.33 -> 10.38.22.34                              2
+  10.38.22.34 -> 10.38.22.33                              2
+  fd32:b1f0:dff8:1603::1 -> fd32:b1f0:dff8:1603::34       3
+  fd32:b1f0:dff8:1603::34 -> fd32:b1f0:dff8:1603::1       3
+  pairing:   requests=5 replies=5  paired=5 unpaired=0 unanswered=0
+  => STEP 3 PASS: 5 requests, 5 replies, 5 paired and 0 unanswered, across two address
+     families, with the same stratum and the same refid, from one configuration. A single
+     `ntp master` serves IPv4 and IPv6 at the same time. There is no separate IPv6 enable
+     for the NTP server and the CLI offers none.
+
+STEP 4 -- `ntp restrict default-v6` refuses IPv6 clients and keeps serving IPv4    PASS
+--------------------------------------------------------------------------------
+  Method: this is the control that must NOT match. It runs against a live server, so the
+  only thing that differs between the two legs is the address family.
+
+awplus(config)#ntp restrict default-v6 serve deny
+awplus#show running-config | include ntp
+ntp master 7
+ntp restrict default-v6 serve deny
+
+    leg       client                              result
+    ---       ------                              ------
+    denied    fd32:b1f0:dff8:1603::1 (IPv6)       sent=3 replies=0 origin_echo=0
+                                                  no_reply=3, ntpc exit 2
+    allowed   10.38.22.33 (IPv4), same server,    sent=2 replies=2 origin_echo=2
+              seconds later                       no_reply=0, stratum 7
+
+  Removed again, and IPv6 service returned on the same leg:
+awplus(config)#no ntp restrict default-v6
+awplus#show running-config | include ntp
+ntp master 7
+  -> ntpc -6 ...: SUMMARY sent=2 replies=2 origin_echo=2, stratum 7
+  => STEP 4 PASS: one command switched off time service for EVERY IPv6 client and left
+     IPv4 untouched, measured on both legs within seconds of each other against one live
+     server. The denial is silent: no kiss-o'-death packet and no ICMPv6. Note the
+     removal form, because it is not symmetric: the stored line reads
+     `ntp restrict default-v6 serve deny`, but it is removed with
+     `no ntp restrict default-v6`. The `serve deny` part cannot be typed back. Copying a
+     running-config line and putting `no ` in front of it does not work here.
+
+STEP 5 -- the configuration survives a cold boot, measured ON THE WIRE, over IPv6  PASS
+--------------------------------------------------------------------------------
+awplus#write
+Building configuration...
+[OK]
+
+  The write added to startup-config exactly three things, and nothing else:
+> ntp master 7
+> !
+>  ipv6 address fd32:b1f0:dff8:1603::34/64
+>  ipv6 enable
+  plus the saved-on comment.
+
+tb277$ tools/tb ckreload tb277 ntp1021 u2 115200 240
+17:28:41 >>> reload   (04:28:41 UTC)
+reboot question: 'reboot system? (y/n):' -> y
+17:29:42 login seen after 61 s
+
+  Eleven seconds after the login prompt, with nothing typed into the DUT -- no login, no
+  configuration, no `ipv6 address`:
+
+tb277$ tools/tb capture tb277 ntp1021 eth3 40 t44298-s6-persist.pcap udp port 123  (background)
+tb277$ tools/tb tool tb277 ntp1021 ntpc fd32:b1f0:dff8:1603::34 -6 \
+         --bind fd32:b1f0:dff8:1603::1 --count 6 --gap 3 --timeout 3
+  #1 sent 2026-10-21 04:29:54.408293Z  reply 48 B from fd32:b1f0:dff8:1603::34:123
+      LI=0(no-warning) VN=4 mode=4(server) stratum=7 poll=4 precision=-25
+      refid=127.127.1.1   origin_echo=yes
+      offset=-0.179033 s  delay=0.002262 s
+SUMMARY: sent=6 replies=5 origin_echo=5 no_reply=1
+         reply stratum(s)=7 mode(s)=4
+         offset min=-0.179137 max=-0.178943 mean=-0.179010 s
+
+  ntpwire:
+  11 NTP packets; by family: IPv6=11 ; by mode: client(3)=6 server(4)=5
+  pairing: requests=6 replies=5 paired=5 unpaired=0 unanswered=1
+
+  The one unanswered request out of six is the DEFAULT NTP rate limiter on this platform
+  (burst 8, interval 8 s, leak 4, on by default and invisible in running-config). It is
+  not a persistence failure: the five requests that were answered all carry stratum 7
+  with the origin timestamp echoed.
+  => STEP 5 PASS: BOTH halves of the saved configuration came back by themselves. The
+     global IPv6 address on vlan10 came back, otherwise there would have been nothing to
+     answer, and `ntp master 7` came back, because the replies carry stratum 7. The DUT
+     was serving IPv6 time 11 s after the login prompt, with nothing typed into the
+     device. The unit cold-booted to its login prompt in 61 s, and its clock drifted
+     179 ms across the reboot, which is normal for a working real-time clock.
+
+STEP 6 -- removal: the IPv6 server stops, and the counters go dark                 PASS
+--------------------------------------------------------------------------------
+awplus(config)#no ntp master
+awplus#show running-config | include ntp
+  (nothing)
+awplus#show ntp status
+  (completely empty)
+
+tb277$ tools/tb tool tb277 ntp1021 ntpc fd32:b1f0:dff8:1603::34 -6 \
+         --bind fd32:b1f0:dff8:1603::1 --count 3 --gap 1 --timeout 3
+SUMMARY: sent=3 replies=0 origin_echo=0 no_reply=3          (exit 2)
+  => STEP 6 PASS: after `no ntp master` the DUT answers no IPv6 request. The IPv6 address
+     was still on vlan10 and the leg was still pinging at this point, so the silence is
+     the server being gone and not the leg being down. `show ntp status` is completely
+     empty again, which matches the configuration exactly.
+================================================================================
