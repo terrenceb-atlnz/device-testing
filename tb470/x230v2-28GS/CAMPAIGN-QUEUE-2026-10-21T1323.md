@@ -94,6 +94,7 @@ both:       terminal no monitor (exec, after `end`)
 | T47226 | check for sh version | platform-ports-2026-10-21T1323 | PASS | show version answers in full (AlliedWare Plus 0.0.0 10/19/26, Build name x220-awplus_main-20261019-75.rel, expected x220 target name); health clean | platform-ports-2026-10-21T1323/47226/work/run1.log | tester |
 | T47227 | check for sh license | platform-ports-2026-10-21T1323 | PASS | show license lists Base License (Full, 11 features) and ACCESS (Full), no error line; health clean | platform-ports-2026-10-21T1323/47227/work/run1.log | tester |
 | T47215 | sh sys environment | platform-ports-2026-10-21T1323 | PASS | show system environment Overall Status Normal, fan + 5 voltages + 3 temperatures all Ok within limits; health clean | platform-ports-2026-10-21T1323/47215/work/run1.log | tester |
+| T46421 | Link flap | platform-ports-2026-10-21T1323 | PASS | 18 flaps (9 local on x230 port1.0.1, 9 remote from AR4050S port1.0.2) at auto 1000/100/10: each logged Port down + Port up, link back at the negotiated speed in 2.8-4.5 s with LLDP re-learned; both running-configs identical to the pre-run capture; health clean (no new reboot either unit). Observation: x230 logged `ATMF Sec_Audit - Possible DOS attack, link resets on port1.0.1 exceed limit by 4` after 9 local flaps in 77 s (port1.0.1 is its atmf-link): AMF link-reset audit, not graded a fault | platform-ports-2026-10-21T1323/46421/work/run1.log | tester |
 
 ## Issues
 
