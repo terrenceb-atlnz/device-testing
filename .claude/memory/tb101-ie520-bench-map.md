@@ -15,8 +15,8 @@ metadata:
 | --- | --- | --- | --- | --- | --- |
 | 1 | u0 | 264A23061 | swi_a | eth4 10.37.101.65/27 ↔ port1.0.1 | `stack 1 priority 1` (my addition, wins next election) |
 | 2 | u1 | 264A23068 | swi_b | eth3 10.37.101.33/27 ↔ port2.0.1 | |
-| 3 | u2 | 264A23052 | swi_d | eth2 10.37.101.1/27 ↔ port3.0.1 | IXIA TOP port3.0.25 vlan3 3.3.3.3/24 |
-| 4 | u3 | 264A23066 | swi_c | — | IXIA BOTTOM port4.0.25 vlan2 2.2.2.2/24; master after the 10-20 reload |
+| 3 | u2 | 264A23052 | swi_d | eth2 10.37.101.1/27 ↔ port3.0.1 | IXIA TOP port3.0.25 vlan3 3.3.3.3/24 = chassis 82 card 10 port 5 (MAC-learned 2026-10-21) |
+| 4 | u3 | 264A23066 | swi_c | — | IXIA BOTTOM port4.0.25 vlan2 2.2.2.2/24 = chassis 82 card 10 port 6; master after the 10-20 reload |
 
 - Hostname `IE520`, chassis-id 3439, VMAC 0000.cd37.0d6f, build `awplus_main-20261019-75`, bootloader 9.2.0,
   boot config `flash:/tb101-bench.cfg` (vlan1 = .10/27 + .40/27 + .70/27 secondaries so every host NIC pings).
@@ -42,5 +42,7 @@ metadata:
   addresses to bond slaves and after `nomaster`; `bondctl down` is idempotent, re-run it until RESTORE DIFF is empty.
 - Handovers live at `tb101/IE520/` (Terrence 2026-10-21).
 - `/tftproot` here is tmpfs (fstab) but survived the 10-19 reboot's listing — Terrence's images live there.
+
+- All 8 stackports are 10G (2026-10-21); IXIA driving: [[ixia-chassis-82-tcl-access]].
 
 Related: [[ie520-image-update-procedure]], [[shared-testbox-console-occupancy]], [[bench-probe-one-tool]].
