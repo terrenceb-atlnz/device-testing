@@ -190,6 +190,7 @@ inherit it.** Reboot-persistence limbs are now measurable for the first time in 
 | T47192 | (243) Config_File - A dynamic configuration while operating (Change, Delete) | mgmt-2026-10-21T1159 | PASS | **all three operations TPS line 894 names — addition, change AND deletion, not just the title's two** — take effect dynamically, proven on two unrelated subsystems: a bound hardware filter took an add, an in-place edit that made two flows swap state in opposite directions, and a delete restoring the baseline frame-for-frame; vlan48's address took a change, a delete and an add with every ARP/ICMP signature inverting each time. **Nine operations, zero restarts** — uptime advanced by exactly the elapsed 6 m 14 s. Reboot persistence NOT MEASURED | T47192/work/run1.log | tester |
 | T44296 | (259) Management_LLDP - LLDP | lldp-2026-10-21T1159 | PASS | twelve designed steps (the case has **zero** authored steps), all graded on frames and never on `show lldp`: transmit/receive proven independent across all four on/off combinations; ageing timed against a TTL the SENDER chose, with a longer-TTL neighbour on the same port as control; `lldpRemTablesChange` traps caught on the wire against a zero-trap control; neighbours confirmed on the RSTP **Alternate/Discarding** ports 1.0.4, 1.0.14 and 1.0.16 as well as the forwarding 1.0.2. 🔴 **REBOOT PERSISTENCE MEASURED — the first time in three campaigns**: a 15 s timer, 45 s TTL and a System Name TLV all survived a cold boot and were proven on the wire (15 s inter-frame gaps), then defaults restored and re-proven at 30.03 s. Bench returned byte-for-byte, closing probe exit 0 MATCH | T44296/work/run1.log | tester |
 | T33398 | (260) Management_LLDP - LLDP-Med | lldp-2026-10-21T1159 | PASS | graded on frames: **the §5 read-back trap caught in the honest direction** — a fully configured voice policy that `show lldp local-info med` reports in full while 40 s of capture carries **zero** MED TLVs, because no MED endpoint is on the port yet; a real Class III endpoint then drew a 7-TLV reply carrying exactly the configured Voice/vlan 70/tagged/priority/dscp policy; Class III classified against a plain Station-only neighbour **on the same port at the same instant**; Fast Start measured at exactly 3 frames 1.00 s apart with its trigger pinned to a NEW endpoint; both removal paths proven independently. 🔴 **REBOOT PERSISTENCE MEASURED** — a non-default priority 6 survived a cold boot | T33398/work/run1.log | tester |
+| T33399 | (262) Management_NTP - IPv4 NTP Server | ntp-2026-10-21T1159 | PASS | IPv4 NTP server proven on the wire — mode-4 replies at the configured stratum, **nothing before configuration and nothing after removal**, and per-client `ntp restrict` denial discriminating two clients of the same server in the same run (0 replies vs 2). 🔴 **REBOOT PERSISTENCE MEASURED**: serving 13 s after the login prompt with nothing typed, at the non-default stratum 10 | T33399/work/run1.log | tester |
 | T33388 | (239) EnhancedOperationManagement - Hardware Watchdog | — | NOT TESTED | Dropped by the Test Engineer 2026-10-21. No user-facing watchdog CLI exists on this platform and **TPS 5.3.6 says so deliberately** (*"can be enabled or disabled by user command"* = No): no `show watchdog`, nothing in config mode. The only trigger available was deliberate crash injection via `start-shell`, which was not authorised | — | Test Engineer |
 | T33389 | (240) EnhancedOperationManagement - Software Watchdog | — | NOT TESTED | Dropped by the Test Engineer 2026-10-21, same reason as T33388 | — | Test Engineer |
 
@@ -434,6 +435,43 @@ above was never needed.
 
 
 ## Issues
+
+### 🔥 CROSS-CASE PATTERN — this platform has at least TWO CLI surfaces that silently keep only the LAST value
+
+Two independent instances measured today, in unrelated subsystems, by two different testers:
+
+1. **A numbered hardware ACL (3000–3699) holds exactly ONE rule** (T33386). Each
+   `access-list <n> <rule>` silently replaces the previous. Three entered, one kept.
+2. **`ntp rate-limit` holds exactly ONE keyword** (T33399). Setting a second **silently discards
+   the first** — no message, no `% ` line, and **the device's own log records the discarded
+   command as accepted.**
+
+**Neither reports an error and neither shows the loss in running-config.** One instance is a
+quirk; two in unrelated subsystems is a pattern worth a developer's attention, because the
+failure mode is identical: an operator composes a multi-part policy, the device keeps only the
+last part, and nothing anywhere says so. For the ACL that means a management filter collapsing
+to its deny and locking the administrator out.
+
+### 🔬 FINDINGS (T33399) — read these before grading any NTP result on this platform
+
+1. **`show ntp status` and `show ntp counters` print COMPLETELY EMPTY output when NTP is not
+   configured** — not an error, not a "not configured" message. Confirmed in both directions:
+   they populate the instant `ntp master` is applied and go empty again on `no ntp master`. This
+   settles the question triage raised. An empty read is a *state*, not a hung command.
+2. 🔴 **NTP server rate limiting is ON BY DEFAULT and invisible in running-config** — burst 8,
+   interval 8 s, leak 4, visible only in the `ntp rate-limit ?` help text. A 20-packet burst
+   0.5 s apart gets **11** answers; `ntp rate-limit burst 64` makes the identical burst
+   **20/20**. **Without knowing this, normal product behaviour reads as a bench fault or a
+   failing server**, and a tester would chase packet loss that is not there.
+
+### 🔁 CORRECTION to the sentinel's own dispatches — the "13 hour" clock gap is a DISPLAY artefact
+
+Every group dispatch this campaign told the tester *"the DUT clock is UTC, about 13 hours behind
+the box"*. **That is wrong and it mattered for an NTP case.** Both ends are on **UTC** and agree
+to about 15 s; the 13 hours is the **box's NZDT display**, not a clock difference. T33399
+measured the real offset as **-14.269 s**. Any earlier log that applied a 13-hour correction to
+a DUT-vs-box comparison should be read with that in mind.
+
 
 ### 🔴 FINDING (T33398) — `switchport voice vlan` SILENTLY adds `spanning-tree portfast`
 
