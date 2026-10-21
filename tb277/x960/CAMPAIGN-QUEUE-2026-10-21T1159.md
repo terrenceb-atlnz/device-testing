@@ -895,3 +895,135 @@ removal written.
    `tools/lldpmed_phone.py` is **hardware-verified for the first time** since it was generalised
    on 2026-10-02; `tools/rcdiff.py` gains a measured limit (an "empty" diff can print one
    spurious `-HH:MM:SS` line). `tools/tb` learns `lldpsend` as a root traffic tool.
+
+## 🔧 Group D bench setup and its EXACT restore recipe (written before group D's first case)
+
+Written 2026-10-21 16:3x NZDT by the group-D tester **before** any case changed device state,
+so a tester that dies mid-group leaves a recoverable bench (dispatch requirement).
+
+Run `.setup` bound by this group: `tb277/x960/ntp-2026-10-21T1159/tb277-u2.setup` — **swi_d
+ONLY**. Group D's dispatch gives `consoles: u2 ONLY`, because swi_b (u3) and swi_a (u5) both
+have a **locked `manager` account** and every further login attempt re-arms the five-minute
+timer. Neither partner appears in the run `.setup` in any section, so the framework's
+post-failure power cycle cannot reach either one. The box has **no** deployed
+`/home/st-art/configs/tb277.setup`; this file is cut from the generated fence of
+`bench-setup/tb277/bench-state.md` (capture 2026-10-20T230259Z).
+
+### 🔴 The NTP partner is the TESTBOX, not a switch
+
+Group C's answer to the console lockout — replace the driven partner with tb277 itself — is
+group D's design too, and for NTP it is strictly better evidence than a partner switch:
+
+- **T33399 / T44298 (DUT as NTP server):** the testbox is the **client**. It sends crafted NTP
+  client packets (mode 3) from `eth3` and reads the DUT's mode-4 replies field by field. A
+  switch partner would only have given `show ntp associations` on the far end.
+- **T33400 (DUT as NTP client):** the testbox is the **server**. tb277 runs the system `ntpd`
+  (pid 23898, root, `-g -c /run/ntp.conf.dhcp`), a real NTP implementation, on 10.38.22.33.
+- **No `swi_b.cfg` and no `swi_a.cfg` for any case in this group** — not a bench gap, a console
+  lockout. Each working log says so with the reason.
+
+### What group D INHERITS and does not touch
+
+- **(a) The layer-3 underlay on swi_d**, saved to startup-config by group A: `vlan 10
+  ckUNDERLAY-eth3` / `vlan10 10.38.22.34/27` on access port `port1.0.10`, and `vlan 48
+  ckUNDERLAY-eth4` / `vlan48 10.38.22.66/27` on access port `port1.0.48`. Testbox side
+  `eth3 10.38.22.33/27`, `eth4 10.38.22.65/27`.
+- **(b) vlan 60, campaign infrastructure** — swi_d `10.38.22.97/27`, tagged on `port1.0.2`.
+  **Group D leaves it in place**, in running-config AND in startup-config. The earlier plan had
+  the last group remove it; that changed when it reached startup-config, and `no interface
+  vlan60` / `no vlan 60` is permission-blocked for a tester. **It is the Test Engineer's at wrap.**
+- **(c) `lldp run`** — proven by group C to be swi_d's own saved baseline. Left alone.
+- Opening probe, 2026-10-21 16:22 NZDT, `--consoles u2 --read-only --baud 115200` against the
+  swi_d-only template: **exit 0 MATCH**, zero MISMATCH rows. `bench-state.md` in the repo was
+  not overwritten (the probe wrote to `/tmp/ntp1021/bench-state-open.md`).
+- **Baseline running-config: 112 lines**, and it differs from startup-config by exactly the two
+  lines `! Startup-config saved on Wed Oct 21 03:01:22 2026 +0000 by manager via con0 (ttyS0)`
+  and a following `!`. **There are no `ntp` lines anywhere in either.** That is the state every
+  case in this group returns to.
+
+### 🔴 The clock fact, corrected and measured (group-wide, recorded once here)
+
+The dispatch said *"the DUT's clock is UTC, about 13 hours behind the box"*. **Measured, that
+is a display artefact, not a clock offset**, and for an NTP group the distinction is the whole
+point:
+
+| | reading |
+| --- | --- |
+| box `date -u` | 2026-10-21 **03:23:58 UTC** |
+| DUT `show clock` | `UTC Time: Wed, 21 Oct 2026 **03:23:49 +0000**`, `Timezone: UTC`, offset `+00:00` |
+| box local | 16:24 NZDT = UTC+13 |
+
+**Both clocks are on UTC and agreed to within about 15 seconds** (the DUT trailing). The 13-hour
+figure is the box's *local* NZDT display compared against the DUT's UTC. Every NTP measurement
+in this group is taken in **UTC on both ends**, and the ~15 s starting offset is the quantity
+T33400 watches close.
+
+### What group D puts on the bench (every line removed by the case that added it)
+
+```
+! swi_d (u2) only. swi_b and swi_a are never opened.
+! T33399 -- IPv4 NTP server
+ntp master <stratum>                 ! and `no ntp master`
+ntp restrict <...>                   ! only if the surface allows it; removed in-case
+! T33400 -- IPv4 NTP client
+ntp server 10.38.22.33               ! the testbox's own ntpd
+ntp server 10.38.22.40               ! the unreachable control; removed in-case
+clock set <t>                        ! a deliberate, bounded clock offset for the sync limb
+! T44298 -- IPv6 NTP server
+interface vlan10
+ ipv6 enable
+ ipv6 address fd32:b1f0:dff8:1603::34/64
+ntp master <stratum>
+```
+
+### 🔴 Group D `write`s, and it reloads swi_d — three times
+
+Test Engineer's decision of 2026-10-21 14:0x: testers `write` freely. Group C used it to measure
+reboot persistence for the first time in three campaigns; **group D measures NTP persistence
+the same way, and on the wire** — a persisted server or client configuration that still serves
+or still polls after a cold boot, proven by packets and not by `show running-config`.
+
+- Every `write` and every `reload` is on **swi_d only**.
+- An x960-56YSQ cold-boots to its login prompt in **60 s** (group C, measured twice).
+  `ckreload.py`'s 720 s default is wildly conservative; 180 s is used, with a poll.
+- After each persistence limb the case removes its own lines and `write`s again, so
+  startup-config ends holding the inherited underlay, vlan 60 and the LLDP baseline **and
+  nothing of group D's own**.
+
+### Restore recipe — run this if a group-D tester dies mid-case
+
+```
+! swi_d (u2), config mode -- remove anything group D may have left
+no ntp master
+no ntp server 10.38.22.33
+no ntp server 10.38.22.40
+no ntp peer 10.38.22.33
+no ntp restrict 10.38.22.33
+no ntp source
+no ntp authentication-key 1
+interface vlan10
+ no ipv6 address fd32:b1f0:dff8:1603::34/64
+ no ipv6 enable
+! then at exec:
+!   show running-config | include ntp       -> must print NOTHING
+!   show running-config | include ipv6      -> only the vlan1/eth0 dhcp lines
+!   write                                   -> startup-config back to underlay + vlan 60 + lldp run
+```
+Then confirm on swi_d with `show ip interface brief` (vlan10 `.34`, vlan48 `.66`, vlan60 `.97`,
+all `admin up / running`), `show running-config` = **112 lines**, and ping both host legs from
+the box (`10.38.22.34` from eth3, `10.38.22.66` from eth4).
+
+If the DUT's clock was left wrong by a `clock set` and NTP is gone, put it back by hand with
+`clock set <HH:MM:SS> <D> <Mon> <YYYY>` against the box's `date -u` — the DUT is on UTC with a
+`+00:00` offset and no summer time, so the box's **UTC** reading is the value to type.
+
+### Baseline group D must return to
+
+| unit | boot image | boot config | running-config |
+| --- | --- | --- | --- |
+| swi_d (u2) | `flash:/x960-tb277.rel` | `flash:/default.cfg`, Autoboot disabled | the 112-line capture taken before each case's step 1, diffed after the last step |
+| swi_b (u3) | — | — | never opened: `manager` locked |
+| swi_a (u5) | — | — | never opened: `manager` locked |
+
+Startup-config on swi_d ends as: group A's underlay + vlan 60 + `lldp run`, and nothing of
+group D's own.
