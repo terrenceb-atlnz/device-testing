@@ -188,6 +188,7 @@ inherit it.** Reboot-persistence limbs are now measurable for the first time in 
 | T33387 | (238) EnhancedOperationManagement - Management Stacking | mgmt-2026-10-21T1159 | **UNSUPPORTED** | X960 TPS row 236 states the platform does not implement it (*"not necessary as these units support VCS"*), and the DUT agrees: `% Warning: Stacking is currently disabled`, one member ID 1 Ready Active Master, `Operational Status: Stacking hardware disabled`, VC ID 403, resiliency link Not configured, with a full VCS config surface offered instead. No device state was changed. **Deviation recorded**: the TPS Default Configuration section says *"Stacking is enabled by default"* while this DUT reads the hardware disabled | T33387/work/run1.log | tester |
 | T33386 | (237) EnhancedOperationManagement - Management ACL | mgmt-2026-10-21T1159 | PASS | both halves of TPS 6.1.1 proven in the dataplane, never from a `show`: a named hardware ACL gave the specified host 4/4 SYN-ACK while the non-specified host got 0 replies to 4 SYNs, with an ICMP control from that same denied host answered 4/4 in the SAME leg and the DUT's counters agreeing frame for frame (permit 8, deny 4); a standard ACL on an SNMP community failed exactly one cell of a 2x2 against a control; `ssh server 2222` moved the service on the wire and back. Reboot persistence NOT MEASURED | T33386/work/run1.log | tester |
 | T47192 | (243) Config_File - A dynamic configuration while operating (Change, Delete) | mgmt-2026-10-21T1159 | PASS | **all three operations TPS line 894 names — addition, change AND deletion, not just the title's two** — take effect dynamically, proven on two unrelated subsystems: a bound hardware filter took an add, an in-place edit that made two flows swap state in opposite directions, and a delete restoring the baseline frame-for-frame; vlan48's address took a change, a delete and an add with every ARP/ICMP signature inverting each time. **Nine operations, zero restarts** — uptime advanced by exactly the elapsed 6 m 14 s. Reboot persistence NOT MEASURED | T47192/work/run1.log | tester |
+| T44296 | (259) Management_LLDP - LLDP | lldp-2026-10-21T1159 | PASS | twelve designed steps (the case has **zero** authored steps), all graded on frames and never on `show lldp`: transmit/receive proven independent across all four on/off combinations; ageing timed against a TTL the SENDER chose, with a longer-TTL neighbour on the same port as control; `lldpRemTablesChange` traps caught on the wire against a zero-trap control; neighbours confirmed on the RSTP **Alternate/Discarding** ports 1.0.4, 1.0.14 and 1.0.16 as well as the forwarding 1.0.2. 🔴 **REBOOT PERSISTENCE MEASURED — the first time in three campaigns**: a 15 s timer, 45 s TTL and a System Name TLV all survived a cold boot and were proven on the wire (15 s inter-frame gaps), then defaults restored and re-proven at 30.03 s. Bench returned byte-for-byte, closing probe exit 0 MATCH | T44296/work/run1.log | tester |
 | T33388 | (239) EnhancedOperationManagement - Hardware Watchdog | — | NOT TESTED | Dropped by the Test Engineer 2026-10-21. No user-facing watchdog CLI exists on this platform and **TPS 5.3.6 says so deliberately** (*"can be enabled or disabled by user command"* = No): no `show watchdog`, nothing in config mode. The only trigger available was deliberate crash injection via `start-shell`, which was not authorised | — | Test Engineer |
 | T33389 | (240) EnhancedOperationManagement - Software Watchdog | — | NOT TESTED | Dropped by the Test Engineer 2026-10-21, same reason as T33388 | — | Test Engineer |
 
@@ -432,6 +433,37 @@ above was never needed.
 
 
 ## Issues
+
+### ✅ ANSWERED (T44296) — `lldp run` was NOT probe residue
+
+The queue's group-C note warned that `lldp run` might have been set by the 11:59 triage probe,
+which runs without `--read-only`. **It was not.** `lldp run` is in swi_d's **startup-config**
+(`flash:/default.cfg` line 46), so it predates every probe this campaign ran. Read from
+`show startup-config`, which no probe writes — that is the instrument that settles a
+"did our tooling cause this?" question about running-config.
+
+### 🔴 CONFIRMED — swi_d's startup-config now contains vlan 60
+
+Exactly as the Test Engineer's 14:0x decision anticipated. T44296's `write` diff is in its log
+line by line: `vlan 60 name ckMGMT-A`, `interface vlan60 / ip address 10.38.22.97/27`, and
+port1.0.2's trunk lines.
+
+🔴 **Wrap action, Test Engineer's own hands:** removing it needs `no interface vlan60` /
+`no vlan 60`, which the permission system refuses for a tester ("Modify Shared Resources").
+
+### 🔬 FINDINGS (T44296) — the two most likely to mislead a later reader
+
+1. **By default this platform advertises only the three mandatory TLVs** plus one Allied Telesis
+   OUI TLV. That is why **`show lldp neighbors` has an empty Sys Name column for every AW+
+   partner** — correct behaviour that reads as a defect to anyone who has not captured the
+   frames.
+2. **`no lldp receive` drops the frame BEFORE the packet counter.** So `In` counts frames
+   **accepted**, not frames **arrived**, and cannot be used to prove a frame reached a port.
+   Grading a receive-off limb on the In counter would show "no frames arrived" when they did.
+
+Also measured: an x960-56YSQ **cold-boots to its login prompt in 60 s**, so `ckreload.py`'s
+720 s default is wildly conservative on this platform.
+
 
 ### 🔴🔥 TOOLING DEFECT (ours, not the product) — `tools/awlogin.py:login()` is a lockout generator
 
