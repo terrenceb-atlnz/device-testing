@@ -611,6 +611,8 @@ failure stops it. `status` prints `/proc/net/bonding/<bond>`.
 - **Limits:**
   - It is a root CHANGE on the host, not test traffic: use it only when the Test Engineer has allowed the
     bond for the case (STANDING-ORDERS §4; tb101 2026-10-21, "sudo -n for the bond and its restore").
+  - It stays in `tools/` and in `tools/tb`'s `SUDO_TOOLS` by the Test Engineer's decision, 2026-10-21: "yes, save it
+    in tools". That makes it available to any case; it does not replace the per-case OK above.
   - It does not stop NetworkManager or systemd-networkd from re-applying addresses to a slave; check
     `ip -br addr` after `up` and report what the host did.
   - `up` refuses if the bond already exists; `down` only restores what `up` recorded.

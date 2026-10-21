@@ -69,9 +69,9 @@ reported, not failed.
   (`ddcc0c6`, memory `sentinel-sweep-kills-peer-sentinels`); the tb470 session (`device-testing-77`) was told.
 
 ## OPEN
-1. **Should `bondctl` stay in `tools/tb`'s `SUDO_TOOLS`?** It makes a root change on the host reachable through the
-   wrapper. The permission given 2026-10-21 covered T17584 only. Evidence: `tools/tb`, commit 5cdad39.
-   (15:2x: Terrence asked what it does; answered in the session. Still his decision.)
+1. ~~Should `bondctl` stay in `tools/tb`'s `SUDO_TOOLS`?~~ **Terrence 2026-10-21: "yes, save it in tools".** It stays
+   in `tools/` and on the wrapper's root-tool list. Each LAG case still needs his OK for the bond (STANDING-ORDERS §4);
+   `tools/tb`, `tools/README.md` and memory `tb101-ie520-bench-map` say so.
 2. ~~O-1 and O-2: a developer or a follow-up measurement?~~ **Terrence 2026-10-21: "no".** They stay recorded in
    `platforms/IE520.md` §3 as observations; nothing is scheduled.
 3. ~~Build the proposed tools?~~ **Terrence 2026-10-21: "yes, all". Built the same afternoon:** `tools/eventwin.py`

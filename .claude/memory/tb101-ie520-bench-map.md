@@ -37,8 +37,8 @@ metadata:
   (not the ~984 of tb470/tb277); two concurrent line-rate senders + captures make the igb NICs count
   `rx_fifo_errors`, so the host's receive count is a lower bound: grade DUT loss on DUT port counters
   (`tools/hostinfo.py --stats` shows the host drops). Use `--rate 300` each way for event windows.
-- **Host LACP partner:** `tools/bondctl.py up|status|down` (via `tools/tb sudotool`, root allowed for this
-  by Terrence 2026-10-21 for T17584 only). systemd-networkd (no NetworkManager) re-applies eth3/eth4
+- **Host LACP partner:** `tools/bondctl.py up|status|down` (via `tools/tb sudotool`, kept in tools/ and
+  SUDO_TOOLS by Terrence 2026-10-21; each case still needs his OK for the bond). systemd-networkd (no NetworkManager) re-applies eth3/eth4
   addresses to bond slaves and after `nomaster`; `bondctl down` is idempotent, re-run it until RESTORE DIFF is empty.
 - Handovers live at `tb101/IE520/` (Terrence 2026-10-21).
 - `/tftproot` here is tmpfs (fstab) but survived the 10-19 reboot's listing — Terrence's images live there.
