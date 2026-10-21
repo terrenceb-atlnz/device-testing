@@ -53,6 +53,8 @@ The one way a device-testing session reaches a testbox: `tools/tb <action> <box>
     holder, if any other process has it open.
   - `probe` refuses `apply`/`--force`.
   - `tail`/`grep`/`waitfor` read only under `/tmp/` and `/home/st-art/pytest-create/`.
+  - `capture`/`ping` accept NIC names `eth*`, `enp*`, `ens*`, `eno*` and, since 2026-10-21, `bond*` (a host LAG
+    built with `bondctl.py`).
   - `killmine` kills only this repo's tools, probes and framework runs, never a minicom, screen
     or tmux (the Test Engineer runs as the same Unix user).
   - There are no actions for `apply`, licences or root changes: those are STANDING-ORDERS §4.

@@ -96,7 +96,7 @@ editor kills the tester). Sentinel hard ceiling 2026-10-21 17:30 NZDT.
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | T17584 LACP - Startup stable with heavy traffic | tb101/IE520/lacp-2026-10-21T1222/ | RUN dispatched 12:4x (TRIAGED 12:35 RUNNABLE) (fit below; 4-device/4-route step NOT MEASURABLE) | manual CLI + host bond (802.3ad) + line-rate traffic; member reloads + whole-stack reload inside the case; sudo -n on tb101 for the bond only |
+| 1 | T17584 LACP - Startup stable with heavy traffic | tb101/IE520/lacp-2026-10-21T1222/ | DONE 14:12 NZDT -- PASS (run 1, 12:45-14:11; bench restored, probe 2026-10-21T011059Z MATCH; 4-device/4-route step NOT MEASURABLE; O-1 broadcast-duplicate transient at member rejoin, O-2 lacp Pckt err 2) | manual CLI + host bond (802.3ad) + line-rate traffic; member reloads + whole-stack reload inside the case; sudo -n on tb101 for the bond only |
 
 ## Triage 2026-10-21 12:35 NZDT (bench-runner, TRIAGE dispatch; read-only apart from the probe)
 
@@ -315,6 +315,7 @@ console after E3–E6, so read `show stack` first and use the master's console, 
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
+| T17584 | LACP - Startup stable with heavy traffic | lacp-2026-10-21T1222 | PASS | po1 (members 1+2) carried ~600 Mbps bidirectional through 2 leg shuts, 3 member reloads (2 master failovers) and a whole-stack reload; LACP sys-id, LACPDUs and the bond's partner MAC stayed the VMAC 0000.cd37.0d6f throughout; loss only inside event windows, controls 0 beside positives 500, MAC tables correct, health clean; step 2's 4-device routes NOT MEASURABLE; O-1 4 broadcast frames duplicated in a 30-ms window at each member rejoin, O-2 lacp-counter Pckt err Sent 2 on the master's leg | 17584/work/run1.log | tester |
 
 ## Issues
 

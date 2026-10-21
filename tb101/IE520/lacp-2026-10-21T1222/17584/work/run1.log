@@ -522,3 +522,158 @@ Pre-E6 reads (u0, 13:47 box; work/e6-pre-u0.out): `show clock` UTC 00:48:24 (box
 Traffic across the reboot: l2flows 540 s 100 pps /tmp/lacp-1222/flows-e6 bond0 eth2 + linerate A/B --rate 300 --secs 480.
 Consoles: ckreload.py on u0 (the master; `reload`, y to the reboot question, n to any save-config question, waits
   for login:, 720 s); listen.py on u2 and u3 (members 3 and 4), 480 s.
+  ckreload.py on u0: 13:48:46 `reload` -> "Are you sure you want to reboot the whole stack? (y/n):" -> y+CR (no
+  save-config question was asked); **EVENT ~1792543726 = 13:48:46 box time** (ckreload stamps by the second);
+  u0 transcript: `... Rebooting due to User Request ...` / `reboot: Restarting system`; **login seen after 206 s**
+  (13:52:12).
+Mid-reboot (1792543864, +138 s): bond MII down, "bond bond0 has no active aggregator", eth3 and eth4 both MII down,
+  Link Failure Count 1 each (the first and only link failure the bond counted all run: the shut events are seen
+  as partner changes, not carrier loss, on this igb/bonding combination).
+After (bond 1792544047, +321 s): MII up, Aggregator ID 2, **Number of ports 2, Partner Mac Address 00:00:cd:37:0d:6f**,
+  eth3 + eth4 up -- the LAG re-formed against the rebooted stack without any host action.
+DUT via u0 (13:54:3x, +350 s; cfg/ckcon re-logged in): `show stack` all four Ready, **1 Active Master** (prio 1),
+  Normal operation, Stack MAC 0000.cd37.0d6f (Virtual MAC); `show boot` Current boot config flash:/t17584.cfg (file
+  exists) = what booted; `show etherchannel detail` po1 Receive/Transmit link count 2/2, port1.0.1 + port2.0.1
+  synchronized, Partner LAG 0xffff,00-0d-b9-51-4d-a2,0x0009; `show lacp-counter` port2.0.1 Sent 154 Recv 7 Pckt
+  err 0; port1.0.1 Sent 152 Recv 8 **Pckt err Sent 2** (O-2 again, fresh after the reboot: the master's own LAG
+  port counts 2 errored LACPDU sends at LAG formation; no state effect); **`show lacp sys-id` 0000.cd37.0d6f**;
+  MAC table (step 5, after the reboot): po1 = bond 000d.b951.4da2 + 02cc.0a00.0001..000f (+ eth4's old 4da3 learned
+  again from the bond's traffic), port3.0.1 = eth2 000d.b951.4da1 + 02cc.0b00.0001..000f. Correct.
+  `show reboot history`: NEW on every member `2026-10-21 00:50:12 Expected User Request` (member 2: 00:50:13) =
+  13:48:46 box + 85 s; matched to E6. DUT log: 00:51:53 stackports configured; 00:52:04-00:52:19 stack links up;
+  00:52:06/07 members 4, 3, 2 joined; **00:52:21 `Member 1 (84e3.2787.0ac0) has become the Active Master` /
+  `Stack Virtual MAC is 0000.cd37.0d6f`**; 00:53:24 `po1 ... VLAN mode set to access` (the LAG from t17584.cfg).
+  No error, no crash line.
+u2 / u3 transcripts (work/e6-u2-boot.txt, e6-u3-boot.txt): +5 s `reboot: Restarting system`, +8 s `Bootloader 9.2.0
+  loaded`, +115 s VCS joins, +130 s `Member 1 (84e3.2787.0ac0) has become the Active Master`, +202 s `IE520-3 login:` /
+  +203 s `IE520-4 login:`.
+Traffic across the reboot (flowstat-e6.txt, epoch 1792543726; loopwin windows 0, dups 0 on every flow):
+  every flow (B02, B20, U02, U20) sent 54000, lost 20547/21431/20562/20387, **ONE outage each: seq 3934..24183 =
+  20250 frames = 202.5 s starting 1792543728.288 = ev0+2.3 s**, i.e. 13:48:48.3 -> 13:52:10.8 box time; nothing else
+  >= 5 frames. Traffic resumed 12 s after `po1 ... VLAN mode set to access` (00:53:24 DUT = 13:51:59 box) and 1 s
+  before u0's login banner. The remaining ~150-1200 lost per flow are scattered 2-3-frame host-FIFO gaps.
+  linerate A (300 Mbps, 13:48:24-13:56:25, 480 s): sent 12032084, rx eth2 6924107 (57.5%); linerate B: sent 12032085,
+  rx bond0 6955498 (57.8%) -- (480 - 202.5) / 480 = 57.8%: the loss is exactly the reboot window; host FIFO: eth2
+  rx_fifo_errors 78179 -> 108732, eth3 8845 -> 8922, eth4 11175 -> 11567.
+Post-E6 heavy windows (--rate top --secs 60): A 13:57:48-13:58:49 sent 3031995 (604.8 Mbps, 50533 pps) rx eth2 3031995
+  **100.0%**; B 13:59:02-14:00:03 sent 3374191 (673.0 Mbps, 56237 pps) rx bond0 3374191 **100.0%**, kernel drops 0.
+E6 (step 4) verdict: the whole stack rebooted on the LAG config: member 1 master, LAG re-formed from flash with the
+  VMAC as actor sys-id on the wire and as the bond's partner MAC, traffic back 202.5 s after the reload with no
+  duplicates and 100% at heavy rate afterwards, MAC table correct (step 5). PASS.
+
+## HEALTH sample 2 (after the last step E6 and its post-reboot traffic windows, before teardown; u0 14:02-14:03 box = DUT UTC 01:04:15; work/health2-u0.out)
+- `show reboot history` newest per member: 1/3/4 `2026-10-21 00:50:12 Expected User Request`, 2 `00:50:13` = E6 (13:48:46
+  box + 85 s). Earlier new entries this run: member 1 00:14:14 (E3), member 2 00:27:05 (E4), member 4 00:37:37 (E5).
+  Every new entry is matched to a reload this case issued; **no unexpected reboot**.
+- `show exception log`: 7 entries = exactly the seven 2026-10-20 01:58-02:02 duplicate-master snapshot entries of
+  sample 1 (pre-existing); **nothing new**. (`None` was never the state on this bench; the baseline is those 7.)
+- `show log | include kernel|exception|crash|restart|Unexpected` (the master's buffer = member 1 since its E6 boot):
+  only the 00:51:39 kernel boot lines (RAMDISK, ubi0/UBIFS, `boardinfo: loading out-of-tree module taints kernel`
+  = normal AW+ boot) and `00:53:19 daemon.notice HTTP: HTTP server restarted` (boot). No crash, no restart, no
+  Unexpected.
+- `show log tail 150`: the E6 boot sequence (stackports, VCS joins, `Member 1 ... Active Master`, `Stack Virtual MAC
+  is 0000.cd37.0d6f`, MSTP CIST root 8000:0000cd370d6f, `File synchronization complete: ... '/flash/t17584.cfg'`,
+  `startup at 00:53:13`, VLANs 2-3, vlan1/vlan2/vlan3 addresses installed, `po1 ... VLAN mode set to access`), then
+  my own IMISH show lines. Two boot-time lines worth quoting, both before `startup`: `00:53:08 user.err IE520
+  apteryxd: No response from provider for path "/gui/next-filename"` and `00:53:11 user.warning LOOPPROT[724]:
+  Can't read AgentX packet: Connection reset by peer, connection closed: 27` -- startup ordering noise, not a
+  crash; no daemon restarted afterwards.
+- `show cpu` current load: m1 user 3% kernel 5%, m2 2%/4%, m3 1%/3%, m4 0%/5% (traffic stopped ~2 min earlier).
+- `show memory` free kB: m1 274000, m2 280224, m3 278964, m4 280348 (sample 1: 253540/277976/278132/278332). Every
+  member rebooted during the case (E3/E4/E5 + E6), so the two samples are not a leak measurement; no claim made.
+- `show lacp-counter` after ~10 min up: port2.0.1 Sent 662 Recv 24 Pckt err 0; port1.0.1 Sent 661 Recv 25 Pckt err
+  Sent 2 (O-2, unchanged since boot); `show lacp sys-id` 0000.cd37.0d6f.
+Health sample 2: clean relative to the baseline; the run is **clean** (not confounded).
+
+## STEP 5 control flows (STANDING-ORDERS §7: frames the DUT must NOT forward, beside positives that it must), 14:01-14:06 after E6
+tools/vsend.py `<nic> 500 other` (EtherType 0x88b5, marker CKVLAN-<tag>-<seq>, src 00:00:5e:00:53:01) + `tools/tb
+capture` on the receiving NIC(s) + tools/vcount.py. (The wrapper's `capture` refused `bond0` as a NIC name, so the
+bond side was captured on its slaves eth3 + eth4; `tools/tb` now accepts `bond*`.)
+| burst | from | dst | expected | measured |
+| N1samePort | eth2 | 02:cc:0b:00:00:01 (learned on port3.0.1, the ingress port itself) | 0 on the bond | **0** on eth3 and 0 on eth4 (14:06 run, both slaves captured) |
+| N2samePo1 | bond0 | 02:cc:0a:00:00:01 (learned on po1, the ingress aggregator) | 0 on eth2 | **0** on eth2 (14:01 run) |
+| N3vlan3 | eth2, 802.1Q tag 3 | 00:0d:b9:51:4d:a2 (the bond) | 0 on the bond (port3.0.1 is access vlan 1) | **0** on eth3 (14:05 run; P1 with the same src/dst hash landed on eth3) |
+| P1toBond | eth2, untagged | 00:0d:b9:51:4d:a2 | 500 on the bond | **500** on eth3 (14:05 and 14:06 runs) |
+| P2toEth2 | bond0, untagged | 00:0d:b9:51:4d:a1 | 500 on eth2 | **500** on eth2 (14:01 run) |
+Every negative read 0 while its positive read 500 in the same capture window: the LAG forwards exactly what it should.
+
+## Step 2 "all 4 devices / opposite pair" -- NOT MEASURABLE (never a FAIL): tb101 has one switch (the 4-member stack) and
+three host edges. Measured instead: two bidirectional routes, host bond0 (eth3+eth4) <-> po1 (members 2+1) <-> stack
+links <-> port3.0.1 (member 3) <-> eth2, through every event; member 4 as transit only. Also NOT MEASURABLE: an
+AW+-to-AW+ LACP partner (the partner is a Linux 802.3ad bond; the DUT's actor side is fully measured), physical cable
+pulls (CLI shutdown used), and the IXIA ports (the Test Engineer's).
+
+## Teardown / restore (the recipe in the queue file, in order)
+1. DUT (u0 = member 1 = master, cfg.py, 14:07:53-14:08:05, no % line):
+   IE520(config)# boot config-file flash:/tb101-bench.cfg  -> "Synchronizing file across the stack ... member 3, 2, 4
+   successfully completed" (fast this time, ~1 s)
+   IE520(config-if)# no channel-group   (port1.0.1, then port2.0.1)
+   IE520# show boot -> Current boot config: flash:/tb101-bench.cfg (file exists), image unchanged
+   IE520# show running-config interface port1.0.1 / port2.0.1 -> `switchport` + `switchport mode access` only
+   IE520# show etherchannel -> LAG Dynamic Count 0
+2. Host (tools/tb sudotool tb101 lacp-1222 bondctl down bond0 /tmp/lacp-1222/bond-state.json, 14:08): ran exactly
+   `ip link set eth3 nomaster`, `ip link set eth4 nomaster`, `ip link del bond0`, `ip addr replace 10.37.101.33/27
+   dev eth3`, `ip -6 addr replace fd32:b1f0:dff7:6503::1/64 dev eth3`, `ip link set eth3 up`, `ip addr replace
+   10.37.101.65/27 dev eth4`, `ip -6 addr replace fd32:b1f0:dff7:6504::1/64 dev eth4`, `ip link set eth4 up`.
+   The diff 3 s later was NOT yet empty: eth3/eth4 read DOWN (carrier renegotiating after leaving the bond) and
+   eth4 showed no addresses at that instant (networkd re-applying its config on the carrier change). Re-read and
+   re-ran the idempotent `bondctl down` (next lines).
+   14:08:3x: `tools/tb nics` eth3 UP 10.37.101.33/27 fd32:b1f0:dff7:6503::1/64 fe80::...4da2, eth4 UP 10.37.101.65/27
+   fd32:b1f0:dff7:6504::1/64 fe80::...4da3, MACs back to 4d:a2 / 4d:a3, bond0 gone. Second `bondctl down` (nomaster/del
+   fail harmlessly, the four `ip addr replace` re-run, links up): **RESTORE DIFF: empty** against the 12:48 recording.
+   eth2 untouched throughout. No NIC pinning (ethtool) was ever set.
+3. DUT files (14:09, u0): `dir` on the master AND `dir IE520-N/flash:/` for N = 2, 3, 4 each listed `t17584.cfg 1997 B
+   Oct 21 00:53:06` (the boot-pointer sync copied it to every member, and the E6 boot re-synced it) beside
+   `tb101-bench.cfg 1771 B Oct 20 20:33:07` (untouched on all four). `remote-diff all show running-config`: node 1
+   vs 2, 3, 4 "Results are identical". Post-run `show running-config` captured (work/post-run-u0.out).
+   14:09:47-14:09:54 (ckyn.py, no (y/n) was asked by `delete force`): `delete force flash:/t17584.cfg`, then
+   `delete force IE520-2/flash:/t17584.cfg`, `IE520-3/...`, `IE520-4/...`; `dir` on the master and `dir IE520-N/flash:/`
+   for 2/3/4 now list only tb101-bench.cfg 1771 B Oct 20 20:33:07 (no t17584.cfg anywhere); `show boot` Current boot
+   config flash:/tb101-bench.cfg (file exists). Gate 7 baseline restored on every member.
+4. Consoles: u1, u2, u3 left by cfg.py at `IE520#` after `terminal no monitor` (transcript tails at 14:10:05 / 14:10:16 /
+   14:10:26); u0 peeked below. tb101 is the Test Engineer's own box (not shared): no `exit`.
+5. Nothing left running: no linerate/l2flows/tcpdump/vsend of mine (each ran to its own end; the captures were
+   `timeout`-bounded). No NIC pinning. The scratch /tmp/lacp-1222/ (transcripts, pcaps, flows dirs) stays on the box's
+   tmpfs for the sentinel; nothing committed from it except the flowstat/boot summaries copied into work/.
+6. Running-config drift: tools/rcdiff.py work/pre-run-u0.full.out (the 12:45 pre-run capture with its `| include`
+   block stripped, so the full running-config is compared) vs work/post-run-u0.out (14:09) -> **no diff** (0 lines;
+   work/rcdiff.txt). A first rcdiff run against the unstripped pre file compared the filtered block and showed a
+   false 128-line diff; noted so the next tester strips it too.
+7. u0 peek 14:10:54: `IE520#` (exec). All four consoles at exec, `terminal no monitor` sent on u0-u3 by cfg.py.
+8. Final probe 14:11 (`tools/tb probe tb101 --consoles 0-3 --baud 115200 --no-prompt`): **exit 0 MATCH**, capture
+   2026-10-21T011059Z, advisories none. `show boot` = flash:/tb101-bench.cfg on every member (step 3 above).
+   The probe regenerated bench-setup/tb101/bench-state.md (generated file; left for the sentinel to commit as usual).
+
+## Files saved
+IE520.cfg (after setup); work/run1.log (this); work/pre-run-u0.out, pre-run-u0.full.out, post-setup-u0.out,
+post-run-u0.out, rcdiff.txt, e6-pre-u0.out, health2-u0.out (console captures); work/flowstat-e0..e6.txt;
+work/e3-u0-boot.txt, e4-u1-boot.txt, e5-u3-boot.txt, e6-u2-boot.txt, e6-u3-boot.txt (boot transcripts). Pcaps
+(LACPDU and control captures, each < 1 MB) stay in /tmp/lacp-1222/ on the box; their decoded summaries are above.
+Tools added this run (tools/, README entries): bondctl.py, lacpdu.py, hostinfo.py --stats; tools/tb: `bondctl` in
+SUDO_TOOLS, `bond*` accepted by capture/ping.
+
+## Observations for the Test Engineer (not graded as FAIL; the case's expected result held)
+O-1 Broadcast duplicate transient at a member rejoin: at E3, E4 and E5 (every member reload), inside the rejoining
+    member's integration window (join -> Ready; at E4 to the second of the ring's second stack link coming up), 4
+    consecutive broadcast frames (one 30-ms slice at 100 pps) reached the far side twice (E3: bond0->eth2; E4: 1
+    bond0->eth2 + 3 eth2->bond0; E5: bond0->eth2, with no LAG leg on the rejoining member). Unicast never
+    duplicated; none outside the windows; none at E1/E2 (port shut) or E6 (whole-stack reboot). Reads as the
+    stack flooding a broadcast over both ring directions for ~30 ms while a member re-integrates. Evidence:
+    flowstat-e3/e4/e5.txt (duplicate seqs), loopwin windows.
+O-2 `show lacp-counter` port1.0.1 "Pckt err Sent 2": appeared when the master moved onto member 1 (E5) and again fresh
+    after the E6 whole-stack boot; port2.0.1 stays 0. No LACP state effect (both links synchronized, Recv rising).
+Host-side facts worth keeping: tb101's tcpreplay tops at ~700 Mbps one way / ~300-450 each way concurrently; its igb
+    NICs count rx_fifo_errors under two concurrent senders + captures (DUT counters are the authority for DUT loss);
+    the host bond's own link-down detection is 0.4-0.8 s (the only loss toward the DUT at a leg shut); systemd-networkd
+    re-applies addresses to bond slaves and after `nomaster` (harmless; restore verified by diff).
+
+Run label: clean (health samples 1 and 2 clean against the 10-20 baseline; every new reboot-history entry matched to a
+reload this case issued).
+
+VERDICT: PASS -- po1 (port1.0.1+port2.0.1, LACP active) carried ~600 Mbps bidirectional (and 100% at ~650-700 Mbps
+one way after each event) through two leg shut/no-shuts, three member reloads (two of them master failovers,
+1->4->1) and a whole-stack reload booting the LAG config; `show lacp sys-id`, the LACPDUs on the wire and the
+host bond's partner MAC stayed the VMAC 0000.cd37.0d6f after every event and on every master; loss only inside
+the event windows (DUT counters in = out outside them), no duplicates outside the rejoin windows, control flows
+0/0/0 beside positives 500/500, MAC tables correct from each master, health clean. Step 2's four-device / four-route
+traffic is NOT MEASURABLE on tb101 (one switch, three host edges) and is reported, not failed. O-1/O-2 noted.
