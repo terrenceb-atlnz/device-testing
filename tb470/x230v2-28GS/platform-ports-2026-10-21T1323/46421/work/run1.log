@@ -1,0 +1,2589 @@
+# T46421 -- Link flap -- run 1 -- working log (bench-runner, written as the run went)
+
+## Session facts
+Test Engineer: terrenceb@terrenceb-dl. Testbox tb470. Consoles u0 (AR4050S swi_e, link partner), u1 (x230v2-28GS swi_f, the DUT).
+PDU: none this session ("No PDU / do not power-cycle"); outlets recorded in tb470.static but not used. Constraints: "None: reloads allowed now";
+no reload or power-cycle in this case. Session dir tb470/x230v2-28GS/, stamp 2026-10-21T1323, group platform-ports-2026-10-21T1323.
+Scratch on the box: /tmp/pp1323/ (tools copy + console transcripts console-u0.log / console-u1.log).
+
+## Case text (Ask-CK ck.db zephyr_cases, key AWPTCM-T47226, read read-only 2026-10-21 13:2x)
+Title: check for sh version
+Objective: (empty in ck.db)
+Precondition: (empty in ck.db)
+Steps: (empty in ck.db -- no step text and no expected result). Expected result applied, per the queue's rules and the 10-09 run:
+the command answers in full with no "% " error line and the content is sane for this platform (first line AlliedWare Plus (TM) 0.0.0 10/19/26 08:39:33, Build name : x220-awplus_main-20261019-75.rel (the x220 build-target name is expected on an x230v2: platforms/x230v2-28GS.md §1), last line the GPL download URL).
+
+## Gate (shared by the group; measured 13:23-13:28 NZDT)
+precheck CLEAR; probe 2026-10-21T002632Z MATCH (no --pdu/--outlet, --baud 115200, names u0=swi_e u1=swi_f); both consoles at exec on a bare CR;
+template /home/st-art/st-art/configs/tb470.setup present, /nfsHome mounted; run .setup = ../tb470-u0u1.setup (equals the deployed template).
+Boot config both units: flash:/tb470-bench.cfg (unchanged by this case; no write).
+
+## Devices
+DUT  swi_f  u1 115200  AT-x230-28GS V2  S/N A10783G262900002  hostname x230-28GSv2  chassis MAC 00c2.8f3f.0f5d (from the 4050's LLDP table)
+     software awplus_main-20261019-75 (x230v2_28GS-awplus_main-20261019-75.rel), bootloader 6.2.40
+Partner swi_e u0 115200 AR4050S-5G S/N A10401G214000005 hostname 4050-5g chassis MAC 0000.cd40.0394
+     awplus_main-20261008-57, bootloader 5.2.8
+Link under test: 4050 port1.0.2 (access VLAN 10) <-> x230 port1.0.1 (AT-SPTXa 1000BASE-T copper SFP, trunk, switchport atmf-link); LLDP both ends.
+Host NICs (tools/tb nics tb470, 13:4x): eth1 00:f0:4d:00:77:16, eth2 00:f0:4d:00:77:17, eth3 00:f0:4d:00:77:18, all carrier DOWN; none used.
+Clocks (ckcon stamps are the box's clock, NZDT): DUT show clock 00:46:42 UTC at box 13:46:44 -> the DUT runs in UTC, 2 s behind the box;
+4050 Local 13:48:02 +1300 at box 13:48:18 -> 16 s behind the box. DUT log and reboot-history times below are UTC.
+
+## Case text (Ask-CK ck.db zephyr_cases, key AWPTCM-T46421)
+Title: Link flap
+Objective: (empty in ck.db)
+Precondition: conduct link flap at supported speed and check status
+Steps: (empty in ck.db -- no step text, no expected result). Method applied (triage 2026-10-21, agreed by the Test Engineer):
+flap the one link both ways, at every speed the link partner supports: local flaps = shutdown / no shutdown on the DUT's port1.0.1;
+remote flaps = shutdown / no shutdown on the AR4050S's port1.0.2; three flaps at each of auto 1000, auto 100 and auto 10 (the speed set
+on the DUT with `speed auto <n>`); check = the port status returns to connected at the expected negotiated speed and duplex, the LLDP
+neighbour is re-learned, and the DUT log shows one "Port down notification" + one "Port up notification" per flap (plus
+"user shutdown"/"user no shutdown" for the local ones). Wider than the 2026-10-09 run (1000 only: the IE520 partner refused 10).
+
+## Method / tools
+tools/tb ckcon tb470 pp1323 <uN> 115200 <commands> with the `@poll <s> <regex> <cmd>` directive (re-reads `do show interface portX status`
+from config-if mode until the regex matches; ~1.2 s per read, so a convergence time is poll-granular). Stdouts kept by the tester as
+46421-u1a.out (health before + 9 local flaps), 46421-u0b1.out (3 remote flaps at 1000), 46421-u1b2.out (DUT to auto 100),
+46421-u0b2.out (3 remote flaps at 100), 46421-u1b3.out (DUT to auto 10), 46421-u0b3.out (3 remote flaps at 10), 46421-u1c.out
+(DUT restore to auto, final reads, health after, running-config), 46421-u0c.out (4050 running-config, boot, reboot history).
+Every block below is verbatim from those files; the HH:MM:SS >>> stamps are the box's clock (NZDT); DUT log times are UTC (13 h behind).
+Setup: none (the baseline link is the test link). .cfg files: swi_f.cfg from 46421-u1a.out's running-config (13:5x, before step 1),
+swi_e.cfg from base-u0.out (13:48:26, before step 1). Teardown: `no speed` on the DUT (sent at 13:5x, below) and `no shutdown` already
+in place on both ends; proven by tools/rcdiff.py (both units: no difference vs the pre-run capture) and the status/LLDP reads.
+
+## RESULT SUMMARY (graded from the blocks below)
+Local flaps on x230 port1.0.1 (step A, 13:52:10-13:53:27 box clock):
+  at auto 1000: 3 flaps; shutdown -> "disabled" at the first read (1.2 s); no shutdown -> "connected trunk a-full a-1000" in 4.5 s (3 reads) each.
+  speed auto 100 -> a-full a-100 in 4.5 s; 3 flaps; each back at a-full a-100 in 2.8 s (2 reads).
+  speed auto 10  -> a-full a-10 in 2.8 s;  3 flaps; each back at a-full a-10 in 2.8 s.
+  no speed -> a-full a-1000 in 4.5 s. LLDP neighbour 0000.cd40.0394 port1.0.2 present again at 13:54:0x (46421-u1b2.out).
+  DUT log, port1.0.1 lines (readout 13:53:34 vs 13:51:5x): +12 "Port down notification received", +12 "Port up notification received",
+  +9 "user shutdown", +9 "user no shutdown"  (12 = 9 user flaps + 3 renegotiations from the speed changes).
+Remote flaps on 4050 port1.0.2 (steps B1/B2/B3): at a-1000 (13:54:16-13:54:35), at a-100 (13:55:xx), at a-10 (13:57:xx): 3 flaps each;
+  the 4050 port read "disabled" at the first read and "connected 10 a-full a-<speed>" in 2.8 s (2 reads) after every no shutdown.
+  4050 log port1.0.2 lines: 13/13 before -> 16/16 after B1 (+3/+3, 3 user shutdown) -> 19/19 after B2 (+3/+3) -> 23/23 after B3 (+4/+4:
+  3 flaps + the DUT's `speed auto 10` renegotiation). 4050 LLDP table lists 00c2.8f3f.0f5d port1.0.1 after each set.
+Final (13:58:xx): DUT port1.0.1 "connected trunk a-full a-1000 1000BASE-T", LLDP neighbour 0000.cd40.0394 port1.0.2 present;
+  DUT log total today: 24 down / 24 up / 9 user shutdown / 9 user no shutdown (24 = 18 user flaps + 6 speed renegotiations).
+  No "% " line from either unit in any call.
+Side observations (not faults, recorded): the DUT port carries `switchport atmf-link` and the 4050 is not an AMF node, so the DUT logged
+  `ATMF[736]: Sec_Audit - Possible DOS attack, link resets on port1.0.1 exceed limit by 4` at 00:53:36 UTC (after the 9 local flaps in
+  77 s) and `Interface port1.0.1 link partner has no valid ATMF response.` at 00:53:56, 00:55:06, 00:57:48 UTC. AMF's link-reset audit
+  is doing what it should on a deliberately flapped link; worth knowing when a flap test is run on an atmf-link port.
+
+## 46421-u1a.out -- DUT: HEALTH BEFORE STEP 1, setup reads, STEP A (9 local flaps)
+13:51:40 >>> show clock
+UTC Time:   Wed, 21 Oct 2026 00:51:38 +0000
+Timezone: UTC
+Timezone Offset: +00:00
+Summer time zone: None
+13:51:42 >>> show reboot history
+<date> <time> <type> <description>
+-------------------------------------------------------------------------
+2026-10-19 22:30:23 Unexpected System reboot
+2026-10-20 08:05:54 Unexpected System reboot
+2026-10-20 07:26:02 Unexpected System reboot
+2026-10-15 15:02:41 Unexpected System reboot
+2026-10-12 15:59:33 Unexpected System reboot
+2026-10-12 14:14:14 Expected   CLI(user request)
+2026-10-09 20:26:34 Expected   CLI(user request)
+2026-10-09 20:12:22 Expected   CLI(user request)
+2026-10-09 18:32:58 Expected   CLI(user request)
+2026-10-09 18:26:12 Expected   CLI(user request)
+2026-10-09 18:21:44 Expected   CLI(user request)
+2026-10-09 18:12:48 Expected   CLI(user request)
+2026-10-09 05:06:04 Expected   CLI(user request)
+2026-10-08 16:08:27 Expected   CLI(user request)
+2026-10-08 09:59:24 Expected   CLI(user request)
+2026-10-08 09:53:16 Expected   CLI(user request)
+2026-10-08 09:03:26 Expected   Rebooted by burn-in test
+2026-10-08 09:00:40 Expected   Rebooted by burn-in test
+2026-10-08 08:57:52 Expected   Rebooted by burn-in test
+2026-10-06 23:19:59 Expected   Rebooted by burn-in test
+2026-10-08 08:52:21 Expected   Rebooted by burn-in test
+2026-10-08 08:49:35 Expected   Rebooted by burn-in test
+2026-10-08 08:25:54 Expected   Rebooted by burn-in test
+2026-10-08 08:23:07 Expected   Rebooted by burn-in test
+2026-10-08 08:20:22 Expected   Rebooted by burn-in test
+2026-10-08 08:17:35 Expected   Rebooted by burn-in test
+2026-10-08 08:14:49 Expected   Rebooted by burn-in test
+2026-10-08 07:51:12 Expected   Rebooted by burn-in test
+2026-10-08 07:48:28 Expected   Rebooted by burn-in test
+2026-10-08 07:45:42 Expected   Rebooted by burn-in test
+2026-10-08 07:42:57 Expected   Rebooted by burn-in test
+2026-10-08 07:40:14 Expected   Rebooted by burn-in test
+-------------------------------------------------------------------------
+13:51:43 >>> show exception log
+<date> <time> <facility>.<severity> <program[<pid>]>: <message>
+-------------------------------------------------------------------------
+None
+-------------------------------------------------------------------------
+13:51:47 >>> show log | include kernel|exception|crash|restart|Unexpected
+7[r[999;999H[6n2026 Oct 19 22:31:33 daemon.notice x230-28GSv2 HTTP: HTTP server restarted
+2026 Oct 20 20:22:55 user.notice x230-28GSv2 IMISH[27344]: [manager@ttyS0]show exception log
+2026 Oct 20 20:22:59 user.notice x230-28GSv2 IMISH[27344]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+2026 Oct 20 20:26:19 user.notice x230-28GSv2 IMISH[27344]: [manager@ttyS0]show exception log
+2026 Oct 20 20:26:23 user.notice x230-28GSv2 IMISH[27344]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+2026 Oct 20 20:30:42 user.notice x230-28GSv2 IMISH[27344]: [manager@ttyS0]show exception log
+2026 Oct 20 20:30:46 user.notice x230-28GSv2 IMISH[27344]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+2026 Oct 20 20:35:18 user.notice x230-28GSv2 IMISH[27344]: [manager@ttyS0]show exception log
+2026 Oct 20 23:18:14 user.notice x230-28GSv2 IMISH[3300]: [manager@ttyS0]show exception log
+2026 Oct 21 00:46:52 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show exception log
+2026 Oct 21 00:46:56 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+2026 Oct 21 00:47:13 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show exception log
+2026 Oct 21 00:47:17 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+2026 Oct 21 00:47:32 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show exception log
+2026 Oct 21 00:47:36 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+2026 Oct 21 00:47:52 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show exception log
+2026 Oct 21 00:47:56 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+2026 Oct 21 00:51:41 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show exception log
+2026 Oct 21 00:51:45 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+13:51:52 >>> show log tail 150
+7[r[999;999H[6n
+<date> <time> <facility>.<severity> <program[<pid>]>: <message>
+-------------------------------------------------------------------------
+2026 Oct 20 23:18:49 user.notice x230-28GSv2 IMISH[3404]: [manager@ttyS0]show system
+2026 Oct 20 23:18:49 user.notice x230-28GSv2 IMISH[3404]: [manager@ttyS0]show boot
+2026 Oct 20 23:18:49 user.notice x230-28GSv2 IMISH[3404]: [manager@ttyS0]show interface status
+2026 Oct 20 23:18:50 user.notice x230-28GSv2 IMISH[3404]: [manager@ttyS0]show mac address-table
+2026 Oct 20 23:18:50 user.notice x230-28GSv2 IMISH[3404]: [manager@ttyS0]show running-config
+2026 Oct 20 23:18:51 user.notice x230-28GSv2 IMISH[3404]: [manager@ttyS0]show lldp neighbors
+2026 Oct 20 23:18:51 user.notice x230-28GSv2 IMISH[3404]: [manager@ttyS0]end
+2026 Oct 20 23:18:51 user.err x230-28GSv2 IMISH[3404]: Command [end] failed
+2026 Oct 20 23:25:16 user.notice x230-28GSv2 IMISH[3404]: [manager@ttyS0]end
+2026 Oct 20 23:25:16 user.err x230-28GSv2 IMISH[3404]: Command [end] failed
+2026 Oct 20 23:25:16 user.notice x230-28GSv2 IMISH[3404]: [manager@ttyS0]logout
+2026 Oct 20 23:25:19 user.notice x230-28GSv2 IMISH[3806]: [SCRIPT]
+2026 Oct 20 23:25:19 user.notice x230-28GSv2 IMISH[307]: Last message '[SCRIPT]' repeated 3 times, suppressed by syslog-ng on x230-28GSv2
+2026 Oct 20 23:25:19 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]
+2026 Oct 20 23:25:19 user.notice x230-28GSv2 IMISH[307]: Last message '[manager@ttyS0]' repeated 1 times, suppressed by syslog-ng on x230-28GSv2
+2026 Oct 20 23:25:19 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]enable
+2026 Oct 20 23:25:20 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]end
+2026 Oct 20 23:25:20 user.err x230-28GSv2 IMISH[3806]: Command [end] failed
+2026 Oct 20 23:25:20 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]terminal length 0
+2026 Oct 20 23:25:20 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]terminal no monitor
+2026 Oct 20 23:25:20 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]show stack
+2026 Oct 20 23:25:20 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]show running-config | include lldp run
+2026 Oct 20 23:25:21 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]show system
+2026 Oct 20 23:25:21 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]show boot
+2026 Oct 20 23:25:21 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]show interface status
+2026 Oct 20 23:25:22 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]show mac address-table
+2026 Oct 20 23:25:22 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]show running-config
+2026 Oct 20 23:25:23 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]show lldp neighbors
+2026 Oct 20 23:25:23 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]end
+2026 Oct 20 23:25:23 user.err x230-28GSv2 IMISH[3806]: Command [end] failed
+2026 Oct 20 23:26:47 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]terminal length 0
+2026 Oct 20 23:26:48 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]terminal no monitor
+2026 Oct 20 23:26:49 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]show atmf
+2026 Oct 20 23:26:50 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]show atmf links
+2026 Oct 20 23:26:51 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]show boot
+2026 Oct 20 23:26:52 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]show reboot history
+2026 Oct 20 23:26:54 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]show file systems
+2026 Oct 20 23:26:55 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]show interface brief | include port1.0.7
+2026 Oct 20 23:26:57 user.notice x230-28GSv2 IMISH[3806]: [manager@ttyS0]terminal no monitor
+2026 Oct 20 23:36:56 user.crit x230-28GSv2 IMISH[3806]: Console connection timed out.
+2026 Oct 21 00:19:20 user.notice x230-28GSv2 IMISH[6347]: [SCRIPT]
+2026 Oct 21 00:19:20 user.notice x230-28GSv2 IMISH[307]: Last message '[SCRIPT]' repeated 3 times, suppressed by syslog-ng on x230-28GSv2
+2026 Oct 21 00:19:20 user.notice x230-28GSv2 IMISH[6347]: [manager@ttyS0]
+2026 Oct 21 00:19:20 user.notice x230-28GSv2 IMISH[307]: Last message '[manager@ttyS0]' repeated 1 times, suppressed by syslog-ng on x230-28GSv2
+2026 Oct 21 00:19:20 user.notice x230-28GSv2 IMISH[6347]: [manager@ttyS0]enable
+2026 Oct 21 00:19:21 user.notice x230-28GSv2 IMISH[6347]: [manager@ttyS0]terminal length 0
+2026 Oct 21 00:19:23 user.notice x230-28GSv2 IMISH[6347]: [manager@ttyS0]terminal no monitor
+2026 Oct 21 00:19:23 user.notice x230-28GSv2 IMISH[6347]: [manager@ttyS0]show system pluggable
+2026 Oct 21 00:19:25 user.notice x230-28GSv2 IMISH[6347]: [manager@ttyS0]show interface brief | include port1.0.1 
+2026 Oct 21 00:19:26 user.notice x230-28GSv2 IMISH[6347]: [manager@ttyS0]terminal no monitor
+2026 Oct 21 00:26:32 user.notice x230-28GSv2 IMISH[6347]: [manager@ttyS0]end
+2026 Oct 21 00:26:32 user.err x230-28GSv2 IMISH[6347]: Command [end] failed
+2026 Oct 21 00:26:32 user.notice x230-28GSv2 IMISH[6347]: [manager@ttyS0]logout
+2026 Oct 21 00:26:34 user.notice x230-28GSv2 IMISH[6701]: [SCRIPT]
+2026 Oct 21 00:26:34 user.notice x230-28GSv2 IMISH[307]: Last message '[SCRIPT]' repeated 3 times, suppressed by syslog-ng on x230-28GSv2
+2026 Oct 21 00:26:34 user.notice x230-28GSv2 IMISH[6701]: [manager@ttyS0]
+2026 Oct 21 00:26:34 user.notice x230-28GSv2 IMISH[307]: Last message '[manager@ttyS0]' repeated 1 times, suppressed by syslog-ng on x230-28GSv2
+2026 Oct 21 00:26:34 user.notice x230-28GSv2 IMISH[6701]: [manager@ttyS0]enable
+2026 Oct 21 00:26:35 user.notice x230-28GSv2 IMISH[6701]: [manager@ttyS0]end
+2026 Oct 21 00:26:35 user.err x230-28GSv2 IMISH[6701]: Command [end] failed
+2026 Oct 21 00:26:35 user.notice x230-28GSv2 IMISH[6701]: [manager@ttyS0]terminal length 0
+2026 Oct 21 00:26:36 user.notice x230-28GSv2 IMISH[6701]: [manager@ttyS0]terminal no monitor
+2026 Oct 21 00:26:36 user.notice x230-28GSv2 IMISH[6701]: [manager@ttyS0]show stack
+2026 Oct 21 00:26:36 user.notice x230-28GSv2 IMISH[6701]: [manager@ttyS0]show running-config | include lldp run
+2026 Oct 21 00:26:36 user.notice x230-28GSv2 IMISH[6701]: [manager@ttyS0]show system
+2026 Oct 21 00:26:37 user.notice x230-28GSv2 IMISH[6701]: [manager@ttyS0]show boot
+2026 Oct 21 00:26:37 user.notice x230-28GSv2 IMISH[6701]: [manager@ttyS0]show interface status
+2026 Oct 21 00:26:37 user.notice x230-28GSv2 IMISH[6701]: [manager@ttyS0]show mac address-table
+2026 Oct 21 00:26:38 user.notice x230-28GSv2 IMISH[6701]: [manager@ttyS0]show running-config
+2026 Oct 21 00:26:38 user.notice x230-28GSv2 IMISH[6701]: [manager@ttyS0]show lldp neighbors
+2026 Oct 21 00:26:39 user.notice x230-28GSv2 IMISH[6701]: [manager@ttyS0]end
+2026 Oct 21 00:26:39 user.err x230-28GSv2 IMISH[6701]: Command [end] failed
+2026 Oct 21 00:27:52 user.notice x230-28GSv2 IMISH[6701]: [manager@ttyS0]terminal length 0
+2026 Oct 21 00:27:53 user.notice x230-28GSv2 IMISH[6701]: [manager@ttyS0]terminal no monitor
+2026 Oct 21 00:27:54 user.notice x230-28GSv2 IMISH[6701]: [manager@ttyS0]show system pluggable
+2026 Oct 21 00:27:55 user.notice x230-28GSv2 IMISH[6701]: [manager@ttyS0]show lldp
+2026 Oct 21 00:27:57 user.notice x230-28GSv2 IMISH[6701]: [manager@ttyS0]terminal no monitor
+2026 Oct 21 00:28:50 user.notice x230-28GSv2 IMISH[6701]: [manager@ttyS0]end
+2026 Oct 21 00:28:50 user.err x230-28GSv2 IMISH[6701]: Command [end] failed
+2026 Oct 21 00:28:51 user.notice x230-28GSv2 IMISH[6701]: [manager@ttyS0]logout
+2026 Oct 21 00:28:53 user.notice x230-28GSv2 IMISH[6902]: [SCRIPT]
+2026 Oct 21 00:28:53 user.notice x230-28GSv2 IMISH[307]: Last message '[SCRIPT]' repeated 3 times, suppressed by syslog-ng on x230-28GSv2
+2026 Oct 21 00:28:53 user.notice x230-28GSv2 IMISH[6902]: [manager@ttyS0]
+2026 Oct 21 00:28:53 user.notice x230-28GSv2 IMISH[307]: Last message '[manager@ttyS0]' repeated 1 times, suppressed by syslog-ng on x230-28GSv2
+2026 Oct 21 00:28:53 user.notice x230-28GSv2 IMISH[6902]: [manager@ttyS0]enable
+2026 Oct 21 00:28:54 user.notice x230-28GSv2 IMISH[6902]: [manager@ttyS0]end
+2026 Oct 21 00:28:54 user.err x230-28GSv2 IMISH[6902]: Command [end] failed
+2026 Oct 21 00:28:54 user.notice x230-28GSv2 IMISH[6902]: [manager@ttyS0]terminal length 0
+2026 Oct 21 00:28:54 user.notice x230-28GSv2 IMISH[6902]: [manager@ttyS0]terminal no monitor
+2026 Oct 21 00:28:54 user.notice x230-28GSv2 IMISH[6902]: [manager@ttyS0]show stack
+2026 Oct 21 00:28:55 user.notice x230-28GSv2 IMISH[6902]: [manager@ttyS0]show running-config | include lldp run
+2026 Oct 21 00:28:55 user.notice x230-28GSv2 IMISH[6902]: [manager@ttyS0]show system
+2026 Oct 21 00:28:55 user.notice x230-28GSv2 IMISH[6902]: [manager@ttyS0]show boot
+2026 Oct 21 00:28:56 user.notice x230-28GSv2 IMISH[6902]: [manager@ttyS0]show interface status
+2026 Oct 21 00:28:56 user.notice x230-28GSv2 IMISH[6902]: [manager@ttyS0]show mac address-table
+2026 Oct 21 00:28:56 user.notice x230-28GSv2 IMISH[6902]: [manager@ttyS0]show running-config
+2026 Oct 21 00:28:57 user.notice x230-28GSv2 IMISH[6902]: [manager@ttyS0]show lldp neighbors
+2026 Oct 21 00:28:57 user.notice x230-28GSv2 IMISH[6902]: [manager@ttyS0]end
+2026 Oct 21 00:28:57 user.err x230-28GSv2 IMISH[6902]: Command [end] failed
+2026 Oct 21 00:38:56 user.crit x230-28GSv2 IMISH[6902]: Console connection timed out.
+2026 Oct 21 00:46:39 user.notice x230-28GSv2 IMISH[7792]: [SCRIPT]
+2026 Oct 21 00:46:39 user.notice x230-28GSv2 IMISH[307]: Last message '[SCRIPT]' repeated 3 times, suppressed by syslog-ng on x230-28GSv2
+2026 Oct 21 00:46:39 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]
+2026 Oct 21 00:46:39 user.notice x230-28GSv2 IMISH[307]: Last message '[manager@ttyS0]' repeated 1 times, suppressed by syslog-ng on x230-28GSv2
+2026 Oct 21 00:46:39 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]enable
+2026 Oct 21 00:46:40 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]terminal length 0
+2026 Oct 21 00:46:42 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]terminal no monitor
+2026 Oct 21 00:46:42 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show clock
+2026 Oct 21 00:46:43 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show system
+2026 Oct 21 00:46:44 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show system pluggable
+2026 Oct 21 00:46:46 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface status
+2026 Oct 21 00:46:47 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show lldp neighbors
+2026 Oct 21 00:46:48 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show boot
+2026 Oct 21 00:46:49 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show running-config
+2026 Oct 21 00:46:51 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show reboot history
+2026 Oct 21 00:46:52 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show exception log
+2026 Oct 21 00:46:56 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+2026 Oct 21 00:47:01 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log tail 150
+2026 Oct 21 00:47:03 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show cpu
+2026 Oct 21 00:47:06 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show memory
+2026 Oct 21 00:47:09 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show version
+2026 Oct 21 00:47:11 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show reboot history
+2026 Oct 21 00:47:13 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show exception log
+2026 Oct 21 00:47:17 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+2026 Oct 21 00:47:22 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log tail 150
+2026 Oct 21 00:47:24 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show cpu
+2026 Oct 21 00:47:27 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show memory
+2026 Oct 21 00:47:30 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show license
+2026 Oct 21 00:47:31 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show reboot history
+2026 Oct 21 00:47:32 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show exception log
+2026 Oct 21 00:47:36 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+2026 Oct 21 00:47:41 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log tail 150
+2026 Oct 21 00:47:43 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show cpu
+2026 Oct 21 00:47:46 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show memory
+2026 Oct 21 00:47:49 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show system environment
+2026 Oct 21 00:47:50 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show reboot history
+2026 Oct 21 00:47:52 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show exception log
+2026 Oct 21 00:47:56 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+2026 Oct 21 00:48:01 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log tail 150
+2026 Oct 21 00:48:03 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show cpu
+2026 Oct 21 00:48:06 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show memory
+2026 Oct 21 00:48:09 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show clock
+2026 Oct 21 00:48:11 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]terminal no monitor
+2026 Oct 21 00:51:36 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]terminal length 0
+2026 Oct 21 00:51:38 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]terminal no monitor
+2026 Oct 21 00:51:38 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show clock
+2026 Oct 21 00:51:39 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show reboot history
+2026 Oct 21 00:51:41 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show exception log
+2026 Oct 21 00:51:45 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+2026 Oct 21 00:51:49 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log tail 150
+13:51:55 >>> show cpu
+CPU averages:
+ 1 second: 1%, 20 seconds: 0%, 60 seconds: 0%
+System load averages:
+ 1 minute: 1.83, 5 minutes: 1.88, 15 minutes: 1.85
+Current CPU load:
+ userspace: 0%, kernel: 0%, interrupts: 0% iowaits: 0%
+
+user processes
+==============
+  pid name            thrds  cpu%   pri     state   runtime
+  486 hostd              10   1.9    20       run      7458
+30940 tail                1   0.0    20     sleep        40
+ 8227 imish               1   0.0    20     sleep         0
+ 7792 imish               4   0.0    20     sleep        66
+ 7439 login               1   0.0    20     sleep         6
+ 2289 logwatch            1   0.0    20     sleep        40
+ 2131 imish               3   0.0    20     sleep        66
+ 1823 nginx               1   0.0    20     sleep         0
+ 1822 nginx               1   0.0    20     sleep         0
+ 1820 nginx               1   0.0    20     sleep         0
+ 1743 console_log_ale     1   0.0    20     sleep        42
+ 1610 shellinaboxd        1   0.0    20     sleep         0
+ 1601 testd               2   0.0    20     sleep        14
+ 1600 shellinaboxd        1   0.0    20     sleep        10
+ 1599 apteryx-rest        5   0.0    20     sleep       153
+ 1597 cmsg-proxy-fcgi     7   0.0    20     sleep       234
+ 1482 snmpd               4   0.0    20     sleep      2105
+ 1046 sshd                1   0.0    20     sleep        18
+  950 tpm2-abrmd          7   0.0    20     sleep       128
+  879 corosync            6   0.0  -100     sleep      9156
+  877 dbus-daemon         1   0.0    20     sleep        49
+  805 poehw               4   0.0    20     sleep      1632
+  798 tpm_server          3   0.0    20     sleep       437
+  776 udldd               2   0.0    20     sleep       422
+  773 sflowd              5   0.0    20     sleep      1380
+  772 rmond               5   0.0    20     sleep       546
+  771 mstpd               5   0.0    20     sleep       449
+  770 loopprotd           5   0.0    20     sleep       486
+  769 lldpd               7   0.0    20     sleep      3792
+  768 lacpd               5   0.0    20     sleep      1262
+  767 irdpd               3   0.0    20     sleep       192
+  766 imiproxyd           2   0.0    20     sleep       168
+  765 authd               9   0.0    20     sleep      2245
+  736 atmfd              10   0.0    20     sleep      3421
+  621 stackd              5   0.0    20     sleep       236
+  619 exfx               40   0.0    20     sleep     23979
+  612 platform_eventd     3   0.0    20     sleep         4
+  596 atmffsd             7   0.0    20     sleep        98
+  594 atmf_agentd         3   0.0    20     sleep       202
+  593 amfappsd            7   0.0    20     sleep       239
+  592 nsm                12   0.0    20     sleep      5124
+  590 linkmond           11   0.0    20     sleep      4449
+  589 licd                5   0.0    20     sleep        42
+  588 hsl                 9   0.0    20     sleep      5839
+  587 imi                 6   0.0    20     sleep      1226
+  586 eventwatch         10   0.0    20     sleep       201
+  520 delaybuffer         1   0.0    20     sleep        48
+  519 mnt-monitor.sh      1   0.0    20     sleep         0
+  518 inotifywait         1   0.0    20     sleep        28
+  487 mnt-monitor.sh      1   0.0    20     sleep         8
+  485 filesysd            8   0.0    20     sleep       189
+  483 cmlplatformd        7   0.0    20     sleep      1853
+  437 fibermond           6   0.0    20     sleep        46
+  402 plugman             8   0.0    20     sleep      1673
+  399 platformd           9   0.0    20     sleep      2324
+  354 alfred              7   0.0    20     sleep       544
+  341 stashd              3   0.0    20     sleep       169
+  340 snmp-discovery      5   0.0    20     sleep        54
+  338 procmond            4   0.0    20     sleep        19
+  337 kermond             7   0.0    20     sleep        74
+  334 apteryx-sync        6   0.0    20     sleep       183
+  331 apteryxd           49   0.0    20     sleep       809
+  327 rpcbind             1   0.0    20     sleep        11
+  307 syslog-ng           2   0.0    20     sleep      1008
+  303 ulogd               1   0.0  -100     sleep        68
+  296 crond               1   0.0    20     sleep        88
+  291 earlyoom            1   0.0     0     sleep      8271
+  286 pam_radius_acct     1   0.0    20     sleep        65
+  283 inetd               1   0.0    20     sleep        22
+  281 execd               3   0.0    20     sleep       220
+  279 cmsg_sld            3   0.0    20     sleep       406
+  278 cmsg_psd            4   0.0    20     sleep       250
+  268 appmond             2   0.0    20     sleep     10248
+   94 systemd-udevd       1   0.0    20     sleep       265
+   89 systemd-journal     1   0.0    20     sleep       441
+    1 systemd             1   0.0    20     sleep      3274
+
+kernel threads
+==============
+  pid name             cpu%   pri     state   runtime
+ 6847 kworker/u4:0-ipv6_a   0.0    20      idle         2
+ 4701 kworker/u4:3-edac-p   0.0    20      idle         9
+ 4257 kworker/u4:1-edac-p   0.0    20      idle        75
+  267 kworker/R-ifdown_nb   0.0     0      idle         0
+  261 kworker/R-ext4-rsv-   0.0     0      idle         0
+  176 ubifs_bgt0_0      0.0    20     sleep         0
+  173 ubi_bgt0d         0.0    20     sleep         0
+  171 irq/48-0-0027     0.0   -51     sleep         0
+  170 irq/48-0-0026     0.0   -51     sleep         0
+  169 irq/48-0-0024     0.0   -51     sleep         0
+  168 irq/48-0-0023     0.0   -51     sleep         0
+  167 irq/48-0-0022     0.0   -51     sleep         0
+  166 irq/48-0-0021     0.0   -51     sleep         0
+  165 irq/48-0-0020     0.0   -51     sleep         0
+   45 spi1              0.0    20     sleep         1
+   43 kworker/0:3-mm_perc   0.0    20      idle       692
+   42 kworker/R-ipv6_addr   0.0     0      idle         0
+   41 kworker/R-ifdown_nb   0.0     0      idle         0
+   40 kworker/R-mld     0.0     0      idle         0
+   38 irq/46-0-0025     0.0   -51     sleep         0
+   37 spi0              0.0    20     sleep       195
+   35 kworker/0:1H-kblock   0.0     0      idle         2
+   34 kworker/R-nfsiod   0.0     0      idle         0
+   32 kswapd0           0.0    20     sleep         0
+   31 kworker/R-xprtiod   0.0     0      idle         0
+   30 kworker/R-rpciod   0.0     0      idle         0
+   29 watchdogd         0.0   -51     sleep         0
+   28 kworker/R-edac-poll   0.0     0      idle         0
+   27 kworker/R-kblockd   0.0     0      idle         0
+   26 kcompactd0        0.0    20     sleep       323
+   25 kworker/R-writeback   0.0     0      idle         0
+   24 oom_reaper        0.0    20     sleep         0
+   23 kworker/R-inet_frag   0.0     0      idle         0
+   22 kdevtmpfs         0.0    20     sleep         1
+   21 cpuhp/0           0.0    20     sleep         0
+   20 migration/0       0.0  -100     sleep         0
+   19 rcu_exp_gp_kthread_   0.0    20     sleep         0
+   18 rcu_exp_par_gp_kthr   0.0    20     sleep         0
+   17 rcu_preempt       0.0    20      idle       923
+   16 ksoftirqd/0       0.0    20     sleep       308
+   15 rcu_tasks_trace_kth   0.0    20      idle         0
+   14 rcu_tasks_kthread   0.0    20      idle         0
+   13 kworker/R-mm_percpu   0.0     0      idle         0
+   11 kworker/0:1-cgroup_   0.0    20      idle        25
+   10 kworker/0:0H-events   0.0     0      idle         0
+    8 kworker/R-netns   0.0     0      idle         0
+    7 kworker/R-slub_flus   0.0     0      idle         0
+    6 kworker/R-sync_wq   0.0     0      idle         0
+    5 kworker/R-rcu_gp   0.0     0      idle         0
+    4 kworker/R-kvfree_rc   0.0     0      idle         0
+    3 pool_workqueue_rele   0.0    20     sleep         0
+    2 kthreadd          0.0    20     sleep         0
+13:51:58 >>> show memory
+RAM total: 506920 kB; free: 312736 kB; buffers: 60 kB
+
+user processes
+==============
+  pid name             mem%  size(kB)  peak(kB)  data(kB)   stk(kB)  virt(kB)
+  619 exfx              5.6     28408         0    336568       132    435112
+  587 imi               3.4     17640         0    307240       132    324168
+  592 nsm               3.0     15460         0    364332       132    381520
+ 7792 imish             2.5     12852         0    297592       132    313364
+ 2131 imish             2.5     12688         0    289512       132    305276
+  765 authd             2.3     11744         0    329404       132    345312
+    1 systemd           2.2     11528         0      1856       132     15012
+  773 sflowd            2.0     10424         0     34184       132     48528
+  772 rmond             2.0     10228         0     34156       132     48164
+  769 lldpd             2.0     10552         0     50780       132     64580
+ 1482 snmpd             1.9     10016         0     27232       328     40636
+  771 mstpd             1.9     10004         0     34264       132     47916
+  770 loopprotd         1.9      9916         0     34172       132     47680
+  776 udldd             1.8      9304         0      9372       132     21876
+  768 lacpd             1.8      9568         0     34136       132     47632
+  767 irdpd             1.8      9392         0     25876       132     39244
+  588 hsl               1.8      9372         0    329072       132    344168
+ 1601 testd             1.7      9056         0      9232       132     21672
+  736 atmfd             1.7      8996         0    345332       132    358068
+  593 amfappsd          1.7      8752         0    312360       132    324448
+ 1597 cmsg-proxy-fcgi   1.6      8588         0     50920       132     64004
+  590 linkmond          1.6      8308         0     82920       132     94796
+  586 eventwatch        1.6      8164         0     75780       132     89068
+  354 alfred            1.6      8300         0     61732       132     68912
+  340 snmp-discovery    1.6      8224         0     34672       132     47996
+  307 syslog-ng         1.6      8292         0     17816       132     28344
+  589 licd              1.5      7916         0     33656       132     44932
+  486 hostd             1.5      7808         0     74704       132     86184
+  766 imiproxyd         1.4      7328         0      9108       132     21860
+   89 systemd-journal   1.3      6796         0      8744       132     21484
+ 1599 apteryx-rest      1.2      6256         0     35780       132     42948
+  621 stackd            1.2      6544         0     33920       132     45684
+   94 systemd-udevd     1.2      6440         0       540       132     11668
+ 1046 sshd              1.1      5684         0       440       132      7452
+  950 tpm2-abrmd        1.1      5596         0     66064       132     74440
+  596 atmffsd           1.1      5948         0    312088       132    324076
+  399 platformd         1.1      5700         0     82600       132     94408
+  594 atmf_agentd       1.0      5172         0     17160       132     28220
+  485 filesysd          1.0      5200         0     58084       132     68904
+  483 cmlplatformd      1.0      5172         0     49900       132     60636
+  402 plugman           1.0      5364         0     58016       132     69664
+ 8228 imish             0.9      5024         0    297592       132    313364
+  805 poehw             0.9      5036         0     33480       132     44164
+  612 platform_eventd   0.9      4724         0     25260       132     35756
+  437 fibermond         0.9      4584         0     41604       132     51876
+  879 corosync          0.8      4056         0     10548       132     15844
+  331 apteryxd          0.8      4124         0    410952       132    421620
+  279 cmsg_sld          0.8      4224         0     17068       132     27144
+  268 appmond           0.8      4440         0      8752       132     18348
+ 1823 nginx             0.7      3764         0      1116       132      7956
+ 1822 nginx             0.7      3764         0      1116       132      7956
+  341 stashd            0.7      3972         0     16836       132     25876
+  337 kermond           0.7      3952         0     66036       132     72928
+  281 execd             0.7      3884         0     16840       132     25892
+  278 cmsg_psd          0.7      3868         0     25128       132     34948
+ 2289 logwatch          0.6      3468         0       300       132      8376
+  877 dbus-daemon       0.6      3188         0       340       132      5484
+ 1820 nginx             0.5      2760         0       868       132      7708
+  798 tpm_server        0.5      2740         0     18684       132     23588
+  338 procmond          0.5      2772         0     25048       132     31296
+  334 apteryx-sync      0.5      2928         0     41444       132     48500
+ 7439 login             0.4      2040         0       288       132      2476
+  283 inetd             0.4      2036         0       180       132      3024
+30940 tail              0.3      1580         0       180       132      3024
+ 1743 console_log_ale   0.3      1988         0       180       132      3024
+ 1600 shellinaboxd      0.3      1844         0       172       132      2336
+  520 delaybuffer       0.3      1656         0       180       132      3024
+  519 mnt-monitor.sh    0.3      1688         0       180       132      3024
+  487 mnt-monitor.sh    0.3      1908         0       180       132      3024
+  303 ulogd             0.3      1748         0       664       132      2576
+  296 crond             0.3      1916         0       180       132      3024
+  286 pam_radius_acct   0.3      1976         0       204       132      3832
+ 1610 shellinaboxd      0.2      1336         0       172       132      2336
+  518 inotifywait       0.2      1452         0       328       132      2172
+  327 rpcbind           0.2      1444         0       176       132      2108
+  291 earlyoom          0.2      1520         0       172       132      1992
+13:52:00 >>> show interface port1.0.1 status
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  connected       trunk a-full a-1000  1000BASE-T
+13:52:01 >>> show lldp neighbors
+LLDP Neighbor Information:
+
+Total number of neighbors on these ports .... 1
+
+ System Capability Codes:
+   O = Other   P = Repeater   B = Bridge               W = WLAN Access Point
+   R = Router  T = Telephone  C = DOCSIS Cable Device  S = Station Only
+ LLDP-MED Device Type and Power Source Codes:
+   1 = Class I   3 = Class III    PSE  = PoE    Both = PoE&Local  Prim = Primary
+   2 = Class II  N = Network Con. Locl = Local  Unkn = Unknown    Back = Backup
+
+Local    Neighbor        Neighbor        Neighbor                System   MED   
+Port     Chassis ID      Port ID         Sys Name                Cap.     Ty Pwr
+--------------------------------------------------------------------------------
+1.0.1    0000.cd40.0394  port1.0.2
+13:52:05 >>> show log | include port1.0.1
+7[r[999;999H[6n2026 Oct 19 22:31:32 user.notice x230-28GSv2 NSM[592]: port1.0.1 VLAN mode set to trunk
+2026 Oct 19 22:31:41 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 19 22:32:16 user.notice x230-28GSv2 ATMF[736]: Interface port1.0.1 link partner has no valid ATMF response.
+2026 Oct 20 20:32:51 user.crit x230-28GSv2 ATMF[736]: ATMF link (port1.0.1): Remote ATMF node sent packet with incompatible flag set
+2026 Oct 21 00:19:25 user.notice x230-28GSv2 IMISH[6347]: [manager@ttyS0]show interface brief | include port1.0.1 
+2026 Oct 21 00:51:57 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:03 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include port1.0.1
+13:52:07 >>> show running-config
+!
+hostname x230-28GSv2
+!
+no banner motd
+!
+username manager privilege 15 password 8 $5$bJoGTc4D$rJWi6S..L0u7FYo4iPIgN0/q2xB77rJgCtgwoZhloyC
+!
+!
+no service ssh
+!
+no service telnet
+!
+service http
+!
+no clock timezone
+!
+snmp-server
+snmp-server community netman 
+snmp-server host 10.37.108.166 version 2c netman
+!
+!
+service test
+!
+!
+aaa authentication enable default local
+aaa authentication login default local
+!
+security-password minimum-length 8
+security-password history 1
+!
+!
+atmf network-name Enterprise-AMF
+atmf management vlan 3500
+atmf domain vlan 1234
+atmf group network-A
+!
+!
+!
+!
+!
+!
+!
+ip domain-lookup
+!
+!
+lldp run
+!
+spanning-tree mode rstp
+!
+no lacp global-passive-mode enable
+no spanning-tree rstp enable
+!
+vlan database
+ vlan 15,103-105,108,1000 state enable
+!
+interface port1.0.1
+ switchport
+ switchport mode trunk
+ snmp trap link-status
+ rmon collection history 1 buckets 13 interval 300 owner RMON_SNMP
+ rmon collection history 2 buckets 20 interval 30 owner VISTA
+ switchport atmf-link
+!
+interface port1.0.2
+ switchport
+ switchport mode access
+ switchport access vlan 1000
+!
+interface port1.0.3
+ switchport
+ switchport mode access
+ switchport access vlan 103
+!
+interface port1.0.4
+ switchport
+ switchport mode access
+ switchport access vlan 104
+!
+interface port1.0.5
+ switchport
+ switchport mode access
+ switchport access vlan 105
+!
+interface port1.0.6
+ switchport
+ switchport mode access
+!
+interface port1.0.7
+ switchport
+ switchport mode access
+ shutdown
+!
+interface port1.0.8
+ switchport
+ switchport mode access
+ switchport access vlan 108
+!
+interface port1.0.9-1.0.28
+ switchport
+ switchport mode access
+!
+interface vlan1
+ ip address 192.168.1.1/24
+!
+interface vlan15
+ ip address 192.168.15.1/24
+!
+interface vlan1000
+ ip address 10.37.108.4/26
+!
+ip route 0.0.0.0/0 10.37.108.1
+!
+line con 0
+line vty 0 7
+!
+end
+13:52:08 >>> configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+13:52:09 >>> interface port1.0.1
+13:52:10 >>> shutdown
+13:52:10 >>> @poll 15 disabled do show interface port1.0.1 status
+@poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  disabled        trunk auto   auto    1000BASE-T
+13:52:12 >>> no shutdown
+13:52:12 >>> @poll 40 a-full\s+a-1000 do show interface port1.0.1 status
+@poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  connected       trunk a-full a-1000  1000BASE-T
+13:52:18 >>> shutdown
+13:52:18 >>> @poll 15 disabled do show interface port1.0.1 status
+@poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  disabled        trunk auto   auto    1000BASE-T
+13:52:20 >>> no shutdown
+13:52:20 >>> @poll 40 a-full\s+a-1000 do show interface port1.0.1 status
+@poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  connected       trunk a-full a-1000  1000BASE-T
+13:52:26 >>> shutdown
+13:52:26 >>> @poll 15 disabled do show interface port1.0.1 status
+@poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  disabled        trunk auto   auto    1000BASE-T
+13:52:28 >>> no shutdown
+13:52:28 >>> @poll 40 a-full\s+a-1000 do show interface port1.0.1 status
+@poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  connected       trunk a-full a-1000  1000BASE-T
+13:52:34 >>> speed auto 100
+13:52:34 >>> @poll 40 a-full\s+a-100\s do show interface port1.0.1 status
+@poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  connected       trunk a-full a-100   1000BASE-T
+13:52:39 >>> shutdown
+13:52:39 >>> @poll 15 disabled do show interface port1.0.1 status
+@poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  disabled        trunk auto   auto    1000BASE-T
+13:52:42 >>> no shutdown
+13:52:42 >>> @poll 40 a-full\s+a-100\s do show interface port1.0.1 status
+@poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  connected       trunk a-full a-100   1000BASE-T
+13:52:46 >>> shutdown
+13:52:46 >>> @poll 15 disabled do show interface port1.0.1 status
+@poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  disabled        trunk auto   auto    1000BASE-T
+13:52:48 >>> no shutdown
+13:52:48 >>> @poll 40 a-full\s+a-100\s do show interface port1.0.1 status
+@poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  connected       trunk a-full a-100   1000BASE-T
+13:52:52 >>> shutdown
+13:52:52 >>> @poll 15 disabled do show interface port1.0.1 status
+@poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  disabled        trunk auto   auto    1000BASE-T
+13:52:54 >>> no shutdown
+13:52:54 >>> @poll 40 a-full\s+a-100\s do show interface port1.0.1 status
+@poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  connected       trunk a-full a-100   1000BASE-T
+13:52:58 >>> speed auto 10
+13:52:58 >>> @poll 40 a-full\s+a-10\s do show interface port1.0.1 status
+@poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  connected       trunk a-full a-10    1000BASE-T
+13:53:02 >>> shutdown
+13:53:02 >>> @poll 15 disabled do show interface port1.0.1 status
+@poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  disabled        trunk auto   auto    1000BASE-T
+13:53:05 >>> no shutdown
+13:53:05 >>> @poll 40 a-full\s+a-10\s do show interface port1.0.1 status
+@poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  connected       trunk a-full a-10    1000BASE-T
+13:53:09 >>> shutdown
+13:53:09 >>> @poll 15 disabled do show interface port1.0.1 status
+@poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  disabled        trunk auto   auto    1000BASE-T
+13:53:11 >>> no shutdown
+13:53:11 >>> @poll 40 a-full\s+a-10\s do show interface port1.0.1 status
+@poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  connected       trunk a-full a-10    1000BASE-T
+13:53:15 >>> shutdown
+13:53:15 >>> @poll 15 disabled do show interface port1.0.1 status
+@poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  disabled        trunk auto   auto    1000BASE-T
+13:53:17 >>> no shutdown
+13:53:17 >>> @poll 40 a-full\s+a-10\s do show interface port1.0.1 status
+@poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  connected       trunk a-full a-10    1000BASE-T
+13:53:21 >>> no speed
+13:53:21 >>> @poll 40 a-full\s+a-1000 do show interface port1.0.1 status
+@poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  connected       trunk a-full a-1000  1000BASE-T
+13:53:27 >>> end
+13:53:28 >>> show interface port1.0.1 status
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  connected       trunk a-full a-1000  1000BASE-T
+13:53:29 >>> show lldp neighbors
+LLDP Neighbor Information:
+
+Total number of neighbors on these ports .... 1
+
+ System Capability Codes:
+   O = Other   P = Repeater   B = Bridge               W = WLAN Access Point
+   R = Router  T = Telephone  C = DOCSIS Cable Device  S = Station Only
+ LLDP-MED Device Type and Power Source Codes:
+   1 = Class I   3 = Class III    PSE  = PoE    Both = PoE&Local  Prim = Primary
+   2 = Class II  N = Network Con. Locl = Local  Unkn = Unknown    Back = Backup
+
+Local    Neighbor        Neighbor        Neighbor                System   MED   
+Port     Chassis ID      Port ID         Sys Name                Cap.     Ty Pwr
+--------------------------------------------------------------------------------
+1.0.1    0000.cd40.0394  port1.0.2
+13:53:34 >>> show log | include port1.0.1
+7[r[999;999H[6n2026 Oct 20 20:32:51 user.crit x230-28GSv2 ATMF[736]: ATMF link (port1.0.1): Remote ATMF node sent packet with incompatible flag set
+2026 Oct 21 00:19:25 user.notice x230-28GSv2 IMISH[6347]: [manager@ttyS0]show interface brief | include port1.0.1 
+2026 Oct 21 00:51:57 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:03 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include port1.0.1
+2026 Oct 21 00:52:07 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]interface port1.0.1
+2026 Oct 21 00:52:08 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:52:08 user.notice x230-28GSv2 NSM[592]: port1.0.1 user shutdown
+2026 Oct 21 00:52:09 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:09 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:10 user.notice x230-28GSv2 NSM[592]: port1.0.1 user no shutdown
+2026 Oct 21 00:52:11 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:11 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:13 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:13 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:13 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:52:15 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:15 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:16 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:52:16 user.notice x230-28GSv2 NSM[592]: port1.0.1 user shutdown
+2026 Oct 21 00:52:17 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:17 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:18 user.notice x230-28GSv2 NSM[592]: port1.0.1 user no shutdown
+2026 Oct 21 00:52:19 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:19 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:21 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:21 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:21 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:52:23 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:23 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:24 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:52:24 user.notice x230-28GSv2 NSM[592]: port1.0.1 user shutdown
+2026 Oct 21 00:52:25 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:25 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:26 user.notice x230-28GSv2 NSM[592]: port1.0.1 user no shutdown
+2026 Oct 21 00:52:27 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:27 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:29 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:29 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:29 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:52:31 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:31 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:32 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:52:33 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:33 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:35 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:35 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:35 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:52:36 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:36 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:37 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:52:37 user.notice x230-28GSv2 NSM[592]: port1.0.1 user shutdown
+2026 Oct 21 00:52:39 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:39 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:40 user.notice x230-28GSv2 NSM[592]: port1.0.1 user no shutdown
+2026 Oct 21 00:52:41 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:41 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:42 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:52:42 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:42 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:44 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:52:44 user.notice x230-28GSv2 NSM[592]: port1.0.1 user shutdown
+2026 Oct 21 00:52:45 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:45 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:46 user.notice x230-28GSv2 NSM[592]: port1.0.1 user no shutdown
+2026 Oct 21 00:52:47 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:47 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:48 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:52:49 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:49 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:50 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:52:50 user.notice x230-28GSv2 NSM[592]: port1.0.1 user shutdown
+2026 Oct 21 00:52:51 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:51 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:52 user.notice x230-28GSv2 NSM[592]: port1.0.1 user no shutdown
+2026 Oct 21 00:52:53 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:53 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:55 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:52:55 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:55 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:56 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:52:57 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:57 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:59 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:52:59 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:59 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:00 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:53:00 user.notice x230-28GSv2 NSM[592]: port1.0.1 user shutdown
+2026 Oct 21 00:53:01 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:02 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:03 user.notice x230-28GSv2 NSM[592]: port1.0.1 user no shutdown
+2026 Oct 21 00:53:04 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:04 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:05 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:53:05 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:05 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:07 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:53:07 user.notice x230-28GSv2 NSM[592]: port1.0.1 user shutdown
+2026 Oct 21 00:53:08 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:08 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:09 user.notice x230-28GSv2 NSM[592]: port1.0.1 user no shutdown
+2026 Oct 21 00:53:10 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:10 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:11 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:53:12 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:12 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:13 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:53:13 user.notice x230-28GSv2 NSM[592]: port1.0.1 user shutdown
+2026 Oct 21 00:53:14 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:14 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:15 user.notice x230-28GSv2 NSM[592]: port1.0.1 user no shutdown
+2026 Oct 21 00:53:16 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:16 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:18 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:53:18 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:18 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:19 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:53:20 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:20 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:22 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:22 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:22 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:53:24 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:24 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:31 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include port1.0.1
+13:53:36 >>> show clock
+UTC Time:   Wed, 21 Oct 2026 00:53:34 +0000
+Timezone: UTC
+Timezone Offset: +00:00
+Summer time zone: None
+
+## 46421-u0b1.out -- 4050: STEP B1 (3 remote flaps at 1000)
+13:54:06 >>> show clock
+Local Time: Wed, 21 Oct 2026 13:53:50 +1300
+UTC Time:   Wed, 21 Oct 2026 00:53:50 +0000
+Timezone: NZST
+Timezone Offset: +12:00
+Summer time zone: NZDT
+Summer time starts: Last Sunday in September at 02:00:00
+Summer time ends: First Sunday in April at 02:00:00
+Summer time offset: 60 mins
+Summer time recurring: Yes
+13:54:07 >>> show interface port1.0.2 status
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  connected          10 a-full a-1000  1000BASE-T
+13:54:08 >>> show lldp neighbors
+LLDP Neighbor Information:
+
+Total number of neighbors on these ports .... 1
+
+ System Capability Codes:
+   O = Other   P = Repeater   B = Bridge               W = WLAN Access Point
+   R = Router  T = Telephone  C = DOCSIS Cable Device  S = Station Only
+ LLDP-MED Device Type and Power Source Codes:
+   1 = Class I   3 = Class III    PSE  = PoE    Both = PoE&Local  Prim = Primary
+   2 = Class II  N = Network Con. Locl = Local  Unkn = Unknown    Back = Backup
+
+Local    Neighbor        Neighbor        Neighbor                System   MED   
+Port     Chassis ID      Port ID         Sys Name                Cap.     Ty Pwr
+--------------------------------------------------------------------------------
+1.0.2    00c2.8f3f.0f5d  port1.0.1
+13:54:13 >>> show log | include port1.0.2
+7[r[999;999H[6n2026 Oct 19 09:49:13 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 20 11:31:27 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 09:23:32 user.notice 4050-5g IMISH[26691]: [manager@ttyS0]interface port1.0.2
+2026 Oct 21 09:23:33 user.notice 4050-5g NSM[1094]: port1.0.2 VLAN mode set to trunk
+2026 Oct 21 09:32:37 user.notice 4050-5g IMISH[26691]: [manager@ttyS0]interface port1.0.2
+2026 Oct 21 09:32:38 user.notice 4050-5g NSM[1094]: port1.0.2 updated vlans
+2026 Oct 21 09:32:38 user.notice 4050-5g NSM[1094]: port1.0.2 VLAN mode set to access
+2026 Oct 21 09:32:38 user.notice 4050-5g NSM[1094]: port1.0.2 port mode access updated VLAN
+2026 Oct 21 09:34:37 user.notice 4050-5g IMISH[26691]: [manager@ttyS0]show interface port1.0.2 | include port1.0.2|Trunk|Access|VLAN
+2026 Oct 21 13:19:19 user.notice 4050-5g IMISH[5466]: [manager@ttyS0]show interface brief | include port1.0.2 
+2026 Oct 21 13:48:06 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:51:56 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:00 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:03 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:08 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:11 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:15 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:19 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:21 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:24 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:28 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:30 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:34 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:37 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:41 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:43 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:45 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:47 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:52 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:53 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:58 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:53:00 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:53:04 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:53:06 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:53:09 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:53:51 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:53:57 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show log | include port1.0.2
+13:54:14 >>> configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+13:54:15 >>> interface port1.0.2
+13:54:16 >>> shutdown
+13:54:16 >>> @poll 15 disabled do show interface port1.0.2 status
+@poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.2 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  disabled           10 auto   auto    1000BASE-T
+13:54:18 >>> no shutdown
+13:54:18 >>> @poll 40 a-full\s+a-1000 do show interface port1.0.2 status
+@poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.2 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  connected          10 a-full a-1000  1000BASE-T
+13:54:22 >>> shutdown
+13:54:22 >>> @poll 15 disabled do show interface port1.0.2 status
+@poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.2 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  disabled           10 auto   auto    1000BASE-T
+13:54:25 >>> no shutdown
+13:54:25 >>> @poll 40 a-full\s+a-1000 do show interface port1.0.2 status
+@poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.2 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  connected          10 a-full a-1000  1000BASE-T
+13:54:29 >>> shutdown
+13:54:29 >>> @poll 15 disabled do show interface port1.0.2 status
+@poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.2 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  disabled           10 auto   auto    1000BASE-T
+13:54:31 >>> no shutdown
+13:54:31 >>> @poll 40 a-full\s+a-1000 do show interface port1.0.2 status
+@poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.2 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  connected          10 a-full a-1000  1000BASE-T
+13:54:35 >>> end
+13:54:36 >>> show interface port1.0.2 status
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  connected          10 a-full a-1000  1000BASE-T
+13:54:41 >>> show log | include port1.0.2
+7[r[999;999H[6n2026 Oct 19 09:49:13 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 20 11:31:27 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 09:23:32 user.notice 4050-5g IMISH[26691]: [manager@ttyS0]interface port1.0.2
+2026 Oct 21 09:23:33 user.notice 4050-5g NSM[1094]: port1.0.2 VLAN mode set to trunk
+2026 Oct 21 09:32:37 user.notice 4050-5g IMISH[26691]: [manager@ttyS0]interface port1.0.2
+2026 Oct 21 09:32:38 user.notice 4050-5g NSM[1094]: port1.0.2 updated vlans
+2026 Oct 21 09:32:38 user.notice 4050-5g NSM[1094]: port1.0.2 VLAN mode set to access
+2026 Oct 21 09:32:38 user.notice 4050-5g NSM[1094]: port1.0.2 port mode access updated VLAN
+2026 Oct 21 09:34:37 user.notice 4050-5g IMISH[26691]: [manager@ttyS0]show interface port1.0.2 | include port1.0.2|Trunk|Access|VLAN
+2026 Oct 21 13:19:19 user.notice 4050-5g IMISH[5466]: [manager@ttyS0]show interface brief | include port1.0.2 
+2026 Oct 21 13:48:06 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:51:56 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:00 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:03 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:08 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:11 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:15 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:19 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:21 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:24 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:28 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:30 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:34 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:37 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:41 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:43 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:45 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:47 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:52 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:53 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:58 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:53:00 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:53:04 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:53:06 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:53:09 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:53:51 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:53:57 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show log | include port1.0.2
+2026 Oct 21 13:53:59 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]interface port1.0.2
+2026 Oct 21 13:54:00 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:54:01 user.notice 4050-5g NSM[1094]: port1.0.2 user shutdown
+2026 Oct 21 13:54:02 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:02 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:03 user.notice 4050-5g NSM[1094]: port1.0.2 user no shutdown
+2026 Oct 21 13:54:04 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:04 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:06 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:54:06 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:06 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:07 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:54:07 user.notice 4050-5g NSM[1094]: port1.0.2 user shutdown
+2026 Oct 21 13:54:08 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:08 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:09 user.notice 4050-5g NSM[1094]: port1.0.2 user no shutdown
+2026 Oct 21 13:54:10 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:10 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:12 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:54:12 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:12 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:13 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:54:13 user.notice 4050-5g NSM[1094]: port1.0.2 user shutdown
+2026 Oct 21 13:54:14 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:14 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:15 user.notice 4050-5g NSM[1094]: port1.0.2 user no shutdown
+2026 Oct 21 13:54:16 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:16 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:18 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:54:18 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:18 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:25 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show log | include port1.0.2
+13:54:42 >>> show clock
+Local Time: Wed, 21 Oct 2026 13:54:26 +1300
+UTC Time:   Wed, 21 Oct 2026 00:54:26 +0000
+Timezone: NZST
+Timezone Offset: +12:00
+Summer time zone: NZDT
+Summer time starts: Last Sunday in September at 02:00:00
+Summer time ends: First Sunday in April at 02:00:00
+Summer time offset: 60 mins
+Summer time recurring: Yes
+
+## 46421-u1b2.out -- DUT: speed auto 100 (LLDP neighbour check first)
+13:55:11 >>> show clock
+UTC Time:   Wed, 21 Oct 2026 00:55:09 +0000
+Timezone: UTC
+Timezone Offset: +00:00
+Summer time zone: None
+13:55:12 >>> show lldp neighbors
+LLDP Neighbor Information:
+
+Total number of neighbors on these ports .... 1
+
+ System Capability Codes:
+   O = Other   P = Repeater   B = Bridge               W = WLAN Access Point
+   R = Router  T = Telephone  C = DOCSIS Cable Device  S = Station Only
+ LLDP-MED Device Type and Power Source Codes:
+   1 = Class I   3 = Class III    PSE  = PoE    Both = PoE&Local  Prim = Primary
+   2 = Class II  N = Network Con. Locl = Local  Unkn = Unknown    Back = Backup
+
+Local    Neighbor        Neighbor        Neighbor                System   MED   
+Port     Chassis ID      Port ID         Sys Name                Cap.     Ty Pwr
+--------------------------------------------------------------------------------
+1.0.1    0000.cd40.0394  port1.0.2
+13:55:14 >>> configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+13:55:15 >>> interface port1.0.1
+13:55:16 >>> speed auto 100
+13:55:16 >>> @poll 40 a-full\s+a-100\s do show interface port1.0.1 status
+@poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  connected       trunk a-full a-100   1000BASE-T
+13:55:20 >>> end
+13:55:21 >>> show lldp neighbors
+LLDP Neighbor Information:
+
+Total number of neighbors on these ports .... 1
+
+ System Capability Codes:
+   O = Other   P = Repeater   B = Bridge               W = WLAN Access Point
+   R = Router  T = Telephone  C = DOCSIS Cable Device  S = Station Only
+ LLDP-MED Device Type and Power Source Codes:
+   1 = Class I   3 = Class III    PSE  = PoE    Both = PoE&Local  Prim = Primary
+   2 = Class II  N = Network Con. Locl = Local  Unkn = Unknown    Back = Backup
+
+Local    Neighbor        Neighbor        Neighbor                System   MED   
+Port     Chassis ID      Port ID         Sys Name                Cap.     Ty Pwr
+--------------------------------------------------------------------------------
+1.0.1    0000.cd40.0394  port1.0.2
+
+## 46421-u0b2.out -- 4050: STEP B2 (3 remote flaps at 100)
+13:55:41 >>> show clock
+Local Time: Wed, 21 Oct 2026 13:55:25 +1300
+UTC Time:   Wed, 21 Oct 2026 00:55:25 +0000
+Timezone: NZST
+Timezone Offset: +12:00
+Summer time zone: NZDT
+Summer time starts: Last Sunday in September at 02:00:00
+Summer time ends: First Sunday in April at 02:00:00
+Summer time offset: 60 mins
+Summer time recurring: Yes
+13:55:42 >>> show interface port1.0.2 status
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  connected          10 a-full a-100   1000BASE-T
+13:55:43 >>> configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+13:55:44 >>> interface port1.0.2
+13:55:45 >>> shutdown
+13:55:45 >>> @poll 15 disabled do show interface port1.0.2 status
+@poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.2 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  disabled           10 auto   auto    1000BASE-T
+13:55:47 >>> no shutdown
+13:55:47 >>> @poll 40 a-full\s+a-100\s do show interface port1.0.2 status
+@poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.2 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  connected          10 a-full a-100   1000BASE-T
+13:55:51 >>> shutdown
+13:55:51 >>> @poll 15 disabled do show interface port1.0.2 status
+@poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.2 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  disabled           10 auto   auto    1000BASE-T
+13:55:54 >>> no shutdown
+13:55:54 >>> @poll 40 a-full\s+a-100\s do show interface port1.0.2 status
+@poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.2 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  connected          10 a-full a-100   1000BASE-T
+13:55:58 >>> shutdown
+13:55:58 >>> @poll 15 disabled do show interface port1.0.2 status
+@poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.2 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  disabled           10 auto   auto    1000BASE-T
+13:56:00 >>> no shutdown
+13:56:00 >>> @poll 40 a-full\s+a-100\s do show interface port1.0.2 status
+@poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.2 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  connected          10 a-full a-100   1000BASE-T
+13:56:04 >>> end
+13:56:05 >>> show interface port1.0.2 status
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  connected          10 a-full a-100   1000BASE-T
+13:56:10 >>> show log | include port1.0.2
+7[r[999;999H[6n2026 Oct 21 09:23:32 user.notice 4050-5g IMISH[26691]: [manager@ttyS0]interface port1.0.2
+2026 Oct 21 09:23:33 user.notice 4050-5g NSM[1094]: port1.0.2 VLAN mode set to trunk
+2026 Oct 21 09:32:37 user.notice 4050-5g IMISH[26691]: [manager@ttyS0]interface port1.0.2
+2026 Oct 21 09:32:38 user.notice 4050-5g NSM[1094]: port1.0.2 updated vlans
+2026 Oct 21 09:32:38 user.notice 4050-5g NSM[1094]: port1.0.2 VLAN mode set to access
+2026 Oct 21 09:32:38 user.notice 4050-5g NSM[1094]: port1.0.2 port mode access updated VLAN
+2026 Oct 21 09:34:37 user.notice 4050-5g IMISH[26691]: [manager@ttyS0]show interface port1.0.2 | include port1.0.2|Trunk|Access|VLAN
+2026 Oct 21 13:19:19 user.notice 4050-5g IMISH[5466]: [manager@ttyS0]show interface brief | include port1.0.2 
+2026 Oct 21 13:48:06 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:51:56 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:00 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:03 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:08 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:11 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:15 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:19 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:21 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:24 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:28 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:30 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:34 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:37 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:41 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:43 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:45 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:47 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:52 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:53 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:58 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:53:00 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:53:04 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:53:06 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:53:09 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:53:51 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:53:57 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show log | include port1.0.2
+2026 Oct 21 13:53:59 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]interface port1.0.2
+2026 Oct 21 13:54:00 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:54:01 user.notice 4050-5g NSM[1094]: port1.0.2 user shutdown
+2026 Oct 21 13:54:02 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:02 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:03 user.notice 4050-5g NSM[1094]: port1.0.2 user no shutdown
+2026 Oct 21 13:54:04 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:04 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:06 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:54:06 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:06 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:07 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:54:07 user.notice 4050-5g NSM[1094]: port1.0.2 user shutdown
+2026 Oct 21 13:54:08 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:08 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:09 user.notice 4050-5g NSM[1094]: port1.0.2 user no shutdown
+2026 Oct 21 13:54:10 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:10 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:12 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:54:12 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:12 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:13 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:54:13 user.notice 4050-5g NSM[1094]: port1.0.2 user shutdown
+2026 Oct 21 13:54:14 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:14 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:15 user.notice 4050-5g NSM[1094]: port1.0.2 user no shutdown
+2026 Oct 21 13:54:16 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:16 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:18 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:54:18 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:18 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:25 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show log | include port1.0.2
+2026 Oct 21 13:55:01 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:55:03 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:55:26 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:55:28 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]interface port1.0.2
+2026 Oct 21 13:55:30 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:55:30 user.notice 4050-5g NSM[1094]: port1.0.2 user shutdown
+2026 Oct 21 13:55:31 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:55:31 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:55:32 user.notice 4050-5g NSM[1094]: port1.0.2 user no shutdown
+2026 Oct 21 13:55:33 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:55:33 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:55:34 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:55:35 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:55:35 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:55:36 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:55:36 user.notice 4050-5g NSM[1094]: port1.0.2 user shutdown
+2026 Oct 21 13:55:37 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:55:37 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:55:38 user.notice 4050-5g NSM[1094]: port1.0.2 user no shutdown
+2026 Oct 21 13:55:39 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:55:39 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:55:40 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:55:41 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:55:41 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:55:42 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:55:42 user.notice 4050-5g NSM[1094]: port1.0.2 user shutdown
+2026 Oct 21 13:55:43 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:55:43 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:55:44 user.notice 4050-5g NSM[1094]: port1.0.2 user no shutdown
+2026 Oct 21 13:55:46 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:55:46 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:55:46 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:55:47 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:55:47 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:55:54 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show log | include port1.0.2
+13:56:11 >>> show clock
+Local Time: Wed, 21 Oct 2026 13:55:56 +1300
+UTC Time:   Wed, 21 Oct 2026 00:55:56 +0000
+Timezone: NZST
+Timezone Offset: +12:00
+Summer time zone: NZDT
+Summer time starts: Last Sunday in September at 02:00:00
+Summer time ends: First Sunday in April at 02:00:00
+Summer time offset: 60 mins
+Summer time recurring: Yes
+
+## 46421-u1b3.out -- DUT: speed auto 10
+13:56:26 >>> show clock
+UTC Time:   Wed, 21 Oct 2026 00:56:24 +0000
+Timezone: UTC
+Timezone Offset: +00:00
+Summer time zone: None
+13:56:27 >>> configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+13:56:28 >>> interface port1.0.1
+13:56:29 >>> speed auto 10
+13:56:29 >>> @poll 40 a-full\s+a-10\s do show interface port1.0.1 status
+@poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  connected       trunk a-full a-10    1000BASE-T
+13:56:33 >>> end
+13:56:34 >>> show lldp neighbors
+LLDP Neighbor Information:
+
+Total number of neighbors on these ports .... 0
+
+## 46421-u0b3.out -- 4050: STEP B3 (3 remote flaps at 10)
+13:56:53 >>> show clock
+Local Time: Wed, 21 Oct 2026 13:56:37 +1300
+UTC Time:   Wed, 21 Oct 2026 00:56:37 +0000
+Timezone: NZST
+Timezone Offset: +12:00
+Summer time zone: NZDT
+Summer time starts: Last Sunday in September at 02:00:00
+Summer time ends: First Sunday in April at 02:00:00
+Summer time offset: 60 mins
+Summer time recurring: Yes
+13:56:54 >>> show interface port1.0.2 status
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  connected          10 a-full a-10    1000BASE-T
+13:56:55 >>> show lldp neighbors
+LLDP Neighbor Information:
+
+Total number of neighbors on these ports .... 1
+
+ System Capability Codes:
+   O = Other   P = Repeater   B = Bridge               W = WLAN Access Point
+   R = Router  T = Telephone  C = DOCSIS Cable Device  S = Station Only
+ LLDP-MED Device Type and Power Source Codes:
+   1 = Class I   3 = Class III    PSE  = PoE    Both = PoE&Local  Prim = Primary
+   2 = Class II  N = Network Con. Locl = Local  Unkn = Unknown    Back = Backup
+
+Local    Neighbor        Neighbor        Neighbor                System   MED   
+Port     Chassis ID      Port ID         Sys Name                Cap.     Ty Pwr
+--------------------------------------------------------------------------------
+1.0.2    00c2.8f3f.0f5d  port1.0.1
+13:56:56 >>> configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+13:56:57 >>> interface port1.0.2
+13:56:59 >>> shutdown
+13:56:59 >>> @poll 15 disabled do show interface port1.0.2 status
+@poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.2 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  disabled           10 auto   auto    1000BASE-T
+13:57:01 >>> no shutdown
+13:57:01 >>> @poll 40 a-full\s+a-10\s do show interface port1.0.2 status
+@poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.2 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  connected          10 a-full a-10    1000BASE-T
+13:57:05 >>> shutdown
+13:57:05 >>> @poll 15 disabled do show interface port1.0.2 status
+@poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.2 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  disabled           10 auto   auto    1000BASE-T
+13:57:07 >>> no shutdown
+13:57:07 >>> @poll 40 a-full\s+a-10\s do show interface port1.0.2 status
+@poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.2 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  connected          10 a-full a-10    1000BASE-T
+13:57:11 >>> shutdown
+13:57:11 >>> @poll 15 disabled do show interface port1.0.2 status
+@poll MATCHED after 1.2 s (1 reads) of 'do show interface port1.0.2 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  disabled           10 auto   auto    1000BASE-T
+13:57:13 >>> no shutdown
+13:57:13 >>> @poll 40 a-full\s+a-10\s do show interface port1.0.2 status
+@poll MATCHED after 2.8 s (2 reads) of 'do show interface port1.0.2 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  connected          10 a-full a-10    1000BASE-T
+13:57:17 >>> end
+13:57:19 >>> show interface port1.0.2 status
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.2   -                  connected          10 a-full a-10    1000BASE-T
+13:57:19 >>> @sleep 5
+13:57:25 >>> show lldp neighbors
+LLDP Neighbor Information:
+
+Total number of neighbors on these ports .... 1
+
+ System Capability Codes:
+   O = Other   P = Repeater   B = Bridge               W = WLAN Access Point
+   R = Router  T = Telephone  C = DOCSIS Cable Device  S = Station Only
+ LLDP-MED Device Type and Power Source Codes:
+   1 = Class I   3 = Class III    PSE  = PoE    Both = PoE&Local  Prim = Primary
+   2 = Class II  N = Network Con. Locl = Local  Unkn = Unknown    Back = Backup
+
+Local    Neighbor        Neighbor        Neighbor                System   MED   
+Port     Chassis ID      Port ID         Sys Name                Cap.     Ty Pwr
+--------------------------------------------------------------------------------
+1.0.2    00c2.8f3f.0f5d  port1.0.1
+13:57:30 >>> show log | include port1.0.2
+7[r[999;999H[6n2026 Oct 21 09:32:37 user.notice 4050-5g IMISH[26691]: [manager@ttyS0]interface port1.0.2
+2026 Oct 21 09:32:38 user.notice 4050-5g NSM[1094]: port1.0.2 updated vlans
+2026 Oct 21 09:32:38 user.notice 4050-5g NSM[1094]: port1.0.2 VLAN mode set to access
+2026 Oct 21 09:32:38 user.notice 4050-5g NSM[1094]: port1.0.2 port mode access updated VLAN
+2026 Oct 21 09:34:37 user.notice 4050-5g IMISH[26691]: [manager@ttyS0]show interface port1.0.2 | include port1.0.2|Trunk|Access|VLAN
+2026 Oct 21 13:19:19 user.notice 4050-5g IMISH[5466]: [manager@ttyS0]show interface brief | include port1.0.2 
+2026 Oct 21 13:48:06 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:51:56 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:00 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:03 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:08 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:11 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:15 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:19 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:21 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:24 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:28 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:30 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:34 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:37 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:41 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:43 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:45 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:47 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:52 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:52:53 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:52:58 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:53:00 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:53:04 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:53:06 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:53:09 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:53:51 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:53:57 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show log | include port1.0.2
+2026 Oct 21 13:53:59 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]interface port1.0.2
+2026 Oct 21 13:54:00 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:54:01 user.notice 4050-5g NSM[1094]: port1.0.2 user shutdown
+2026 Oct 21 13:54:02 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:02 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:03 user.notice 4050-5g NSM[1094]: port1.0.2 user no shutdown
+2026 Oct 21 13:54:04 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:04 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:06 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:54:06 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:06 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:07 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:54:07 user.notice 4050-5g NSM[1094]: port1.0.2 user shutdown
+2026 Oct 21 13:54:08 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:08 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:09 user.notice 4050-5g NSM[1094]: port1.0.2 user no shutdown
+2026 Oct 21 13:54:10 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:10 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:12 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:54:12 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:12 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:13 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:54:13 user.notice 4050-5g NSM[1094]: port1.0.2 user shutdown
+2026 Oct 21 13:54:14 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:14 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:15 user.notice 4050-5g NSM[1094]: port1.0.2 user no shutdown
+2026 Oct 21 13:54:16 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:16 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:18 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:54:18 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:54:18 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:54:25 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show log | include port1.0.2
+2026 Oct 21 13:55:01 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:55:03 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:55:26 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:55:28 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]interface port1.0.2
+2026 Oct 21 13:55:30 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:55:30 user.notice 4050-5g NSM[1094]: port1.0.2 user shutdown
+2026 Oct 21 13:55:31 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:55:31 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:55:32 user.notice 4050-5g NSM[1094]: port1.0.2 user no shutdown
+2026 Oct 21 13:55:33 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:55:33 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:55:34 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:55:35 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:55:35 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:55:36 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:55:36 user.notice 4050-5g NSM[1094]: port1.0.2 user shutdown
+2026 Oct 21 13:55:37 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:55:37 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:55:38 user.notice 4050-5g NSM[1094]: port1.0.2 user no shutdown
+2026 Oct 21 13:55:39 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:55:39 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:55:40 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:55:41 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:55:41 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:55:42 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:55:42 user.notice 4050-5g NSM[1094]: port1.0.2 user shutdown
+2026 Oct 21 13:55:43 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:55:43 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:55:44 user.notice 4050-5g NSM[1094]: port1.0.2 user no shutdown
+2026 Oct 21 13:55:46 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:55:46 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:55:46 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:55:47 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:55:47 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:55:54 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show log | include port1.0.2
+2026 Oct 21 13:56:14 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:56:16 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:56:38 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:56:42 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]interface port1.0.2
+2026 Oct 21 13:56:43 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:56:43 user.notice 4050-5g NSM[1094]: port1.0.2 user shutdown
+2026 Oct 21 13:56:44 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:56:44 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:56:45 user.notice 4050-5g NSM[1094]: port1.0.2 user no shutdown
+2026 Oct 21 13:56:47 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:56:47 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:56:47 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:56:48 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:56:48 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:56:49 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:56:49 user.notice 4050-5g NSM[1094]: port1.0.2 user shutdown
+2026 Oct 21 13:56:50 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:56:50 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:56:52 user.notice 4050-5g NSM[1094]: port1.0.2 user no shutdown
+2026 Oct 21 13:56:53 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:56:53 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:56:54 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:56:54 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:56:54 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:56:56 user.notice 4050-5g NSM[1094]: Port down notification received for port1.0.2 
+2026 Oct 21 13:56:56 user.notice 4050-5g NSM[1094]: port1.0.2 user shutdown
+2026 Oct 21 13:56:57 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:56:57 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:56:58 user.notice 4050-5g NSM[1094]: port1.0.2 user no shutdown
+2026 Oct 21 13:56:59 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:56:59 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:57:00 user.notice 4050-5g NSM[1094]: Port up notification received for port1.0.2 
+2026 Oct 21 13:57:01 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]do show interface port1.0.2 status
+2026 Oct 21 13:57:01 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show interface port1.0.2 status
+2026 Oct 21 13:57:13 user.notice 4050-5g IMISH[8401]: [manager@ttyS0]show log | include port1.0.2
+13:57:31 >>> show clock
+Local Time: Wed, 21 Oct 2026 13:57:16 +1300
+UTC Time:   Wed, 21 Oct 2026 00:57:16 +0000
+Timezone: NZST
+Timezone Offset: +12:00
+Summer time zone: NZDT
+Summer time starts: Last Sunday in September at 02:00:00
+Summer time ends: First Sunday in April at 02:00:00
+Summer time offset: 60 mins
+Summer time recurring: Yes
+
+## 46421-u1c.out -- DUT: restore (no speed), final status/LLDP/log, HEALTH AFTER THE LAST STEP, running-config, show boot
+13:58:07 >>> show clock
+UTC Time:   Wed, 21 Oct 2026 00:58:05 +0000
+Timezone: UTC
+Timezone Offset: +00:00
+Summer time zone: None
+13:58:09 >>> configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+13:58:10 >>> interface port1.0.1
+13:58:11 >>> no speed
+13:58:11 >>> @poll 40 a-full\s+a-1000 do show interface port1.0.1 status
+@poll MATCHED after 4.5 s (3 reads) of 'do show interface port1.0.1 status'
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  connected       trunk a-full a-1000  1000BASE-T
+13:58:16 >>> end
+13:58:16 >>> @sleep 5
+13:58:23 >>> show interface port1.0.1 status
+Port        Name               Status      Vlan      Duplex Speed   Type        
+--------------------------------------------------------------------------------
+port1.0.1   -                  connected       trunk a-full a-1000  1000BASE-T
+13:58:24 >>> show lldp neighbors
+LLDP Neighbor Information:
+
+Total number of neighbors on these ports .... 1
+
+ System Capability Codes:
+   O = Other   P = Repeater   B = Bridge               W = WLAN Access Point
+   R = Router  T = Telephone  C = DOCSIS Cable Device  S = Station Only
+ LLDP-MED Device Type and Power Source Codes:
+   1 = Class I   3 = Class III    PSE  = PoE    Both = PoE&Local  Prim = Primary
+   2 = Class II  N = Network Con. Locl = Local  Unkn = Unknown    Back = Backup
+
+Local    Neighbor        Neighbor        Neighbor                System   MED   
+Port     Chassis ID      Port ID         Sys Name                Cap.     Ty Pwr
+--------------------------------------------------------------------------------
+1.0.1    0000.cd40.0394  port1.0.2
+13:58:30 >>> show log | include port1.0.1
+7[r[999;999H[6n2026 Oct 20 20:32:51 user.crit x230-28GSv2 ATMF[736]: ATMF link (port1.0.1): Remote ATMF node sent packet with incompatible flag set
+2026 Oct 21 00:19:25 user.notice x230-28GSv2 IMISH[6347]: [manager@ttyS0]show interface brief | include port1.0.1 
+2026 Oct 21 00:51:57 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:03 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include port1.0.1
+2026 Oct 21 00:52:07 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]interface port1.0.1
+2026 Oct 21 00:52:08 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:52:08 user.notice x230-28GSv2 NSM[592]: port1.0.1 user shutdown
+2026 Oct 21 00:52:09 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:09 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:10 user.notice x230-28GSv2 NSM[592]: port1.0.1 user no shutdown
+2026 Oct 21 00:52:11 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:11 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:13 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:13 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:13 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:52:15 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:15 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:16 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:52:16 user.notice x230-28GSv2 NSM[592]: port1.0.1 user shutdown
+2026 Oct 21 00:52:17 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:17 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:18 user.notice x230-28GSv2 NSM[592]: port1.0.1 user no shutdown
+2026 Oct 21 00:52:19 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:19 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:21 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:21 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:21 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:52:23 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:23 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:24 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:52:24 user.notice x230-28GSv2 NSM[592]: port1.0.1 user shutdown
+2026 Oct 21 00:52:25 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:25 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:26 user.notice x230-28GSv2 NSM[592]: port1.0.1 user no shutdown
+2026 Oct 21 00:52:27 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:27 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:29 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:29 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:29 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:52:31 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:31 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:32 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:52:33 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:33 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:35 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:35 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:35 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:52:36 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:36 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:37 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:52:37 user.notice x230-28GSv2 NSM[592]: port1.0.1 user shutdown
+2026 Oct 21 00:52:39 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:39 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:40 user.notice x230-28GSv2 NSM[592]: port1.0.1 user no shutdown
+2026 Oct 21 00:52:41 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:41 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:42 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:52:42 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:42 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:44 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:52:44 user.notice x230-28GSv2 NSM[592]: port1.0.1 user shutdown
+2026 Oct 21 00:52:45 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:45 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:46 user.notice x230-28GSv2 NSM[592]: port1.0.1 user no shutdown
+2026 Oct 21 00:52:47 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:47 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:48 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:52:49 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:49 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:50 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:52:50 user.notice x230-28GSv2 NSM[592]: port1.0.1 user shutdown
+2026 Oct 21 00:52:51 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:51 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:52 user.notice x230-28GSv2 NSM[592]: port1.0.1 user no shutdown
+2026 Oct 21 00:52:53 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:53 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:55 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:52:55 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:55 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:56 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:52:57 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:57 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:52:59 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:52:59 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:52:59 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:00 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:53:00 user.notice x230-28GSv2 NSM[592]: port1.0.1 user shutdown
+2026 Oct 21 00:53:01 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:02 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:03 user.notice x230-28GSv2 NSM[592]: port1.0.1 user no shutdown
+2026 Oct 21 00:53:04 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:04 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:05 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:53:05 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:05 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:07 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:53:07 user.notice x230-28GSv2 NSM[592]: port1.0.1 user shutdown
+2026 Oct 21 00:53:08 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:08 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:09 user.notice x230-28GSv2 NSM[592]: port1.0.1 user no shutdown
+2026 Oct 21 00:53:10 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:10 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:11 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:53:12 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:12 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:13 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:53:13 user.notice x230-28GSv2 NSM[592]: port1.0.1 user shutdown
+2026 Oct 21 00:53:14 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:14 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:15 user.notice x230-28GSv2 NSM[592]: port1.0.1 user no shutdown
+2026 Oct 21 00:53:16 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:16 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:18 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:53:18 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:18 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:19 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:53:20 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:20 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:22 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:22 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:22 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:53:24 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:24 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:31 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include port1.0.1
+2026 Oct 21 00:53:36 user.notice x230-28GSv2 ATMF[736]: Sec_Audit - Possible DOS attack, link resets on port1.0.1 exceed limit by 4
+2026 Oct 21 00:53:56 user.notice x230-28GSv2 ATMF[736]: Interface port1.0.1 link partner has no valid ATMF response.
+2026 Oct 21 00:54:14 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:54:19 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:54:21 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:54:26 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:54:27 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:54:32 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:55:06 user.notice x230-28GSv2 ATMF[736]: Interface port1.0.1 link partner has no valid ATMF response.
+2026 Oct 21 00:55:13 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]interface port1.0.1
+2026 Oct 21 00:55:14 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:55:15 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:55:15 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:55:16 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:55:17 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:55:17 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:55:43 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:55:48 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:55:49 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:55:54 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:55:56 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:56:00 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:56:26 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]interface port1.0.1
+2026 Oct 21 00:56:27 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:56:28 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:56:28 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:56:30 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:56:30 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:56:30 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:56:57 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:57:01 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:57:03 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:57:07 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:57:09 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:57:14 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:57:48 user.notice x230-28GSv2 ATMF[736]: Interface port1.0.1 link partner has no valid ATMF response.
+2026 Oct 21 00:58:08 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]interface port1.0.1
+2026 Oct 21 00:58:09 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:58:10 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:58:10 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:58:12 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:58:12 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:58:12 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:58:13 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:58:13 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:58:26 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include port1.0.1
+13:58:31 >>> show reboot history
+<date> <time> <type> <description>
+-------------------------------------------------------------------------
+2026-10-19 22:30:23 Unexpected System reboot
+2026-10-20 08:05:54 Unexpected System reboot
+2026-10-20 07:26:02 Unexpected System reboot
+2026-10-15 15:02:41 Unexpected System reboot
+2026-10-12 15:59:33 Unexpected System reboot
+2026-10-12 14:14:14 Expected   CLI(user request)
+2026-10-09 20:26:34 Expected   CLI(user request)
+2026-10-09 20:12:22 Expected   CLI(user request)
+2026-10-09 18:32:58 Expected   CLI(user request)
+2026-10-09 18:26:12 Expected   CLI(user request)
+2026-10-09 18:21:44 Expected   CLI(user request)
+2026-10-09 18:12:48 Expected   CLI(user request)
+2026-10-09 05:06:04 Expected   CLI(user request)
+2026-10-08 16:08:27 Expected   CLI(user request)
+2026-10-08 09:59:24 Expected   CLI(user request)
+2026-10-08 09:53:16 Expected   CLI(user request)
+2026-10-08 09:03:26 Expected   Rebooted by burn-in test
+2026-10-08 09:00:40 Expected   Rebooted by burn-in test
+2026-10-08 08:57:52 Expected   Rebooted by burn-in test
+2026-10-06 23:19:59 Expected   Rebooted by burn-in test
+2026-10-08 08:52:21 Expected   Rebooted by burn-in test
+2026-10-08 08:49:35 Expected   Rebooted by burn-in test
+2026-10-08 08:25:54 Expected   Rebooted by burn-in test
+2026-10-08 08:23:07 Expected   Rebooted by burn-in test
+2026-10-08 08:20:22 Expected   Rebooted by burn-in test
+2026-10-08 08:17:35 Expected   Rebooted by burn-in test
+2026-10-08 08:14:49 Expected   Rebooted by burn-in test
+2026-10-08 07:51:12 Expected   Rebooted by burn-in test
+2026-10-08 07:48:28 Expected   Rebooted by burn-in test
+2026-10-08 07:45:42 Expected   Rebooted by burn-in test
+2026-10-08 07:42:57 Expected   Rebooted by burn-in test
+2026-10-08 07:40:14 Expected   Rebooted by burn-in test
+-------------------------------------------------------------------------
+13:58:32 >>> show exception log
+<date> <time> <facility>.<severity> <program[<pid>]>: <message>
+-------------------------------------------------------------------------
+None
+-------------------------------------------------------------------------
+13:58:36 >>> show log | include kernel|exception|crash|restart|Unexpected
+7[r[999;999H[6n2026 Oct 20 20:35:18 user.notice x230-28GSv2 IMISH[27344]: [manager@ttyS0]show exception log
+2026 Oct 20 23:18:14 user.notice x230-28GSv2 IMISH[3300]: [manager@ttyS0]show exception log
+2026 Oct 21 00:46:52 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show exception log
+2026 Oct 21 00:46:56 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+2026 Oct 21 00:47:13 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show exception log
+2026 Oct 21 00:47:17 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+2026 Oct 21 00:47:32 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show exception log
+2026 Oct 21 00:47:36 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+2026 Oct 21 00:47:52 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show exception log
+2026 Oct 21 00:47:56 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+2026 Oct 21 00:51:41 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show exception log
+2026 Oct 21 00:51:45 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+2026 Oct 21 00:58:30 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show exception log
+2026 Oct 21 00:58:34 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+13:58:42 >>> show log tail 150
+7[r[999;999H[6n
+<date> <time> <facility>.<severity> <program[<pid>]>: <message>
+-------------------------------------------------------------------------
+2026 Oct 21 00:53:13 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:53:14 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:14 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:15 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]no shutdown
+2026 Oct 21 00:53:15 user.notice x230-28GSv2 NSM[592]: port1.0.1 user no shutdown
+2026 Oct 21 00:53:16 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:16 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:18 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:53:18 user.notice x230-28GSv2 NSM[592]: Port up notification received for vlan1 
+2026 Oct 21 00:53:18 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:53:18 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:18 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:19 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]no speed
+2026 Oct 21 00:53:19 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:53:19 user.notice x230-28GSv2 NSM[592]: Port down notification received for vlan1 
+2026 Oct 21 00:53:19 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:53:20 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:20 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:22 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:22 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:22 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:53:22 user.notice x230-28GSv2 NSM[592]: Port up notification received for vlan1 
+2026 Oct 21 00:53:22 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:53:24 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:53:24 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:53:27 user.notice x230-28GSv2 IMISH[307]: Last message '[manager@ttyS0]show ' repeated 1 times, suppressed by syslog-ng on x230-28GSv2
+2026 Oct 21 00:53:27 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show lldp neighbors
+2026 Oct 21 00:53:31 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include port1.0.1
+2026 Oct 21 00:53:34 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show clock
+2026 Oct 21 00:53:35 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]terminal no monitor
+2026 Oct 21 00:53:36 user.notice x230-28GSv2 ATMF[736]: Sec_Audit - Possible DOS attack, link resets on port1.0.1 exceed limit by 4
+2026 Oct 21 00:53:56 user.notice x230-28GSv2 ATMF[736]: Interface port1.0.1 link partner has no valid ATMF response.
+2026 Oct 21 00:54:14 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:54:14 user.notice x230-28GSv2 NSM[592]: Port down notification received for vlan1 
+2026 Oct 21 00:54:14 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:54:19 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:54:19 user.notice x230-28GSv2 NSM[592]: Port up notification received for vlan1 
+2026 Oct 21 00:54:19 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:54:21 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:54:21 user.notice x230-28GSv2 NSM[592]: Port down notification received for vlan1 
+2026 Oct 21 00:54:21 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:54:26 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:54:26 user.notice x230-28GSv2 NSM[592]: Port up notification received for vlan1 
+2026 Oct 21 00:54:26 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:54:27 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:54:27 user.notice x230-28GSv2 NSM[592]: Port down notification received for vlan1 
+2026 Oct 21 00:54:27 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:54:32 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:54:32 user.notice x230-28GSv2 NSM[592]: Port up notification received for vlan1 
+2026 Oct 21 00:54:32 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:55:06 user.notice x230-28GSv2 ATMF[736]: Interface port1.0.1 link partner has no valid ATMF response.
+2026 Oct 21 00:55:07 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]terminal length 0
+2026 Oct 21 00:55:09 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]terminal no monitor
+2026 Oct 21 00:55:09 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show clock
+2026 Oct 21 00:55:10 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show lldp neighbors
+2026 Oct 21 00:55:11 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]configure terminal
+2026 Oct 21 00:55:13 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]interface port1.0.1
+2026 Oct 21 00:55:14 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]speed auto 100
+2026 Oct 21 00:55:14 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:55:14 user.notice x230-28GSv2 NSM[592]: Port down notification received for vlan1 
+2026 Oct 21 00:55:14 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:55:15 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:55:15 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:55:16 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:55:16 user.notice x230-28GSv2 NSM[592]: Port up notification received for vlan1 
+2026 Oct 21 00:55:16 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:55:17 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:55:17 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:55:19 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show lldp neighbors
+2026 Oct 21 00:55:21 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]terminal no monitor
+2026 Oct 21 00:55:43 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:55:43 user.notice x230-28GSv2 NSM[592]: Port down notification received for vlan1 
+2026 Oct 21 00:55:43 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:55:48 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:55:48 user.notice x230-28GSv2 NSM[592]: Port up notification received for vlan1 
+2026 Oct 21 00:55:48 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:55:49 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:55:49 user.notice x230-28GSv2 NSM[592]: Port down notification received for vlan1 
+2026 Oct 21 00:55:49 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:55:54 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:55:54 user.notice x230-28GSv2 NSM[592]: Port up notification received for vlan1 
+2026 Oct 21 00:55:54 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:55:56 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:55:56 user.notice x230-28GSv2 NSM[592]: Port down notification received for vlan1 
+2026 Oct 21 00:55:56 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:56:00 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:56:00 user.notice x230-28GSv2 NSM[592]: Port up notification received for vlan1 
+2026 Oct 21 00:56:00 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:56:21 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]terminal length 0
+2026 Oct 21 00:56:23 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]terminal no monitor
+2026 Oct 21 00:56:24 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show clock
+2026 Oct 21 00:56:25 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]configure terminal
+2026 Oct 21 00:56:26 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]interface port1.0.1
+2026 Oct 21 00:56:27 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]speed auto 10
+2026 Oct 21 00:56:27 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:56:27 user.notice x230-28GSv2 NSM[592]: Port down notification received for vlan1 
+2026 Oct 21 00:56:27 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:56:28 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:56:28 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:56:30 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:56:30 user.notice x230-28GSv2 NSM[592]: Port up notification received for vlan1 
+2026 Oct 21 00:56:30 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:56:30 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:56:30 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:56:32 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show lldp neighbors
+2026 Oct 21 00:56:34 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]terminal no monitor
+2026 Oct 21 00:56:57 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:56:57 user.notice x230-28GSv2 NSM[592]: Port down notification received for vlan1 
+2026 Oct 21 00:56:57 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:57:01 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:57:01 user.notice x230-28GSv2 NSM[592]: Port up notification received for vlan1 
+2026 Oct 21 00:57:01 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:57:03 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:57:03 user.notice x230-28GSv2 NSM[592]: Port down notification received for vlan1 
+2026 Oct 21 00:57:03 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:57:07 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:57:07 user.notice x230-28GSv2 NSM[592]: Port up notification received for vlan1 
+2026 Oct 21 00:57:07 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:57:09 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:57:09 user.notice x230-28GSv2 NSM[592]: Port down notification received for vlan1 
+2026 Oct 21 00:57:09 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:57:14 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:57:14 user.notice x230-28GSv2 NSM[592]: Port up notification received for vlan1 
+2026 Oct 21 00:57:14 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:57:48 user.notice x230-28GSv2 ATMF[736]: Interface port1.0.1 link partner has no valid ATMF response.
+2026 Oct 21 00:58:03 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]terminal length 0
+2026 Oct 21 00:58:05 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]terminal no monitor
+2026 Oct 21 00:58:05 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show clock
+2026 Oct 21 00:58:06 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]configure terminal
+2026 Oct 21 00:58:08 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]interface port1.0.1
+2026 Oct 21 00:58:09 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]no speed
+2026 Oct 21 00:58:09 user.notice x230-28GSv2 NSM[592]: Port down notification received for port1.0.1 
+2026 Oct 21 00:58:09 user.notice x230-28GSv2 NSM[592]: Port down notification received for vlan1 
+2026 Oct 21 00:58:09 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:58:10 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:58:10 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:58:12 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:58:12 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:58:12 user.notice x230-28GSv2 NSM[592]: Port up notification received for port1.0.1 
+2026 Oct 21 00:58:12 user.notice x230-28GSv2 NSM[592]: Port up notification received for vlan1 
+2026 Oct 21 00:58:12 kern.err x230-28GSv2 snmpd[1482]: snmpd: send_trap: Failure in sendto (Network is unreachable)
+2026 Oct 21 00:58:13 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]do show interface port1.0.1 status
+2026 Oct 21 00:58:13 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show interface port1.0.1 status
+2026 Oct 21 00:58:22 user.notice x230-28GSv2 IMISH[307]: Last message '[manager@ttyS0]show ' repeated 1 times, suppressed by syslog-ng on x230-28GSv2
+2026 Oct 21 00:58:22 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show lldp neighbors
+2026 Oct 21 00:58:26 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include port1.0.1
+2026 Oct 21 00:58:29 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show reboot history
+2026 Oct 21 00:58:30 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show exception log
+2026 Oct 21 00:58:34 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+2026 Oct 21 00:58:38 user.notice x230-28GSv2 IMISH[7792]: [manager@ttyS0]show log tail 150
+13:58:45 >>> show cpu
+CPU averages:
+ 1 second: 1%, 20 seconds: 1%, 60 seconds: 0%
+System load averages:
+ 1 minute: 2.17, 5 minutes: 2.02, 15 minutes: 1.93
+Current CPU load:
+ userspace: 0%, kernel: 1%, interrupts: 0% iowaits: 0%
+
+user processes
+==============
+  pid name            thrds  cpu%   pri     state   runtime
+  486 hostd              10   1.9    20       run      7500
+  268 appmond             2   0.9    20     sleep     10293
+30940 tail                1   0.0    20     sleep        41
+ 8949 imish               1   0.0    20     sleep         0
+ 7792 imish               4   0.0    20     sleep       229
+ 7439 login               1   0.0    20     sleep         6
+ 2289 logwatch            1   0.0    20     sleep        40
+ 2131 imish               3   0.0    20     sleep        69
+ 1823 nginx               1   0.0    20     sleep         0
+ 1822 nginx               1   0.0    20     sleep         0
+ 1820 nginx               1   0.0    20     sleep         0
+ 1743 console_log_ale     1   0.0    20     sleep        42
+ 1610 shellinaboxd        1   0.0    20     sleep         0
+ 1601 testd               2   0.0    20     sleep        16
+ 1600 shellinaboxd        1   0.0    20     sleep        10
+ 1599 apteryx-rest        5   0.0    20     sleep       153
+ 1597 cmsg-proxy-fcgi     7   0.0    20     sleep       234
+ 1482 snmpd               4   0.0    20     sleep      2119
+ 1046 sshd                1   0.0    20     sleep        18
+  950 tpm2-abrmd          7   0.0    20     sleep       128
+  879 corosync            6   0.0  -100     sleep      9204
+  877 dbus-daemon         1   0.0    20     sleep        49
+  805 poehw               4   0.0    20     sleep      1639
+  798 tpm_server          3   0.0    20     sleep       439
+  776 udldd               2   0.0    20     sleep       425
+  773 sflowd              5   0.0    20     sleep      1388
+  772 rmond               5   0.0    20     sleep       551
+  771 mstpd               5   0.0    20     sleep       453
+  770 loopprotd           5   0.0    20     sleep       490
+  769 lldpd               7   0.0    20     sleep      3814
+  768 lacpd               5   0.0    20     sleep      1269
+  767 irdpd               3   0.0    20     sleep       193
+  766 imiproxyd           2   0.0    20     sleep       171
+  765 authd               9   0.0    20     sleep      2259
+  736 atmfd              10   0.0    20     sleep      3452
+  621 stackd              5   0.0    20     sleep       236
+  619 exfx               40   0.0    20     sleep     24135
+  612 platform_eventd     3   0.0    20     sleep         4
+  596 atmffsd             7   0.0    20     sleep        98
+  594 atmf_agentd         3   0.0    20     sleep       203
+  593 amfappsd            7   0.0    20     sleep       243
+  592 nsm                12   0.0    20     sleep      5178
+  590 linkmond           11   0.0    20     sleep      4481
+  589 licd                5   0.0    20     sleep        42
+  588 hsl                 9   0.0    20     sleep      5907
+  587 imi                 6   0.0    20     sleep      1250
+  586 eventwatch         10   0.0    20     sleep       219
+  520 delaybuffer         1   0.0    20     sleep        48
+  519 mnt-monitor.sh      1   0.0    20     sleep         0
+  518 inotifywait         1   0.0    20     sleep        28
+  487 mnt-monitor.sh      1   0.0    20     sleep         8
+  485 filesysd            8   0.0    20     sleep       190
+  483 cmlplatformd        7   0.0    20     sleep      1861
+  437 fibermond           6   0.0    20     sleep        46
+  402 plugman             8   0.0    20     sleep      1680
+  399 platformd           9   0.0    20     sleep      2334
+  354 alfred              7   0.0    20     sleep       546
+  341 stashd              3   0.0    20     sleep       170
+  340 snmp-discovery      5   0.0    20     sleep        55
+  338 procmond            4   0.0    20     sleep        19
+  337 kermond             8   0.0    20     sleep        94
+  334 apteryx-sync        6   0.0    20     sleep       183
+  331 apteryxd           49   0.0    20     sleep      1052
+  327 rpcbind             1   0.0    20     sleep        11
+  307 syslog-ng           2   0.0    20     sleep      1045
+  303 ulogd               1   0.0  -100     sleep        69
+  296 crond               1   0.0    20     sleep        89
+  291 earlyoom            1   0.0     0     sleep      8308
+  286 pam_radius_acct     1   0.0    20     sleep        65
+  283 inetd               1   0.0    20     sleep        22
+  281 execd               3   0.0    20     sleep       220
+  279 cmsg_sld            3   0.0    20     sleep       408
+  278 cmsg_psd            4   0.0    20     sleep       251
+   94 systemd-udevd       1   0.0    20     sleep       265
+   89 systemd-journal     1   0.0    20     sleep       524
+    1 systemd             1   0.0    20     sleep      3281
+
+kernel threads
+==============
+  pid name             cpu%   pri     state   runtime
+ 8306 kworker/0:0-ifdown_   0.0    20      idle         0
+ 6847 kworker/u4:0-events   0.0    20      idle         7
+ 4701 kworker/u4:3-edac-p   0.0    20      idle        13
+ 4257 kworker/u4:1-edac-p   0.0    20      idle        75
+  267 kworker/R-ifdown_nb   0.0     0      idle         0
+  261 kworker/R-ext4-rsv-   0.0     0      idle         0
+  176 ubifs_bgt0_0      0.0    20     sleep         0
+  173 ubi_bgt0d         0.0    20     sleep         0
+  171 irq/48-0-0027     0.0   -51     sleep         0
+  170 irq/48-0-0026     0.0   -51     sleep         0
+  169 irq/48-0-0024     0.0   -51     sleep         0
+  168 irq/48-0-0023     0.0   -51     sleep         0
+  167 irq/48-0-0022     0.0   -51     sleep         0
+  166 irq/48-0-0021     0.0   -51     sleep         0
+  165 irq/48-0-0020     0.0   -51     sleep         0
+   45 spi1              0.0    20     sleep         1
+   43 kworker/0:3-events_   0.0    20      idle       696
+   42 kworker/R-ipv6_addr   0.0     0      idle         0
+   41 kworker/R-ifdown_nb   0.0     0      idle         0
+   40 kworker/R-mld     0.0     0      idle         0
+   38 irq/46-0-0025     0.0   -51     sleep         0
+   37 spi0              0.0    20     sleep       195
+   35 kworker/0:1H-kblock   0.0     0      idle         2
+   34 kworker/R-nfsiod   0.0     0      idle         0
+   32 kswapd0           0.0    20     sleep         0
+   31 kworker/R-xprtiod   0.0     0      idle         0
+   30 kworker/R-rpciod   0.0     0      idle         0
+   29 watchdogd         0.0   -51     sleep         0
+   28 kworker/R-edac-poll   0.0     0      idle         0
+   27 kworker/R-kblockd   0.0     0      idle         0
+   26 kcompactd0        0.0    20     sleep       325
+   25 kworker/R-writeback   0.0     0      idle         0
+   24 oom_reaper        0.0    20     sleep         0
+   23 kworker/R-inet_frag   0.0     0      idle         0
+   22 kdevtmpfs         0.0    20     sleep         1
+   21 cpuhp/0           0.0    20     sleep         0
+   20 migration/0       0.0  -100     sleep         0
+   19 rcu_exp_gp_kthread_   0.0    20     sleep         0
+   18 rcu_exp_par_gp_kthr   0.0    20     sleep         0
+   17 rcu_preempt       0.0    20      idle       930
+   16 ksoftirqd/0       0.0    20     sleep       311
+   15 rcu_tasks_trace_kth   0.0    20      idle         0
+   14 rcu_tasks_kthread   0.0    20      idle         0
+   13 kworker/R-mm_percpu   0.0     0      idle         0
+   10 kworker/0:0H-events   0.0     0      idle         0
+    8 kworker/R-netns   0.0     0      idle         0
+    7 kworker/R-slub_flus   0.0     0      idle         0
+    6 kworker/R-sync_wq   0.0     0      idle         0
+    5 kworker/R-rcu_gp   0.0     0      idle         0
+    4 kworker/R-kvfree_rc   0.0     0      idle         0
+    3 pool_workqueue_rele   0.0    20     sleep         0
+    2 kthreadd          0.0    20     sleep         0
+13:58:48 >>> show memory
+RAM total: 506920 kB; free: 312160 kB; buffers: 60 kB
+
+user processes
+==============
+  pid name             mem%  size(kB)  peak(kB)  data(kB)   stk(kB)  virt(kB)
+  619 exfx              5.6     28420         0    336568       132    435112
+  587 imi               3.4     17640         0    307240       132    324168
+  592 nsm               3.0     15520         0    364332       132    381520
+ 7792 imish             2.6     13604         0    298384       132    314156
+ 2131 imish             2.5     12688         0    289512       132    305276
+  765 authd             2.3     11744         0    329404       132    345312
+    1 systemd           2.2     11528         0      1856       132     15012
+  773 sflowd            2.0     10424         0     34184       132     48528
+  772 rmond             2.0     10228         0     34156       132     48164
+  769 lldpd             2.0     10552         0     50780       132     64580
+ 1482 snmpd             1.9     10024         0     27232       328     40636
+  771 mstpd             1.9     10004         0     34264       132     47916
+  770 loopprotd         1.9      9916         0     34172       132     47680
+  776 udldd             1.8      9304         0      9372       132     21876
+  768 lacpd             1.8      9568         0     34136       132     47632
+  767 irdpd             1.8      9392         0     25876       132     39244
+  588 hsl               1.8      9372         0    329072       132    344168
+ 1601 testd             1.7      9056         0      9232       132     21672
+  736 atmfd             1.7      8996         0    345332       132    358068
+  593 amfappsd          1.7      8752         0    312360       132    324448
+ 1597 cmsg-proxy-fcgi   1.6      8588         0     50920       132     64004
+  590 linkmond          1.6      8312         0     82920       132     94796
+  586 eventwatch        1.6      8212         0     75780       132     89068
+  354 alfred            1.6      8300         0     61732       132     68912
+  340 snmp-discovery    1.6      8224         0     34672       132     47996
+  307 syslog-ng         1.6      8364         0     17816       132     28344
+  589 licd              1.5      7916         0     33656       132     44932
+  486 hostd             1.5      7808         0     74704       132     86184
+  766 imiproxyd         1.4      7328         0      9108       132     21860
+   89 systemd-journal   1.4      7116         0      8744       132     21484
+ 1599 apteryx-rest      1.2      6256         0     35780       132     42948
+  621 stackd            1.2      6544         0     33920       132     45684
+   94 systemd-udevd     1.2      6440         0       540       132     11668
+ 8950 imish             1.1      5776         0    298384       132    314156
+ 1046 sshd              1.1      5684         0       440       132      7452
+  950 tpm2-abrmd        1.1      5596         0     66064       132     74440
+  596 atmffsd           1.1      5948         0    312088       132    324076
+  399 platformd         1.1      5700         0     82600       132     94408
+  594 atmf_agentd       1.0      5172         0     17160       132     28220
+  485 filesysd          1.0      5200         0     58084       132     68904
+  483 cmlplatformd      1.0      5172         0     49900       132     60636
+  402 plugman           1.0      5364         0     58016       132     69664
+  805 poehw             0.9      5036         0     33480       132     44164
+  612 platform_eventd   0.9      4724         0     25260       132     35756
+  437 fibermond         0.9      4584         0     41604       132     51876
+  879 corosync          0.8      4068         0     10548       132     15844
+  331 apteryxd          0.8      4140         0    427336       132    438012
+  279 cmsg_sld          0.8      4224         0     17068       132     27144
+  268 appmond           0.8      4440         0      8752       132     18348
+ 1823 nginx             0.7      3764         0      1116       132      7956
+ 1822 nginx             0.7      3764         0      1116       132      7956
+  341 stashd            0.7      3972         0     16836       132     25876
+  337 kermond           0.7      3956         0     66036       132     72928
+  281 execd             0.7      3884         0     16840       132     25892
+  278 cmsg_psd          0.7      3868         0     25128       132     34948
+ 2289 logwatch          0.6      3468         0       300       132      8376
+  877 dbus-daemon       0.6      3188         0       340       132      5484
+ 1820 nginx             0.5      2760         0       868       132      7708
+  798 tpm_server        0.5      2740         0     18684       132     23588
+  338 procmond          0.5      2772         0     25048       132     31296
+  334 apteryx-sync      0.5      2928         0     41444       132     48500
+ 7439 login             0.4      2040         0       288       132      2476
+  283 inetd             0.4      2036         0       180       132      3024
+30940 tail              0.3      1580         0       180       132      3024
+ 1743 console_log_ale   0.3      1988         0       180       132      3024
+ 1600 shellinaboxd      0.3      1844         0       172       132      2336
+  520 delaybuffer       0.3      1656         0       180       132      3024
+  519 mnt-monitor.sh    0.3      1688         0       180       132      3024
+  487 mnt-monitor.sh    0.3      1908         0       180       132      3024
+  303 ulogd             0.3      1748         0       664       132      2576
+  296 crond             0.3      1916         0       180       132      3024
+  286 pam_radius_acct   0.3      1976         0       204       132      3832
+ 1610 shellinaboxd      0.2      1336         0       172       132      2336
+  518 inotifywait       0.2      1452         0       328       132      2172
+  327 rpcbind           0.2      1444         0       176       132      2108
+  291 earlyoom          0.2      1520         0       172       132      1992
+13:58:49 >>> show running-config
+!
+hostname x230-28GSv2
+!
+no banner motd
+!
+username manager privilege 15 password 8 $5$bJoGTc4D$rJWi6S..L0u7FYo4iPIgN0/q2xB77rJgCtgwoZhloyC
+!
+!
+no service ssh
+!
+no service telnet
+!
+service http
+!
+no clock timezone
+!
+snmp-server
+snmp-server community netman 
+snmp-server host 10.37.108.166 version 2c netman
+!
+!
+service test
+!
+!
+aaa authentication enable default local
+aaa authentication login default local
+!
+security-password minimum-length 8
+security-password history 1
+!
+!
+atmf network-name Enterprise-AMF
+atmf management vlan 3500
+atmf domain vlan 1234
+atmf group network-A
+!
+!
+!
+!
+!
+!
+!
+ip domain-lookup
+!
+!
+lldp run
+!
+spanning-tree mode rstp
+!
+no lacp global-passive-mode enable
+no spanning-tree rstp enable
+!
+vlan database
+ vlan 15,103-105,108,1000 state enable
+!
+interface port1.0.1
+ switchport
+ switchport mode trunk
+ snmp trap link-status
+ rmon collection history 1 buckets 13 interval 300 owner RMON_SNMP
+ rmon collection history 2 buckets 20 interval 30 owner VISTA
+ switchport atmf-link
+!
+interface port1.0.2
+ switchport
+ switchport mode access
+ switchport access vlan 1000
+!
+interface port1.0.3
+ switchport
+ switchport mode access
+ switchport access vlan 103
+!
+interface port1.0.4
+ switchport
+ switchport mode access
+ switchport access vlan 104
+!
+interface port1.0.5
+ switchport
+ switchport mode access
+ switchport access vlan 105
+!
+interface port1.0.6
+ switchport
+ switchport mode access
+!
+interface port1.0.7
+ switchport
+ switchport mode access
+ shutdown
+!
+interface port1.0.8
+ switchport
+ switchport mode access
+ switchport access vlan 108
+!
+interface port1.0.9-1.0.28
+ switchport
+ switchport mode access
+!
+interface vlan1
+ ip address 192.168.1.1/24
+!
+interface vlan15
+ ip address 192.168.15.1/24
+!
+interface vlan1000
+ ip address 10.37.108.4/26
+!
+ip route 0.0.0.0/0 10.37.108.1
+!
+line con 0
+line vty 0 7
+!
+end
+13:58:50 >>> show boot
+Boot configuration
+--------------------------------------------------------------------------------
+Current software   : x230v2_28GS-awplus_main-20261019-75.rel 
+Current boot image : flash:/x230v2_28GS-awplus_main-20261019-75.rel (file exists)
+Backup  boot image : Not set 
+Default boot config: flash:/default.cfg
+Current boot config: flash:/tb470-bench.cfg (file exists)
+Backup  boot config: Not set 
+Autoboot status    : disabled
+Boot Security Level: none
+13:58:51 >>> show clock
+UTC Time:   Wed, 21 Oct 2026 00:58:49 +0000
+Timezone: UTC
+Timezone Offset: +00:00
+Summer time zone: None
+
+## 46421-u0c.out -- 4050: running-config, show boot, reboot history, exception log (teardown proof)
+13:58:58 >>> show clock
+Local Time: Wed, 21 Oct 2026 13:58:43 +1300
+UTC Time:   Wed, 21 Oct 2026 00:58:43 +0000
+Timezone: NZST
+Timezone Offset: +12:00
+Summer time zone: NZDT
+Summer time starts: Last Sunday in September at 02:00:00
+Summer time ends: First Sunday in April at 02:00:00
+Summer time offset: 60 mins
+Summer time recurring: Yes
+13:59:00 >>> show running-config
+!
+hostname 4050-5g
+!
+no banner motd
+!
+username manager privilege 15 password 8 $5$bJoCed4D$0k5iY2R7oWt5M9V7HDeAEk9ELXYUHEHUTBIAEyBvWk5
+!
+!
+ssh server allow-users manager
+service ssh
+!
+no service telnet
+!
+service http
+!
+clock timezone NZST plus 12:00
+clock summer-time NZDT recurring 5 Sun Sep 02:00 1 Sun Apr 02:00 60
+!
+snmp-server
+!
+!
+!
+aaa authentication enable default local
+aaa authentication login default local
+!
+security-password minimum-length 8
+security-password history 1
+!
+!
+!
+!
+no service url-offload
+!
+ntp server 10.38.215.65
+!
+!
+!
+!
+ip domain-lookup
+!
+!
+!
+no service dhcp-server
+!
+no ip multicast-routing
+!
+lldp run
+!
+spanning-tree mode rstp
+!
+no lacp global-passive-mode enable
+no spanning-tree rstp enable
+!
+router-id 10.10.10.2
+!
+vlan database
+ vlan 10 name transit
+ vlan 22 name flap-deadend
+ vlan 10,22,108 state enable
+!
+interface port1.0.1
+ switchport
+ switchport mode access
+!
+interface port1.0.2
+ switchport
+ switchport mode access
+ switchport access vlan 10
+!
+interface port1.0.3-1.0.4
+ switchport
+ switchport mode access
+ switchport access vlan 10
+ static-channel-group 1
+!
+interface port1.0.5
+ switchport
+ switchport mode access
+ switchport access vlan 108
+!
+interface port1.0.6-1.0.8
+ switchport
+ switchport mode access
+!
+interface lo
+ ipv6 address 2001:db8:427::1/64
+ ipv6 enable
+!
+interface sa1
+ switchport
+ switchport mode access
+ switchport access vlan 10
+!
+interface vlan1
+ ip address 10.38.215.70/27
+ ipv6 enable
+ ipv6 address dhcp
+ ip dhcp-client vendor-identifying-class
+ ip dhcp-client request vendor-identifying-specific
+!
+interface vlan10
+ ip address 10.10.10.2/27
+!
+ip route 10.38.215.0/27 10.10.10.1
+ip route 10.38.215.32/27 10.10.10.1
+!
+line con 0
+ exec-timeout 0 0
+line vty 0 7
+!
+end
+13:59:01 >>> show boot
+Boot configuration
+--------------------------------------------------------------------------------
+Current software   : AR4050S-awplus_main-20261008-57.rel 
+Current boot image : flash:/AR4050S-awplus_main-20261008-57.rel (file exists)
+Backup  boot image : Not set 
+Default boot config: flash:/default.cfg
+Current boot config: flash:/tb470-bench.cfg (file exists)
+Backup  boot config: Not set 
+Autoboot status    : disabled
+Boot Security Level: none
+13:59:02 >>> show reboot history
+<date> <time> <type> <description>
+-------------------------------------------------------------------------
+2026-10-15 15:01:55 Unexpected System reboot
+2026-10-12 15:58:59 Unexpected System reboot
+2026-10-09 08:22:36 Expected   CLI(user request)
+2026-10-09 08:20:45 Expected   CLI(user request)
+2026-10-02 08:47:46 Unexpected System reboot
+2026-10-02 07:24:35 Unexpected System reboot
+2026-10-01 10:43:35 Unexpected System reboot
+2026-09-29 12:56:19 Unexpected System reboot
+2026-09-29 12:50:44 Unexpected System reboot
+2026-09-29 12:45:05 Unexpected System reboot
+2026-09-29 12:40:19 Unexpected System reboot
+2026-09-29 12:34:31 Unexpected System reboot
+2026-09-29 08:58:30 Unexpected System reboot
+2026-09-29 08:53:32 Unexpected System reboot
+2026-09-24 22:38:48 Expected   CLI(user request)
+2026-09-25 10:23:15 Expected   CLI(user request)
+2026-09-25 09:19:20 Expected   CLI(user request)
+2026-09-18 13:01:21 Unexpected System reboot
+2026-08-11 01:19:52 Expected   CLI(user request)
+2026-06-15 19:43:17 Expected   CLI(user request)
+2026-06-15 01:28:12 Expected   CLI(user request)
+-------------------------------------------------------------------------
+13:59:03 >>> show exception log
+<date> <time> <facility>.<severity> <program[<pid>]>: <message>
+-------------------------------------------------------------------------
+None
+-------------------------------------------------------------------------
+13:59:04 >>> show clock
+Local Time: Wed, 21 Oct 2026 13:58:49 +1300
+UTC Time:   Wed, 21 Oct 2026 00:58:49 +0000
+Timezone: NZST
+Timezone Offset: +12:00
+Summer time zone: NZDT
+Summer time starts: Last Sunday in September at 02:00:00
+Summer time ends: First Sunday in April at 02:00:00
+Summer time offset: 60 mins
+Summer time recurring: Yes
+
+## HEALTH summary (DUT)
+before (13:50:xx, in 46421-u1a.out): reboot history newest 2026-10-19 22:30:23 UTC (no new entry; list as the device prints it), exception log None,
+  filtered log = the 10-19 22:30 boot kernel lines + boot-time HTTP restart + IMISH echoes; CPU busy 1 second: 1%, 20 seconds: 0%, 60 seconds: 0%; RAM total: 506920 kB; free: 312736 kB; buffers: 60 kB
+after  (13:58:3x, in 46421-u1c.out): reboot history identical, exception log None, filtered log unchanged apart from IMISH echoes (no kernel,
+  crash or restart line during the case); CPU busy 1 second: 1%, 20 seconds: 1%, 60 seconds: 0%; RAM total: 506920 kB; free: 312160 kB; buffers: 60 kB
+4050 (46421-u0c.out): reboot history newest 2026-10-15 15:01:55 (no new entry), exception log None.
+
+## Teardown proof
+tools/rcdiff.py ro-u1.out 46421-u1c.out (DUT, pre-run baseline vs after restore): no difference
+tools/rcdiff.py base-u0.out 46421-u0c.out (4050): no difference.
+show boot both units: Current boot config: flash:/tb470-bench.cfg (file exists). No write. Both consoles left at exec.
+
+## Files
+tb470/x230v2-28GS/platform-ports-2026-10-21T1323/46421/swi_f.cfg, tb470/x230v2-28GS/platform-ports-2026-10-21T1323/46421/swi_e.cfg, this log.
+
+Run label: clean.
+VERDICT: PASS -- 18 flaps (9 local on the x230, 9 remote from the AR4050S) at auto 1000/100/10: every one logged a Port down + Port up notification, the link returned to connected at the negotiated speed (a-full a-1000/a-100/a-10) within 2.8-4.5 s with the LLDP neighbour re-learned; both running-configs identical to the pre-run capture; health clean
