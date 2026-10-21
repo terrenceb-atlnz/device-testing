@@ -12,7 +12,7 @@ PDU: 10.36.150.14, u0=3, u1=4 (per tb470.static, applied by the Test Engineer 20
 Constraints: "Reloads allowed now" (office hours); sentinel stand-down "When the run ends"; host "Stay in VS Code"; the 4050 is the ATMF master; the parallel session on tb101 is out of scope.
 
 ## TL;DR
-- **Campaign 2026-10-21T0835 complete: T46810 ATMF Backup PASS (under an assumed reading), T28218 ATMF provisioning PASS.**
+- **Campaign 2026-10-21T0835 complete: T46810 ATMF Backup PASS (reading confirmed by the Test Engineer, 2026-10-21 afternoon), T28218 ATMF provisioning PASS.**
   Final logs CREATED (`04bc3ce` after the rebase; was `297190c`): [atmf-2026-10-21T0835/README.md](atmf-2026-10-21T0835/README.md). No `work/` remains.
 - **Bench is whole.** Wrap probe `2026-10-20T231844Z` (12:18 NZDT, u0/u1) **MATCH** against the template the Test Engineer
   applied at 08:3x (`backups/2026-10-20T192905Z.*`); no advisories. Both units at exec, logged out of nothing (consoles
@@ -60,7 +60,7 @@ tools/tb ckcon tb470 wrap1021 u1 115200 "show atmf" "show atmf links" "show boot
 ## Results (queue `## Results`) — final logs CREATED, commit 04bc3ce (was 297190c before the rebase)
 | case | verdict | run label | one line |
 | --- | --- | --- | --- |
-| T46810 ATMF Backup | PASS (tester; **Assumed** reading: ck.db has no steps) | clean | 4050 master backed up the x230 member to its USB in 32 s, status Good; the .rel (36,747,551 B), tb470-bench.cfg (1914 B) and default.cfg on usb: at flash sizes |
+| T46810 ATMF Backup | PASS (tester; reading **confirmed** by the Test Engineer 2026-10-21 afternoon: ck.db has no steps) | clean | 4050 master backed up the x230 member to its USB in 32 s, status Good; the .rel (36,747,551 B), tb470-bench.cfg (1914 B) and default.cfg on usb: at flash sizes |
 | T28218 ATMF provisioning | PASS (tester) | clean | all 5 steps on the 4050: `future_node` created on usb:, the x230's .rel + tb470-bench.cfg copied from its backup and set as boot system/config, `show atmf provision nodes` matches the expected block field for field (USB media, not a file server) |
 
 Both runs clean: no reload, no PDU cycle, no `write`, running-config diffs empty after the restore, no new reboot.
@@ -80,10 +80,10 @@ test that this bench cannot run; the functional reading used here is the sentine
 "the backup should be with the provisioned node".
 
 ## OPEN (Test Engineer)
-1. **T46810's definition.** The PASS stands on the assumed reading; the case has no steps in ck.db. Re-grade or define it.
+1. ~~**T46810's definition.**~~ CLOSED 2026-10-21 afternoon: the Test Engineer confirmed the functional reading (member backed up to the master's USB media); the PASS stands.
 2. **`usb:/atmf/Enterprise-AMF/`** on the 4050's stick: five empty housekeeping directories (info, logs, nodes, areas, guests)
    created at 09:25 by this run, left beside the pre-existing `usb:/atmf/tb470/` tree. Remove (`rmdir` set on the 4050) or keep.
-3. **Stale lock files** `LCK..u0` / `LCK..u1` on tb470 make every precheck read FOUND. `rm /run/lock/LCK..u0 /run/lock/LCK..u1` on tb470 (yours).
+3. ~~**Stale lock files**~~ CLOSED 2026-10-21 afternoon: removed on the Test Engineer's instruction (terrenceb-owned, PIDs dead); `tools/tb precheck tb470 0,1` reads CLEAR.
 4. **Option (c)**, the real provisioning of the x230 (`atmf cleanup` + recovery from `future_node`), was out of scope and not run.
    The recipe and its risks (no TFTP fallback: eth1/2/3 down) are in the queue's Triage section if it is ever wanted.
 5. **Git:** see below.
