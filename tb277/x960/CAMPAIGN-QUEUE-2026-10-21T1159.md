@@ -572,3 +572,133 @@ permission block cleared.
    against a platform that locks accounts.
 
 
+
+## 🔧 Group C bench setup and its EXACT restore recipe (written before group C's first case)
+
+Written 2026-10-21 14:5x NZDT by the group-C tester **before** any case changed device state,
+so a tester that dies mid-group leaves a recoverable bench (dispatch requirement). Run `.setup`
+bound by this group: `tb277/x960/lldp-2026-10-21T1159/tb277-u2u3u5.setup` — **swi_d, swi_b AND
+swi_a**, because both partners are the LLDP neighbours these cases measure against. swi_a is
+declared with **no `[powerlink]` and no `[power]` outlet**, deliberately: the framework's
+post-failure power cycle reaches every unit that has a powerlink (STANDING-ORDERS §6), and the
+session constraint forbids rebooting or power-cycling swi_a. With no powerlink the cycle returns
+a silent False for swi_a and the unit is never touched. (The box has **no** deployed
+`/home/st-art/configs/tb277.setup`; the run file is cut from the generated fence of
+`bench-setup/tb277/bench-state.md`, capture 2026-10-20T230259Z.)
+
+### 🔴 swi_a's console could not be opened — group C runs it as a PASSIVE partner
+
+The group-C opening probe (`--read-only`, 2026-10-21 14:46 NZDT) logged in on u2 and u3 and
+**failed on u5** with the correct per-console password: `login = "no prompt after login.
+tail=''"` — no `Login incorrect`, no prompt, silence. The sentinel reports swi_a's `manager`
+account reached 7 failed logins on 2026-10-20 and that every further failure re-arms the
+5-minute lock; this one attempt re-armed it. **u5 is not retried by this group.** It was left
+at `awplus login:` (checked with a bare-CR `peek`, which types no word).
+
+Consequences, all recorded in both case logs:
+- **swi_a is still a live LLDP partner** — it transmits LLDPDUs and swi_d holds its neighbour
+  entries on port1.0.4 and port1.0.14. Those are the **Alternate/Discarding** ports, so swi_a
+  is exactly the blocked-port contrast this group wants, and reading it needs no swi_a console.
+- **`swi_a.cfg` cannot be produced** for either case. That is stated in each working log with
+  this reason, rather than silently omitted.
+- swi_b (u3) is the fully-driven partner, on the one **Forwarding** inter-switch link
+  (swi_d port1.0.2 ↔ swi_b port1.0.2).
+
+Probe result otherwise: **zero MISMATCH rows.** Five NEEDS-CHECK rows, all `CONSOLE_DOWN` for
+swi_a, are consequences of that failed login and not bench movement. Exit 4 USER-CONFLICT, line
+verbatim: `- the session gives facts for /dev/u5 (outlet 3@10.36.230.35, name swi_a), but no
+device was read on /dev/u5 this run`. Nothing in `tb277.static` was edited.
+
+### What group C INHERITS and does not touch
+
+- **(a) The layer-3 underlay on swi_d**, saved to startup-config by group A: `vlan 10
+  ckUNDERLAY-eth3` / `vlan10 10.38.22.34/27` on access port `port1.0.10`, and `vlan 48
+  ckUNDERLAY-eth4` / `vlan48 10.38.22.66/27` on access port `port1.0.48`. Testbox side
+  `eth3 10.38.22.33/27`, `eth4 10.38.22.65/27`. **Group C never removes it.**
+- **(b) vlan 60, campaign infrastructure** — swi_d `10.38.22.97/27` and swi_b `10.38.22.98/27`,
+  tagged on `port1.0.2` with vlan 1 native. **Group C leaves it in place**; the Test Engineer
+  removes it at campaign end.
+- Both confirmed present in the 14:46 probe capture of swi_d's running-config.
+
+### 🔴 What group C does differently: it MAY `write`, and it DOES reload swi_d
+
+Test Engineer's decision of 2026-10-21 14:0x (Issues, below): testers `write` freely from group
+C onward, and vlan 60 landing in swi_d's startup-config is accepted — the Test Engineer removes
+it at campaign end. Group C therefore **measures reboot persistence properly**, which has been
+NOT MEASURED for three campaigns.
+
+- Every `write` and every `reload` in this group is on **swi_d only**. swi_b is never written
+  and never reloaded. swi_a is never touched at all.
+- After each persistence limb the tester restores swi_d's running-config to the pre-case
+  baseline and `write`s again, so startup-config ends holding the inherited underlay, vlan 60,
+  and the LLDP baseline as found — and nothing of the case's own.
+- **Recorded before the first write:** swi_d's startup-config (`flash:/default.cfg`) is read and
+  diffed against running-config, so the exact set of lines a `write` adds is known and stated,
+  not guessed. In particular `lldp run` is in swi_d's RUNNING config and may be residue of the
+  11:59 triage probe, which ran without `--read-only`; whether it is also in startup-config is
+  read and reported, never assumed.
+
+### What group C puts on the bench (all removed by the case that added it)
+
+**T44296 (LLDP), swi_d (u2) and swi_b (u3):**
+```
+! swi_d — global, per-interface and timer configuration, each applied, measured and removed:
+[no] lldp run
+interface port1.0.10 / port1.0.2
+ [no] lldp transmit | lldp receive | lldp notification
+lldp timer <s> | lldp holdtime-multiplier <n> | lldp notification-interval <s>
+lldp tx-delay <s> | lldp reinit <s>
+snmp-server host / snmp-server enable trap lldp      ! notification leg only, removed in-case
+! swi_b — only `[no] lldp transmit` on port1.0.2 for the ageing leg; removed in-case.
+```
+**T33398 (LLDP-MED), swi_d (u2) only:** a voice VLAN and an LLDP-MED network policy on
+`port1.0.10` (the testbox eth3 leg), plus `lldp med-tlv-select` selections, all removed in-case.
+
+### Restore recipe — run this if a group-C tester dies mid-case
+
+```
+! swi_d (u2), config mode — remove anything group C may have left
+interface port1.0.10
+ lldp transmit
+ lldp receive
+ no lldp notification
+ no switchport voice vlan
+ no switchport voice vlan priority
+interface port1.0.2
+ lldp transmit
+ lldp receive
+ no lldp notification
+no lldp timer
+no lldp holdtime-multiplier
+no lldp notification-interval
+no lldp tx-delay
+no lldp reinit
+no lldp med-tlv-select               ! only if a med-tlv-select line is present
+no snmp-server host 10.38.22.33
+no snmp-server enable trap lldp
+no snmp-server community cklldp
+lldp run                             ! the state found at 14:46; see the note above
+vlan database
+ no vlan 70                          ! the T33398 voice VLAN, if present
+! then at exec:  write      (startup-config must hold underlay + vlan 60 + the LLDP baseline)
+
+! swi_b (u3), config mode — the only line group C can leave there
+interface port1.0.2
+ lldp transmit
+! swi_b: never `write`. Its startup-config must stay exactly as found.
+```
+Then confirm on swi_d with `show running-config | include lldp`, `show lldp`,
+`show ip interface brief` (vlan10 `.34`, vlan48 `.66`, vlan60 `.97`, all `admin up / running`)
+and `show lldp neighbors` (4 neighbours: 1.0.2 and 1.0.16 → swi_b `0000.cd42.3029`, 1.0.4 and
+1.0.14 → swi_a `889d.98df.2602`).
+
+### Baseline group C must return to
+
+| unit | boot image | boot config | running-config |
+| --- | --- | --- | --- |
+| swi_d (u2) | `flash:/x960-tb277.rel` | `flash:/default.cfg`, Autoboot disabled | the capture taken before each case's step 1, diffed with `tools/rcdiff.py` after the last step |
+| swi_b (u3) | `flash:/backup.rel` | `flash:/default.cfg` | untouched except the transient ageing-leg line above |
+| swi_a (u5) | — | — | never opened; console login refused (above) |
+
+Startup-config on swi_d ends as: group A's underlay + vlan 60 + the LLDP baseline, and nothing
+of group C's own. The Test Engineer removes vlan 60 at campaign end.
