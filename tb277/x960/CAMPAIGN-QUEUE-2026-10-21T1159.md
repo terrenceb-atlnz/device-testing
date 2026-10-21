@@ -186,6 +186,8 @@ inherit it.** Reboot-persistence limbs are now measurable for the first time in 
 | T33380 | (231) Management - SSH Server (IPv4) | access-2026-10-21T1159 | PASS | the DUT serves SSH over IPv4, graded on the wire: 83-packet ESTABLISHED+DATA session for a real `manager` authentication against a 0-packet control; 2-packet REFUSED with `no service ssh ip` **while `show ssh server` still read Enabled**; same for the whole server off; the arc closed both times. **STEP 8 reboot persistence is NOT MEASURED, not skipped** — see Issues. Nothing was written to startup-config | T33380/work/run1.log | tester |
 | T33381 | (232) Management - SSH Client (IPv4) | access-2026-10-21T1159 | PASS | the DUT originates IPv4 SSH as a client, proven at the far end where ONE capture holds both the control (SYN to a dead port, answered RST) and the real session (the DUT sending `SSH-2.0-OpenSSH_10.5` from its own SVI, then key exchange); plus host-key verification, authentication, commands run on swi_b, the non-interactive LINE form and a server-off control | T33381/work/run1.log | tester |
 | T33387 | (238) EnhancedOperationManagement - Management Stacking | mgmt-2026-10-21T1159 | **UNSUPPORTED** | X960 TPS row 236 states the platform does not implement it (*"not necessary as these units support VCS"*), and the DUT agrees: `% Warning: Stacking is currently disabled`, one member ID 1 Ready Active Master, `Operational Status: Stacking hardware disabled`, VC ID 403, resiliency link Not configured, with a full VCS config surface offered instead. No device state was changed. **Deviation recorded**: the TPS Default Configuration section says *"Stacking is enabled by default"* while this DUT reads the hardware disabled | T33387/work/run1.log | tester |
+| T33386 | (237) EnhancedOperationManagement - Management ACL | mgmt-2026-10-21T1159 | PASS | both halves of TPS 6.1.1 proven in the dataplane, never from a `show`: a named hardware ACL gave the specified host 4/4 SYN-ACK while the non-specified host got 0 replies to 4 SYNs, with an ICMP control from that same denied host answered 4/4 in the SAME leg and the DUT's counters agreeing frame for frame (permit 8, deny 4); a standard ACL on an SNMP community failed exactly one cell of a 2x2 against a control; `ssh server 2222` moved the service on the wire and back. Reboot persistence NOT MEASURED | T33386/work/run1.log | tester |
+| T47192 | (243) Config_File - A dynamic configuration while operating (Change, Delete) | mgmt-2026-10-21T1159 | PASS | **all three operations TPS line 894 names — addition, change AND deletion, not just the title's two** — take effect dynamically, proven on two unrelated subsystems: a bound hardware filter took an add, an in-place edit that made two flows swap state in opposite directions, and a delete restoring the baseline frame-for-frame; vlan48's address took a change, a delete and an add with every ARP/ICMP signature inverting each time. **Nine operations, zero restarts** — uptime advanced by exactly the elapsed 6 m 14 s. Reboot persistence NOT MEASURED | T47192/work/run1.log | tester |
 | T33388 | (239) EnhancedOperationManagement - Hardware Watchdog | — | NOT TESTED | Dropped by the Test Engineer 2026-10-21. No user-facing watchdog CLI exists on this platform and **TPS 5.3.6 says so deliberately** (*"can be enabled or disabled by user command"* = No): no `show watchdog`, nothing in config mode. The only trigger available was deliberate crash injection via `start-shell`, which was not authorised | — | Test Engineer |
 | T33389 | (240) EnhancedOperationManagement - Software Watchdog | — | NOT TESTED | Dropped by the Test Engineer 2026-10-21, same reason as T33388 | — | Test Engineer |
 
@@ -430,6 +432,60 @@ above was never needed.
 
 
 ## Issues
+
+### ✅ DECISION (Test Engineer, 2026-10-21 14:0x) — testers MAY `write`; vlan 60 is removed by hand at the end
+
+Asked because reboot persistence was coming back NOT MEASURED in case after case (T33380,
+T33386, T47192), the Test Engineer chose **"Let them write; you remove vlan 60 at the end"**:
+
+> Testers `write` freely, so every persistence limb gets measured for the first time in three
+> campaigns. vlan 60 lands in swi_d's startup-config and the Test Engineer removes it at
+> campaign end, since VLAN deletion is permission-blocked for the tester.
+
+**This supersedes the sentinel's earlier "keep vlan 60 unsaved" direction.** It applies from
+group C onward. Groups A and B are already complete and their persistence limbs stay NOT
+MEASURED — the campaign-end run the queue proposes can still pick up T33380, T33386 and T47192.
+
+🔴 **Campaign-end action for the Test Engineer, do not lose this:** swi_d's startup-config will
+contain **vlan 60** (`10.38.22.97/27`, tagged on port1.0.2). Removing it needs
+`no interface vlan60` / `no vlan 60`, which the permission system refuses for the tester
+("Modify Shared Resources"), so it is the Test Engineer's own hands at wrap.
+
+### 🔥 FINDING (T33386) — a NUMBERED hardware ACL holds exactly ONE rule, silently
+
+Measured 2026-10-21. On this platform a numbered hardware ACL (3000–3699) keeps **one** rule:
+each `access-list <n> <rule>` **silently REPLACES** the previous one. No error, no warning, and
+**nothing in running-config shows a rule was discarded**. Three rules entered, one kept — the
+last. The **named** sub-mode keeps them all, in order; the A/B is in T33386's log.
+
+**Why this is a customer-facing hazard, not a curiosity.** Every management filter is
+permit-then-deny. Written the obvious way with a numbered list it **collapses to the deny** and
+locks out the administrator's own host, and the only warning is a `show access-list` nobody
+runs.
+
+**The product corroborates it from inside**, at the instant of the loss:
+```
+local7.err ... EXFX[1015]: DBG:exfx_cExt_dxch_rules_pclIdActionUpdate 7076:
+  Didn't find matching rule (to id 1) for the copying from one (from id 0)
+```
+T47192 later showed the **named** form taking an add, an in-place edit and a delete with a clean
+log, which **narrows the finding to the numbered form specifically** rather than to hardware-ACL
+editing in general.
+
+Confirmed first-hand alongside it: **`access-class` does not exist under `line vty`** (`acc ?`
+offers only `login`) and **`ip access-list` does not exist in global config**, so the generic AW+
+ACL guide's "standard lists still bind to vty access-class" does **not** hold on this build.
+
+### 🔬 More findings for `platforms/x960.md` (T47192)
+
+- **`ip address A.B.C.D/M` on an SVI that already has one REPLACES it in place** — no error, no
+  `% ...already...`, no secondary created, and the whole L3 identity moves, including the source
+  address of that interface's own ICMP unreachables.
+- **NSM logs an address INSTALLATION but never a removal.** `no ip address` writes no log line at
+  all, so a test looking for the deletion in the device log finds nothing.
+- `snmp-server community <c> ro <acl>` stores as `snmp-server community <c> <acl>` (`ro` is the
+  default and is not written back); `ssh server <port>` is stored only when it is not 22.
+
 
 ### 🔬 FINDING (T33381) — the SSH client's host-key trust is PERSISTENT and invisible
 
