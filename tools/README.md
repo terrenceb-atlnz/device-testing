@@ -47,9 +47,11 @@ The one way a device-testing session reaches a testbox: `tools/tb <action> <box>
   - read-only: `hostname`, `precheck`, `probe` (`bench_probe.py run` only), `holders`, `ps`,
     `nics`, `template`, `tail`, `grep`, `waitfor`;
   - scratch: `scratch <name>` (a fresh copy of `tools/` into `/tmp/<name>/tools`), `put`;
-  - consoles: `ckcon ckyn cfg qmark peek listen poll reloadc ckreload` (`<scratch> <uN> <baud>
-    ...`; the transcript goes to `/tmp/<scratch>/console-<uN>.log`), and `tftp_copy flash_copy
-    bootmenu_escape bootmenu_park witness_log` (`<scratch> <uN> ...`);
+  - consoles: `ckcon ckyn cfg qmark peek listen poll reloadc ckreload conlogin awshell health`
+    (`<scratch> <uN> <baud> ...`; the transcript goes to `/tmp/<scratch>/console-<uN>.log`),
+    `speedrow` (`<scratch> <dutU> <partnerU> <baud> ...`: two consoles from one process, both
+    checked for holders; 2026-10-21), and `tftp_copy flash_copy bootmenu_escape bootmenu_park
+    witness_log` (`<scratch> <uN> ...`);
   - other tools: `tool`, `sudotool` (the root traffic tools), `capture` (tcpdump), `ping`,
     `case` (a case script you `put` first), `pdu`;
   - framework runs: `fwprep`, `fw` (always `--noupdate --nodefaultcfg`; writes `run.log` and
@@ -63,6 +65,8 @@ The one way a device-testing session reaches a testbox: `tools/tb <action> <box>
     holder, if any other process has it open.
   - `probe` refuses `apply`/`--force`.
   - `tail`/`grep`/`waitfor` read only under `/tmp/` and `/home/st-art/pytest-create/`.
+  - `capture`/`ping` accept NIC names `eth*`, `enp*`, `ens*`, `eno*` and, since 2026-10-21, `bond*` (a host LAG
+    built with `bondctl.py`).
   - `killmine` kills only this repo's tools, probes and framework runs, never a minicom, screen
     or tmux (the Test Engineer runs as the same Unix user).
   - There are no actions for `apply`, licences or root changes: those are STANDING-ORDERS §4.
@@ -211,7 +215,77 @@ clears the line with Ctrl-U. A self-test first proves that nothing gets executed
 - **Limits:**
   - It relies on AW+ Ctrl-U line-kill; the self-test aborts with exit 3 if that fails.
   - `--mode` commands are executed normally, to reach the mode being probed.
+  - After the probes it clears the line with Ctrl-U and leaves the mode with `end`, so the
+    console is back at exec; the transcript shows it (2026-10-21: a tester read the source to
+    learn this; it is stated here now).
 - **Status:** verified 2026-10-02 on tb470, IE520 standalone (u3), read-only (self-test passed; line left clean, checked with peek)
+
+### `health.py`
+The STANDING-ORDERS §8 health sample of one unit in ONE call, summarised. It logs in, runs
+`show reboot history`, `show exception log`, `show log | include kernel|exception|crash|restart|Unexpected`,
+`show cpu` and `show memory` (plus `show log tail N` for the after sample), saves every command
+with its full output to `<save>` in the `HH:MM:SS >>> cmd` format (quote that in the working
+log), writes a `.json` summary, and prints only the summary: entry count and newest reboot,
+exception log, filtered lines split into echoes of our own commands and others, CPU busy
+averages, memory free. With `--before <the before sample's .json>` it prints a HEALTH-DIFF
+block (new reboot entries, exception change, new non-echo lines, the tail's line signatures
+with counts and one example each, CPU and memory before -> after) and a CLEAN / DIRTY verdict.
+- **Run:** `health.py <tty> <baud> <transcript> [--before SUMMARY.json] [--save FILE] [--json FILE] [--tail N] [--label TEXT] [--raw]`;
+  through the wrapper `tools/tb health <TB> <run> <uN> <baud> --label before`, then
+  `... --before /tmp/<run>/health-<uN>-<stamp>.out.json --label after`
+- **Where:** testbox; **needs:** pyserial
+- **Imports:** console, awlogin
+- **Exit codes:** 0 clean; 4 DIRTY (a new reboot entry, an exception log that is not None, or a
+  new kernel / crash / restart line that is not an echo: `NEEDS TEST ENGINEER:` and label the
+  run confounded); 7 no privileged prompt; 2 usage
+- **Limits:**
+  - `show cpu` on AW+ prints BUSY averages (1 s / 20 s / 60 s), never idle; the summary says so.
+  - A memory difference across one case is printed as a number and never called a leak.
+  - An "echo" is an `IMISH[...]: [user@tty]<cmd>` line (our own typing) or its suppression note.
+  - It strips the terminal-size escape AW+ prints before `show log` output.
+- **Status:** verified 2026-10-21 on tb470, x230v2-28GS (u1): before sample 17 s, after sample
+  with `--before` 21 s, diff CLEAN; the tail's signatures named the snmpd `send_trap` lines (12)
+  and the NSM port notifications (6 each) with one example line each
+
+### `speedrow.py`
+Speed/duplex rows on a DUT port and its link partner, BOTH consoles driven from ONE process, so
+the partner is polled while the DUT changes. Two console tools issued in one tool block run one
+after the other (memory `two-console-calls-in-one-block-run-sequentially`; T47208 lost 4 min
+and a second pass to it on 2026-10-21). Per ROW it sets the DUT, sets the partner per `--match`,
+polls both ends' `show interface <port> status` in parallel until each reads connected at the
+expected speed and duplex (link-up time per end), optionally waits for the LLDP neighbour on
+both ends (`--lldp`), decodes the DUT's MAC/PHY TLV at the partner (`--tlv`: auto-negotiation,
+advertised set, operational MAU type, polled until the MAU expected for the DUT's mode appears;
+plus the reverse read at the DUT), holds (`--hold S`) and flaps the link (`--flap N --flap-end
+dut|partner|both`: shutdown / no shutdown with the down time, both ends' link-up times and the
+LLDP re-learn times). One summary line per row and per flap; every command and output goes to
+`<save>` as `[dut] HH:MM:SS >>> cmd` / `[partner] ...` for the working log.
+- **Run:** `speedrow.py <dut-tty> <partner-tty> <baud> <dut-transcript> <partner-transcript> --dut-port P --partner-port P [--match forced|always|never] [--wait S] [--lldp] [--lldp-wait S] [--tlv] [--hold S] [--flap N] [--flap-end dut|partner|both] [--no-restore] [--save FILE] ROW...`;
+  through the wrapper `tools/tb speedrow <TB> <run> <dutU> <partnerU> <baud> --dut-port P --partner-port P [opts] ROW...`
+- **ROW grammar:** `auto` | `auto-<speed>` | `auto-<speed>-half` | `<speed>` (fixed, partner left at auto) |
+  `<speed>-full` | `<speed>-half` (forced; the partner mirrors it with `--match forced`, the default,
+  and returns to auto on every other row)
+- **Where:** testbox; **needs:** pyserial
+- **Imports:** console, awlogin
+- **Exit codes:** 0 every row linked as expected; 3 a row or flap timed out or read another
+  speed/duplex; 4 a row was refused (`% ...` printed verbatim as REFUSED, the next row runs);
+  7 no privileged prompt; 2 usage
+- **Limits:**
+  - Restore is in a `finally:`: both ends `no speed` / `no duplex`, and with `--tlv`
+    `no lldp tlv-select mac-phy-config` on both. `--no-restore` leaves the last row in place.
+    A bench whose saved config carries `lldp tlv-select mac-phy-config` loses it with `--tlv`;
+    re-apply it after.
+  - Both consoles stay in config-if for the run (`do show ...`) and are left at exec with
+    `terminal no monitor`.
+  - Copper only so far; a fibre module refuses most rows (reported as REFUSED).
+  - A bare `auto` row expects a-full at any speed; `<speed>` fixed rows expect `full <speed>`.
+- **Status:** verified 2026-10-21 on tb470, x230v2-28GS port1.0.1 (DUT, u1, AT-SPTXa) <->
+  AR4050S port1.0.2 (u0): rows auto-100, 100-full, auto-1000 each linked in 1.8-3.1 s on both
+  ends with LLDP in 2-4 s, one flap per row from the partner (down 0.6 s, up 3.1-4.3 s), restore
+  to a-full a-1000 both ends. `--tlv` run (auto-100, 100-half): the 4050 decoded the x230's TLV
+  as `Supported, Enabled` / adv `100BaseTXFD, 100BaseTX` / MAU 100BaseTXFD (16), then
+  `Supported, Disabled` / adv `[none]` / MAU 100BaseTXHD (15), each within 2 s of link-up; the
+  reverse read agreed; `lldp tlv-select mac-phy-config` was gone from both ports afterwards
 
 ### `peek.py`
 Pre-run console check. It sends one bare CR and reports the last line: `login:`, `>`, `#`, a
@@ -222,6 +296,68 @@ root shell before a run.
 - **Imports:** none
 - **Limits:** it sends one CR, so it is not strictly passive
 - **Status:** verified 2026-10-02 on tb470: IE520 (u3) and x230 (u0, 9600)
+
+### `health.py`
+The STANDING-ORDERS §8 health sample of one unit in ONE call, summarised to a few lines. It runs
+`show reboot history`, `show exception log`, `show log | include kernel|exception|crash|restart|Unexpected`,
+`show cpu` and `show memory` (plus `show log tail N` in the after sample), saves every command
+with its full output to `<save>` in the `HH:MM:SS >>> cmd` format (quote that in the working
+log), writes a `.json` summary, and prints only: entries and newest reboot, exception log,
+filtered lines split into echoes of our own commands and others, the CPU busy averages as
+printed, and free memory. With `--before <the before sample's .json>` it adds a HEALTH-DIFF
+block: new reboot entries, exception log change, new non-echo filtered lines, the tail's line
+signatures with counts, cpu and memory before -> after, and a CLEAN / DIRTY verdict.
+- **Run:** `health.py <tty> <baud> <transcript> [--before SUMMARY.json] [--save FILE] [--json FILE] [--tail N] [--label TEXT] [--raw]`;
+  through the wrapper `tools/tb health <TB> <run> <uN> <baud> --label before`, then
+  `... --before /tmp/<run>/health-<uN>-<stamp>.out.json --label after`
+- **Where:** testbox; **needs:** pyserial
+- **Imports:** console, awlogin
+- **Exit codes:** 0 clean; 4 DIRTY (a new reboot entry, an exception log that is not `None`, or a
+  new kernel / crash / restart line: `NEEDS TEST ENGINEER:`, label the run confounded); 7 no
+  privileged prompt; 2 usage
+- **Limits:**
+  - `show cpu` on AW+ prints BUSY averages (1 s / 20 s / 60 s), never idle; the summary says so.
+  - One case's two samples cannot show a memory leak; the diff prints the number only.
+  - Parsed on the x230v2 output shapes (`RAM total: … kB; free: … kB`, `1 second: n%, …`); another
+    family that prints these differently reads "not parsed" and keeps the raw file.
+  - An IMISH keystroke echo is counted as an echo, not as a finding.
+- **Status:** verified 2026-10-21 on tb470, x230v2-28GS (u1): before and after samples, 17-21 s
+  each; the diff grouped 150 tail lines into 6 signatures and read CLEAN; nothing was pulled
+  into the context but the summary.
+
+### `speedrow.py`
+Speed/duplex rows on a DUT port and its link partner, BOTH ends driven from one process, so
+the partner is watched while the DUT changes. Per row it sets the DUT, sets the partner per
+`--match`, polls both ends' `show interface <port> status` in parallel until each reads
+connected at the expected speed, and optionally: waits for the LLDP neighbour on both ends
+(`--lldp`), selects the MAC/PHY TLV on both ports and decodes the DUT's TLV at the partner plus
+the reverse direction (`--tlv`: auto-negotiation, advertised set, operational MAU type, polled
+until the MAU matches the DUT's operational mode), holds the row (`--hold S`), and flaps the
+link N times from one end with link-up and LLDP timing (`--flap N --flap-end dut|partner|both`).
+One summary line per row and per flap; every command with its full output goes to `<save>`
+(`[dut]` / `[partner]` prefixed, `HH:MM:SS >>> cmd` format) for the working log. Both ends are
+restored to `no speed` / `no duplex` (and `no lldp tlv-select mac-phy-config` with `--tlv`) in a
+`finally:`, even after an error, unless `--no-restore`.
+- **Run:** `speedrow.py <dut-tty> <partner-tty> <baud> <dut-transcript> <partner-transcript> --dut-port P --partner-port P [--match forced|always|never] [--wait S] [--lldp] [--lldp-wait S] [--tlv] [--hold S] [--flap N] [--flap-end dut|partner|both] [--no-restore] [--save FILE] ROW...`;
+  through the wrapper `tools/tb speedrow <TB> <run> <dutU> <partnerU> <baud> --dut-port P --partner-port P [opts] ROW...`.
+  ROW: `auto` | `auto-<speed>` | `auto-<speed>-half` | `<speed>` | `<speed>-full` | `<speed>-half`
+  (e.g. `auto-100 10-half 1000`). `--match forced` (default) mirrors the forced rows on the partner and
+  returns it to auto on the others.
+- **Where:** testbox; **needs:** pyserial
+- **Imports:** console, awlogin
+- **Exit codes:** 0 every row linked as expected; 3 a row or flap timed out, read another
+  speed/duplex, or the expected MAU was not seen; 4 a row was REFUSED (`% …` quoted); 7 no
+  privileged prompt; 2 usage
+- **Limits:**
+  - Copper rows only have been run; a fibre module refuses most rows (reported as REFUSED).
+  - Both consoles stay in config-if for the run (`do show …`) and are left at exec with
+    `terminal no monitor`; two console tools in one tool block would run one after the other
+    (memory `two-console-calls-in-one-block-run-sequentially`), which is why this exists.
+  - It counts nothing in the device log; read that with `health.py`'s after sample.
+- **Status:** verified 2026-10-21 on tb470, x230v2-28GS port1.0.1 (u1, AT-SPTXa) <-> AR4050S
+  port1.0.2 (u0): `auto-100`, `100-full`, `auto-1000` with `--lldp --flap 1 --flap-end partner`
+  (link back in 1.8-4.3 s, LLDP 0.6-3.7 s, restore to a-full a-1000 both ends); `--tlv` run
+  the same day (`auto-100`, `10-half`).
 
 ### `awshell.py`
 Runs shell commands inside an AlliedWare Plus **`start-shell` root shell** on one console,
@@ -627,20 +763,27 @@ the whole file is history and only this case's own window is evidence.
   unreadable-file exit tested offline
 
 ### `rcdiff.py`
-Unified diff of the first `show running-config` in two saved `ckcon.py` **stdouts** (not the `<transcript>` argument, which has no `HH:MM:SS >>>` headers). This is the
-pre-case versus post-case teardown check (STANDING-ORDERS §1).
-- **Run:** `rcdiff.py <before.log> <after.log>`
+Unified diff of the first FULL `show running-config` in two saved `ckcon.py` / `cfg.py` **stdouts** (not the
+`<transcript>` argument, which has no `>>>` headers). This is the pre-case versus post-case teardown check
+(STANDING-ORDERS §1).
+- **Run:** `rcdiff.py [--last] <before.log> <after.log>`; exit 0 = no difference, 1 = difference printed, 2 = a file
+  with no full dump (or unreadable)
 - **Where:** anywhere; **needs:** nothing beyond Python
 - **Imports:** none
 - **Limits:**
-  - it needs ckcon-style `HH:MM:SS >>> cmd` headers, and crashes if a file has no running-config;
+  - it needs `HH:MM:SS >>> cmd` headers (an epoch prefix, as `cfg.py` prints, is accepted), and exits 2 on a
+    file with no running-config. Only a header whose command is exactly `show running-config` counts.
+    **Fixed 2026-10-21:** it used the first match of the text, so a `show running-config | include ...`
+    earlier in the same capture gave a false diff (128 lines on T17584, tb101). `--last` uses the last full
+    dump when a file has several.
   - ⚠ **an "empty" diff can still print one spurious `-HH:MM:SS` line** when the
     `show running-config` is immediately followed by the next command's timestamp header, which
     it mistakes for a config line (tb277, 2026-10-21, T33398). Read what the line IS before
     treating it as config drift; a direct `diff` of the extracted `show running-config` bodies
     is the tie-breaker.
-- **Status:** verified 2026-10-02 on tb470 (two real IE520 captures, identical -> no output);
-  the spurious-line limit measured 2026-10-21 on tb277
+- **Status:** verified 2026-10-02 on tb470 (two real IE520 captures, identical -> no output). 2026-10-21 on
+  T17584's captures (tb101): the raw pre-run file now gives no diff, a changed `stack 1 priority` line is
+  caught (exit 1), and a file with no dump exits 2. The spurious-line limit measured 2026-10-21 on tb277
 
 ### `rc2cfg.py`
 Turns the first `show running-config` in a saved `ckcon.py` stdout into a loadable per-device
@@ -651,6 +794,41 @@ config with the echoed command, bare prompts, pager remnants, CRs and blank line
 - **Imports:** none
 - **Limits:** it reads the ckcon `HH:MM:SS >>> cmd` stdout format only (as `rcdiff.py` does)
 - **Status:** verified 2026-10-08 on tb470, IE520 stack master (u5): T22650 `stk_a.cfg`, 186 config lines
+
+### `bondctl.py`
+Builds or removes a Linux bonding interface (`802.3ad` by default) from host NICs, for a LAG case
+whose partner is the testbox itself, and restores the NICs' addresses exactly. `up` records
+`ip -br addr` and each NIC's global addresses into a state file FIRST, then creates the bond,
+flushes and enslaves the NICs; `down` releases them, deletes the bond, re-adds every recorded
+address with `ip addr replace`, and diffs `ip -br addr` against the recording (`RESTORE DIFF:
+empty`, else the diff and exit 1). Every `ip` command is printed before it runs and the first
+failure stops it. `status` prints `/proc/net/bonding/<bond>`.
+- **Run:** `sudo bondctl.py up <bond> <state.json> NIC [NIC ...] [--mode 802.3ad] [--miimon 100] [--lacp-rate fast] [--xmit-hash layer2]`;
+  `sudo bondctl.py down <bond> <state.json>`; `bondctl.py status <bond>`
+- **Where:** testbox (root; `tools/tb sudotool <box> <scratch> bondctl ...`); **needs:** iproute2, the bonding module
+- **Imports:** none
+- **Limits:**
+  - It is a root CHANGE on the host, not test traffic: use it only when the Test Engineer has allowed the
+    bond for the case (STANDING-ORDERS §4; tb101 2026-10-21, "sudo -n for the bond and its restore").
+  - It stays in `tools/` and in `tools/tb`'s `SUDO_TOOLS` by the Test Engineer's decision, 2026-10-21: "yes, save it
+    in tools". That makes it available to any case; it does not replace the per-case OK above.
+  - It does not stop NetworkManager or systemd-networkd from re-applying addresses to a slave; check
+    `ip -br addr` after `up` and report what the host did.
+  - `up` refuses if the bond already exists; `down` only restores what `up` recorded.
+- **Status:** added 2026-10-21 for tb101 T17584 (host bond0 = eth3 + eth4 as the LACP partner of an IE520 stack po1); see that run's working log for its verification
+
+### `hostinfo.py`
+Read-only inventory of a testbox HOST before a traffic or bonding case: which service manages
+the NICs (NetworkManager, systemd-networkd, ifupdown, netplan), addresses and link details,
+bonding interfaces already present, the bonding module, whether `sudo -n` is available, and the
+tcpreplay / tcpdump / scapy versions. It changes nothing.
+- **Run:** `hostinfo.py [NIC ...]` (per-NIC `ip -d link`, `ethtool`, routes for each NIC named);
+  `hostinfo.py --stats NIC [NIC ...]` prints only each NIC's `ip -s -s link` and `ethtool -S` drop/miss/error/fifo
+  counters (added 2026-10-21: tells a host-side receive loss from a DUT loss after a line-rate window)
+- **Where:** testbox (no root); **needs:** nothing beyond Python; `nmcli`/`ethtool` optional
+- **Imports:** none
+- **Limits:** `sudo -n true` is the only privileged call, and it only reports yes/no
+- **Status:** added 2026-10-21 for the tb101 T17584 triage (host bond for LACP); verified that day on tb101
 
 ### `ckcase.py`
 Prints a test case's authored text (objective, precondition, steps) from the Ask-CK database.
@@ -713,14 +891,55 @@ on the others. It uses tcpreplay and tcpdump.
 Runs four sequence-numbered L2 flows between two host NICs, through the DUT, and records every
 frame received. The flows are broadcast and unicast, in each direction. Use it for continuity
 across a failover or a ring switch-over.
-- **Run:** `sudo l2flows.py <duration_s> <pps_per_flow> <outdir> <nicA> <nicB> [--ethertype 0x88B5]`
+- **Run:** `sudo l2flows.py <duration_s> <pps_per_flow> <outdir> <nicA> <nicB> [--ethertype 0x88B5] [--per-link N]`
+- **`--per-link N` (added 2026-10-21):** each flow becomes N sub-flows `<tag>.1`..`<tag>.N`, each with its own source
+  MAC `02:4c:<nic MAC byte 5>:<byte 6>:<a0|b0>:<k>` and its own sequence numbers, at `pps_per_flow` each. A host bond or
+  a DUT LAG hashes on the source MAC, so the sub-flows spread over the links and an event on ONE link shows as an
+  outage on the sub-flows that sat on it. Without it every flow sits on one link (T17584 E2, tb101: the flows could not
+  see a leg shutdown). Use N of at least twice the number of links. The sub-flow number travels in the first padding
+  byte (0 = none), so N = 1 writes the old format exactly. The DUT learns 2 x N extra source MACs.
 - **Where:** testbox (root); **needs:** Python only (AF_PACKET, Linux)
 - **Imports:** none. It provides `flow_tags` to `flowstat.py` and `loopwin.py`
 - **Limits:**
   - Exactly two NICs.
   - The flow tags come from the last character of each NIC name, or A/B if those match.
   - Pacing is Python sleep.
-- **Status:** verified on tb470 2026-10-02: 10 s, 20 pps per flow, eth1 <-> eth3 through the stack; 4 x 200 frames, 0 lost
+- **Status:** verified on tb470 2026-10-02: 10 s, 20 pps per flow, eth1 <-> eth3 through the stack; 4 x 200 frames, 0 lost.
+  `--per-link` tested OFFLINE only, 2026-10-21 (a fake socket layer between two simulated NICs: 4 x 3 sub-flows, one
+  sub-flow made to lose 10 frames showed a 500 ms outage and its siblings none; N = 1 output unchanged). Not yet run on
+  hardware.
+
+### `eventwin.py`
+One traffic EVENT WINDOW in one call (built 2026-10-21 from T17584, where each of 6 events took 15-20
+hand-made tool calls): starts `l2flows.py` (and optionally `linerate.py` both ways) with `sudo -n`, runs
+timed console actions and reads through the console tools, polls until the DUT is ready, waits for the
+traffic to end, then runs `flowstat.py` (with every action's event time) and `loopwin.py`, and writes
+one `summary.txt`.
+- **Run:** on the box, as the user: `tools/tb tool <TB> <scratch> eventwin --out /tmp/<scratch>/eN --nic-a NIC
+  --nic-b NIC [--flows-secs 360] [--pps 100] [--per-link N] [--rate Mbps|top --rate-secs 300 --a-dst-mac MAC
+  --b-dst-mac MAC [--a-src-ip IP] [--b-src-ip IP] [--src-macs 16]] [--act AT TOOL uN ARG ...]... [--read AT uN CMD
+  ...]... [--bond BOND] [--poll uN SECS REGEX CMD] [--after uN CMD ...]... [--stats-nics a,b,c] [--baud 115200]
+  [--save DIR] [--dry-run]`. TOOL is cfg, ckcon, ckyn, reloadc, ckreload or listen; every act except `listen` is
+  an event (ev0, ev1 ... in flowstat), timed by the tool's own output (reloadc `EVENT y-sent`, else the header of
+  the last command that is not `end`/`exit`/`configure terminal`). `--save` copies every text result into one
+  folder per event (e.g. the case's `work/eN` on the NFS home) so the final log quotes the reads verbatim.
+  Example (T17584 E3 shape): `--act 10 listen u0 330 /tmp/s/e3-u0.done --act 25 reloadc u1 240 /tmp/s/e3.done
+  reload stack-member 1 --read 90 u2 "show stack" "show lacp sys-id" --poll u2 330 '1\s+-\s+84e3\.2787\.0ac0\s+1\s+Ready'
+  'show stack' --after u2 "show etherchannel detail" --bond bond0`. Check the plan first with `--dry-run`.
+- **Where:** testbox, from a `tools/tb scratch` copy (transcripts go to `/tmp/<scratch>/console-uN.log`, the path the
+  sentinel watches); **needs:** `sudo -n` for the traffic tools, plus what those tools need
+- **Imports:** none; runs `l2flows.py`, `linerate.py`, `flowstat.py`, `loopwin.py`, `hostinfo.py` and the console
+  tools from its own directory
+- **Limits:**
+  - One console is used by one action at a time (a lock); an action waits while a `listen` holds its console.
+  - A console another process holds (`fuser`) is not opened: the action is skipped and reported.
+  - `--out` must not exist yet; the raw flow files stay there (they can be several MB) and are not copied by `--save`.
+  - Exit 1 when any step failed: a held console, a tool's non-zero exit, a `!!!` line, or a `% ` line other than
+    `remote-diff`'s own `% Comparing` / `% Results are identical`.
+  - It runs for the whole flow time; call it from a backgrounded `tools/tb` command and wait on the summary.
+- **Status:** tested OFFLINE only, 2026-10-21: `--dry-run` on an E3-shaped plan, the usage errors, and a full run
+  through a harness with stub console and traffic tools (real `flowstat.py`/`loopwin.py`): event times taken from the
+  tools' output, every read saved, a stubbed `% Invalid input` caught (exit 1). Not yet run on hardware.
 
 ### `flowstat.py`
 For an `l2flows.py` run, reports per flow:
@@ -733,7 +952,10 @@ For an `l2flows.py` run, reports per flow:
 - **Limits:**
   - Give it the same `nicA` and `nicB` as the run.
   - Single lost frames are counted but not listed. That was fixed 2026-10-02 to match the documentation; earlier output listed them.
-- **Status:** verified on tb470 2026-10-02 on that `l2flows.py` run: 0 lost, 0 dups, median latency ~0.37 ms
+  - A `--per-link` run (2026-10-21): each sub-flow is reported on its own, then one `<tag> ALL` line per flow with the
+    totals, the longest outage of any sub-flow, and how many sub-flows had an outage of 5 frames or more.
+- **Status:** verified on tb470 2026-10-02 on that `l2flows.py` run: 0 lost, 0 dups, median latency ~0.37 ms.
+  2026-10-21 regression on tb101 (T17584's E3 flow files): output byte-identical to the original analysis.
 
 ### `loopwin.py`
 Finds windows of loop evidence in an `l2flows.py` run: duplicates, and frames echoed back to
@@ -741,8 +963,9 @@ their sender. Windows are clustered with a 1 s gap.
 - **Run:** `loopwin.py <flowsdir> <nicA> <nicB>`
 - **Where:** anywhere; **needs:** nothing beyond Python
 - **Imports:** l2flows
-- **Limits:** give it the same `nicA` and `nicB` as the run
-- **Status:** ran on tb470 2026-10-02 on a loop-free `l2flows.py` run: 0 windows, as expected. Not yet run against a real loop
+- **Limits:** give it the same `nicA` and `nicB` as the run. Reads `--per-link` sub-flow tags (2026-10-21).
+- **Status:** ran on tb470 2026-10-02 on a loop-free `l2flows.py` run: 0 windows, as expected. 2026-10-21 on tb101
+  (T17584 E3): found the one 30 ms window of 4 duplicated broadcast frames, the same as during the run
 
 ### `vsend.py`
 Sends a burst of `CKVLAN`-marked frames of one kind: IPv4, IPv6, IPX, another EtherType, or ARP.
@@ -761,6 +984,17 @@ Unmarked frames are listed separately. It is the receiving side of `vsend.py`.
 - **Imports:** none
 - **Limits:** none known
 - **Status:** verified 2026-10-02 on tb470 (scapy 2.6.1; unmarked frames counted)
+
+### `lacpdu.py`
+Decodes the LACPDUs in a tcpdump pcap (EtherType 0x8809, subtype 1) and prints, per sending MAC, the
+count and the last PDU's actor and partner fields: system priority, system MAC, key, port, and the
+state byte decoded (Act, Short, Agg, Sync, Coll, Dist, Def, Exp). The proof that a LAG partner
+advertises a given system id (a VCStack's virtual MAC) and is Collecting/Distributing.
+- **Run:** `lacpdu.py <pcap> [<pcap> ...]` (capture with `tools/tb capture <box> <scratch> <nic> <secs> <out> ether proto 0x8809`)
+- **Where:** anywhere; **needs:** nothing beyond Python (its own pcap reader, link type 1 only)
+- **Imports:** none
+- **Limits:** classic pcap only (not pcapng); it reports the LAST PDU per sender, not every change
+- **Status:** added 2026-10-21 for tb101 T17584 (IE520 stack po1 <-> host bond0); see that run's working log
 
 ### `mkpcap.py`
 Writes a pcap of routed UDP frames, one per destination address, or all to one address with

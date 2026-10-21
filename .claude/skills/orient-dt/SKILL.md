@@ -931,7 +931,9 @@ device-testing agent that does both parts equally"*):
   written only after the first sleep left a 60 s window in which a cron tick armed a second
   watcher. So:
   - the heartbeat is written at start;
-  - arming ALWAYS sweeps and kills strays first, then clears the heartbeat, then arms;
+  - arming ALWAYS sweeps and kills strays first, then clears the heartbeat, then arms — but only
+    strays whose wrapper carries THIS session's `SCRATCH` (2026-10-21: two sessions' sweeps
+    killed each other's watchers; memory `sentinel-sweep-kills-peer-sentinels`);
   - a heartbeat is trusted only if this session armed the watch.
 - **The worker's scratchpad dies with its session.** Anything the campaign depends on must be
   committed in the repo before a usage cut: the resume record, and the harness logic.

@@ -2,7 +2,7 @@
 """loopwin.py <flowsdir> <nicA> <nicB> -- windows of loop evidence in an l2flows.py run
 (same <nicA> <nicB> as the run): duplicate receptions and echoes (a NIC receiving frames
 of a flow it sends), clustered with a 1 s gap; per window first/last receive epoch, span,
-counts, max copies of one seq."""
+counts, max copies of one seq. Reads --per-link sub-flow tags (<tag>.<k>) too."""
 import argparse, collections, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from l2flows import flow_tags
@@ -20,9 +20,10 @@ seen = collections.Counter()
 for nic in (a.nicB, a.nicA):
     for l in open(os.path.join(d, 'rx-%s.txt' % nic)):
         tag, seq, ts, tr = l.split(); tr = float(tr)
-        if tag in own[nic]:
+        base = tag.split('.')[0]               # l2flows.py --per-link sub-flow <tag>.<k>
+        if base in own[nic]:
             ev.append((tr, 'echo-' + nic, tag, seq))
-        elif rxfile.get(tag) == nic:
+        elif rxfile.get(base) == nic:
             seen[(tag, seq)] += 1
             if seen[(tag, seq)] > 1:
                 ev.append((tr, 'dup', tag, seq))

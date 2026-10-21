@@ -31,8 +31,13 @@ CHECKS — read-only, one Bash call where you can:
 
 ARMING — never arm on top of a stray. Always:
   a. `ps -eo pid,cmd --no-headers > $SCRATCH/ps-now.txt`, then grep THAT FILE with an assembled
-     pattern (`PAT="sentin""el.sh"`) so the grep cannot self-match.
-  b. kill every sentinel.sh pid found, and its bash -c wrapper.
+     pattern (`PAT="sentin""el.sh"`) so the grep cannot self-match, AND filter to YOUR OWN
+     watchers: only a `bash -c` wrapper line that contains THIS session's `$SCRATCH` path
+     (`grep -E "$PAT" $SCRATCH/ps-now.txt | grep -F "$SCRATCH"`), plus the bare
+     `bash … sentinel.sh` child whose parent is one of those wrappers.
+  b. kill only those pids. **Never a bare `sentinel.sh` match**: other sessions on this host run
+     their own sentinels (2026-10-21 13:25, tb101 and tb470 sessions killed each other's watcher
+     twice within 30 s; memory `sentinel-sweep-kills-peer-sentinels`).
   c. `rm -f $SCRATCH/sentinel.heartbeat`.
   d. Monitor, command per SENTINEL-BRIEF.md, timeout_ms 1800000.
 Only arm before <UNTIL>.

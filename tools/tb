@@ -31,8 +31,12 @@ Scratch on the box (/tmp/<scratch>/, tmpfs)
 
 Consoles (refuses, exit 5, if any other process holds the console)
   <tool> <scratch> <uN> <baud> [args...]  tool in: ckcon ckyn cfg qmark peek listen poll reloadc
-                                          ckreload conlogin devclient
+                                          ckreload conlogin awshell devclient health
                                           -> tool.py /dev/uN <baud> /tmp/<scratch>/console-uN.log args...
+  health <scratch> <uN> <baud> [--before <json>] [--label X]   the §8 health sample, one call, summary only
+  speedrow <scratch> <dutU> <partnerU> <baud> --dut-port P --partner-port P [opts] ROW...
+                                          speed/duplex rows on BOTH ends of one link from one process
+                                          (link-up timing, --lldp, --tlv, --flap N); refuses if either held
   <tool> <scratch> <uN> [args...]         tool in: tftp_copy flash_copy bootmenu_escape bootmenu_park witness_log
                                           -> tool.py /dev/uN args...
 
@@ -65,12 +69,15 @@ REPO_ON_BOX = '~/claude/device-testing'
 BOX_RE = re.compile(r'^tb[0-9]+$')
 NAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]*$')
 CON_RE = re.compile(r'^u[0-9]+$')
-NIC_RE = re.compile(r'^(eth|enp|ens|eno)[A-Za-z0-9]*$')
+NIC_RE = re.compile(r'^(eth|enp|ens|eno|bond)[A-Za-z0-9]*$')   # bondN: a host LAG (2026-10-21)
 CON_TBT = {'ckcon', 'ckyn', 'cfg', 'qmark', 'peek', 'listen', 'poll', 'reloadc', 'ckreload',
-           'conlogin', 'awshell', 'devclient'}
+           'conlogin', 'awshell', 'devclient', 'health'}   # health: STANDING-ORDERS §8 sample in one call (2026-10-21)
 CON_TTY = {'tftp_copy', 'flash_copy', 'bootmenu_escape', 'bootmenu_park', 'witness_log'}
 SUDO_TOOLS = {'linerate', 'l2flows', 'vsend', 'igmp', 'nsresp', 'dhc6', 'rs', 'lldpmed_phone',
-               'arpleg', 'ecmpflows', 'dhcp4', 'dnsresp', 'hostsim', 'lldpsend'}
+               'arpleg', 'ecmpflows', 'dhcp4', 'dnsresp', 'hostsim', 'lldpsend',
+               'bondctl'}                           # a host bond for a LAG case: a root CHANGE. Kept here by the
+                                                    # Test Engineer's decision 2026-10-21 ("yes, save it in tools");
+                                                    # each case still needs their OK for the bond (STANDING-ORDERS §4)
 NOT_ON_BOX = {'case_tokens'}                         # dev-host only
 BOX_PY = {'tb105': 'python3.8', 'tb277': 'python3.8', 'tb101': 'python3.8'}  # orient-dt §1: their python3 is 3.6
 READ_ROOTS = ('/tmp/', '/home/st-art/pytest-create/')
@@ -274,6 +281,18 @@ def main(argv):
         ckto = os.environ.get('CKTO', '')                      # per-command timeout for the console drivers
         envp = ('CKTO=%s ' % ckto) if ckto.isdigit() else ''    # (ssh forwards no env; 2026-10-21)
         return run(box, held_check(con) + 'cd %s/tools && %s%s %s.py %s' % (d, envp, py, action, ' '.join(q(x) for x in args)))
+    if action == 'speedrow':
+        # Two consoles from ONE process: the DUT and its link partner (tools/speedrow.py). Two separate
+        # console calls in one tool block run one after the other, so a partner poll started beside a
+        # DUT change never sees the change (T47208, 2026-10-21); this drives both ends in parallel.
+        need(len(a) >= 4 and CON_RE.match(a[1]) and CON_RE.match(a[2]) and a[3].isdigit() and a[1] != a[2],
+             'usage: speedrow <scratch> <dutU> <partnerU> <baud> --dut-port P --partner-port P [opts] ROW...')
+        tool_file('speedrow')
+        d, dc, pc = '/tmp/' + name(a[0]), a[1], a[2]
+        args = ['/dev/' + dc, '/dev/' + pc, a[3], '%s/console-%s.log' % (d, dc), '%s/console-%s.log' % (d, pc)] + a[4:]
+        ckto = os.environ.get('CKTO', '')
+        envp = ('CKTO=%s ' % ckto) if ckto.isdigit() else ''
+        return run(box, held_check(dc) + held_check(pc) + 'cd %s/tools && %s%s speedrow.py %s' % (d, envp, py, ' '.join(q(x) for x in args)))
     if action in ('tool', 'sudotool'):
         need(len(a) >= 2, 'usage: %s <scratch> <name> [args...]' % action)
         d, t = '/tmp/' + name(a[0]), tool_file(a[1])
