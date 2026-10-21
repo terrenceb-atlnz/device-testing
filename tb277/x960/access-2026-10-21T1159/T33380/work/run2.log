@@ -1,0 +1,299 @@
+# T33380 (229) Management_SSH - SSH Server (IPv4) -- working log, RUN 2
+
+**Run 2 exists for ONE limb.** Run 1 (group A, 2026-10-21 13:2x) measured everything else in
+this case and graded it PASS, but recorded its **reboot-persistence limb as NOT MEASURED**: at
+that time, proving `no service ssh ip` survives a reboot needed a `write`, and a `write` would
+have saved **vlan 60**, which the sentinel had directed be kept out of startup-config. Removing
+vlan 60 first was refused twice by the permission system ("Modify Shared Resources"), which is
+a mechanical block a tester cannot lift.
+
+**Both halves of that bind are now gone.** The Test Engineer ruled at 14:0x that testers may
+`write` freely, and vlan 60 has been in startup-config since group C. The queue's own
+recommendation was that the **last group** run the sequence as a short **T33380 run 2**, giving
+the case its own second working log rather than burying the evidence in another group's
+teardown. That is this file.
+
+Run label: **clean**.
+
+## Scope of run 2
+
+| limb | status |
+| --- | --- |
+| **`no service ssh ip` survives a reload, proven on the wire** | **run 2 measures it** |
+| everything else in T33380 (the on/off/removed arc, the storage shape, the log wording, refused vs rejected on the wire, the expected values) | measured in **run 1**; not repeated here |
+
+Run 1's findings are NOT re-stated as new. This file adds one result and the evidence for it.
+
+## Session facts
+
+Testbox **tb277**, console **u2 ONLY**, PDU 10.36.230.212 outlet u2=1, u2 = **swi_d** (DUT).
+Sentinel: the parent `/test-mode` session. Run by the **group D** tester
+(`ntp-2026-10-21T1159`) as a campaign-end job, after group D's own three cases were complete.
+
+🔴 **swi_b (u3) and swi_a (u5) both have a locked `manager` account** and were never opened by
+this run -- not one byte. **There is no `swi_b.cfg` and no `swi_a.cfg`**, which costs this limb
+nothing: the SSH client that measures the DUT's server is the **testbox**, over IPv4 from
+`eth3`, and it never offers a credential.
+
+## Device
+
+swi_d, AT-x960-56YSQ, S/N A2WQS700B, `sin_x96056-20261019-27` (build Sun Oct 18 23:18:21 UTC
+2026), `/dev/u2` @115200. `show system` verbatim and the host NIC / RSTP details are in
+`../../../ntp-2026-10-21T1159/T33399/work/run1.log`, captured the same afternoon on the same
+unit with no intervening change.
+
+Boot pointers before and after: `Current boot image : flash:/x960-tb277.rel (file exists)`,
+`Current boot config: flash:/default.cfg (file exists)`, `Autoboot status : disabled`.
+
+## Pre-run gate
+
+Group D's gate still held and is recorded in `../../../ntp-2026-10-21T1159/T33399/work/run1.log`
+(occupancy CLEAR with only the adjudicated `ser2net`; no deployed `tb277.setup` on the box;
+probe **exit 0 MATCH** against the swi_d-only run `.setup`
+`tb277/x960/ntp-2026-10-21T1159/tb277-u2.setup`, `--read-only`, `--baud 115200`; sentinel =
+parent). This limb began with running-config verified byte-for-byte at the **112-line
+campaign baseline**.
+
+## Health check 1 of 2 -- before the limb (2026-10-21 17:36 NZDT)
+
+```
+show running-config | include service
+service ssh
+no service telnet
+service http
+no service dhcp-server
+
+show ssh server
+SSH Server                         : Enabled
+Protocol                           : IPv4,IPv6
+Port                               : 22
+Version                            : 2
+Services                           : scp, sftp
+User Authentication                : publickey, password
+Session Timeout                    : 0 (Off)     Login Timeout : 60 seconds
+Maximum Authentication Tries       : 6           Maximum Startups : 10
+
+show reboot history   -> newest 2026-10-21 04:28:41 Expected CLI(user request)
+                         (group D T44298's own reload; nothing newer)
+show exception log    -> None
+show cpu              -> 1 second: 0%, 20 seconds: 0%, 60 seconds: 0%
+show memory           -> RAM total: 8092132 kB; free: 7459312 kB; buffers: 1388 kB
+```
+
+## Method, and why it is this method
+
+`platforms/x960.md` §7F.2 records this platform reading `Enabled` while the service is actually
+refused, and §7F.10 records `no service ssh ip` **replacing** the running-config line with
+`service ssh ipv6` rather than writing a negation -- so **a config grep for `no service ssh ip`
+finds nothing on a unit whose IPv4 SSH is off**. Neither `show ssh server` nor a config grep can
+therefore carry this verdict. It is graded on **IPv4 TCP/22 on the wire**.
+
+Instrument: **`tools/arpleg.py --tcp`**, the leg tool group B extended for T33386 the same day.
+It sends a crafted SYN and reports the reply flags, where `SA` = the port is open, `R`/`RA` =
+the service refused it, and **no reply row at all** = the frame was dropped. Every leg also
+carries an **ICMP control to the same address**, so "the DUT refused TCP/22" is always told
+apart from "the DUT was not there". No credential is ever offered, so no leg can cost a failed
+login -- which matters on a bench where two accounts are already locked.
+
+A **port 23 control** rides in every leg: telnet is off on this DUT (`no service telnet`), so
+`:23` must answer `RA` in all four legs. It is the instrument's own witness that an `RA` is
+being decoded correctly.
+
+```
+sudo arpleg.py --tag <tag> --out /tmp/ntp1021/T33380 --iface eth3 \
+     --tcp 10.38.22.34:22,10.38.22.34:23 --icmp 10.38.22.34 \
+     --sender-ip 10.38.22.33 --sender-mac 00:0d:b9:55:77:0e \
+     --gw-mac e0:1a:ea:d4:70:43 --count 4 --wait 4
+```
+
+## The limb, in four legs
+
+### LEG A -- baseline, SSH on both families (tag `t380-base`)
+
+```
+  cap t380-base-eth3.pcap: 30 frame(s)
+    x4   TCP  10.38.22.33:40000 -> 10.38.22.34:22   S   [ours]
+    x4   TCP  10.38.22.34:22    -> 10.38.22.33:40000 SA
+    x4   TCP  10.38.22.33:40000 -> 10.38.22.34:22   R
+    x4   TCP  10.38.22.33:40000 -> 10.38.22.34:23   S   [ours]
+    x4   TCP  10.38.22.34:23    -> 10.38.22.33:40000 RA
+    x4   ICMP t8/c0 10.38.22.33 -> 10.38.22.34      [ours]
+    x4   ICMP t0/c0 10.38.22.34 -> 10.38.22.33      [ours]
+    x1   ARP-REQ who-has 10.38.22.34 tell 10.38.22.33
+    x1   ARP-REPLY 10.38.22.34 is-at e0:1a:ea:d4:70:43
+```
+**4 of 4 SYNs to :22 answered `SA`** -- IPv4 SSH is open. `:23` answers `RA` and ICMP is 4/4.
+This output is frame-for-frame identical to T33386's own `base-eth3` leg earlier the same day,
+which is the instrument's cross-run control.
+
+### LEG B -- `no service ssh ip` applied (tag `t380-v6only`)
+
+```
+awplus(config)#no service ssh ip
+awplus#show running-config | include service ssh
+service ssh ipv6                       <- the line was REPLACED, not negated (§7F.10)
+awplus#show ssh server
+SSH Server : Enabled                   <- still "Enabled" (§7F.2)
+Protocol   : IPv6
+```
+```
+  cap t380-v6only-eth3.pcap: 24 frame(s)
+    x4   TCP  10.38.22.33:40000 -> 10.38.22.34:22   S   [ours]
+    x4   TCP  10.38.22.34:22    -> 10.38.22.33:40000 RA        <- REFUSED
+    x4   TCP  10.38.22.33:40000 -> 10.38.22.34:23   S   [ours]
+    x4   TCP  10.38.22.34:23    -> 10.38.22.33:40000 RA
+    x4   ICMP t8/c0 10.38.22.33 -> 10.38.22.34      [ours]
+    x4   ICMP t0/c0 10.38.22.34 -> 10.38.22.33      [ours]
+```
+`:22` flipped from `SA` to `RA` while **ICMP stayed 4 of 4** -- the host is up and reachable and
+the service is refusing. That is the discrimination the whole limb rests on.
+
+### LEG C -- the limb itself: after a cold boot, nothing typed
+
+```
+awplus#write
+Building configuration...
+[OK]
+awplus#show startup-config | include service ssh
+service ssh ipv6                       <- saved
+
+tools/tb ckreload tb277 ntp1021 u2 115200 240
+17:37:54 >>> reload   (04:37:54 UTC)
+reboot question: 'reboot system? (y/n):' -> y
+17:38:54 login seen after 60 s
+```
+
+🔬 **The first post-boot leg was DISCARDED, not graded.** Run 9 s after the login prompt it
+returned:
+```
+  cap t380-afterboot-eth3.pcap: 16 frame(s)
+    x4   TCP  ...:22  S [ours]      (no reply row at all)
+    x4   TCP  ...:23  S [ours]      (no reply row at all)
+    x4   ICMP t8/c0 ... [ours]
+    x1   ICMP t0/c0 10.38.22.34 -> 10.38.22.33     <- only 1 of 4 answered
+    x1   ARP-REQ who-has 10.38.22.33 tell 10.38.22.34
+```
+**The ICMP control answered 1 of 4 and the DUT was still ARPing for the box**, so the unit had
+not finished coming up. With this tool "no reply row at all" means *silently dropped*, which is
+precisely the wrong conclusion to draw here -- it would have read as a filter. The leg was
+thrown away, the leg settled (`ping -c 4` -> **4/4, 0% loss, avg 0.442 ms**), and the
+measurement re-taken. This is the same post-reload transient group C recorded as a spurious
+`CHECK_CABLE`: **ping first, then measure.**
+
+The real leg, 41 s after the login prompt, with **nothing typed into the DUT** (tag
+`t380-afterboot2`):
+```
+  cap t380-afterboot2-eth3.pcap: 24 frame(s)
+    x4   TCP  10.38.22.33:40000 -> 10.38.22.34:22   S   [ours]
+    x4   TCP  10.38.22.34:22    -> 10.38.22.33:40000 RA        <- STILL REFUSED
+    x4   TCP  10.38.22.33:40000 -> 10.38.22.34:23   S   [ours]
+    x4   TCP  10.38.22.34:23    -> 10.38.22.33:40000 RA
+    x4   ICMP t8/c0 10.38.22.33 -> 10.38.22.34      [ours]
+    x4   ICMP t0/c0 10.38.22.34 -> 10.38.22.33      [ours]
+```
+**ICMP 4 of 4, TCP/22 refused 4 of 4** -- byte-identical to leg B, taken across a cold boot with
+no configuration typed. Only then was the console opened to read the configuration:
+```
+awplus#show running-config | include service ssh
+service ssh ipv6
+awplus#show ssh server
+SSH Server : Enabled
+Protocol   : IPv6
+```
+
+**The restriction survived the reboot, and it was proven on the wire BEFORE it was read from a
+`show`** -- which is the right order for a platform whose `show ssh server` says `Enabled` for a
+service that is refusing connections.
+
+### LEG D -- restore, and the arc closes (tag `t380-restored`)
+
+```
+awplus(config)#service ssh ip
+awplus#show running-config | include service ssh
+service ssh                            <- the suffix is dropped again
+awplus#show ssh server
+Protocol   : IPv4,IPv6
+```
+```
+  cap t380-restored-eth3.pcap: 30 frame(s)
+    x4   TCP  10.38.22.34:22 -> 10.38.22.33:40000 SA           <- open again
+    x4   TCP  10.38.22.34:23 -> 10.38.22.33:40000 RA
+    x4   ICMP t0/c0 10.38.22.34 -> 10.38.22.33    [ours]
+```
+
+**The full arc on the wire: `SA` -> `RA` -> (cold boot) `RA` -> `SA`.** Four legs, 16 SYNs to
+:22, 16 to :23 and 16 ICMP echoes, with the port-23 control answering `RA` in all four.
+
+## Health check 2 of 2 -- after the limb (2026-10-21 17:41 NZDT)
+
+```
+show reboot history   -> ONE new entry vs the before sample:
+                         2026-10-21 04:37:54 Expected CLI(user request)
+                         = this run's own leg-C reload. Matched and expected.
+show exception log    -> None
+show log | include kernel|exception|crash|restart|Unexpected
+                      -> only the boot sequence of that reload, the same line set as every
+                         other boot in this campaign. No new kernel line, no crash, no
+                         unexplained daemon restart.
+show cpu              -> 1 second: 0%, 20 seconds: 0%, 60 seconds: 0%
+show memory           -> RAM total: 8092132 kB; free: 7462060 kB; buffers: 1364 kB
+```
+Free memory **rose** across the run (7 459 312 -> 7 462 060 kB). No step change; **no leak is
+claimed**.
+
+**Health: clean. The run is clean, not confounded.**
+
+## Teardown and verification
+
+```
+awplus#write
+```
+- **running-config: 112 lines, byte-for-byte IDENTICAL to the campaign baseline.**
+- **startup-config differs from the campaign baseline by exactly its saved-on comment**
+  (`... 04:40:57 ...` against `... 03:01:22 ...`). `service ssh` is back to its unsuffixed form
+  in startup-config as well as in running-config; **nothing of this limb survives**.
+- The inherited underlay (vlan10 `.34`, vlan48 `.66`), **vlan 60** and `lldp run` are all still
+  present in both configs, as the Test Engineer directed. vlan 60 remains the Test Engineer's to
+  remove at wrap.
+- Boot pointers unchanged.
+- **swi_b and swi_a were never opened.**
+- Nothing left running on the box: `arpleg.py` starts and stops its own `tcpdump`, and all four
+  legs exited 0.
+
+## What run 2 adds
+
+1. 🔴 **`no service ssh ip` IS persistent across a reload, and it is persistent on the wire.**
+   Saved as `service ssh ipv6`, it came back after a 60 s cold boot with IPv4 TCP/22 refusing
+   4 of 4 SYNs while ICMP answered 4 of 4, with nothing typed into the device. **T33380's
+   reboot-persistence limb is no longer NOT MEASURED.**
+2. 🔬 **A post-reload leg needs the link proved before it is read.** A leg run 9 s after the
+   login prompt showed *no TCP reply rows at all* and 1 of 4 ICMP -- and with `arpleg --tcp`,
+   "no reply row" means *silently dropped*, i.e. it would have read as a filter rather than as a
+   unit still booting. Ping to 4/4 first, then measure. The same transient that produced group
+   C's spurious `CHECK_CABLE`.
+3. **A fifth independent measurement of the 60 s cold boot** on this platform
+   (60, 60, 60, 61, 60 s across this campaign).
+
+## Tools used, with exact arguments
+
+- `tools/tb sudotool tb277 ntp1021 arpleg --tag <t380-base|t380-v6only|t380-afterboot|
+  t380-afterboot2|t380-restored> --out /tmp/ntp1021/T33380 --iface eth3
+  --tcp 10.38.22.34:22,10.38.22.34:23 --icmp 10.38.22.34 --sender-ip 10.38.22.33
+  --sender-mac 00:0d:b9:55:77:0e --gw-mac e0:1a:ea:d4:70:43 --count 4 --wait 4|5`
+- `tools/tb cfg tb277 ntp1021 u2 115200 "configure terminal" "no service ssh ip"|"service ssh ip" "end" ...`
+- `tools/tb ckcon tb277 ntp1021 u2 115200 "write" "show ..."` (`CKTO` 180-300)
+- `tools/tb ckreload tb277 ntp1021 u2 115200 240`
+- `tools/tb ping tb277 eth3 10.38.22.34 4`
+- `python3 tools/rc2cfg.py <ckcon stdout> tb277/x960/access-2026-10-21T1159/T33380/swi_d.cfg "<3 headers>"`
+
+## Files saved
+
+- `tb277/x960/access-2026-10-21T1159/T33380/swi_d.cfg` (**overwritten by run 2**, per
+  logged-output.md §2: the folder holds the latest run's configs and git history keeps run 1's)
+- `tb277/x960/access-2026-10-21T1159/T33380/work/run2.log` (this file; run 1's log is untouched
+  beside it)
+- On the box, not committed: `/tmp/ntp1021/T33380/t380-*-eth3.pcap` and `/tmp/ntp1021/console-u2.log`
+
+**No `swi_b.cfg` and no `swi_a.cfg`**: both partner consoles are locked out.
+
+VERDICT: PASS -- the limb run 1 could not reach is measured. `no service ssh ip` is saved as `service ssh ipv6`, survives a 60 s cold boot, and is still refusing IPv4 TCP/22 (4 of 4 SYNs answered `RA`, ICMP 4 of 4 to the same address) before anything is typed into the device; restoring `service ssh ip` reopens the port in the same leg shape. Taken with run 1, T33380 is PASS with its reboot-persistence limb MEASURED.
