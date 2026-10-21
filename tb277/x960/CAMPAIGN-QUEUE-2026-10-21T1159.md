@@ -183,7 +183,7 @@ inherit it.** Reboot-persistence limbs are now measurable for the first time in 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
 | T33379 | (230) Management - Telnet Client (IPv4) | access-2026-10-21T1159 | PASS | the DUT originates IPv4 telnet as a client, proven on the wire (SYN to TCP/23 from its own SVI, full RFC 854 option negotiation captured at the far end) and end to end (authenticated login to swi_b, commands run there, swi_b logging the session from 10.38.22.97); server-off, bad-credential and wrong-port controls all failed correctly. The DUT's own `no service telnet` was never touched — its server is not under test | T33379/work/run1.log | tester |
-| T33380 | (231) Management - SSH Server (IPv4) | access-2026-10-21T1159 | PASS | the DUT serves SSH over IPv4, graded on the wire: 83-packet ESTABLISHED+DATA session for a real `manager` authentication against a 0-packet control; 2-packet REFUSED with `no service ssh ip` **while `show ssh server` still read Enabled**; same for the whole server off; the arc closed both times. **STEP 8 reboot persistence is NOT MEASURED, not skipped** — see Issues. Nothing was written to startup-config | T33380/work/run1.log | tester |
+| T33380 | (231) Management - SSH Server (IPv4) | access-2026-10-21T1159 | PASS | the DUT serves SSH over IPv4, graded on the wire: 83-packet ESTABLISHED+DATA session for a real `manager` authentication against a 0-packet control; 2-packet REFUSED with `no service ssh ip` **while `show ssh server` still read Enabled**; same for the whole server off; the arc closed both times. 🔴 **REBOOT PERSISTENCE NOW MEASURED (run 2)**: `no service ssh ip` saved as `service ssh ipv6`, survived a 60 s cold boot and was still refusing IPv4 TCP/22 (4/4 SYNs answered RA, ICMP 4/4 to the same address) before anything was typed into the device. **🔴 /create-logs: MERGE run1 + run2 — see Issues** | T33380/work/run1.log + run2.log | tester |
 | T33381 | (232) Management - SSH Client (IPv4) | access-2026-10-21T1159 | PASS | the DUT originates IPv4 SSH as a client, proven at the far end where ONE capture holds both the control (SYN to a dead port, answered RST) and the real session (the DUT sending `SSH-2.0-OpenSSH_10.5` from its own SVI, then key exchange); plus host-key verification, authentication, commands run on swi_b, the non-interactive LINE form and a server-off control | T33381/work/run1.log | tester |
 | T33387 | (238) EnhancedOperationManagement - Management Stacking | mgmt-2026-10-21T1159 | **UNSUPPORTED** | X960 TPS row 236 states the platform does not implement it (*"not necessary as these units support VCS"*), and the DUT agrees: `% Warning: Stacking is currently disabled`, one member ID 1 Ready Active Master, `Operational Status: Stacking hardware disabled`, VC ID 403, resiliency link Not configured, with a full VCS config surface offered instead. No device state was changed. **Deviation recorded**: the TPS Default Configuration section says *"Stacking is enabled by default"* while this DUT reads the hardware disabled | T33387/work/run1.log | tester |
 | T33386 | (237) EnhancedOperationManagement - Management ACL | mgmt-2026-10-21T1159 | PASS | both halves of TPS 6.1.1 proven in the dataplane, never from a `show`: a named hardware ACL gave the specified host 4/4 SYN-ACK while the non-specified host got 0 replies to 4 SYNs, with an ICMP control from that same denied host answered 4/4 in the SAME leg and the DUT's counters agreeing frame for frame (permit 8, deny 4); a standard ACL on an SNMP community failed exactly one cell of a 2x2 against a control; `ssh server 2222` moved the service on the wire and back. Reboot persistence NOT MEASURED | T33386/work/run1.log | tester |
@@ -437,6 +437,47 @@ above was never needed.
 
 
 ## Issues
+
+### 🔴🔴 INSTRUCTION TO `/create-logs` — T33380 must MERGE run 1 and run 2, not take the latest run
+
+**If this is missed, T33380's deliverable loses eight of its nine steps.**
+
+`/create-logs` §3 step 1 says the final log describes **the latest run only**. That rule assumes
+a re-run repeats the whole case. **T33380's run 2 does not.** Measured:
+
+- `run1.log` — **8 STEP headings**, the whole case.
+- `run2.log` — **0 STEP headings**. It is a focused single-limb run that measured only the
+  reboot persistence that run 1 had to record as NOT MEASURED, plus its own two health samples
+  and its own `VERDICT:` line.
+
+Taking run 2 alone would produce a final log containing the persistence limb and nothing else.
+
+**Apply `logged-output.md` §3 "Merging TestCase re-runs" by analogy:** run 1 is the base; run 2's
+evidence **replaces** run 1's `NOT RUN:` / NOT MEASURED entry for the persistence limb and is
+added as its own step; everything else in run 1 stays verbatim. The header's `Run:` line then
+names both dates and what ran on each, as that section requires.
+
+**The verdict does not change** — PASS either way. What changes is that the deliverable stops
+saying "reboot persistence NOT MEASURED".
+
+Note `swi_d.cfg` in that folder was overwritten by run 2, which is correct per
+`logged-output.md` §2 ("a re-run overwrites them"). Run 1's copy is in git history.
+
+### ⚠️ METHOD NOTE (T33380 run 2) — the post-reload transient, and how it nearly read as a filter
+
+The tester **discarded its first post-boot measurement rather than grading it**, and said so.
+Taken 9 s after the login prompt it showed **no TCP reply rows at all and 1 of 4 ICMP** — and
+with `arpleg --tcp`, *no reply row* means **silently dropped**, which is the exact signature of
+a working filter. It would have read as "the access filter persisted" when the unit was simply
+still coming up.
+
+It pinged to 4/4 first and re-took the measurement **41 s after the login prompt**.
+
+This is the same post-reload transient group C saw as a spurious `CHECK_CABLE`. **It is a trap
+for any limb measured straight after a reload**, and it is now the second independent sighting
+in this campaign. A reload-persistence limb needs a reachability gate before the measurement,
+not just a login prompt.
+
 
 ### 🔬 FINDINGS (T44298)
 
