@@ -1,0 +1,436 @@
+# T44298 (264) Management_NTP - IPv6 NTP Server -- working log, run 1
+
+Run label: **clean**.
+
+## Session facts
+
+As T33399 and T33400 (same group, same dispatch): testbox **tb277**, console **u2 ONLY**, PDU
+10.36.230.212 outlet u2=1, u2 = **swi_d** (DUT). Sentinel: the parent `/test-mode` session.
+Window partly attended. 🔴 swi_a must not be rebooted (and cannot be reached).
+
+🔴 **Both partner consoles (u3 swi_b, u5 swi_a) have a locked `manager` account** and were never
+opened by this run -- not even a bare CR. **There is no `swi_b.cfg` and no `swi_a.cfg`**: a
+console-lockout limitation, not a bench gap. The NTP client that measures this server is the
+**testbox itself**, over IPv6 from `eth3`, which is a better instrument than a partner switch
+because it reads every field of every reply.
+
+## Authored authority: NONE
+
+`has_objective = 0`; the single step is an empty placeholder
+(`[{"description": "", "testData": "", "expected": ""}]`). Designed from the title, from
+**X960 TPS row 262 "IPv6 NTP Server" = Yes**, and from the DUT's CLI surface read read-only
+with `qmark.py` (quoted in T33399's run 1: `ntp restrict` and `ntp server` both offer
+`X:X::X:X` and `X:X::X:X/M`, and `ntp restrict` offers `default-v6`, so the feature is
+configurable in both families).
+
+## Devices
+
+| role | name | console | model / serial | software |
+| --- | --- | --- | --- | --- |
+| DUT, **IPv6 NTP server** | swi_d | /dev/u2 @115200 | AT-x960-56YSQ, S/N A2WQS700B | `sin_x96056-20261019-27` |
+| **IPv6 NTP client** | tb277 itself, `eth3` | — | — | — |
+
+`show system` verbatim, host NIC MACs, the RSTP table and the group's clock pair are recorded
+once for group D in `../../T33399/work/run1.log`.
+
+## The IPv6 leg this case had to build (ordinary setup, flagged at triage)
+
+vlan1 already carried a link-local, so IPv6 was enabled on the box; **the transit VLAN had
+nothing**. Baseline, before any configuration:
+
+```
+awplus#show ipv6 interface brief
+Interface             IP-Address         Status          Protocol
+eth0          fe80::c462:afff:fe1b:a060/64    preferred    admin up    running
+lo            unassigned                      N/A          admin up    running
+vlan1         fe80::e21a:eaff:fed4:7043/64    preferred    admin up    running
+vlan10        unassigned                      N/A          admin up    running
+vlan48        unassigned                      N/A          admin up    running
+vlan60        unassigned                      N/A          admin up    running
+awplus#show running-config | include ntp
+   (nothing)
+```
+
+Applied:
+```
+awplus(config)#interface vlan10
+awplus(config-if)#ipv6 enable
+awplus(config-if)#ipv6 address fd32:b1f0:dff8:1603::34/64
+awplus#show ipv6 interface brief
+vlan10        fd32:b1f0:dff8:1603::34/64      preferred    admin up    running
+              fe80::e21a:eaff:fed4:7043/64    preferred
+```
+The prefix is not invented: the testbox's `eth3` already holds `fd32:b1f0:dff8:1603::1/64`, and
+`eth3` is cabled to `port1.0.10`, which is the access port for vlan10. So the two ends are on
+one /64 with no routing in between.
+
+**Reachability proved before any NTP measurement** (a leg is proved before a silence on it is
+read):
+```
+tools/tb ping tb277 eth3 fd32:b1f0:dff8:1603::34 3
+3 packets transmitted, 3 received, 0% packet loss, rtt min/avg/max/mdev = 0.410/0.543/0.800/0.182 ms
+```
+
+## Health check 1 of 2 -- before step 1 (2026-10-21 17:25 NZDT)
+
+```
+show clock            -> Wed, 21 Oct 2026 04:25:15 +0000   (aligned with the box)
+show reboot history   -> newest 2026-10-21 04:07:42 Expected CLI(user request)
+                         (T33400's own persistence reload; nothing newer)
+show exception log    -> None
+show cpu              -> 1 second: 0%, 20 seconds: 0%, 60 seconds: 0%
+show memory           -> RAM total: 8092132 kB; free: 7456572 kB; buffers: 1380 kB
+```
+
+## Pre-run gate
+
+The group's gate is recorded in T33399's run 1 (occupancy CLEAR, console at `awplus login:`,
+no deployed `tb277.setup` on the box, probe **exit 0 MATCH** against the swi_d-only run
+`.setup`, boot-config baseline `flash:/x960-tb277.rel` + `flash:/default.cfg` + Autoboot
+disabled, sentinel = parent). It still held: this case started with running-config verified
+byte-for-byte back at the 112-line baseline after T33400's teardown. Every command used was
+checked read-only with `qmark.py` first. No framework script, so no `pt_preflight.py`.
+
+## `<id>/swi_d.cfg`
+
+Saved from `show running-config` with `tools/rc2cfg.py` **after setup**: 3 header lines +
+**116** config lines -- the 112-line baseline plus `ntp master 7` (and its `!`) and the two
+`interface vlan10` lines `ipv6 address fd32:b1f0:dff8:1603::34/64` / `ipv6 enable`.
+
+## Steps
+
+### STEP 1 -- CONTROL: over IPv6, with no NTP configuration, the DUT answers nothing
+
+The leg is reachable (3/3 ping above) and the DUT has a global IPv6 address, so a silence here
+is the server being absent and nothing else.
+
+```
+tools/tb capture tb277 ntp1021 eth3 20 t44298-s1-off.pcap udp port 123      (background)
+tools/tb tool tb277 ntp1021 ntpc fd32:b1f0:dff8:1603::34 -6 \
+     --bind fd32:b1f0:dff8:1603::1 --count 3 --gap 2 --timeout 3
+```
+```
+ntpc: IPv6  fd32:b1f0:dff8:1603::1:50022 -> fd32:b1f0:dff8:1603::34:123
+  #1 sent 2026-10-21 04:26:09.658858Z -> NO REPLY within 3.0 s
+  #2 sent 2026-10-21 04:26:14.665378Z -> NO REPLY within 3.0 s
+  #3 sent 2026-10-21 04:26:19.672060Z -> NO REPLY within 3.0 s
+SUMMARY: sent=3 replies=0 origin_echo=0 no_reply=3          (exit 2)
+```
+`ntpwire` on the capture:
+```
+04:26:09.658958 v6 fd32:b1f0:dff8:1603::1:50022 -> fd32:b1f0:dff8:1603::34:123 client ...
+04:26:14.665562 v6 ... client ...
+04:26:19.672241 v6 ... client ...
+  by family: IPv6=3
+  by mode:   client(3)=3
+  pairing:   requests=3 replies=0  paired=0 unpaired=0 unanswered=3
+```
+**Three IPv6 requests left the box and the DUT sent nothing back.**
+
+**STEP 1 PASS** (control established).
+
+### STEP 2 -- Configure the server, and read it over IPv6 field by field
+
+```
+awplus(config)#ntp master 7
+awplus#show running-config | include ntp
+ntp master 7
+awplus#show ntp status
+   ... Leap status : Normal ...        (populated; it was completely empty before -- T33399 Finding 1)
+```
+
+```
+tools/tb capture tb277 ntp1021 eth3 30 t44298-s2-on.pcap udp port 123       (background)
+tools/tb tool tb277 ntp1021 ntpc fd32:b1f0:dff8:1603::34 -6 \
+     --bind fd32:b1f0:dff8:1603::1 --count 3 --gap 2 --timeout 3
+```
+```
+  #1 sent 2026-10-21 04:26:59.292399Z  reply 48 B from fd32:b1f0:dff8:1603::34:123
+      LI=0(no-warning) VN=4 mode=4(server) stratum=7 poll=4 precision=-25
+      refid=127.127.1.1 (ascii '....')  root_delay=0.000000s root_dispersion=0.000000s
+      reference=2026-10-21 04:26:38.055104Z
+      origin   =2026-10-21 04:26:59.292335Z  origin_echo=yes
+      receive  =2026-10-21 04:26:59.292503Z
+      transmit =2026-10-21 04:26:59.292614Z
+      offset=-0.000160 s  delay=0.000528 s
+SUMMARY: sent=3 replies=3 origin_echo=3 no_reply=0
+         reply stratum(s)=7 mode(s)=4
+         offset min=-0.000160 max=-0.000101 mean=-0.000122 s
+```
+
+| field | measured | why it is right |
+| --- | --- | --- |
+| transport | **IPv6**, source and destination both `fd32:b1f0:dff8:1603::/64` | this is the IPv6 server case, not IPv4 with a v6 address written on it |
+| mode | **4 (server)** | it answered as a server |
+| LI | **0** | claiming synchronisation |
+| stratum | **7** | exactly the `ntp master 7` value |
+| refid | **127.127.1.1** | the local-clock reference, as in the IPv4 case |
+| origin | **echoes our transmit, 3 of 3** | the replies answer these requests |
+| offset | **-122 microseconds** (mean of 3) | and that is a measurement in its own right -- see below |
+
+🔬 **The -122 microseconds is a continuity check on the whole group.** In T33399 the same
+instrument measured this DUT's clock at **-14.269 s**. T33400 then pointed the DUT at the box's
+`ntpd` and `chronyd` stepped it by 14.836 s. The NTP client was **removed** at the end of
+T33400, so by this case the DUT has been free-running for about five minutes -- and it is still
+within **160 microseconds** of the box. The discipline NTP applied in T33400 outlived the
+configuration that applied it, which is exactly what a disciplined clock should do and is
+independent confirmation that T33400's correction was real.
+
+**STEP 2 PASS.**
+
+### STEP 3 -- ONE `ntp master` serves BOTH address families, measured in ONE capture
+
+With the configuration untouched, the same server was queried over IPv4 seconds later. The
+single capture `t44298-s2-on.pcap` holds both conversations:
+
+```
+04:26:59.292506 v6 fd32:b1f0:dff8:1603::1:43877   -> fd32:b1f0:dff8:1603::34:123 client
+04:26:59.292888 v6 fd32:b1f0:dff8:1603::34:123    -> fd32:b1f0:dff8:1603::1:43877 server v4 LI=ok st=7 refid=127.127.1.1
+04:27:01.296282 v6 ... client ;  04:27:01.296634 v6 ... server st=7
+04:27:03.300130 v6 ... client ;  04:27:03.300497 v6 ... server st=7
+04:27:03.864682 v4 10.38.22.33:45443 -> 10.38.22.34:123   client
+04:27:03.865032 v4 10.38.22.34:123   -> 10.38.22.33:45443 server v4 LI=ok st=7 refid=127.127.1.1
+04:27:05.868253 v4 ... client ;  04:27:05.868600 v4 ... server st=7
+
+  10 frames in the capture, 10 NTP packets on port 123
+  by family: IPv4=4  IPv6=6
+  by mode:   client(3)=5  server(4)=5
+  10.38.22.33 -> 10.38.22.34                              2
+  10.38.22.34 -> 10.38.22.33                              2
+  fd32:b1f0:dff8:1603::1 -> fd32:b1f0:dff8:1603::34       3
+  fd32:b1f0:dff8:1603::34 -> fd32:b1f0:dff8:1603::1       3
+  pairing:   requests=5 replies=5  paired=5 unpaired=0 unanswered=0
+```
+
+**5 requests, 5 replies, 5 paired, 0 unanswered, across two address families, same stratum,
+same refid.** There is no separate IPv6 enable for the NTP server and none is offered: a single
+`ntp master` serves IPv4 and IPv6 at once.
+
+**STEP 3 PASS.**
+
+### STEP 4 -- `ntp restrict default-v6` discriminates BY ADDRESS FAMILY
+
+The control that must not match, again run against a live server so that only one thing differs
+-- here, the address family itself:
+
+```
+awplus(config)#ntp restrict default-v6 serve deny
+awplus#show running-config | include ntp
+ntp master 7
+ntp restrict default-v6 serve deny
+```
+
+| leg | client | result |
+| --- | --- | --- |
+| **denied** | `fd32:b1f0:dff8:1603::1` (IPv6) | `sent=3 replies=0 origin_echo=0 no_reply=3`, ntpc **exit 2** |
+| **allowed**, same server, seconds later | `10.38.22.33` (IPv4) | `sent=2 replies=2 origin_echo=2 no_reply=0`, stratum 7 |
+
+A single command switched off time service for **every** IPv6 client while leaving IPv4
+untouched. The denial is silent -- no kiss-o'-death, no ICMPv6 -- exactly as the IPv4 denial was
+in T33399.
+
+Removed, and IPv6 service returned on the same leg:
+```
+awplus(config)#no ntp restrict default-v6
+awplus#show running-config | include ntp
+ntp master 7
+  -> ntpc -6 ...: SUMMARY sent=2 replies=2 origin_echo=2, stratum 7
+```
+
+Note the negation form, which is the same asymmetry T33399 recorded for the IPv4 address form:
+the configured line reads `ntp restrict default-v6 serve deny`, but it is removed with
+**`no ntp restrict default-v6`** -- the `serve deny` qualifier cannot be typed back.
+
+**STEP 4 PASS.**
+
+### STEP 5 -- Persistence across a cold boot, measured ON THE WIRE, over IPv6
+
+```
+awplus#write
+Building configuration...
+[OK]
+```
+The write added to startup-config exactly three things, and nothing else:
+```
+> ntp master 7
+> !
+>  ipv6 address fd32:b1f0:dff8:1603::34/64
+>  ipv6 enable
+```
+plus the saved-on comment.
+
+```
+tools/tb ckreload tb277 ntp1021 u2 115200 240
+17:28:41 >>> reload   (04:28:41 UTC)
+reboot question: 'reboot system? (y/n):' -> y
+17:29:42 login seen after 61 s
+```
+**61 s cold boot** -- a fifth measurement in line with the other four (60, 60, 60, 61 s).
+
+**Eleven seconds after the login prompt, with nothing typed into the DUT** -- no login, no
+configuration, no `ipv6 address`:
+```
+tools/tb capture tb277 ntp1021 eth3 40 t44298-s6-persist.pcap udp port 123   (background)
+tools/tb tool tb277 ntp1021 ntpc fd32:b1f0:dff8:1603::34 -6 --bind fd32:b1f0:dff8:1603::1 \
+     --count 6 --gap 3 --timeout 3
+
+  #1 sent 2026-10-21 04:29:54.408293Z  reply 48 B from fd32:b1f0:dff8:1603::34:123
+      LI=0(no-warning) VN=4 mode=4(server) stratum=7 poll=4 precision=-25
+      refid=127.127.1.1   origin_echo=yes
+      offset=-0.179033 s  delay=0.002262 s
+SUMMARY: sent=6 replies=5 origin_echo=5 no_reply=1
+         reply stratum(s)=7 mode(s)=4
+         offset min=-0.179137 max=-0.178943 mean=-0.179010 s
+```
+`ntpwire`:
+```
+  11 NTP packets; by family: IPv6=11 ; by mode: client(3)=6 server(4)=5
+  pairing: requests=6 replies=5 paired=5 unpaired=0 unanswered=1
+```
+
+**Both halves of the saved configuration came back by themselves** -- the global IPv6 address on
+vlan10 (otherwise there would have been nothing to answer) **and** `ntp master 7` (the replies
+carry stratum 7) -- and the DUT was serving IPv6 time 11 s after the login prompt.
+
+The one unanswered request of six is the **default NTP rate limiter** measured in T33399
+(burst 8 / interval 8 s / leak 4, on by default and invisible in running-config), not a
+persistence failure: the five that were answered are all stratum 7 with the origin echoed.
+
+By-product: the clock drifted **179 ms** across this reboot, against 593 ms across T33400's and
+about 570 ms across T33399's -- all sub-second, all consistent with a working RTC.
+
+**STEP 5 PASS.**
+
+### STEP 6 -- Removal: the IPv6 server stops, and the counters go dark
+
+```
+awplus(config)#no ntp master
+awplus#show running-config | include ntp
+   (nothing)
+awplus#show ntp status
+   (completely empty)
+
+tools/tb tool tb277 ntp1021 ntpc fd32:b1f0:dff8:1603::34 -6 --bind fd32:b1f0:dff8:1603::1 \
+     --count 3 --gap 1 --timeout 3
+SUMMARY: sent=3 replies=0 origin_echo=0 no_reply=3          (exit 2)
+```
+The IPv6 address was still on vlan10 and still pinging at this point, so the silence is the
+server being gone and not the leg.
+
+**STEP 6 PASS.**
+
+## Health check 2 of 2 -- after the last step, before teardown (2026-10-21 17:31 NZDT)
+
+```
+show clock            -> Wed, 21 Oct 2026 04:31:03 +0000   (aligned with the box)
+show reboot history   -> ONE new entry vs the before sample:
+                         2026-10-21 04:28:41 Expected CLI(user request)
+                         = this case's own step-5 reload. Matched and expected.
+show exception log    -> None
+show log | include kernel|exception|crash|restart|Unexpected
+                      -> only the 04:29:1x boot sequence of that reload, the same line set as
+                         every other boot in this campaign (Linux version 6.12.110; tpm tpm0
+                         TPM error (256) self test; boardinfo-eeprom-i2c 1-0050 / 1-0052;
+                         HTTP server restarted). No new kernel line, no crash, no unexplained
+                         daemon restart.
+show log tail 150     -> after the boot, only this case's own command lines plus
+                         "login: pam_lastlog(console:session): file /var/log/lastlog created"
+                         (04:30:28, the first console login after the boot) and syslog-ng's own
+                         "Configuration reload request received/finished" (04:31:11, raised by
+                         the `show log` read itself). Nothing unexplained.
+show cpu              -> 1 second: 0%, 20 seconds: 0%, 60 seconds: 0%
+show memory           -> RAM total: 8092132 kB; free: 7454240 kB; buffers: 1356 kB
+```
+
+Free memory moved from 7 456 572 kB to 7 454 240 kB -- **2.3 MB across a case containing a full
+reboot**, which is noise. **No leak is claimed**; one case cannot show one.
+
+**Health: clean. The run is clean, not confounded.**
+
+## Teardown and verification
+
+```
+awplus(config)#interface vlan10
+awplus(config-if)#no ipv6 address fd32:b1f0:dff8:1603::34/64
+awplus(config-if)#no ipv6 enable
+awplus#show ipv6 interface brief
+vlan10        unassigned                      N/A          admin up    running
+awplus#write
+```
+
+- **running-config: 112 lines, byte-for-byte IDENTICAL to the pre-case baseline** -- the
+  `ipv6 enable` and the address are both gone from vlan10 and the interface reads `unassigned`
+  again, exactly as it did before the case.
+- **startup-config differs from the campaign baseline by exactly its saved-on comment**
+  (`... 04:32:02 ...` against `... 03:01:22 ...`). Nothing of this case survives there. The
+  inherited underlay, vlan 60 and `lldp run` are all still present.
+- `show boot` re-read after the case: `Current boot image : flash:/x960-tb277.rel (file
+  exists)`, `Current boot config: flash:/default.cfg (file exists)`, `Autoboot status :
+  disabled` -- unchanged.
+- The DUT's clock was left correct: `show clock` 04:31:03 UTC against the box's 04:30:58 at the
+  start of the same console call, i.e. inside the console's own round-trip.
+- **swi_b and swi_a were never opened**, not even a bare CR.
+- Nothing of this run is left on the box; every capture was a bounded `timeout <secs> tcpdump`
+  and all had exited.
+
+## Findings for `platforms/x960.md`
+
+1. **One `ntp master` serves IPv4 and IPv6 simultaneously.** There is no separate IPv6 enable
+   for the NTP server and none is offered in the CLI. Proven in a single capture holding both
+   families: `IPv4=4 IPv6=6` frames, 5 requests / 5 replies / 5 paired, same stratum, same
+   refid.
+2. **`ntp restrict default-v6 serve deny` denies time service to every IPv6 client while IPv4
+   is unaffected** -- measured on both legs within seconds of each other against one live
+   server. The denial is silent (no kiss-o'-death, no ICMPv6), as the IPv4 denial is.
+3. ⚠ **The IPv6 restriction has the same asymmetric negation as the IPv4 one**: the line stored
+   is `ntp restrict default-v6 serve deny`, the removal is `no ntp restrict default-v6`. `no `
+   plus the exact running-config line does not work. (T33399 Findings 5 and 6 are the same
+   shape in two other `ntp` commands; this is the third.)
+4. **An IPv6 NTP server needs a GLOBAL address on the serving interface.** vlan1's link-local
+   was present from the start and the DUT still answered nothing over IPv6 until
+   `ipv6 address <global>/64` was put on the transit VLAN. `ipv6 enable` alone is not enough for
+   this case's purposes.
+5. **`no ipv6 enable` removes the interface's link-local too** -- `show ipv6 interface brief`
+   goes straight back to `unassigned` for that VLAN, so the teardown is complete in one command
+   pair.
+6. **The served IPv6 reply is byte-identical in content to the IPv4 one**: `LI=0 mode=4
+   stratum=<configured> refid=127.127.1.1 precision=-25 root_delay=0 root_dispersion=0`. Only
+   the transport differs.
+7. 🔬 **The clock discipline NTP applied in T33400 outlived the configuration.** With the NTP
+   client removed for about five minutes, this case measured the DUT's clock at **-122
+   microseconds** against the box (it had been **-14.269 s** before T33400 ran). Independent
+   confirmation that T33400's 14.836 s step was real, and a useful reminder that removing
+   `ntp server` does not un-discipline a clock.
+8. **An x960-56YSQ cold-boots to its login prompt in 60-61 s** -- a fifth measurement
+   (60, 60, 60, 61 s across this campaign).
+9. **The RTC loses a fraction of a second per reboot**: 179 ms here, 593 ms in T33400, ~570 ms
+   in T33399.
+
+## Tools used, with exact arguments
+
+- `tools/tb cfg tb277 ntp1021 u2 115200 "configure terminal" "interface vlan10" "ipv6 enable"
+  "ipv6 address fd32:b1f0:dff8:1603::34/64" "end" ...`
+- `tools/tb cfg tb277 ntp1021 u2 115200 "configure terminal" "ntp master 7" "end" ...` and
+  `"ntp restrict default-v6 serve deny"` / `"no ntp restrict default-v6"` / `"no ntp master"`
+- `tools/tb ckcon tb277 ntp1021 u2 115200 "<reads>"` (`CKTO` 180-300)
+- `tools/tb ckreload tb277 ntp1021 u2 115200 240`
+- `tools/tb capture tb277 ntp1021 eth3 <secs> <name>.pcap udp port 123`
+- `tools/tb ping tb277 eth3 fd32:b1f0:dff8:1603::34 3`
+- **`tools/ntpc.py`**: `tools/tb tool tb277 ntp1021 ntpc fd32:b1f0:dff8:1603::34 -6
+  --bind fd32:b1f0:dff8:1603::1 --count N --gap S --timeout S` (and the IPv4 form for the
+  same-server comparison legs). **This case is the tool's IPv6 hardware verification.**
+- **`tools/ntpwire.py`**: `tools/tb tool tb277 ntp1021 ntpwire /tmp/ntp1021/<f>.pcap` --
+  **this case is the tool's IPv6 hardware verification**, including a capture carrying both
+  families at once, which it split correctly (`by family: IPv4=4 IPv6=6`).
+- `python3 tools/rc2cfg.py <ckcon stdout> tb277/x960/ntp-2026-10-21T1159/T44298/swi_d.cfg "<3 headers>"`
+
+## Files saved
+
+- `tb277/x960/ntp-2026-10-21T1159/T44298/swi_d.cfg` (after setup: 116 config lines)
+- `tb277/x960/ntp-2026-10-21T1159/T44298/work/run1.log` (this file)
+- On the box, not committed: `t44298-s1-off.pcap`, `t44298-s2-on.pcap`,
+  `t44298-s6-persist.pcap`, `console-u2.log`, all in `/tmp/ntp1021/`.
+
+**No `swi_b.cfg` and no `swi_a.cfg`**: both partner consoles are locked out.
+
+VERDICT: PASS -- the x960-56YSQ serves IPv6 NTP exactly as TPS row 262 claims, proven on the wire: three IPv6 requests unanswered with no configuration, then mode-4 replies at the configured stratum 7 with the origin timestamp echoed and a 122 microsecond offset, one capture showing a single `ntp master` serving IPv4 and IPv6 at once with 5 of 5 requests paired, `ntp restrict default-v6 serve deny` silencing every IPv6 client while IPv4 kept being served, silence again after `no ntp master`, and the saved configuration -- both the global IPv6 address and the server itself -- back on the wire 11 s after a cold boot with nothing typed into the device.
