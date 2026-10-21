@@ -219,7 +219,15 @@ interface vlan48
 ```
 Testbox side, already in place and unchanged: eth3 `10.38.22.33/27`, eth4 `10.38.22.65/27`.
 
-**(b) A swi_d↔swi_b management VLAN — group A's own, NOT saved, removed at group end.**
+**(b) A swi_d↔swi_b management VLAN — CAMPAIGN INFRASTRUCTURE, NOT saved, removed by the
+LAST group that runs.** (Sentinel decision relayed 2026-10-21, after group A had built it:
+*"treat it as campaign infrastructure, the same as the underlay, not as group A's own setup"* —
+group D (NTP) needs DUT↔partner IPv4/IPv6 reachability and group C (LLDP) benefits from it, so
+A removing it would only make D rebuild the same thing. Group A therefore **leaves it in
+place**. Unlike the underlay it is **not** written to startup-config, so any reload clears it
+and the group that next needs it re-applies the block below. **Each group's working log must
+say vlan 60 is inherited campaign infrastructure, not that group's own setup**, so no final log
+claims it as part of its case.)
 The three group-A cases all need the DUT to originate telnet/SSH **to a far end**, and swi_b
 had no IPv4 address on any SVI (only `eth0 169.254.42.42/16`, which the testbox cannot reach
 and swi_d is not cabled to). swi_d port1.0.2 ↔ swi_b port1.0.2 is the one inter-switch link
@@ -252,22 +260,22 @@ ssh server allow-users cktmp         ! swi_b carries `ssh server allow-users man
 🔴 **swi_d's own `no service telnet` is left exactly as found** — the DUT's telnet *server* is
 not under test in group A (T33378 covered it on 2026-10-20).
 
-### Restore recipe — undo (b) and (c), keep (a)
+### Restore recipe
 
+**At the end of GROUP A — undo (c) only, on swi_b. Keep (a) and (b).**
 ```
 ! swi_b (u3), config mode
 no ssh server allow-users cktmp
 no username cktmp
 no service telnet
-interface port1.0.2
- switchport trunk allowed vlan remove 60
- switchport mode access
- switchport access vlan 1
-no interface vlan60
-vlan database
- no vlan 60
+! swi_b: never `write`. Its startup-config must stay exactly as found.
+```
 
-! swi_d (u2), config mode
+**At the end of the LAST group to run (group D on the current plan) — undo (b) on BOTH units.**
+If group D is BLOCKED, whichever group runs last does this instead; a tester that cannot run it
+says so in its hand-back.
+```
+! swi_d (u2) AND swi_b (u3), config mode
 interface port1.0.2
  switchport trunk allowed vlan remove 60
  switchport mode access
@@ -277,8 +285,12 @@ vlan database
  no vlan 60
 ! swi_d: do NOT `write` after this — startup-config must keep (a) and nothing else.
 ```
-Neither unit is reloaded by group A. If one has been reloaded, (b) and (c) are gone already and
-only (a) survives, which is the intended steady state for groups B–D.
+
+**(a) is never undone.** It is the Test Engineer's deliberate startup-config change.
+
+Neither unit is reloaded by group A except for T33380's reboot-persistence step, which reloads
+**swi_d only**. Any reload clears (b) and (c), because neither is saved; the tester that caused
+the reload re-applies whichever of them the next case needs, and says so in its working log.
 
 ### Baseline this group must return to
 
