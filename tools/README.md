@@ -1487,3 +1487,69 @@ bench and suite: `tb470/IE520/plans/modbus/` (T22650-T22655, with their README).
   port block are written as plain addresses in the plan; FLOAT values compare at 3 decimals
 - **Status:** Modbus lines (read/write/exception/probe/port/@port) verified 2026-10-08 against a pymodbus
   3.8.6 server on tb470 loopback; `cli`/`log` lines NOT yet run against a console (first real use: check them)
+
+### `ntpc.py`
+Crafted **NTP client**: sends mode-3 (or any mode) NTP packets and decodes every field of the
+reply. IPv4 and IPv6, no root.
+- **Why it exists:** an NTP case is a traffic case (STANDING-ORDERS §7), and on the x960
+  `show ntp associations` will list a peer no packet ever reached while `show ntp status` and
+  `show ntp counters` print COMPLETELY EMPTY output -- indistinguishable from a hung command
+  (`platforms/x960.md` §7H). The verdict has to come from the exchange.
+- **Why a plain UDP socket and not scapy:** it needs no root, so it runs anywhere a case runs;
+  and on a box whose own `ntpd` owns UDP/123 a raw responder would race the kernel, while an
+  ordinary client socket just talks to the device under test. The 48-byte request is still
+  built byte by byte here (LI/VN/mode, stratum, poll, precision, transmit timestamp are all
+  arguments), so it is a crafted frame.
+- **Run:** `ntpc.py <server> [--port N] [--count N] [--gap S] [--timeout S] [--version 1-4]
+  [--mode 0-7] [--req-stratum N] [--poll N] [--precision N] [--bind IP] [--bind-port N]
+  [-4|-6] [--json F]`, or `tools/tb tool <TB> <scratch> ntpc <server> --bind <src> --count N`
+- **Where:** anywhere (the testbox, for a leg that must leave a particular NIC);
+  **needs:** nothing beyond Python
+- **Imports:** none
+- **Output:** per packet, the request's transmit time and then the reply's LI, version, mode,
+  stratum, poll, precision, root delay, root dispersion, refid, all four timestamps, and the
+  computed offset and delay. It flags a stratum-0 **kiss-o'-death**, an **LI=3** "not
+  synchronised" reply, and -- the important one -- **`origin_echo=yes/no`**, which says whether
+  the reply's origin timestamp echoes the transmit timestamp of *this* request. A reply that
+  does not echo it is reported, never counted as an answer.
+- **`--bind <ip>` picks the leg**, which is how one box tests a server from two different
+  client addresses (an `ntp restrict` case needs exactly that).
+- **Exit codes:** 0 at least one reply; **2 no reply at all -- a legitimate control result**
+  (server disabled, restricted, unreachable), not only an error; 3 usage/resolution error.
+- **Limits:** client side only (it does not answer requests); no authentication (no MD5/SHA
+  MAC is appended or checked); one server per run.
+- 🔴 **Count a burst against the server's rate limiter, not against your expectations.** The
+  x960 rate-limits NTP replies BY DEFAULT (burst 8, interval 8 s, leak 4), so 20 packets
+  0.5 s apart legitimately return 11 answers. See `platforms/x960.md` §7H.
+- **Status:** verified 2026-10-21 on tb277 -- against the box's own `ntpd` on 127.0.0.1
+  (stratum 5, `origin_echo=yes`, offset < 1 ms) as the instrument control, then on
+  x960-56YSQ (T33399 IPv4 server, T33400 IPv4 client, T44298 IPv6 server)
+
+### `ntpwire.py`
+Decodes and **counts** the NTP packets in a `tcpdump -w` pcap -- **IPv4 and IPv6**.
+- **Why it exists:** the independent witness beside `ntpc.py`. It is what proves a request
+  *left the box* when no reply came back, which is the entire content of a negative leg, and
+  what counts a client's outbound polls when the device under test is the client and the far
+  end is a real `ntpd` that reports nothing to the case.
+- **Run:** `ntpwire.py <file.pcap> [--port N ...] [--from ADDR ...] [--to ADDR ...]
+  [--limit N] [--quiet]`, or `tools/tb tool <TB> <scratch> ntpwire /tmp/<scratch>/<f>.pcap`
+  (default port 123; any `--port` replaces the default list)
+- **Where:** anywhere; **needs:** nothing beyond Python
+- **Imports:** `snmpwire` (for the classic-pcap reader) -- so it takes `tcpdump -w` output,
+  **not pcapng**. Its own IPv4/IPv6 + 802.1Q + UDP walk is local, because `snmpwire.udp_payload`
+  is IPv4 only.
+- **Output:** one line per packet (time, family, addresses and ports, mode, version, LI,
+  stratum, refid, transmit timestamp, and `+MAC(auth)` when the packet carries an
+  authenticator), then a summary by family, by mode and by address pair, and a
+  **request/reply pairing** that matches each server reply to the request whose transmit
+  timestamp it echoes in its origin field. It reports `paired`, `unpaired` and `unanswered`
+  separately -- an unpaired reply is not evidence that a request was answered. Stratum-0
+  kiss-o'-death replies and LI=3 replies are called out.
+- **Exit codes:** 0 packets decoded; **2 no NTP packets at all** (for a control leg that is the
+  measurement, not an error); 3 the file could not be read.
+- **Limits:** Ethernet link type only; it walks hop-by-hop/routing/destination IPv6 extension
+  headers but not fragments; no authenticator verification.
+- **Status:** verified 2026-10-21 on tb277, x960-56YSQ -- across T33399's full off/on/
+  restrict/removed arc (2 requests + 0 replies with the server off, 3+3 all paired with it on,
+  3 requests + 0 replies while `ntp restrict ... serve deny` was in force) and on IPv6 in
+  T44298

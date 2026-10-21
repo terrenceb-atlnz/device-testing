@@ -1,0 +1,659 @@
+# T33399 (262) Management_NTP - IPv4 NTP Server -- working log, run 1
+
+Run label: **clean**.
+
+## Session facts (dispatch, /test-mode §1, queue Session facts)
+
+- Testbox **tb277**; console **u2 ONLY**; PDU 10.36.230.212 outlet u2=1; name u2=**swi_d** (DUT).
+- Test Engineer: bidhanc@bidhanc-dl. Sentinel: the parent `/test-mode` session.
+- Constraints: none beyond standing orders. Window partly attended, sentinel stands down 20:00.
+  🔴 swi_a must not be rebooted or power-cycled (and could not be reached at all).
+- Group **D**, `tb277/x960/ntp-2026-10-21T1159/`, stamp 2026-10-21T1159.
+- 🔴 **Both partner consoles (u3 swi_b, u5 swi_a) have a locked `manager` account** and were
+  never opened, probed, or logged into by this run. **Therefore there is no `swi_b.cfg` and no
+  `swi_a.cfg` for this case.** That is a console-lockout limitation, not a bench gap, and not a
+  limitation of the measurement: this case's partner is the testbox itself, which is a better
+  instrument for an NTP server case than a partner switch would have been (see Method).
+
+## Authored authority: NONE
+
+`ck.db` `zephyr_cases` for this campaign: **`has_objective = 0`** on all 14 cases, and this
+case's single step is an empty placeholder (`[{"description": "", "testData": "",
+"expected": ""}]`). **There is not one word of authored objective, procedure, test data or
+expected result.** The case was designed from:
+
+- its **title**, "(262) Management_NTP - IPv4 NTP Server";
+- the **X960 TPS row 260, "NTP Server(IPv4)" = Yes** (wiki `X960_platform_support_TPS`,
+  last modified 2026-10-19), which is the supported/unsupported authority;
+- the **DUT's own CLI surface**, read read-only with `qmark.py` before anything was configured.
+
+Every step below therefore states what it proves and why that is the right thing to prove.
+
+## Devices, roles, build
+
+| role | name | console | model | serial | software | boot image / config |
+| --- | --- | --- | --- | --- | --- | --- |
+| DUT, **NTP server** | swi_d | /dev/u2 @115200 | AT-x960-56YSQ | A2WQS700B | `sin_x96056-20261019-27`, build Sun Oct 18 23:18:21 UTC 2026 | `flash:/x960-tb277.rel` / `flash:/default.cfg`, Autoboot disabled |
+| **NTP client** (the partner) | tb277 itself | — | testbox | — | — | — |
+
+### `show system`, verbatim and in full (captured with the setup reads, before step 1)
+
+```
+System Status                                           Wed Oct 21 03:23:50 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+Fan module 730  FAN1    AT-FAN19                          -     -
+Fan module 730  FAN2    AT-FAN19                          -     -
+--------------------------------------------------------------------------------
+RAM: Total: 8092132 kB Free: 7462972 kB
+Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 00:24:19
+Bootloader version : Unknown
+
+Current software   : x960-tb277.rel
+Software version   : sin_x96056-20261019-27
+Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+Current boot config: flash:/default.cfg (file exists)
+
+System Name
+ awplus
+System Contact
+
+System Location
+```
+
+### Links and host NICs used (recorded once for group D; T33400 and T44298 point here)
+
+| leg | box NIC | box address | MAC | DUT port | DUT VLAN / address |
+| --- | --- | --- | --- | --- | --- |
+| A | eth3 | 10.38.22.33/27 | `00:0d:b9:55:77:0e` | port1.0.10 (access) | vlan10 `10.38.22.34/27` |
+| B | eth4 | 10.38.22.65/27 | `00:0d:b9:55:77:0f` | port1.0.48 (access) | vlan48 `10.38.22.66/27` |
+
+Both legs pinged 3/3, 0% loss before step 1 (`tools/tb ping tb277 eth3 10.38.22.34 3`, rtt
+avg 0.537 ms; `eth4 10.38.22.66`, rtt avg 0.347 ms).
+
+RSTP state inherited from triage and unchanged: single-instance RSTP, root is swi_b, the active
+tree is a line swi_d —(1.0.2)— swi_b —(1.0.1)— swi_a; swi_d's 1.0.4/1.0.14/1.0.16 are
+Alternate/Discarding. **No forwarding loop**, so a counted traffic leg is safe.
+
+### 🔴 The clock pair, recorded once for group D
+
+| | reading |
+| --- | --- |
+| box `date -u` | 2026-10-21 **03:23:58 UTC** |
+| DUT `show clock` | `UTC Time: Wed, 21 Oct 2026 **03:23:49 +0000**`; `Timezone: UTC`; offset `+00:00`; summer time None |
+| box local | 16:24 **NZDT = UTC+13** |
+
+**Correction to the dispatch's "the DUT is about 13 hours behind the box":** both clocks are on
+UTC and agreed to within about 15 s. The 13 hours is the box's *local* NZDT display against the
+DUT's UTC. For an NTP case that distinction is the measurement itself, so everything below is in
+**UTC on both ends**. Step 3 later pins the offset to **-14.269 s** (DUT behind) to microsecond
+resolution, measured by NTP itself rather than by eye.
+
+## Method, and why it is this method
+
+STANDING-ORDERS §7 requires the exact exchange plus a control that must not match, both counted.
+For NTP the §5 read-back trap has a specific shape: `show ntp associations` will list a peer that
+no packet ever reached, and on this platform `show ntp status` and `show ntp counters` print
+**completely empty output**, which is indistinguishable from a hung command. So every verdict
+below is graded on packets.
+
+Two instruments, independent of each other:
+
+1. **`tools/ntpc.py`** (NEW, written for this group) -- a crafted NTP client over an ordinary
+   UDP socket. It builds the 48-byte request byte by byte (LI/VN/mode, stratum, poll, precision,
+   transmit timestamp), decodes every field of the reply, and reports `origin_echo=yes/no`,
+   which proves a reply is an answer to *that* request and not stray traffic. Exit 2 = no reply,
+   which is a legitimate control result. It is a plain socket rather than scapy on purpose: it
+   needs no root, and tb277's own `ntpd` owns UDP/123, so a raw responder would have raced the
+   kernel.
+2. **`tcpdump` + `tools/ntpwire.py`** (NEW) -- the independent witness. It counts NTP packets in
+   the capture, splits them by mode and by address pair, and pairs each reply with the request
+   whose transmit timestamp it echoes. It is what proves a request *left the box* when no reply
+   came back, which is the whole content of a negative leg.
+
+Exact invocations are given per step.
+
+## Health check 1 of 2 -- with the setup reads, before step 1 (2026-10-21 16:24 NZDT)
+
+```
+show reboot history   -> newest entry 2026-10-21 02:59:10 Expected CLI(user request)
+                         (group C's last reload; nothing newer)
+show exception log    -> None
+show log | include kernel|exception|crash|restart|Unexpected
+                      -> only the 02:59:43 boot sequence of that same reload:
+                         kern.notice "Linux version 6.12.110 ... #1 SMP PREEMPT Sun Oct 18 22:07:48 UTC 2026"
+                         kern.err    "tpm tpm0: A TPM error (256) occurred attempting the self test"
+                         kern.err    "boardinfo-eeprom-i2c 1-0050: Failed to read eeprom data for board_index 0"
+                         kern.err    "boardinfo-eeprom-i2c 1-0052: Failed to read eeprom data for board_index 0"
+                         daemon.notice "HTTP: HTTP server restarted" (03:00:06)
+                         user.notice IMISH "[SCRIPT]snmp restart isis" x3 (03:00:07)
+                         -- all of these are this platform's ordinary boot output, present at
+                            every boot in this campaign; none is new.
+show cpu              -> 1 second: 0%, 20 seconds: 0%, 60 seconds: 0%; load 0.01 / 0.00 / 0.3
+show memory           -> RAM total: 8092132 kB; free: 7462972 kB; buffers: 1392 kB
+```
+
+## Pre-run gate (bench-runner gate, all ten items)
+
+1. **Occupancy** -- `tools/tb precheck tb277 u2`: `/dev/u2 free`. One FOUND item, `ser2net`
+   pid 744 (root, up 40 d), the box's own console daemon, the identical item the Test Engineer
+   adjudicated "Proceed" for the 2026-10-20 campaign. Nothing displaced. The Test Engineer's own
+   logins on pts/1 are information only.
+2. **Console not parked mid-state** -- `tools/tb peek tb277 ntp1021 u2 115200` -> `awplus login:`.
+   Group C left it logged out, as it said it did.
+3. **Template path** -- tb277 has **no** deployed `/home/st-art/st-art/configs/tb277.setup`
+   (`tools/tb template tb277`: "no deployed tb277.setup"). Reported, as the gate requires; the
+   generated `bench-setup/tb277/bench-state.md` fence is the only description of this box.
+4. **Probe** -- `tools/tb probe tb277 --consoles u2 --no-prompt --pdu 10.36.230.212
+   --outlet u2=1 --name u2=swi_d --read-only --baud 115200 --template <the run .setup>
+   --out /tmp/ntp1021/bench-state-open.md` -> **exit 0, MATCH**, zero MISMATCH rows.
+   `--read-only` because tb277 is not the Test Engineer's own box. The repo's `bench-state.md`
+   was **not** overwritten.
+5. **Run `.setup`** -- `tb277/x960/ntp-2026-10-21T1159/tb277-u2.setup`, declaring **swi_d only**:
+   no `[switch]`, `[baudrates]`, `[power]`, `[powerlink]`, `[boot_from_flash]` or `[portlink]`
+   entry for swi_b or swi_a anywhere, so no framework power cycle can ever reach a locked unit.
+6. **Preflight** -- not applicable: this case runs no framework script. It is driven from the
+   console with `tools/` drivers and measured from the host NICs, which is the right shape for a
+   case with no authored steps and a protocol that has to be graded on the wire.
+7. **Boot config baseline** -- `show boot`: `Current boot image : flash:/x960-tb277.rel (file
+   exists)`, `Current boot config: flash:/default.cfg (file exists)`, `Autoboot status:
+   disabled`. Re-read after the case: unchanged.
+8. **Ask-CK server run path** -- not used.
+9. **Sentinel** -- `sentinel: parent`; the dispatching `/test-mode` session is the sentinel.
+10. **Defaulting commands** -- every `ntp` command used was checked against the platform
+    read-only with `qmark.py` **before** it was sent (the surface is quoted in step 2). Three
+    forms that the help text appears to allow were found to be rejected, and are findings rather
+    than failures; see Findings 4, 6 and 8.
+
+### Baseline configuration state
+
+`show running-config` = **112 lines**; `show running-config | include ntp` prints **nothing** --
+there is no NTP configuration of any kind on this DUT. `show startup-config` = the same 112
+lines plus `! Startup-config saved on Wed Oct 21 03:01:22 2026 +0000 by manager via con0
+(ttyS0)` and a following `!`.
+
+`<id>/swi_d.cfg` was saved after setup (`ntp master 5` applied) and before step 1's grading, from
+`show running-config` via `tools/rc2cfg.py`: 3 header lines + 114 config lines.
+
+## Steps
+
+### STEP 1 -- CONTROL: with no NTP configuration, the DUT answers nothing on UDP/123
+
+What it proves: that every reply counted later is caused by the configuration under test, and
+not by something that was already answering.
+
+```
+tools/tb capture tb277 ntp1021 eth3 16 t33399-s1-off.pcap udp port 123      (background)
+tools/tb tool tb277 ntp1021 ntpc 10.38.22.34 --bind 10.38.22.33 --count 3 --gap 2 --timeout 3
+```
+
+`ntpc` output:
+```
+ntpc: IPv4  10.38.22.33:53176 -> 10.38.22.34:123   version=4 mode=3 count=3 gap=2.0s timeout=3.0s
+  #1 sent 2026-10-21 03:31:12.447058Z -> NO REPLY within 3.0 s
+  #2 sent 2026-10-21 03:31:17.453466Z -> NO REPLY within 3.0 s
+  #3 sent 2026-10-21 03:31:22.460192Z -> NO REPLY within 3.0 s
+
+SUMMARY: sent=3 replies=0 origin_echo=0 no_reply=3
+```
+exit 2 (no reply), the expected control result.
+
+`ntpwire` on the capture (the window closed before packet #3, so it holds 2 of the 3):
+```
+03:31:12.447149 v4  10.38.22.33:53176 -> 10.38.22.34:123  client v4 LI=ok st=0 refid=----
+03:31:17.453631 v4  10.38.22.33:53176 -> 10.38.22.34:123  client v4 LI=ok st=0 refid=----
+  by mode:   client(3)=2
+  pairing:   requests=2 replies=0  paired=0 unpaired=0 unanswered=2
+```
+
+**The requests were on the wire and the DUT sent nothing back.** That is the distinction a
+`show` command cannot make, and it is why the capture is run even on a negative leg.
+
+**STEP 1 PASS** (control established).
+
+### STEP 2 -- Configure the DUT as an IPv4 NTP server
+
+CLI surface first, read-only, with `qmark.py` (never `<cmd>` + CR -- memory
+`never-send-cli-help-through-a-cr-driver`):
+
+```
+awplus(config)#ntp ?
+  authentication-key broadcastdelay master peer pool rate-limit restrict server source
+awplus(config)#ntp master ?
+  <1-15>  Stratum number to advertise when no upstreams are present
+  <cr>
+```
+
+Applied, with `tools/tb cfg tb277 ntp1021 u2 115200 "configure terminal" "ntp master 5" "end"`:
+
+```
+awplus(config)#ntp master 5
+awplus(config)#
+```
+No `% ` line. `show running-config | include ntp` -> `ntp master 5`.
+
+Running-config diff against the 112-line baseline: exactly
+```
+> ntp master 5
+> !
+```
+and nothing else.
+
+🔴 **The dispatch's open question, answered.** Before `ntp master`, `show ntp status` and
+`show ntp counters` both printed **completely empty output**. After it:
+
+```
+awplus#show ntp status
+Reference ID    : 7F7F0101 ()
+Stratum         : 5
+Ref time (UTC)  : Wed Oct 21 03:31:59 2026
+System time     : 0.000000000 seconds fast of NTP time
+Last offset     : +0.000000000 seconds
+RMS offset      : 0.000000000 seconds
+Frequency       : 0.000 ppm slow
+Residual freq   : +0.000 ppm
+Skew            : 0.000 ppm
+Precision       : 0 (1.000000000 seconds)
+Root delay      : 0.000000000 seconds
+Root dispersion : 0.000000000 seconds
+Update interval : 0.0 seconds
+Leap status     : Normal
+
+awplus#show ntp counters
+Client Sent               0
+Client Valid Received     0
+Client Received           0
+
+awplus#show ntp associations
+   (still completely empty -- correct: server-only mode has no associations)
+```
+
+So **empty output means "NTP is not configured"**, with no message saying so. Both commands
+populate the moment NTP is configured, and both go empty again the moment it is removed
+(measured in step 8). This is Finding 1.
+
+**STEP 2 PASS.**
+
+### STEP 3 -- The DUT serves time: the exchange, field by field
+
+```
+tools/tb capture tb277 ntp1021 eth3 25 t33399-s3-on.pcap udp port 123       (background)
+tools/tb tool tb277 ntp1021 ntpc 10.38.22.34 --bind 10.38.22.33 --count 3 --gap 2 --timeout 3
+```
+
+```
+  #1 sent 2026-10-21 03:32:58.526595Z  reply 48 B from 10.38.22.34:123
+      LI=0(no-warning) VN=4 mode=4(server) stratum=5 poll=4 precision=-25
+      refid=127.127.1.1 (ascii '....')  root_delay=0.000000s root_dispersion=0.000000s
+      reference=2026-10-21 03:31:59.885092Z
+      origin   =2026-10-21 03:32:58.526531Z  origin_echo=yes
+      receive  =2026-10-21 03:32:44.257702Z
+      transmit =2026-10-21 03:32:44.257816Z
+      offset=-14.269142 s  delay=0.000498 s   (server clock minus ours)
+  ... #2 and #3 identical in every field except the timestamps
+
+SUMMARY: sent=3 replies=3 origin_echo=3 no_reply=0
+         reply stratum(s)=5 mode(s)=4
+         offset min=-14.269191 max=-14.269128 mean=-14.269154 s
+```
+
+Graded field by field:
+
+| field | measured | why it is right |
+| --- | --- | --- |
+| mode | **4 (server)** | the DUT answered as a server, not as a peer |
+| LI | **0, no warning** | it is claiming to be synchronised, not LI=3 |
+| stratum | **5** | exactly the `ntp master 5` value -- the configuration reached the packet |
+| refid | **127.127.1.1** | the local-clock reference, and it matches `show ntp status`'s `Reference ID: 7F7F0101` byte for byte (0x7F7F0101 = 127.127.1.1) |
+| origin | **echoes our transmit, `origin_echo=yes` on all 3** | the reply is an answer to *this* request |
+| root delay / dispersion | **0 / 0** | consistent with a stand-alone master whose reference is itself |
+| offset | **-14.269 s**, spread 63 microseconds over 3 samples | the DUT's clock relative to the box, now measured rather than eyeballed |
+
+Independent witness, `ntpwire` on the capture:
+```
+  by mode:   client(3)=3  server(4)=3
+  10.38.22.33 -> 10.38.22.34   3
+  10.38.22.34 -> 10.38.22.33   3
+  pairing:   requests=3 replies=3  paired=3 unpaired=0 unanswered=0
+```
+Three requests, three replies, three paired, nothing unpaired. The two instruments agree exactly.
+
+**STEP 3 PASS.**
+
+### STEP 4 -- The server answers on every IP interface, not just one
+
+Second leg, a different host NIC, a different DUT SVI, same server:
+```
+tools/tb tool tb277 ntp1021 ntpc 10.38.22.66 --bind 10.38.22.65 --count 2 --gap 2 --timeout 3
+  -> LI=0 mode=4 stratum=5 refid=127.127.1.1, offset -14.2692 s
+  SUMMARY: sent=2 replies=2 origin_echo=2 no_reply=0
+```
+`ntp master` is a global service: it serves on **vlan48 `10.38.22.66`** exactly as on vlan10,
+with the same stratum and refid. There is no per-interface enable, and none is offered in the
+CLI surface.
+
+**STEP 4 PASS.**
+
+### STEP 5 -- `ntp restrict` DISCRIMINATES BY CLIENT, measured in the same minute
+
+This is the control that must not match, run against a live server rather than a dead one --
+the strongest form available, because the only thing that differs between the two legs is the
+client's address.
+
+```
+awplus(config)#ntp restrict 10.38.22.33 serve deny
+awplus#show running-config | include ntp
+ntp master 5
+ntp restrict 10.38.22.33 serve deny
+```
+
+| leg | client | result |
+| --- | --- | --- |
+| **denied** | 10.38.22.33 (eth3) | `sent=3 replies=0 origin_echo=0 no_reply=3`, ntpc exit 2 |
+| **allowed**, same server, ~20 s later | 10.38.22.65 (eth4) | `sent=2 replies=2 origin_echo=2 no_reply=0`, stratum 5 |
+
+`ntpwire` on the denied leg's capture:
+```
+  by mode:   client(3)=3
+  10.38.22.33 -> 10.38.22.34   3
+  pairing:   requests=3 replies=0  paired=0 unpaired=0 unanswered=3
+```
+**Three requests left the box and the DUT answered none of them**, while it was answering the
+other client throughout. The denial is **silent** -- no kiss-o'-death, no ICMP, nothing. That is
+correct NTP server behaviour for a `deny` restriction and it is worth knowing, because a tester
+reading only the client side cannot tell "denied" from "unreachable".
+
+Removed, and the service came back on the same leg:
+```
+awplus(config)#no ntp restrict 10.38.22.33
+awplus#show running-config | include ntp
+ntp master 5
+  -> ntpc 10.38.22.34 --bind 10.38.22.33: sent=2 replies=2 origin_echo=2, stratum 5
+```
+So the off/on/removed arc closes on the wire, not on a `show`.
+
+**STEP 5 PASS.**
+
+### STEP 6 -- The advertised stratum is the configured stratum
+
+```
+awplus(config)#ntp master 10          ! REPLACES `ntp master 5`; the config keeps ONE line
+awplus#show running-config | include ntp
+ntp master 10
+awplus#show ntp status
+Reference ID    : 7F7F0101 ()
+Stratum         : 10
+...
+  -> ntpc: SUMMARY sent=2 replies=2 origin_echo=2; reply stratum(s)=10 mode(s)=4
+```
+The CLI value, the `show` value and the value in the served packet are the same number. Changing
+it changes the wire.
+
+**STEP 6 PASS.**
+
+### STEP 7 -- 🔴 The default rate limiter, which is why some requests go unanswered
+
+Noticed, not hunted for: a 4-packet run answered 3, a 10-packet run answered 9. On a bench that
+otherwise pings 3/3 that is the kind of result a tester is tempted to call noise, so it was
+measured instead.
+
+| client send pattern | answered |
+| --- | --- |
+| 20 packets, 0.5 s apart | **11 / 20** |
+| 5 packets, 8 s apart | 4 / 5 |
+| 10 packets, 1 s apart | 9 / 10 |
+
+The mechanism is in the DUT's own help text:
+```
+awplus(config)#ntp rate-limit ?
+  burst     Maximum number of responses that can be sent in a burst, default: 8
+  interval  Minimum number of seconds between responses in seconds, default: 8 seconds
+  leak      Rate at which responses are allowed to exceed limits, default: 4 (allow every 4th request)
+```
+**Rate limiting is ON BY DEFAULT on this platform** -- burst 8, interval 8 s, leak 4 -- and
+nothing in `show running-config` says so. The measured 11/20 is exactly a burst of 8 followed by
+one in four leaking through.
+
+Proved by changing it, which is the control that turns an observation into a mechanism:
+
+| configuration | the identical 20-packet / 0.5 s burst |
+| --- | --- |
+| default (nothing configured) | **11 / 20** answered |
+| `ntp rate-limit leak 2` | **16 / 20** answered |
+| `ntp rate-limit burst 64` | **20 / 20** answered |
+
+**STEP 7 PASS** -- and it is Finding 2, the single most useful thing in this case for whoever
+tests NTP next.
+
+### STEP 8 -- Persistence across a cold boot, measured ON THE WIRE
+
+The limb three campaigns could not run. With `ntp master 10` in running-config:
+
+```
+awplus#write
+Building configuration...
+[OK]
+```
+startup-config diff against the campaign baseline -- the write added exactly:
+```
+> !
+> ntp master 10
+```
+plus the updated `! Startup-config saved on Wed Oct 21 03:37:11 2026 +0000 ...` comment. Nothing
+else was saved.
+
+```
+tools/tb ckreload tb277 ntp1021 u2 115200 240
+16:37:42 >>> reload
+reboot question: 'reboot system? (y/n):' -> y
+16:38:43 login seen after 60 s
+```
+**60 s from `reload` to the login prompt** -- a third independent confirmation of group C's
+measurement.
+
+Then, **with nothing typed into the DUT at all** -- no login, no configuration, 13 s after the
+login prompt appeared:
+```
+tools/tb capture tb277 ntp1021 eth3 20 t33399-s9-persist.pcap udp port 123   (background)
+tools/tb tool tb277 ntp1021 ntpc 10.38.22.34 --bind 10.38.22.33 --count 4 --gap 2 --timeout 3
+
+  #1 sent 2026-10-21 03:38:56.817055Z  reply 48 B from 10.38.22.34:123
+      LI=0(no-warning) VN=4 mode=4(server) stratum=10 poll=4 precision=-25
+      refid=127.127.1.1   origin_echo=yes
+      offset=-14.835217 s  delay=0.001627 s
+SUMMARY: sent=4 replies=3 origin_echo=3 no_reply=1
+         reply stratum(s)=10 mode(s)=4
+```
+`ntpwire`: `requests=4 replies=3 paired=3 unpaired=0 unanswered=1` -- the one unanswered request
+is the step-7 rate limiter, not a persistence failure (a 10-packet follow-up run the same minute
+answered 9 of 10 at the same stratum).
+
+**The saved `ntp master 10` survived the cold boot and the DUT was serving at stratum 10, on the
+wire, before anyone logged in.** That is reboot persistence measured as behaviour, which is what
+the dispatch asked for.
+
+Two by-products worth recording:
+- the DUT's **clock survived the reboot** (it has a working RTC) and came back **14.835 s**
+  behind the box, against 14.269 s before -- about **0.57 s of drift across one reboot**, with
+  no NTP client discipline. T33400 uses this.
+- `show reboot history` gained exactly one new row, `2026-10-21 03:37:28 Expected CLI(user
+  request)` -- mine, and matched.
+
+**STEP 8 PASS.**
+
+### STEP 9 -- Removal: the service stops, and the counters go dark again
+
+```
+awplus(config)#no ntp rate-limit
+awplus(config)#no ntp master
+awplus#show running-config | include ntp
+   (nothing)
+awplus#show ntp status
+   (completely empty)
+awplus#show ntp counters
+   (completely empty)
+```
+
+On the wire, immediately after:
+```
+tools/tb tool tb277 ntp1021 ntpc 10.38.22.34 --bind 10.38.22.33 --count 4 --gap 1 --timeout 3
+SUMMARY: sent=4 replies=0 origin_echo=0 no_reply=4          (exit 2)
+ntpwire: by mode: client(3)=2 ; pairing: requests=2 replies=0 unanswered=2
+```
+The DUT is silent on UDP/123 again, and `show ntp status` / `show ntp counters` are empty again
+-- closing the loop on Finding 1 from the other direction.
+
+**STEP 9 PASS.**
+
+## Health check 2 of 2 -- after the last step, before teardown (2026-10-21 16:46 NZDT)
+
+```
+show reboot history   -> ONE new entry vs the before sample:
+                         2026-10-21 03:37:28 Expected CLI(user request)
+                         = this case's own step-8 reload. Matched and expected.
+show exception log    -> None
+show log | include kernel|exception|crash|restart|Unexpected
+                      -> only the 03:38:00 boot sequence of that same reload, line for line the
+                         same set as the before sample (Linux version 6.12.110; tpm tpm0 TPM
+                         error (256) self test; boardinfo-eeprom-i2c 1-0050 / 1-0052 failed to
+                         read eeprom; HTTP server restarted). No new kernel line, no crash, no
+                         unexplained daemon restart.
+show log tail 150     -> the case's own IMISH command lines, plus two `user.err ... Command
+                         [...] failed` lines for the two commands the parser rejected in
+                         Findings 4 and 6 (expected -- they are the findings), plus
+                         "DHCP Client: Do PREI" suppression notices on vlan1/eth0, which are
+                         this bench's standing DHCP-client chatter.
+show cpu              -> 1 second: 0%, 20 seconds: 0%, 60 seconds: 0%; load 0.00 / 0.11 / 0.9
+show memory           -> RAM total: 8092132 kB; free: 7457280 kB; buffers: 1368 kB
+```
+
+Memory used moved by about **2.9 MB** across a case that included a full reboot; free memory is
+7.46 GB of 8.09 GB. **No leak is claimed from one case** -- two samples can only show a step
+change that did not come back, and 2.9 MB after a reboot is not one.
+
+**Health: clean. The run is clean, not confounded.**
+
+## Teardown and verification
+
+```
+awplus#write
+Building configuration...
+[OK]
+```
+
+- **running-config: 112 lines, byte-for-byte IDENTICAL to the pre-case baseline.** `diff` of the
+  extracted bodies prints nothing. (A direct `diff` was used rather than `tools/rcdiff.py`
+  because of rcdiff's measured spurious-`-HH:MM:SS` limit, tb277 2026-10-21.)
+- **startup-config differs from the campaign baseline by exactly one line**, the saved-on
+  comment: `! Startup-config saved on Wed Oct 21 03:46:15 2026 +0000 by manager via con0
+  (ttyS0)` against `... 03:01:22 ...`. **Nothing of this case survives in startup-config**; the
+  inherited underlay, vlan 60 and `lldp run` are all still there.
+- `show boot` re-read: `flash:/x960-tb277.rel`, `flash:/default.cfg`, Autoboot disabled --
+  unchanged.
+- Host legs after the reload: eth3 -> 10.38.22.34 and eth4 -> 10.38.22.66, both answering.
+- **swi_b and swi_a were never opened.** u3 and u5 saw no byte from this run, not even a CR.
+- Nothing of this run is left running on the box; every `tcpdump` was a bounded
+  `timeout <secs> tcpdump` through `tools/tb capture` and all had exited.
+
+## Findings for `platforms/x960.md`
+
+1. 🔴 **`show ntp status` and `show ntp counters` print COMPLETELY EMPTY output when NTP is not
+   configured** -- no error, no "not configured" message, no header. Measured in both
+   directions: empty before `ntp master`, populated immediately after, empty again immediately
+   after `no ntp master`. On a 115200 console this is indistinguishable from a hung command, and
+   it is the single most likely thing to make a reader think the feature is broken.
+2. 🔴🔥 **NTP server rate limiting is ON BY DEFAULT and invisible in the configuration** --
+   `burst 8`, `interval 8 s`, `leak 4` (the defaults are only in the `ntp rate-limit ?` help
+   text; nothing appears in `show running-config`). A client sending a 20-packet burst 0.5 s
+   apart gets **11 answers**. Raising `burst` to 64 gives **20/20** on the identical burst. Any
+   NTP measurement on this platform that sends faster than one packet per 8 s will see losses
+   that are the product working as designed, and a tester who does not know this will report a
+   bench or server fault.
+3. 🔥 **`ntp rate-limit` holds exactly ONE keyword.** Setting a second **silently discards the
+   first** -- the earlier line simply disappears from `show running-config` with no message and
+   no `% ` line, and the device's own log shows the discarded command was accepted. Measured
+   three times: `interval 1` then `burst 64` left only `burst 64`; then `leak 2` left only
+   `leak 2`; then `interval 1` + `burst 64` left only `burst 64`. The wire agrees with
+   running-config each time (16/20 under `leak 2` alone, 20/20 under `burst 64` alone), so it is
+   a genuine single-slot configuration, not a display defect. **Same family as group B's
+   "a numbered hardware ACL holds exactly ONE rule, silently".**
+4. ⚠ **`ntp restrict <addr> deny serve` is rejected; the working order is `<addr> serve deny`.**
+   `ntp restrict <addr> ?` offers `allow | deny | query | serve` as if they were siblings, but
+   `deny`/`allow` are terminal while `serve`/`query` take `allow|deny` after them. The rejection
+   is a plain `% Invalid input detected at '^' marker.`
+5. ⚠ **`no ntp restrict` takes the ADDRESS ONLY.** `no ntp restrict 10.38.22.33 serve deny` --
+   which is `no ` plus the exact line `show running-config` prints -- is rejected
+   (`% Unrecognized command` when probed with `?`). The negation is `no ntp restrict
+   <addr>`. **Copying a running-config line and prefixing `no` does not work for this command**,
+   which is the normal way a tester removes configuration.
+6. ⚠ **`no ntp rate-limit` takes NO keyword**: `no ntp rate-limit burst` is rejected,
+   `no ntp rate-limit` succeeds. The same asymmetry as finding 5, in a second command.
+7. ⚠ **`ntp rate-limit interval 1 burst 64 leak 1` is rejected**: the keywords cannot be
+   combined on one line, they must be separate commands -- and see finding 3 for what then
+   happens to them. `leak` is `<2-16>` (so `leak 1` is out of range although the help's default
+   text says "allow every 4th request"), `interval` is `<1-4096>` and `burst` is `<1-255>`;
+   `interval` and `leak` are both **rounded to a power of 2**.
+8. ⚠ **`show ntp counters` counts the CLIENT role only** -- `Client Sent`, `Client Valid
+   Received`, `Client Received`. After this DUT had served more than sixty client requests as a
+   server, all three counters still read **0**. There is no server-side packet counter on this
+   platform, which is precisely why the verdict had to be graded on a capture.
+9. **The served refid is `127.127.1.1` (`0x7F7F0101`)**, the classic local-clock reference, and
+   `show ntp status` prints it as `Reference ID : 7F7F0101 ()` with an **empty bracket** where a
+   name would go.
+10. ⚠ **`show ntp status` reports `Precision : 0 (1.000000000 seconds)` while the served packet
+    carries `precision = -25`** (about 30 ns). The CLI's precision field and the wire's
+    precision field disagree by 25 binary orders of magnitude. Worth a developer's eye; it
+    changes nothing for a client, which reads the packet.
+11. **`ntp master <n>` is a single-line configuration**: `ntp master 10` replaces `ntp master 5`
+    rather than adding to it.
+12. **An x960-56YSQ cold-boots to its login prompt in 60 s** (`reload` 03:37:42 -> `login:`
+    03:38:43) -- a third measurement agreeing with group C's two. `ckreload.py`'s 720 s default
+    is wildly conservative for this platform.
+13. **The DUT's clock survives a reboot** (there is a working RTC) and drifted about **0.57 s**
+    across one 60 s reboot with no NTP discipline.
+
+## Tools used, with exact arguments
+
+- `tools/tb precheck tb277 u2` · `tools/tb scratch tb277 ntp1021` ·
+  `tools/tb peek tb277 ntp1021 u2 115200` · `tools/tb template tb277`
+- `tools/tb probe tb277 --consoles u2 --no-prompt --pdu 10.36.230.212 --outlet u2=1
+  --name u2=swi_d --read-only --baud 115200 --template ~/claude/device-testing/tb277/x960/ntp-2026-10-21T1159/tb277-u2.setup
+  --out /tmp/ntp1021/bench-state-open.md`
+- `tools/tb ckcon tb277 ntp1021 u2 115200 "<reads>"` (with `CKTO=120`/`180`)
+- `tools/tb cfg tb277 ntp1021 u2 115200 "configure terminal" "<config>" "end" "<reads>"`
+- `tools/tb qmark tb277 ntp1021 u2 115200 --mode "configure terminal" -- "ntp <prefix> "`
+- `tools/tb ckreload tb277 ntp1021 u2 115200 240`
+- `tools/tb capture tb277 ntp1021 eth3|eth4 <secs> <name>.pcap udp port 123`
+- `tools/tb ping tb277 eth3 10.38.22.34 3` · `tools/tb ping tb277 eth4 10.38.22.66 3`
+- **`tools/ntpc.py`** (NEW): `tools/tb tool tb277 ntp1021 ntpc <server> --bind <src> --count N
+  --gap S --timeout S`
+- **`tools/ntpwire.py`** (NEW): `tools/tb tool tb277 ntp1021 ntpwire /tmp/ntp1021/<f>.pcap
+  [--quiet]`
+- `python3 tools/rc2cfg.py <ckcon stdout> tb277/x960/ntp-2026-10-21T1159/T33399/swi_d.cfg "<3 headers>"`
+
+Both new tools were **instrument-controlled before they were trusted**: `ntpc.py` was run
+against tb277's own `ntpd` on 127.0.0.1 and returned a correct stratum-5 reply with
+`origin_echo=yes` and a sub-millisecond offset, and `ntpwire.py` was validated on the step-1
+capture where it correctly reported 2 requests and 0 replies, then on the step-3 capture where
+it independently reproduced `ntpc`'s 3/3 result.
+
+## Files saved
+
+- `tb277/x960/ntp-2026-10-21T1159/T33399/swi_d.cfg` (after setup, before step 1's grading)
+- `tb277/x960/ntp-2026-10-21T1159/T33399/work/run1.log` (this file)
+- `tb277/x960/ntp-2026-10-21T1159/tb277-u2.setup` (the run `.setup`, swi_d only)
+- Captures and console transcript stay on the box in `/tmp/ntp1021/` and are not committed:
+  `t33399-s1-off.pcap`, `t33399-s3-on.pcap`, `t33399-s4-eth4.pcap`, `t33399-s5-deny.pcap`,
+  `t33399-s9-persist.pcap`, `t33399-s14-removed.pcap`, `console-u2.log`.
+
+**No `swi_b.cfg` and no `swi_a.cfg`**: both partner consoles are locked out (see Session facts).
+
+VERDICT: PASS -- the x960-56YSQ serves IPv4 NTP exactly as TPS row 260 claims, proven on the wire (mode-4 replies at the configured stratum with the origin timestamp echoed, nothing at all before configuration or after removal, and a per-client `ntp restrict` denial that discriminates between two clients of the same server in the same minute), and the saved configuration survived a cold boot and was serving 13 s after the login prompt with nothing typed into the device.
