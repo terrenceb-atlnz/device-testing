@@ -1,3 +1,103 @@
+# Session handover — 2026-10-21 (10:45–15:10 NZDT, second session continued): T17584 LACP campaign PASS, logs created, bench whole
+
+Session `b5b3ec8b…` (VS Code), Test Engineer terrenceb@terrenceb-dl. After the 10:40 read-only wrap below, Terrence moved
+the tb101 handovers to `tb101/IE520/` and ran `/test-mode T17584`, then `/create-logs`, then this `/wrap-dt`. This
+section supersedes the 09:50–10:40 one below for the bench state.
+
+## Session facts
+Test Engineer: terrenceb@terrenceb-dl
+Testbox: tb101
+Consoles: u0,u1,u2,u3 (= stack members 1,2,3,4; all 115200)
+PDU: none (nothing is power-cycled; the framework's post-failure cycle silently does nothing)
+Constraints: none ("Confirm as stated"). Run window: "Reloads now, stand down at end of run, stay in VS Code". Root on tb101: "Tester may use sudo -n for the bond and its restore"; root traffic tools: "Yes, that reading" (traffic tools under sudo -n are test traffic; root CHANGES limited to the bond).
+
+## TL;DR — bench is WHOLE and back to its template
+
+- **T17584 "LACP - Startup stable with heavy traffic": PASS** (1 case, graded by the tester, final log created).
+- Wrap probe `2026-10-21T020410Z`: **MATCH** vs `/home/st-art/configs/tb101.setup`, advisories none, only the stamp changed.
+- Read on u0 at 15:03: one stack, Normal operation, all four Ready, **member 1 (u0) Active Master**, VMAC
+  0000.cd37.0d6f. Boot image `flash:/IE520-awplus_main-20261019-75.rel (file exists)`, boot config
+  `flash:/tb101-bench.cfg (file exists)` on every member. `show etherchannel` LAG count 0. Running-config matches
+  `tb101-bench.cfg` (no `write` this session; `tb101-bench.cfg` still 1771 B, Oct 20 20:33:07). Build
+  `awplus_main-20261019-75` / bootloader 9.2.0 on all four, uptime 01:14 (since the case's whole-stack reload).
+- `show reboot history` newest per member: all `2026-10-21 00:50:12-13 Expected User Request` (UTC) = the case's
+  whole-stack reload at 13:48 NZDT. Also new today: member 1 00:14:14, member 2 00:27:05, member 4 00:37:37 = the
+  case's three member reloads. **No unexpected reboot.**
+- Host: eth2 10.37.101.1/27, eth3 10.37.101.33/27, eth4 10.37.101.65/27 (+ their fd32:…::1/64), carrier up, original
+  MACs, no bond interface. The `bonding` kernel module stays loaded (harmless). No NIC pinning was ever set.
+- Consoles u0–u3 at `IE520#` with `terminal no monitor`. Nothing of ours runs on tb101. Scratch `/tmp/lacp-1222/`,
+  `/tmp/orient/`, `/tmp/wrap/` are tmpfs; losing them is correct.
+- Sentinel stood down: Monitor stopped 14:23:57, cron deleted at this wrap, no own `sentinel.sh` left.
+
+Verify from the dev host, repo root:
+```bash
+tools/tb precheck tb101 0-3                                   # all four free; ser2net FOUND is normal
+tools/tb probe tb101 --consoles 0-3 --baud 115200 --no-prompt # expect MATCH
+```
+
+## What was done, in order
+1. **10:45** Handovers `git mv`'d to `tb101/IE520/` (Terrence: "handovers should be tb101/IE520/"); memory pointer fixed (`e20e7f2`, rebased to `d26deef`).
+2. **12:22** `/test-mode T17584`: queue [CAMPAIGN-QUEUE-2026-10-21T1222.md](CAMPAIGN-QUEUE-2026-10-21T1222.md); Terrence chose the fit: host
+   bond0 (eth3+eth4, 802.3ad) ↔ po1 (port1.0.1 member 1 + port2.0.1 member 2), far side eth2 ↔ port3.0.1 (member 3).
+3. **12:28–12:35** TRIAGE (bench-runner): 1 runnable / 0 blocked; probe MATCH.
+4. **12:45–14:11** RUN (bench-runner): baseline, setup, E0 traffic, E1/E2 leg shutdowns, E3/E4/E5 member reloads
+   (masters 1 → 4 → 1), E6 whole-stack reload booting the LAG config, control flows, health twice, full restore,
+   probe MATCH. Commits 5cdad39, bc55eec, 23e8a95, 4cd00db.
+5. **14:4x** `/create-logs` (Terrence confirmed): final log, README, reviews; `work/` deleted (`192089f`).
+
+## Results (from the queue's Results table)
+| case | verdict | graded | final log |
+| --- | --- | --- | --- |
+| T17584 | PASS | tester | [17584.log](lacp-2026-10-21T1222/17584/17584.log) + IE520.cfg — **final logs created** (`192089f`) |
+
+Run label: **clean** (both health samples clean against the 10-20 baseline; every new reboot entry matched to a reload
+the case issued). The 4-device / 4-route step is NOT MEASURABLE on tb101 (one switch, three host edges) and is
+reported, not failed.
+
+## Findings
+- **Measured:** `show lacp sys-id`, the LACPDUs on the wire and the bond's partner MAC stay the VMAC through two master
+  failovers and a whole-stack reboot. Outage: 770 ms when the reloading master carries a LAG leg, ≤ 30–40 ms
+  otherwise, 202.5 s for the whole-stack reboot. Now in `platforms/IE520.md` §3.
+- **Measured:** `boot config-file` on a stack copies the file to every member (> 60 s first time); restore must delete
+  it on each `IE520-N/flash:`. Now in `platforms/IE520.md` §3.
+- **Measured (tb101 host):** tcpreplay ~700 Mbps one way; igb `rx_fifo_errors` under concurrent load, so grade DUT
+  loss on DUT counters; networkd re-applies addresses to bond slaves. Now in memory `tb101-ie520-bench-map`.
+- **Observed, cause inferred (O-1):** 4 broadcast frames duplicated in one ~30 ms window at each member rejoin.
+- **Observed, cause unknown (O-2):** `show lacp-counter` port1.0.1 `Pckt err Sent 2` after member 1 became master.
+- **Process:** two concurrent `/test-mode` sessions on this host killed each other's `sentinel.sh` at 13:25 (the kit's
+  sweep matched every `sentinel.sh`). Fixed: the sweep now matches only this session's `SCRATCH`
+  (`ddcc0c6`, memory `sentinel-sweep-kills-peer-sentinels`); the tb470 session (`device-testing-77`) was told.
+
+## OPEN
+1. **Should `bondctl` stay in `tools/tb`'s `SUDO_TOOLS`?** It makes a root change on the host reachable through the
+   wrapper. The permission given 2026-10-21 covered T17584 only. Evidence: `tools/tb`, commit 5cdad39.
+2. **O-1 and O-2:** worth a developer's look, or a follow-up measurement? The recipe to prove each is in
+   `platforms/IE520.md` §3 and `lacp-2026-10-21T1222/17584/17584-review.md` "Accuracy risks".
+3. Proposed tools from the review (not built): `tools/eventwin.py` (one call per traffic event), `l2flows.py
+   --per-link`, and an `rcdiff.py` fix (it takes the first `show running-config` header). Build any?
+4. Unchanged from 10-20: `port4.0.26`'s far end; flash housekeeping on the master (old cfgs, a 242 KB debug tgz);
+   `/nfsHome` fstab line on tb101.
+
+## Next steps
+1. Terrence: `git push origin main` (count in the brief).
+2. Attach `lacp-2026-10-21T1222/17584/17584.log` + `IE520.cfg` to AWPTCM-T17584 in Zephyr.
+3. Next session: `/orient-dt tb101`; expect precheck CLEAR (ser2net FOUND) and probe MATCH.
+
+## Recipes
+Host bond for a LACP partner (root, only with the Test Engineer's say-so):
+```bash
+tools/tb scratch tb101 <scratch>
+tools/tb sudotool tb101 <scratch> bondctl up bond0 /tmp/<scratch>/bond-state.json eth3 eth4
+tools/tb sudotool tb101 <scratch> bondctl status bond0       # Partner Mac Address = the stack VMAC
+tools/tb sudotool tb101 <scratch> bondctl down bond0 /tmp/<scratch>/bond-state.json   # re-run until "RESTORE DIFF: empty"
+```
+
+## Pointers
+- Campaign: [CAMPAIGN-QUEUE-2026-10-21T1222.md](CAMPAIGN-QUEUE-2026-10-21T1222.md); group [README](lacp-2026-10-21T1222/README.md) and [REVIEW](lacp-2026-10-21T1222/REVIEW.md).
+- Measured state: [bench-setup/tb101/bench-state.md](../../bench-setup/tb101/bench-state.md) (capture `2026-10-21T020410Z`).
+
+---
+
 # Session handover — 2026-10-21 (09:50–10:40 NZDT, second session): orient + wrap only, tb101 read-only, bench whole
 
 Session `b5b3ec8b…` (VS Code), Test Engineer terrenceb@terrenceb-dl. `/orient-dt tb101` then `/wrap-dt`, no task given
@@ -23,7 +123,7 @@ Constraints: none stated
   (u0) Active Master.
 - Consoles u0–u3 left at the manager exec prompt (ckcon's `end` preamble; no `configure terminal` sent).
 - Box: only `/tmp/orient/tools/` created (tmpfs scratch, a copy of the repo's `tools/`); losing it is correct.
-- Measured state: [bench-setup/tb101/bench-state.md](../bench-setup/tb101/bench-state.md) (capture `213624Z`).
+- Measured state: [bench-setup/tb101/bench-state.md](../../bench-setup/tb101/bench-state.md) (capture `213624Z`).
 
 ## Restored / kept / skipped
 - Restored: nothing to restore (read-only session).
@@ -60,7 +160,7 @@ config `flash:/tb101-bench.cfg (file exists)`. **Member 1 (u0, S/N 264A23061, sw
 operation` = a ring, not a chain. Free flash 64.9 / 64.7 / 64.6 / 59.2 MB (members 1–4). Three host NICs proven
 (eth2↔port3.0.1, eth3↔port2.0.1, eth4↔port1.0.1). Nothing is shut, nothing is running-only, nothing powered off.
 
-Measured: [bench-setup/tb101/bench-state.md](../bench-setup/tb101/bench-state.md) (capture `2026-10-20T203815Z`,
+Measured: [bench-setup/tb101/bench-state.md](../../bench-setup/tb101/bench-state.md) (capture `2026-10-20T203815Z`,
 MATCH vs the deployed `/home/st-art/configs/tb101.setup`, advisories none).
 
 Verify from the dev host, repo root:

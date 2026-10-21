@@ -33,6 +33,14 @@ metadata:
   inconsistencies — member N should reboot" and forwarding is unreliable (`% Network is unreachable` for a TFTP
   that pinged) until a whole-stack reload. Every console then reaches ONE master, so per-unit commands land on
   the merged stack. Renumber (`stack N renumber M`, pending until reboot) and set chassis-id BEFORE cabling.
+- **tb101 host limits for traffic tests (measured 2026-10-21, T17584):** tcpreplay tops at ~700 Mbps ONE way
+  (not the ~984 of tb470/tb277); two concurrent line-rate senders + captures make the igb NICs count
+  `rx_fifo_errors`, so the host's receive count is a lower bound: grade DUT loss on DUT port counters
+  (`tools/hostinfo.py --stats` shows the host drops). Use `--rate 300` each way for event windows.
+- **Host LACP partner:** `tools/bondctl.py up|status|down` (via `tools/tb sudotool`, root allowed for this
+  by Terrence 2026-10-21 for T17584 only). systemd-networkd (no NetworkManager) re-applies eth3/eth4
+  addresses to bond slaves and after `nomaster`; `bondctl down` is idempotent, re-run it until RESTORE DIFF is empty.
+- Handovers live at `tb101/IE520/` (Terrence 2026-10-21).
 - `/tftproot` here is tmpfs (fstab) but survived the 10-19 reboot's listing — Terrence's images live there.
 
 Related: [[ie520-image-update-procedure]], [[shared-testbox-console-occupancy]], [[bench-probe-one-tool]].
