@@ -81,8 +81,8 @@ test that this bench cannot run; the functional reading used here is the sentine
 
 ## OPEN (Test Engineer)
 1. ~~**T46810's definition.**~~ CLOSED 2026-10-21 afternoon: the Test Engineer confirmed the functional reading (member backed up to the master's USB media); the PASS stands.
-2. **`usb:/atmf/Enterprise-AMF/`** on the 4050's stick: five empty housekeeping directories (info, logs, nodes, areas, guests)
-   created at 09:25 by this run, left beside the pre-existing `usb:/atmf/tb470/` tree. Remove (`rmdir` set on the 4050) or keep.
+2. ~~**`usb:/atmf/Enterprise-AMF/`**~~ CLOSED 2026-10-21 afternoon: the Test Engineer said KEEP the five empty housekeeping
+   directories (info, logs, nodes, areas, guests) on the 4050's stick beside `usb:/atmf/tb470/`. They stay; nothing to remove.
 3. ~~**Stale lock files**~~ CLOSED 2026-10-21 afternoon: removed on the Test Engineer's instruction (terrenceb-owned, PIDs dead); `tools/tb precheck tb470 0,1` reads CLEAR.
 4. **Option (c)**, the real provisioning of the x230 (`atmf cleanup` + recovery from `future_node`), was out of scope and not run.
    The recipe and its risks (no TFTP fallback: eth1/2/3 down) are in the queue's Triage section if it is ever wanted.
