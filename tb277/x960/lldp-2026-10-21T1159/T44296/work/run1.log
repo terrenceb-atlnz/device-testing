@@ -1,0 +1,1596 @@
+# T44296 — (259) Management_LLDP - LLDP — working log, run 1
+
+Tester: `bench-runner` subagent, dispatched by the `/test-mode` sentinel (sentinel: parent).
+Group C, `lldp-2026-10-21T1159`. Written as the run went, not afterwards.
+
+## Session facts (from the dispatch and the campaign queue)
+
+- Test Engineer: bidhanc@bidhanc-dl. Testbox **tb277**. Window **partly attended**.
+- Consoles: **u2 = swi_d (DUT)**, u3 = swi_b, u5 = swi_a.
+- PDU: 10.36.230.212, outlets u2=1, u3=7. swi_a is on a DIFFERENT PDU, 10.36.230.35 outlet 3.
+- Constraints: none beyond standing orders, plus 🔴 **swi_a must NOT be rebooted or
+  power-cycled**. Honoured absolutely: swi_a was never configured, never reloaded, and the run
+  `.setup` gives it no `[power]` outlet and no `[powerlink]` entry, so the framework's
+  post-failure power cycle could not have reached it even if a framework run had been launched.
+- Session dir `tb277/x960/`, stamp `2026-10-21T1159`.
+- 🔴 **New for group C:** the Test Engineer ruled at 14:0x on 2026-10-21 that testers may
+  `write` freely. This case therefore measures **reboot persistence**, which has come back NOT
+  MEASURED for three campaigns. vlan 60 landing in startup-config is accepted; the Test
+  Engineer removes it at campaign end.
+
+## 🔴 There is NO authored test text for this case — the design is mine, and here is its basis
+
+Measured from `ck.db` `zephyr_cases` at triage and recorded in the campaign queue:
+**T44296 has `has_objective = 0`, `steps = []`, `num_steps = 0`.** Not one word of objective,
+procedure, test data or expected result exists anywhere. The queue calls it *"the widest-open
+case in the campaign"*.
+
+The design below is therefore built from three sources, and from nothing else:
+
+1. **The case title**, `(259) Management_LLDP - LLDP`.
+2. **The X960 TPS**, `wiki.atlnz.lc/awpwiki/index.php?title=X960_platform_support_TPS`, **row
+   257 LLDP = Yes**. That is the whole of the authored expectation: the platform claims to
+   support LLDP.
+3. **The DUT's own CLI surface**, read read-only before any step with `qmark.py` (`<cmd> ?`
+   with no CR — memory `never-send-cli-help-through-a-cr-driver`). Every command this case
+   sends was first confirmed to parse. The surface is quoted in full under "CLI surface", below.
+
+Grading follows STANDING-ORDERS §7 and `platforms/x960.md` §5: **every verdict in this case is
+graded on frames on the wire or on the DUT's own per-port frame counters, never on
+`show lldp neighbors` alone.** That table is the device's answer about itself, and this
+platform has already produced a feature reading "Enabled" while the dataplane did nothing
+(§5, the mirroring defect). Where a `show` command is quoted it is corroboration, not evidence.
+
+## Devices
+
+| role | name | console | model | serial | software | boot image | boot config |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **DUT** | swi_d | u2 @ 115200 | AT-x960-56YSQ | A2WQS700B | `sin_x96056-20261019-27` | `flash:/x960-tb277.rel` | `flash:/default.cfg` |
+| partner (passive) | swi_b | u3 @ 9600 | AT-x960-28YSQ | A10737A261700021 | `awplus_main-20261020-78` | `flash:/backup.rel` | `flash:/default.cfg` |
+| partner (passive) | swi_a | u5 @ 9600 | AT-x950 GEN2-52XSTQm | A10713A262600012 | `awplus_main-20261019-73` | not set | — |
+| traffic host | tb277 | — | testbox | — | — | — | — |
+
+- DUT chassis MAC / RSTP bridge ID: **`e01a.ead4.7043`**. Its LLDPDUs leave port1.0.10 with
+  source MAC `e2:1a:ea:d4:70:43` — the chassis MAC with the locally-administered bit set.
+- swi_b chassis MAC `0000.cd42.3029` (it is also the RSTP root). swi_a chassis MAC
+  `889d.98df.2602`.
+- Host NICs (`tools/tb nics tb277`): **eth3 `10.38.22.33/27` MAC `00:0d:b9:55:77:0e`** →
+  swi_d port1.0.10; eth4 `10.38.22.65/27` MAC `00:0d:b9:55:77:0f` → swi_d port1.0.48;
+  eth2 `10.38.22.1/27` MAC `00:0d:b9:55:77:0d`. All carrier up.
+- **Clock pair, recorded once for group C** (STANDING-ORDERS, dispatch): at box local
+  `2026-10-21 14:52:20 NZDT` = `01:52:20 UTC`, the DUT's `show clock` read
+  `UTC Time: Wed, 21 Oct 2026 01:52:05 +0000`, Timezone UTC. **The DUT runs UTC and was 15 s
+  behind the box's UTC**, i.e. ~13 h behind box local time. Every DUT log timestamp below is
+  UTC; every tool timestamp is box local or a Unix epoch.
+
+## 🔴 Partner consoles: both are locked out, and what that costs this case
+
+Neither partner switch could be driven from its console during this run. Both are
+**console-lockout** problems, not bench gaps, and both were reported to the sentinel as
+`NEEDS TEST ENGINEER:` as they happened.
+
+- **swi_a (u5).** The opening probe's single login attempt, with the correct per-console
+  password, returned `login = "no prompt after login. tail=''"` — no `Login incorrect`, no
+  prompt, silence. The sentinel reports swi_a's `manager` reached 7 failed logins on
+  2026-10-20 and that every further failure re-arms a 5-minute lock. u5 was not retried.
+- **swi_b (u3).** At 14:59:58 `tools/tb ckcon tb277 lldp1159 u3 9600 ...` put **five** failed
+  logins on swi_b's `manager` in 40 s, from two defects in this repo's own driver (both
+  written up under "Tooling defects found", below). u3 was not retried.
+
+**Consequence for the deliverables:** `swi_a.cfg` and `swi_b.cfg` **cannot be produced for this
+case**, because capturing a device's running-config requires logging into it. That is stated
+here rather than silently omitted. `swi_d.cfg`, the DUT's, is present and is the config this
+case was measured against.
+
+**Consequence for the method — and it made the case better, not worse.** The partner role was
+moved to the **testbox itself**, which sends crafted LLDPDUs into swi_d port1.0.10 with
+`tools/lldpsend.py`. A synthetic partner is a strictly better instrument than swi_b's console
+would have been: the chassis ID, port ID, system name and above all the **TTL** are chosen, and
+transmission stops on command — so neighbour ageing is graded against a TTL of 20 s that I set,
+instead of waiting out a partner switch's 120 s default and inferring. swi_a and swi_b remain
+**passive** partners throughout: their contribution is measured **from the DUT side only**, as
+neighbour entries and per-port LLDP frame counters on swi_d. Every such reading below names
+swi_d as its source.
+
+## Pre-run gate (every item, in order)
+
+1. **Occupancy, no console opened.** `tools/tb precheck tb277 u2,u3,u5` at 14:44 NZDT:
+   `/dev/u2 free`, `/dev/u3 free`, `/dev/u5 free`. One FOUND item, exit 5:
+   `process 744 (root, up 40-03:29:52): /usr/sbin/ser2net -c /etc/ser2net.conf -P /run/ser2net.pid`
+   — the box's own console daemon, the identical item the Test Engineer adjudicated "Proceed"
+   for the 2026-10-20 campaign and which the campaign queue records as still standing for this
+   one. Nothing was displaced. The Test Engineer's own login on pts/1 is information only.
+2. **No console parked mid-state.** `tools/tb peek` (one bare CR, types no word) on each:
+   `/dev/u2 TAIL: 'awplus login:'`, `/dev/u3 TAIL: 'awplus login:'`,
+   `/dev/u5 TAIL: 'awplus login:'`. All three at the login banner, none in config mode and
+   none at a root shell.
+3. **Template path.** `tools/tb template tb277`: `tb: no deployed tb277.setup`. The box has
+   **no** `/home/st-art/configs/tb277.setup`, as group B also recorded. The run `.setup` is
+   therefore cut from the generated fence of `bench-setup/tb277/bench-state.md`
+   (capture `2026-10-20T230259Z`), which is the only description of this box.
+4. **Probe, `--read-only`, against the run `.setup`.** 🔴 Run with `--read-only` deliberately:
+   `bench_probe.py` switches `lldp run` on by itself without it, and the 11:59 triage probe ran
+   without it — so `lldp run` being on in the DUT's running-config might have been probe
+   residue rather than the bench baseline. **That question is now settled; see "Was `lldp run`
+   probe residue?" below.**
+
+   ```
+   tools/tb probe tb277 --consoles u2,u3,u5 --no-prompt --read-only \
+        --pdu 10.36.230.212 --outlet u2=1 --outlet u3=7 --outlet u5=3@10.36.230.35 \
+        --name u2=swi_d --name u3=swi_b --name u5=swi_a \
+        --template /tmp/lldp1159/tb277-u2u3u5.setup --out /tmp/lldp1159/bench-state.md
+   ```
+   ```
+   opening /dev/u2, /dev/u3, /dev/u5 ...
+     /dev/u2: ok baud=115200 banner=awplus hostname=awplus
+     /dev/u3: ok baud=9600 banner=awplus hostname=awplus
+     /dev/u5: login_failed baud=9600 banner=awplus hostname=None
+   capturing 7 commands on 2 device(s) ...
+   timing: login 58.9 s, commands 9.0 s, close 0.5 s, total 68.4 s
+   ```
+   **Exit 4 USER-CONFLICT, with ZERO MISMATCH rows.** The five NEEDS-CHECK rows are all
+   `CONSOLE_DOWN` for swi_a (`[switch] swi_a`, `[baudrates] swi_a`, `[boot_from_flash] swi_a`,
+   `[portlink] swi_a-swi_b`, `[portlink] swi_a-swi_d`) — consequences of the u5 login failure,
+   not bench movement. The conflict line, verbatim:
+   ```
+   - the session gives facts for /dev/u5 (outlet 3@10.36.230.35, name swi_a), but no device
+     was read on /dev/u5 this run
+     Nothing recorded was changed. Ask the Test Engineer which is right.
+   ```
+   Nothing in `tb277.static` was edited and no session fact was overwritten. Sent to the
+   sentinel as `NEEDS TEST ENGINEER:`; the run carried on with the cases that do not depend on
+   swi_a's console, which is both of group C's.
+   The console password for u3 and u5 was supplied as `CK_PASSWORD_U3` / `CK_PASSWORD_U5` in
+   the environment and forwarded by `tools/tb` **over stdin**. It is not on any command line
+   and is not in this repo.
+5. **The run `.setup`** is `tb277/x960/lldp-2026-10-21T1159/tb277-u2u3u5.setup`, copied to the
+   box as `/tmp/lldp1159/tb277-u2u3u5.setup`. It declares swi_d, swi_b and swi_a — all three
+   are in this case's topology — and gives **swi_a no `[power]` outlet and no `[powerlink]`
+   entry**, so the framework's post-failure power cycle can never reach the unit the session
+   forbids rebooting (STANDING-ORDERS §6).
+6. **Offline `pt_preflight.py` does not apply.** No framework script is bound and no framework
+   run was launched: this case is console work plus host traffic. The framework's post-failure
+   power cycle therefore never armed at all.
+7. **Boot config, the declared baseline.** `show boot` on swi_d, verbatim, before step 1:
+   ```
+   Current software   : x960-tb277.rel
+   Current boot image : flash:/x960-tb277.rel (file exists)
+   Backup  boot image : Not set
+   Default boot config: flash:/default.cfg
+   Current boot config: flash:/default.cfg (file exists)
+   Backup  boot config: Not set
+   Autoboot status    : disabled
+   ```
+   This case reloads swi_d once, for the reboot-persistence step, and must return to exactly
+   this.
+8. **Ask-CK's server run path** is not used by this group.
+9. **Sentinel** — `sentinel: parent`. The session that dispatched this subagent is the
+   sentinel. Nothing to check and nothing to arm.
+10. **No script defaulting step to check**, because there is no framework script. The
+    equivalent discipline was applied anyway: every CLI command this case sends was confirmed
+    against the DUT's own parser with `qmark.py` before being sent (see "CLI surface").
+
+## CLI surface, read read-only before any step
+
+`tools/tb qmark tb277 lldp1159 u2 115200 ...` — `<prefix> ?` typed with **no CR**, then the
+line cleared with Ctrl-U. Each run began with the tool's own self-test:
+`self-test OK: 'show clock ?' then Ctrl-U then CR executed nothing`. Nothing was executed.
+
+**Exec mode**
+```
+show lldp  ?      interface | local-info | neighbors | statistics | <cr>
+show lldp statistics  ?        interface | <cr>
+show lldp neighbors  ?         detail | interface | <cr>
+show lldp local-info  ?        base | dot1 | dot3 | med | interface | <cr>
+show lldp interface  ?         IFRANGE
+```
+🔴 Confirming the queue's triage note: **`show lldp neighbors brief` does not exist.** The
+forms that exist are the five above.
+
+**Global configuration mode**
+```
+lldp  ?
+  faststart-count                 Set the fast start count for LLDP-MED
+  holdtime-multiplier             Is multiplied by the Tx interval to give the TTL value
+                                  advertised to neighbors
+  non-strict-med-tlv-order-check  Enable non-strict LLDP-MED TLV order checking
+  notification-interval           The minimum interval between LLDP notifications
+  port-number-type                The type of port identifier used to enumerate LLDP MIB
+                                  local port entries
+  reinit                          The minimum time after disabling LLDP on a port, before
+                                  reinitialization is commenced
+  run                             Enable LLDP operation
+  timer                           The time interval between regular transmissions of LLDP
+                                  advertisements to neighbors
+  tx-delay                        The minimum time between transmitting LLDP advertisements
+                                  due to a change in LLDP MIB content
+lldp timer  ?                  <5-32768>  The interval in seconds
+lldp holdtime-multiplier  ?    <2-10>     The multiplier factor
+lldp tlv-select  ?             % Unrecognized command
+```
+🔴 **`lldp tlv-select` is NOT a global command on this build** — it is per-interface only.
+A test design that assumed the global form would have failed at its first configuration step.
+
+**Interface mode (`interface port1.0.10`)**
+```
+lldp  ?
+  management-address  Management address to advertise to neighbors
+  med-notifications   Enable sending LLDP-MED notifications
+  med-tlv-select      The LLDP-MED TLVs to be transmitted to neighbors
+  notifications       Enable sending LLDP SNMP notifications relating to this port or ports
+  receive             Enable reception of LLDP advertisements from neighbors
+  tlv-select          The TLVs to be transmitted to neighbors
+  transmit            Enable transmission of LLDP advertisements to neighbors
+lldp tlv-select  ?
+  all | link-aggregation | mac-phy-config | management-address | max-frame-size |
+  port-and-protocol-vlans | port-description | port-vlan | power-management | protocol-ids |
+  system-capabilities | system-description | system-name | vlan-names
+lldp med-tlv-select  ?
+  all | capabilities | inventory-management | location | network-policy | power-management-ext
+lldp transmit  ?               receive | <cr>
+lldp notification  ?           <cr>
+switchport voice  ?            dscp | vlan
+```
+⚠ Note the spelling: the help text for the interface-mode SNMP option reads **`notifications`**
+(plural) while `lldp notification ?` also parses and offers `<cr>` — AW+ accepts the unique
+prefix. The form this case sends is recorded with each step.
+
+## Topology this case measures on — RSTP state, recorded before step 1
+
+`show spanning-tree brief` on swi_d, verbatim extract. Mode is RSTP, single instance, and the
+root is **swi_b** `8000:0000cd423029`; swi_d's own bridge ID is `8000:e01aead47043`.
+
+```
+Default: Bridge up - Spanning Tree Enabled
+Default: Root Path Cost 20000 - Root Port 5002 -  Bridge Priority 32768
+Default: Root Id 8000:0000cd423029
+Default: Bridge Id 8000:e01aead47043
+
+Port            Designated Bridge    Port Id    Role             State
+port1.0.2       8000:0000cd423029    838a       Rootport         Forwarding
+port1.0.4       8000:889d98df2602    838c       Alternate        Discarding
+port1.0.10      8000:e01aead47043    8392       Designated       Forwarding
+port1.0.14      8000:889d98df2602    8396       Alternate        Discarding
+port1.0.16      8000:0000cd423029    8398       Alternate        Discarding
+port1.0.48      8000:e01aead47043    83b8       Designated       Forwarding
+port1.0.20      8000:e01aead47043    839c       Disabled         Discarding
+```
+The tree is a line — **swi_d —(port1.0.2)— swi_b —(port1.0.1)— swi_a** — so of swi_d's four
+inter-switch links only port1.0.2 carries data. port1.0.4 and port1.0.14 (to swi_a) and
+port1.0.16 (to swi_b) are **Alternate/Discarding**. port1.0.20 has no link at all and is the
+control port for STEP 9. This table is recorded so a later flap is visible.
+
+## Pre-case state of the subject — the FIRST thing this case did
+
+Dispatch requirement, because the 11:59 triage probe ran without `--read-only` and may have
+switched LLDP on itself.
+
+```
+awplus#show running-config | include lldp
+lldp run
+```
+That is the **only** LLDP line in swi_d's running-config: LLDP is globally enabled and every
+other setting is at its default.
+
+```
+awplus#show lldp
+LLDP Global Configuration:                [Default Values]
+  LLDP Status ............... Enabled     [Disabled]
+  Notification Interval ..... 5 secs      [5]
+  Tx Timer Interval ......... 30 secs     [30]
+  Hold-time Multiplier ...... 4           [4]
+  (Computed TTL value ....... 120 secs)
+  Reinitialization Delay .... 2 secs      [2]
+  Tx Delay .................. 2 secs      [2]
+  Port Number Type .......... Port-Number [Port-Number]
+  Fast Start Count .......... 3           [3]
+
+LLDP Global Status:
+  Total Neighbor Count ...... 4
+  Neighbors table last updated 3 hrs 4 mins 12 secs ago
+```
+
+```
+awplus#show lldp neighbors
+LLDP Neighbor Information:
+
+Total number of neighbors on these ports .... 4
+
+Local    Neighbor        Neighbor        Neighbor                System   MED
+Port     Chassis ID      Port ID         Sys Name                Cap.     Ty Pwr
+--------------------------------------------------------------------------------
+1.0.2    0000.cd42.3029  port1.0.2
+1.0.4    889d.98df.2602  port1.0.4
+1.0.14   889d.98df.2602  port1.0.14
+1.0.16   0000.cd42.3029  port1.0.16
+```
+
+```
+awplus#show lldp statistics
+Global LLDP Packet and Event Counters:
+
+  Frames:    Out ................... 2604
+             In .................... 1481
+             In Errored ............ 0
+             In Dropped ............ 0
+  TLVs:      Unrecognized .......... 0
+             Discarded ............. 0
+  Neighbors: New Entries ........... 4
+             Deleted Entries ....... 0
+             Dropped Entries ....... 0
+             Entry Age-outs ........ 0
+```
+
+### ✅ Was `lldp run` probe residue? No — it is the device's SAVED baseline
+
+The dispatch asked this to be settled rather than assumed. It is settled by reading
+**startup-config**, which no probe writes:
+
+```
+awplus#show startup-config | include lldp      (read as part of the full show startup-config)
+lldp run
+```
+`lldp run` is present in `flash:/default.cfg`, the DUT's boot config — so it survives a reload
+and it predates every probe this campaign ran. **The 11:59 probe did not put it there.** The
+pre-case state of the subject is "LLDP globally enabled, all parameters default", and that is
+the baseline this case restores to.
+
+For completeness, startup-config also holds group A's saved underlay (`vlan 10
+ckUNDERLAY-eth3`, `vlan 48 ckUNDERLAY-eth4`) and **does not** hold `vlan 60` or
+`interface vlan60` — confirming the campaign note that vlan 60 was still unsaved when this
+case began.
+
+### Inherited campaign infrastructure — NOT this case's setup
+
+Stated explicitly so no final log claims it. Both were put on the bench by earlier groups:
+- **The layer-3 underlay**, saved to startup-config by group A at the Test Engineer's
+  decision: `vlan10 10.38.22.34/27` on access port port1.0.10, `vlan48 10.38.22.66/27` on
+  access port port1.0.48, against testbox eth3 `10.38.22.33/27` and eth4 `10.38.22.65/27`.
+- **vlan 60**, `ckMGMT-A`, swi_d `10.38.22.97/27`, tagged on port1.0.2 — campaign
+  infrastructure built by group A and kept by every later group. The Test Engineer removes it
+  at campaign end.
+
+`show ip interface brief` before step 1:
+```
+vlan1                 unassigned         admin up        running
+vlan10                10.38.22.34/27     admin up        running
+vlan48                10.38.22.66/27     admin up        running
+vlan60                10.38.22.97/27     admin up        running
+```
+
+## `show system` on the DUT, verbatim and in full (captured with the setup reads, before step 1)
+
+```
+System Status                                           Wed Oct 21 01:52:06 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B       
+PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU 
+PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S 
+Fan module 730  FAN1    AT-FAN19                          -     -               
+Fan module 730  FAN2    AT-FAN19                          -     -               
+--------------------------------------------------------------------------------
+RAM: Total: 8092132 kB Free: 7457196 kB
+Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 03:55:29
+Bootloader version : Unknown
+
+Current software   : x960-tb277.rel
+Software version   : sin_x96056-20261019-27
+Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+Current boot config: flash:/default.cfg (file exists)
+
+System Name
+ awplus
+System Contact
+
+System Location
+```
+
+## HEALTH sample 1 of 2 — with the setup reads, before step 1 (STANDING-ORDERS §8)
+
+Read on the console at 14:52:51-14:53:02 NZDT. `| exclude` is never chained onto
+`| include` on this platform (`platforms/x960.md` §7G); the filtered output below is the
+raw result of a single `include`.
+
+```
+awplus#show reboot history
+<date> <time> <type> <description>
+-------------------------------------------------------------------------
+2026-10-20 21:56:17 Expected   CLI(user request)
+2026-10-20 21:40:39 Expected   CLI(user request)
+2026-10-20 21:37:05 Expected   CLI(user request)
+2026-10-16 06:22:04 Expected   CLI(user request)
+2026-10-16 06:11:40 Expected   CLI(user request)
+2026-10-16 05:01:25 Expected   CLI(user request)
+2026-10-16 04:53:41 Expected   CLI(user request)
+2026-10-16 04:35:59 Expected   CLI(user request)
+2026-10-16 04:13:48 Expected   CLI(user request)
+2026-10-16 03:49:49 Expected   CLI(user request)
+2026-10-16 03:05:41 Expected   CLI(user request)
+2026-10-16 02:54:49 Expected   CLI(user request)
+2026-10-16 02:34:52 Expected   CLI(user request)
+  ... (older entries from 2026-10-16 and before, unchanged)
+```
+
+```
+14:52:52 >>> show exception log
+<date> <time> <facility>.<severity> <program[<pid>]>: <message>
+-------------------------------------------------------------------------
+None
+-------------------------------------------------------------------------
+```
+
+```
+awplus#show log | include kernel|exception|crash|restart|Unexpected
+  -> every matching line is an IMISH command echo of this very health read, e.g.
+2026 Oct 21 01:20:32 user.notice awplus IMISH[14323]: [manager@ttyS0]show exception log
+2026 Oct 21 01:20:36 user.notice awplus IMISH[14323]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+2026 Oct 21 01:52:36 user.notice awplus IMISH[17857]: [manager@ttyS0]show exception log
+2026 Oct 21 01:52:41 user.notice awplus IMISH[17857]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+  -> NO kernel line, NO crash, NO daemon restart, NO "Unexpected System reboot".
+```
+
+```
+CPU averages:
+ 1 second: 1%, 20 seconds: 0%, 60 seconds: 0%
+System load averages:
+ 1 minute: 0.00, 5 minutes: 0.00, 15 minutes: 0.0
+Current CPU load:
+ userspace: 0%, kernel: 0%, interrupts: 0% iowaits: 0%
+
+```
+
+```
+RAM total: 8092132 kB; free: 7456176 kB; buffers: 1996 kB
+
+```
+## Tools used, with their exact arguments
+
+All through `tools/tb` from the repo root; the box is tb277 and the scratch is `lldp1159`,
+so every transcript is at `/tmp/lldp1159/console-u2.log` and every capture at
+`/tmp/lldp1159/*.pcap`.
+
+| tool | purpose | invocation |
+| --- | --- | --- |
+| `tools/tb precheck/peek/probe/template` | the pre-run gate | as quoted above |
+| `tools/tb qmark` | read-only CLI help, no CR | `qmark tb277 lldp1159 u2 115200 [--mode CMD ... --] PREFIX ...` |
+| `tools/tb ckcon` | read commands on the DUT | `ckcon tb277 lldp1159 u2 115200 "show ..."` |
+| `tools/tb cfg` | configuration on the DUT | `cfg tb277 lldp1159 u2 115200 "configure terminal" "interface port1.0.10" "no lldp transmit" "end"` |
+| `tools/tb capture` | tcpdump on the testbox leg | `capture tb277 lldp1159 eth3 <secs> <out>.pcap ether proto 0x88cc` |
+| **`tools/lldpsend.py`** (NEW) | craft and send LLDPDUs from eth3 | `sudotool tb277 lldp1159 lldpsend eth3 --count N --interval S --ttl T --port-id ckLLDP-eth3 --sys-name cktb277-host --caps station --mgmt-ip 10.38.22.33 [--shutdown] [--pcap F]` |
+| **`tools/lldpwire.py`** (NEW) | decode the LLDP frames in a pcap | `tool tb277 lldp1159 lldpwire /tmp/lldp1159/<f>.pcap [--tlv] [--quiet] [--src MAC] [--expect-med]` |
+| `tools/rc2cfg.py`, `tools/rcdiff.py` | the `.cfg` deliverable and the teardown diff | run locally on saved `ckcon` stdout |
+
+**Two new tools were written for this case and committed with it**, with their `tools/README.md`
+entries (logged-output.md §2 — a helper another case could use belongs in `tools/`, not in a
+case's `work/`). `tools/` had **no** LLDP decoder and **no** plain LLDP sender: the only LLDP
+helper was `lldpmed_phone.py`, which always sends the LLDP-MED endpoint set and then does DHCP,
+ARP and a ping. Neither new tool duplicates it, and T33398 uses `lldpmed_phone.py` as it stands.
+
+**Instrument controls for the new tools, run before either was trusted** (the standing habit:
+prove the instrument gives a non-zero before reading a zero as a measurement — memory
+`tcpdump-nfs-root-squash-capture`):
+- `lldpwire.py` was fed a **synthetic** LLDP frame built in-process, carrying a chassis MAC, an
+  interface-name port ID, TTL 120, a system name, capabilities, a management address, an
+  802.1 Port VLAN ID of 10 and an LLDP-MED Network Policy of `voice vlan 70 priority 5
+  dscp 46`. It decoded every field back exactly, including the Network Policy's 12-bit VLAN
+  and 3-bit priority bit-packing. Only then was it pointed at real traffic.
+- `lldpsend.py` was proven to **reach the DUT** before any silence was read as ageing: one
+  smoke-test frame with TTL 30 took swi_d's port1.0.10 counters from `In 0` to `In 1`,
+  `New Entries 0 → 1`, and then (30 s later, correctly) `Entry Age-outs 0 → 1`,
+  `Deleted Entries 0 → 1`. The sender works, the DUT processes what it sends, and the DUT
+  ages it out on the TTL the sender chose.
+
+---
+
+# STEP 1 — Baseline: with LLDP enabled, the DUT transmits on the wire at the configured rate
+
+**Why this step** (no authored text exists): before anything is changed, establish what "LLDP
+working" looks like **in frames**, so every later change is measured against a number and not
+against an impression. TPS row 257 claims LLDP; this is the claim's dataplane form.
+
+**What was done.** `tools/tb capture tb277 lldp1159 eth3 75 s1_on.pcap ether proto 0x88cc`
+with the bench untouched, decoded with `lldpwire.py --tlv`.
+
+```
+pcap      /tmp/lldp1159/s1_on.pcap
+packets   3 total, 3 LLDP
+
+source e2:1a:ea:d4:70:43 -> 01:80:c2:00:00:0e
+  frames 3 over 60.1 s
+  inter-frame gap  min 30.03 s  mean 30.03 s  max 30.03 s
+  vlan tags        untagged
+  --- frame at 1792547785.844, 4 TLVs ---
+    Chassis ID                         MAC address: e0:1a:ea:d4:70:43
+    Port ID                            Interface name: port1.0.10
+    Time To Live                       120 s
+    OUI e01aea subtype 2               0c26573a87c541829d436cb04a0e77c2
+  --- frame at 1792547815.873, 4 TLVs ---   (identical TLVs)
+  --- frame at 1792547845.903, 4 TLVs ---   (identical TLVs)
+```
+
+**What this proves, field by field.**
+1. **The DUT really transmits LLDP**, to the IEEE 802.1AB group address `01:80:c2:00:00:0e`,
+   on the one port that faces the testbox.
+2. **The configured Tx Timer is the rate on the wire.** `show lldp` reads `Tx Timer Interval
+   30 secs`; the measured inter-frame gap is **30.03 s**, three times running, with no spread
+   (min = mean = max). The `show` value is corroborated by the wire, not assumed from it.
+3. **The configured holdtime multiplier is the TTL on the wire.** `show lldp` reads
+   `Hold-time Multiplier 4` and `(Computed TTL value 120 secs)`; the TTL TLV in every frame
+   carries **120**. 30 × 4 = 120, measured.
+4. **The chassis ID is the DUT's own bridge MAC** `e0:1a:ea:d4:70:43`, matching
+   `show spanning-tree brief`'s `Bridge Id 8000:e01aead47043`. The **port ID** is the sending
+   port's own name, `port1.0.10`, which is what `Port Number Type ... Port-Number` means.
+5. ⚠ **The frame's SOURCE MAC is `e2:1a:ea:d4:70:43`, not the chassis MAC.** It is the chassis
+   MAC with the locally-administered bit set (`e0` → `e2`). Worth knowing before anyone writes
+   a capture filter on the chassis address and finds nothing.
+
+### 🔬 Finding 1 — by default this platform advertises ONLY the three mandatory TLVs
+
+Every frame carries exactly four TLVs: Chassis ID, Port ID, Time To Live — the three IEEE
+802.1AB mandatory TLVs — plus one **Allied Telesis organisationally-specific TLV**
+(OUI `e0:1a:ea`, subtype 2, 16 bytes, constant across frames). There is **no** System Name,
+System Description, System Capabilities, Management Address or Port Description TLV.
+
+`show lldp interface port1.0.10` agrees from the other side, and is the configuration behind it:
+```
+ Port     Rx/Tx  Notif  Management Addr  Base       802.1    802.3    MED
+--------------------------------------------------------------------------------
+ 1.0.10   RxTx   -- --  10.38.22.34      ---------- -------- -------- McNpLoPe--
+```
+Every Base, 802.1 and 802.3 optional TLV is off by default (`----------`, `--------`,
+`--------`).
+
+**This explains an observation that would otherwise look like a defect.** The DUT's own
+`show lldp neighbors` has an **empty `Neighbor Sys Name` column** for swi_b and swi_a:
+```
+1.0.2    0000.cd42.3029  port1.0.2
+1.0.4    889d.98df.2602  port1.0.4
+```
+The partners are not failing to identify themselves — **no switch here advertises a System Name
+TLV by default**, so there is nothing for the column to show. The same DUT fills that column
+immediately for the crafted neighbour in STEP 2, which does send one. STEP 7 turns the DUT's
+own optional TLVs on and watches them appear on the wire.
+
+**STEP 1 verdict: PASS.** LLDP transmission is real, and its rate and TTL on the wire equal
+the configured values.
+
+---
+
+# STEP 9 (measured in the same window as STEP 1) — LLDP runs on RSTP-BLOCKED ports
+
+**Why this step.** LLDP is a link-local protocol: it is meant to run on a link whether or not
+spanning tree is letting that link forward data. This bench is the ideal place to measure that,
+because RSTP leaves **four** of swi_d's inter-switch ports Discarding and only one Forwarding.
+Reading it off `show lldp neighbors` would prove nothing — the question is whether **frames**
+move. So it is graded on swi_d's own per-port frame counters, with a port that has **no link**
+as the zero control in the same read.
+
+**What was done.** `show lldp statistics interface port1.0.2,port1.0.4,port1.0.10,port1.0.14,
+port1.0.16,port1.0.20` at DUT 02:06:44 UTC and again at 02:08:26 UTC — a **101 s** window.
+
+| port | RSTP role/state | Out delta | In delta | reading |
+| --- | --- | --- | --- | --- |
+| port1.0.2 | **Rootport / Forwarding** (to swi_b) | **+3** | **+3** | the data-carrying link |
+| port1.0.4 | **Alternate / Discarding** (to swi_a) | **+3** | **+3** | blocked, LLDP both ways |
+| port1.0.14 | **Alternate / Discarding** (to swi_a) | **+3** | **+4** | blocked, LLDP both ways |
+| port1.0.16 | **Alternate / Discarding** (to swi_b) | **+3** | **+3** | blocked, LLDP both ways |
+| port1.0.10 | Designated / Forwarding (to testbox eth3) | +3 | **+0** | nothing else sends LLDP here |
+| **port1.0.20** | **Disabled / Discarding, no link** | **+0** | **+0** | **the zero control** |
+
+**What this proves.**
+1. **LLDP transmits and receives normally on a port spanning tree is blocking.** The three
+   Discarding inter-switch ports moved **exactly as many frames as the Forwarding one** —
+   +3 out and +3/+4 in over 101 s, i.e. one frame per 30 s in each direction, the configured
+   Tx Timer.
+2. **The control discriminates.** port1.0.20, a port with no link, counted **zero** in both
+   directions in the same read — so a non-zero on the blocked ports is a measurement of
+   traffic, not an artefact of the counter.
+3. **A second control, free in the same read:** port1.0.10 counted `In +0`. Nothing but this
+   case's own crafted frames ever sends LLDP on the testbox leg, so every later `In` increment
+   on port1.0.10 is unambiguously attributable to `lldpsend.py`.
+4. The rate agrees with the wire: port1.0.10 sent **+3 in 101 s** while the independent
+   capture of STEP 1 measured **30.03 s between frames**. 101 / 30 = 3. The device's counter
+   and the frames on the wire tell the same story.
+
+This is also the contrast the dispatch asked for: **neighbours appear on links that carry no
+data** — swi_a is a neighbour on port1.0.4 and port1.0.14, both Discarding, and the frames
+proving it are counted above.
+
+**STEP 9 verdict: PASS.**
+
+---
+
+# STEP 2 — The DUT RECEIVES LLDP and builds the neighbour from the frame's own fields
+
+**Why this step.** STEP 1 proved transmission. Reception is a separate function and must be
+proved separately — and proved against a neighbour whose every field is known in advance,
+so that "the DUT learned it" can be checked field by field rather than believed.
+
+**What was done.**
+```
+tools/tb sudotool tb277 lldp1159 lldpsend eth3 --count 3 --interval 1 --ttl 120 \
+   --port-id ckLLDP-eth3 --sys-name cktb277-host \
+   --sys-desc "tb277 testbox, crafted LLDP partner for T44296" \
+   --caps station --mgmt-ip 10.38.22.33 --pcap /tmp/lldp1159/s2_sent.pcap
+```
+```
+lldpsend eth3: chassis 00:0d:b9:55:77:0e, port-id ckLLDP-eth3, ttl 120 s, 3 frame(s) every 1.00 s
+  1792548552.346 sent frame 1/3
+  1792548553.382 sent frame 2/3
+  1792548554.430 sent frame 3/3
+done: 3 frame(s) sent on eth3
+```
+
+**The DUT's answer** (`show lldp neighbors`, DUT 15:09:20 box local):
+```
+Total number of neighbors on these ports .... 5
+
+Local    Neighbor        Neighbor        Neighbor                System   MED
+Port     Chassis ID      Port ID         Sys Name                Cap.     Ty Pwr
+--------------------------------------------------------------------------------
+1.0.2    0000.cd42.3029  port1.0.2
+1.0.4    889d.98df.2602  port1.0.4
+1.0.10   000d.b955.770e  ckLLDP-eth3     cktb277-host            -------S
+1.0.14   889d.98df.2602  port1.0.14
+1.0.16   0000.cd42.3029  port1.0.16
+```
+**and its counters** (`show lldp statistics interface port1.0.10`):
+```
+  Frames:    In .................... 4        (was 1 -> +3, exactly the 3 frames sent)
+  Neighbors: New Entries ........... 2        (was 1 -> +1, exactly one new neighbour)
+```
+
+**What this proves, field by field.** Each crafted value came back unchanged:
+
+| field sent by `lldpsend.py` | what swi_d reports | match |
+| --- | --- | --- |
+| chassis ID `00:0d:b9:55:77:0e` (eth3's MAC) | `000d.b955.770e` | ✅ |
+| port ID `ckLLDP-eth3` (interface-name subtype) | `ckLLDP-eth3` | ✅ |
+| system name `cktb277-host` | `cktb277-host` | ✅ |
+| capabilities `station` | `-------S` (Station only, the 8th code) | ✅ |
+| arrived on eth3 → swi_d port1.0.10 | Local Port `1.0.10` | ✅ |
+
+**Controls, in the same reading.**
+- **Frame count:** `In` moved by **exactly 3** for exactly 3 frames sent. Not "some traffic" —
+  frame for frame.
+- **Port binding:** the neighbour appeared on port1.0.10 **and on no other port**. The other
+  four entries are byte-identical to the pre-case table.
+- **Entry count:** 3 frames from one source produced **one** new entry, not three — the DUT
+  refreshes rather than duplicates.
+- The `Sys Name` column, empty for both real partner switches, is populated here. That is
+  Finding 1 demonstrated from the other direction: the column is empty because the partners
+  send no System Name TLV, not because the DUT cannot display one.
+
+**STEP 2 verdict: PASS.**
+
+---
+
+# STEP 3 — `lldp transmit` is per-interface, and switching it off stops the frames
+
+**Why this step.** `lldp transmit` and `lldp receive` are separate per-interface commands, so
+each has to be shown to control its own direction and nothing else. This step takes transmit
+away and proves the frames stop; the control that must still happen is **reception on the same
+port**, which proves the link, the capture and the DUT's LLDP are all still alive.
+
+**Configuration sent** (`tools/tb cfg`, which stops at any `% ` line):
+```
+awplus#configure terminal
+awplus(config)#interface port1.0.10
+awplus(config-if)#no lldp transmit
+awplus(config-if)#end
+```
+Read back:
+```
+awplus#show running-config interface port1.0.10
+ switchport mode access
+ switchport access vlan 10
+ no lldp transmit
+awplus#show lldp interface port1.0.10
+ Port     Rx/Tx  Notif  Management Addr  Base       802.1    802.3    MED
+ 1.0.10   Rx --  -- --  10.38.22.34      ---------- -------- -------- McNpLoPe--
+```
+`Rx --` — receive on, transmit off.
+
+**Measurement.** A 75 s capture on eth3, during which three crafted frames were sent from the
+host at 5 s spacing:
+```
+pcap      /tmp/lldp1159/s3_txoff.pcap
+packets   3 total, 3 LLDP
+
+source 00:0d:b9:55:77:0e -> 01:80:c2:00:00:0e        <- the HOST's frames, 3 of them
+  frames 3 over 10.1 s
+  inter-frame gap  min 5.04 s  mean 5.05 s  max 5.05 s
+```
+**There is no `source e2:1a:ea:d4:70:43` block at all.** In 75 s the DUT would have sent two or
+three frames at its 30 s rate; it sent **zero**.
+
+**The control, in the same window.** `show lldp statistics interface port1.0.10` went from
+`In 4` to `In 7` — **+3, exactly the three host frames** — and the crafted neighbour stayed in
+the table. So the port is up, the capture is working, LLDP reception is untouched, and the only
+thing that changed is that the DUT stopped transmitting.
+
+**The arc is closed.** `lldp transmit` restored:
+```
+ 1.0.10   Rx Tx  -- --  10.38.22.34      ---------- -------- -------- McNpLoPe--
+```
+and a fresh 70 s capture (`s3b_txon.pcap`): **2 frames, gap 30.03 s**. Off → zero, on → the
+configured rate again.
+
+**STEP 3 verdict: PASS.**
+
+---
+
+# STEP 4 — `lldp receive` is independent of `lldp transmit`, in both directions
+
+**Why this step.** The mirror image of STEP 3, and the one that proves the two commands are
+genuinely independent rather than one master switch with two names.
+
+**Starting point.** The crafted neighbour from STEP 2 had aged out on its own TTL by now, which
+is itself the first evidence of ageing: `Entry Age-outs 1 → 2` and `Deleted Entries 1 → 2`, and
+`show lldp neighbors` back to the four switch neighbours. (STEP 5 measures ageing properly,
+against a TTL short enough to time.)
+
+**Configuration sent:**
+```
+awplus(config-if)#no lldp receive        (on interface port1.0.10, transmit left ON)
+```
+```
+ 1.0.10   -- Tx  -- --  10.38.22.34      ---------- -------- -------- McNpLoPe--
+```
+`-- Tx` — receive off, transmit on. The exact inverse of STEP 3's flags.
+
+**Measurement — reception stops.** Three crafted frames were sent, identical to STEP 2's:
+```
+                     before      after 3 frames
+  Frames:    In         7            7        (+0)
+  Neighbors: New Entries 2            2        (+0)
+  show lldp neighbors: total 4       total 4
+```
+🔬 **The frames are not merely ignored for the table — they are not counted at all.** `In`
+did not move. On this platform `no lldp receive` drops the frame before the packet counter,
+not after it. (Compare STEP 2, where three frames moved `In` by exactly three.)
+
+**The control, in the same window — transmission is unaffected.** A 70 s capture taken while
+receive was still off (`s4_rxoff.pcap`):
+```
+source e2:1a:ea:d4:70:43 -> 01:80:c2:00:00:0e
+  frames 2 over 30.0 s
+  inter-frame gap  min 30.03 s  mean 30.03 s  max 30.03 s
+```
+The DUT kept transmitting at its configured rate on the very port whose reception was disabled.
+
+**The arc is closed.** `lldp receive` restored → `Rx Tx`; three more crafted frames →
+`In 7 → 10` (**+3**), `New Entries 2 → 3` (**+1**), and the neighbour is back:
+```
+Total number of neighbors on these ports .... 5
+1.0.10   000d.b955.770e  ckLLDP-eth3     cktb277-host            -------S
+```
+
+**STEP 3 + STEP 4 together prove independence in all four combinations measured:**
+
+| port1.0.10 config | DUT frames out (capture) | host frames in (`In` counter) |
+| --- | --- | --- |
+| `Rx Tx` (default) | 2 in 70 s at 30.03 s | +3 for 3 sent |
+| `Rx --` (no transmit) | **0 in 75 s** | +3 for 3 sent |
+| `-- Tx` (no receive) | 2 in 70 s at 30.03 s | **+0 for 3 sent** |
+| `Rx Tx` (restored) | 2 in 70 s at 30.03 s | +3 for 3 sent |
+
+**STEP 4 verdict: PASS.**
+
+---
+
+# STEP 5 — A neighbour ages out on the TTL the NEIGHBOUR advertised, not on a local timer
+
+**Why this step, and why it needed a synthetic partner.** The ageing rule is that the receiver
+holds an entry for the TTL carried in the frame. With only switch partners this is a 120 s wait
+with nothing to compare against. With `lldpsend.py` the TTL is an argument, so two neighbours
+with **different TTLs** can be put on the **same port at the same time**: one must go, the
+other must stay. That pair is the measurement; neither alone would be.
+
+**What was done.** A second crafted neighbour, advertising **TTL 20**, was sent to the same
+port while the first (**TTL 120**, `cktb277-host`) was still live:
+```
+tools/tb sudotool tb277 lldp1159 lldpsend eth3 --count 2 --interval 1 --ttl 20 \
+   --chassis-mac 02:00:00:00:00:aa --src-mac 02:00:00:00:00:aa \
+   --port-id ckAGE-ttl20 --sys-name ckage20 --caps station
+  1792549055.766 sent frame 1/2          = 15:17:35 NZDT
+  1792549056.806 sent frame 2/2          = 15:17:36 NZDT   <- T0, the last frame
+```
+Then `show lldp neighbors interface port1.0.10` was re-read every ~8 s:
+
+| box local | elapsed since T0 | `Total number of neighbors` | entries |
+| --- | --- | --- | --- |
+| 15:17:42 | +6 s | **2** | `ckLLDP-eth3` (TTL 120) **and** `ckAGE-ttl20` (TTL 20) |
+| 15:17:51 | +15 s | **2** | both still present |
+| **15:17:59** | **+23 s** | **1** | **`ckAGE-ttl20` is GONE**; `ckLLDP-eth3` remains |
+| 15:18:07 | +31 s | 1 | `ckLLDP-eth3` only |
+| 15:18:15 | +39 s | 1 | `ckLLDP-eth3` only |
+
+Verbatim, the two reads that bracket the expiry:
+```
+15:17:51 >>> show lldp neighbors interface port1.0.10
+Total number of neighbors on these ports .... 2
+1.0.10   000d.b955.770e  ckLLDP-eth3     cktb277-host            -------S
+1.0.10   0200.0000.00aa  ckAGE-ttl20     ckage20                 -------S
+
+15:17:59 >>> show lldp neighbors interface port1.0.10
+Total number of neighbors on these ports .... 1
+1.0.10   000d.b955.770e  ckLLDP-eth3     cktb277-host            -------S
+```
+and the counter that names the mechanism:
+```
+  Neighbors: Deleted Entries ....... 3      (was 2, +1)
+             Entry Age-outs ........ 3      (was 2, +1)
+```
+
+**What this proves.**
+1. **The entry was held for its advertised TTL and no longer.** TTL 20 from T0 = 15:17:56.
+   Present at +15 s, gone at +23 s — the expiry is bracketed to an 8 s window straddling the
+   predicted instant. The polling interval, not the device, sets that precision.
+2. **The TTL is the neighbour's, not a local constant.** The DUT's own `Computed TTL value` was
+   120 s throughout, and the TTL-120 neighbour on the **same port** was untouched while the
+   TTL-20 one expired. One port, one instant, two outcomes, and the only difference is the
+   TTL in the frame.
+3. **The counter names the mechanism**: `Entry Age-outs` incremented. STEP 6 removes an entry
+   by a different mechanism and that counter does **not** move — which is what makes this one
+   meaningful.
+
+**STEP 5 verdict: PASS.**
+
+---
+
+# STEP 6 — An LLDP shutdown frame (TTL 0) deletes the entry at once, and is counted differently
+
+**Why this step.** IEEE 802.1AB says a station leaving sends an LLDPDU with TTL 0 so the
+neighbour drops it immediately instead of waiting out the hold time. It is the orderly-removal
+half of LLDP, it is invisible to any `show` command, and it is only testable with a sender you
+control.
+
+**What was done.** `cktb277-host` was live with TTL 120, last refreshed at about 15:16:3x, so
+it had roughly 110 s of hold time left. One frame was sent, carrying TTL 0 and nothing else
+changed:
+```
+tools/tb sudotool tb277 lldp1159 lldpsend eth3 --count 0 --shutdown --ttl 120 \
+   --port-id ckLLDP-eth3 --sys-name cktb277-host --caps station --mgmt-ip 10.38.22.33
+  1792549120.894 sent SHUTDOWN frame (TTL 0)        = 15:18:40 NZDT
+```
+Eight seconds later:
+```
+15:18:48 >>> show lldp neighbors interface port1.0.10
+Total number of neighbors on these ports .... 0
+
+15:18:49 >>> show lldp statistics interface port1.0.10
+  Frames:    In .................... 13       (was 10, +3: 2 from STEP 5 + this one)
+  Neighbors: New Entries ........... 4
+             Deleted Entries ....... 4        (was 3, +1)
+             Entry Age-outs ........ 3        (was 3, +0)
+```
+
+**What this proves.**
+1. **The entry went immediately**, with about 110 s of its hold time unused.
+2. 🔬 **The two removal mechanisms are counted separately and correctly.** A TTL expiry
+   (STEP 5) incremented **both** `Deleted Entries` and `Entry Age-outs`. A shutdown frame
+   incremented `Deleted Entries` **only** — `Entry Age-outs` stayed at 3. So the DUT is not
+   simply expiring the entry early; it is honouring the shutdown frame as a distinct event.
+3. **Frame accounting stayed exact.** `In` has now moved by exactly the number of frames sent
+   at every single step of this case: +3, +0, +3, +2, +1.
+
+**STEP 6 verdict: PASS.**
+
+---
+
+# STEP 7 — `lldp tlv-select` changes what is actually on the wire, and removal puts it back
+
+**Why this step.** Finding 1 showed the default advertisement is only the three mandatory TLVs
+plus an Allied Telesis one. The optional TLVs are the configurable part of LLDP, and the only
+honest way to grade "the DUT advertises X" is to read X out of a captured frame.
+
+**Configuration sent** (per-interface — `lldp tlv-select` does not exist in global config, see
+"CLI surface"):
+```
+awplus(config-if)#lldp tlv-select port-description
+awplus(config-if)#lldp tlv-select system-name
+awplus(config-if)#lldp tlv-select system-description
+awplus(config-if)#lldp tlv-select system-capabilities
+awplus(config-if)#lldp tlv-select management-address
+awplus(config-if)#lldp tlv-select port-vlan
+awplus(config-if)#lldp tlv-select max-frame-size
+```
+No `% ` line on any of them. `show lldp interface port1.0.10` changed from
+`---------- -------- --------` to:
+```
+ 1.0.10   Rx Tx  -- --  10.38.22.34      PdSnSdScMa Pv------ ------Mf McNpLoPe--
+```
+
+**Measurement — the captured frame went from 4 TLVs to 11:**
+```
+  --- frame at 1792549192.180, 11 TLVs ---
+    Chassis ID                         MAC address: e0:1a:ea:d4:70:43
+    Port ID                            Interface name: port1.0.10
+    Time To Live                       120 s
+    Port Description                   port1.0.10
+    System Name                        awplus
+    System Description                 Allied Telesis router/switch, Software (AlliedWare Plus) Version sin_x96056-20261019-27
+    System Capabilities                supported=[Bridge, Router] enabled=[Bridge, Router]
+    Management Address                 10.38.22.34  (interface ifIndex 310)
+    OUI e01aea subtype 2               0c26573a87c541829d436cb04a0e77c2
+    802.1 Port VLAN ID                 10
+    802.3 Maximum Frame Size           1500
+```
+
+**Every value is independently checkable, and every one is right.**
+
+| TLV | advertised value | cross-check |
+| --- | --- | --- |
+| System Name | `awplus` | `show system` → `System Name awplus` |
+| System Description | `... Version sin_x96056-20261019-27` | `show system` → `Software version sin_x96056-20261019-27` |
+| System Capabilities | Bridge **and** Router, both supported and enabled | the DUT is a layer-3 switch with four SVIs |
+| Management Address | `10.38.22.34` | the vlan10 SVI, and the `Management Addr` column of `show lldp interface` |
+| 802.1 Port VLAN ID | **10** | port1.0.10 is `switchport access vlan 10` |
+| Port Description | `port1.0.10` | the sending port |
+| 802.3 Maximum Frame Size | 1500 | the port's MTU |
+
+**Removal, proven on the wire and in the configuration.** All seven `no lldp tlv-select ...`
+lines were sent. `show running-config interface port1.0.10` returned to exactly its pre-case
+content — **no `lldp` line of any kind**:
+```
+interface port1.0.10
+ switchport
+ switchport mode access
+ switchport access vlan 10
+```
+the flags returned to `---------- -------- --------`, and the next captured frame
+(`s7b_tlvoff.pcap`) was back to **4 TLVs**, byte-identical in content to STEP 1's. The seven
+optional TLVs did not linger.
+
+**STEP 7 verdict: PASS.**
+
+---
+
+# STEP 8 — The timer and holdtime commands change the wire, measured, and are restored
+
+**Why this step.** `show lldp` will happily report whatever was typed. The question is whether
+the transmission rate and the advertised TTL actually change.
+
+**Configuration sent:**
+```
+awplus(config)#lldp timer 10
+awplus(config)#lldp holdtime-multiplier 2
+```
+```
+  Tx Timer Interval ......... 10 secs     [30]
+  Hold-time Multiplier ...... 2           [4]
+  (Computed TTL value ....... 20 secs)
+```
+```
+awplus#show running-config | include lldp
+lldp holdtime-multiplier 2
+lldp timer 10
+lldp run
+```
+
+**Measurement**, 55 s capture:
+```
+packets   5 total, 5 LLDP
+source e2:1a:ea:d4:70:43 -> 01:80:c2:00:00:0e
+  frames 5 over 40.0 s
+  inter-frame gap  min 10.01 s  mean 10.01 s  max 10.01 s
+    Time To Live                       20 s
+```
+**Five frames at 10.01 s, each carrying TTL 20.** Both configured numbers are on the wire:
+the interval is the `timer`, and the TTL is `timer × holdtime-multiplier` = 10 × 2 = 20.
+
+**Restoration, proven on the wire.** `no lldp timer` and `no lldp holdtime-multiplier`:
+```
+  Tx Timer Interval ......... 30 secs     [30]
+  Hold-time Multiplier ...... 4           [4]
+  (Computed TTL value ....... 120 secs)
+awplus#show running-config | include lldp
+lldp run
+```
+and the next capture (`s8b_def.pcap`) measured **2 frames, gap 30.03 s, TTL 120** — back to the
+STEP 1 baseline exactly, with `lldp run` once again the only LLDP line in running-config.
+
+**Three different (rate, TTL) pairs have now been measured on the wire in this case —
+(30 s, 120 s), (10 s, 20 s) and (30 s, 120 s) again — and each matched its configuration.**
+
+**STEP 8 verdict: PASS.**
+
+---
+
+# STEP 10 — LLDP notifications are real SNMP traps, and the per-port switch gates them
+
+**Why this step.** `lldp notification` and `lldp notification-interval` exist in the CLI, and a
+notification is the one LLDP output that leaves the device by a path a `show` command cannot
+describe. Grading it means catching the trap on the wire and reading its varbinds.
+
+**Baseline first.** The SNMP agent was already on and nothing else was configured:
+```
+awplus#show running-config | include snmp
+snmp-server
+awplus#show snmp-server
+SNMP Server .......................... Enabled
+```
+
+**Configuration sent:**
+```
+awplus(config)#snmp-server community cklldp ro
+awplus(config)#snmp-server host 10.38.22.33 version 2c cklldp
+awplus(config)#snmp-server enable trap lldp
+awplus(config)#interface port1.0.10
+awplus(config-if)#lldp notification
+```
+Read back:
+```
+awplus#show running-config | include snmp
+snmp-server
+snmp-server enable trap lldp
+snmp-server community cklldp
+snmp-server host 10.38.22.33 version 2c cklldp
+awplus#show lldp interface port1.0.10
+ 1.0.10   Rx Tx  RC --  10.38.22.34      ---------- -------- -------- McNpLoPe--
+```
+`RC` in the Notif column = **LLDP Remote Tables Change** notifications enabled on this port.
+
+🔬 Two CLI storage facts, both measured here:
+- `snmp-server community cklldp ro` is stored as **`snmp-server community cklldp`** — `ro` is
+  the default and is not written back. (Independently confirms the same finding group B
+  recorded in T33386.)
+- `lldp notification` is stored in running-config as **`lldp notifications`**, plural. A later
+  check that greps running-config for the singular form will find nothing.
+
+**Stimulus and measurement.** A 60 s capture of `udp port 162` on eth3, with three deliberate
+neighbour-table changes driven from the host:
+
+| box local | stimulus |
+| --- | --- |
+| 15:27:21 | 2 frames, chassis `02:00:00:00:00:bb`, port-id `ckNOTIF` — **an insert** |
+| 15:27:26 | 1 shutdown frame (TTL 0) for the same chassis — **a delete** |
+| 15:27:45 | 2 frames, chassis `02:00:00:00:00:cc`, port-id `ckNOTIF2` — **another insert** |
+
+Decoded with `tools/tb tool tb277 lldp1159 snmpwire /tmp/lldp1159/s10_trap.pcap --port 162
+--values --abs`:
+```
+#1   15:27:26.385 10.38.22.34:48414 -> 10.38.22.33:162  SNMPv2c  community='cklldp' pdu=SNMPv2-Trap
+      1.3.6.1.2.1.1.3.0 = TimeTicks: 1623624
+      1.3.6.1.6.3.1.1.4.1.0 = OID: 1.0.8802.1.1.2.0.0.1
+      1.0.8802.1.1.2.1.2.2.0 = Gauge32: 9        <- lldpStatsRemTablesInserts
+      1.0.8802.1.1.2.1.2.3.0 = Gauge32: 4        <- lldpStatsRemTablesDeletes
+      1.0.8802.1.1.2.1.2.4.0 = Gauge32: 0        <- lldpStatsRemTablesDrops
+      1.0.8802.1.1.2.1.2.5.0 = Gauge32: 3        <- lldpStatsRemTablesAgeouts
+#2   15:27:32.100 ... Inserts: 9   Deletes: 5   Drops: 0   Ageouts: 3
+#3   15:27:50.289 ... Inserts: 10  Deletes: 5   Drops: 0   Ageouts: 3
+SUMMARY 3 SNMP message(s): 0 ENCRYPTED, 3 PLAINTEXT
+```
+
+**What this proves.**
+1. **Three stimuli, three traps**, each about 5 s after its stimulus — consistent with the
+   `Notification Interval 5 secs` the DUT reported.
+2. **The notification is the right one.** `snmpTrapOID.0 = 1.0.8802.1.1.2.0.0.1` is
+   **`lldpRemTablesChange`** from the IEEE 802.1AB LLDP-MIB. Per `tools/README.md`'s snmpwire
+   entry, a v2c notification is identified by the **value** of `snmpTrapOID.0`, which is why
+   `--values` was used; `--oids` alone could not have told these traps apart from any other.
+3. **The varbinds say which change happened, and they are self-consistent**: trap #1 and #2
+   share `Inserts 9` while `Deletes` goes 4 → 5 (the shutdown-frame delete); trap #3 shows
+   `Inserts` 9 → 10 (the second insert) with `Deletes` unchanged. Each trap carries the
+   counter that moved.
+4. The trap was sent **from the DUT's own vlan10 address** `10.38.22.34` to the configured
+   host, with the configured community — the configuration is what is on the wire.
+
+**The control — the same stimulus with notifications off produces nothing.**
+```
+awplus(config-if)#no lldp notification
+ 1.0.10   Rx Tx  -- --  10.38.22.34      ---------- -------- -------- McNpLoPe--
+```
+Two further inserts were driven (`ckCTRL` at 15:28:53 and `ckCTRL2` at 15:28:59), and both
+**did** happen — the DUT learned them:
+```
+awplus#show lldp neighbors interface port1.0.10
+Total number of neighbors on these ports .... 2
+1.0.10   0200.0000.00dd  ckCTRL          ckctrl                  -------S
+1.0.10   0200.0000.00ee  ckCTRL2         ckctrl2                 -------S
+```
+and the 50 s trap capture over the same period, decoded the same way:
+```
+0 packets captured
+SUMMARY 0 SNMP message(s): 0 ENCRYPTED, 3 PLAINTEXT -> 0 PLAINTEXT
+```
+**Zero traps for two genuine topology changes.** The zero is a measurement and not a broken
+instrument, because the identical capture command and decoder produced three traps minutes
+earlier, and because the neighbour table proves the changes really occurred (memory
+`tcpdump-nfs-root-squash-capture`: a zero counts only once the same instrument has given a
+non-zero).
+
+**Teardown of this step, inside the step.** All three SNMP lines removed; running-config
+returned to the single baseline `snmp-server`, and the LLDP configuration to the single
+`lldp run`:
+```
+awplus#show running-config | include snmp
+snmp-server
+awplus#show running-config | include lldp
+lldp run
+```
+
+**STEP 10 verdict: PASS.**
+
+---
+
+# STEP 11 — Global removal: `no lldp run` stops both directions, and the arc closes
+
+**Why this step.** The satisfactory-level-of-testing rule: prove removal, not just
+configuration. And removal of the global switch should stop **both** transmission and
+reception, which is a stronger claim than either per-interface command.
+
+**Configuration sent:** `no lldp run`.
+
+**Immediately:**
+```
+awplus#show running-config | include lldp
+          (nothing -- the lldp run line is gone)
+awplus#show lldp
+  LLDP Status ............... Disabled    [Disabled]
+  Total Neighbor Count ...... 0
+awplus#show lldp neighbors
+Total number of neighbors on these ports .... 0
+```
+All six neighbours — the four switch ones and the two crafted leftovers from STEP 10's control
+— were dropped at once.
+
+**Measurement, transmission.** A 70 s capture (`s11_off.pcap`), during which three crafted
+frames were deliberately sent from the host:
+```
+3 packets captured
+packets   3 total, 3 LLDP
+source 00:0d:b9:55:77:0e -> 01:80:c2:00:00:0e        <- the HOST's three frames
+  frames 3 over 10.1 s
+```
+**No `source e2:1a:ea:d4:70:43` block: the DUT sent zero frames in 70 s**, where it sends two
+or three when enabled. The three host frames in the same file are the instrument control —
+the link is up and the capture is working.
+
+**Measurement, reception.** The same three frames, against the DUT's counters:
+```
+                     before      after 3 frames
+  Frames:    In         22           22        (+0)
+  Neighbors: New Entries 8            8        (+0)
+  show lldp neighbors: total 0       total 0
+```
+Nothing was received, nothing was counted, nothing was learned. `no lldp run` takes down both
+directions, which `no lldp transmit` and `no lldp receive` each take down only one of.
+
+**The arc closes.** `lldp run` restored:
+```
+awplus#show running-config | include lldp
+lldp run
+awplus#show lldp
+  LLDP Status ............... Enabled     [Disabled]
+```
+A fresh 70 s capture: **2 frames, gap 30.03 s**. And the neighbour table rebuilt itself from
+the partners' own advertisements, back to **exactly** the pre-case four:
+```
+Total number of neighbors on these ports .... 4
+1.0.2    0000.cd42.3029  port1.0.2
+1.0.4    889d.98df.2602  port1.0.4
+1.0.14   889d.98df.2602  port1.0.14
+1.0.16   0000.cd42.3029  port1.0.16
+```
+
+**STEP 11 verdict: PASS.**
+
+---
+
+# STEP 12 — 🔴 REBOOT PERSISTENCE, measured on the wire for the first time in three campaigns
+
+**Why this step, and why it could not be done before.** Reboot persistence has come back
+**NOT MEASURED** from T33380, T33386 and T47192, because proving it needs a `write` and a
+`write` would have saved the shared `vlan 60`. The Test Engineer removed that bind at 14:0x on
+2026-10-21: testers may `write` freely from group C onward, and he removes vlan 60 himself at
+campaign end. This is the first case able to run the limb.
+
+**The configuration chosen to persist** is deliberately distinct from the default **and** from
+every value used earlier in this case, so that "it survived" cannot be confused with "it
+reverted to a default that happens to look the same":
+
+```
+awplus(config)#lldp timer 15                     (default 30; STEP 8 used 10)
+awplus(config)#lldp holdtime-multiplier 3        (default 4;  STEP 8 used 2)
+awplus(config)#lldp notification-interval 10     (default 5)
+awplus(config)#interface port1.0.10
+awplus(config-if)#lldp tlv-select system-name    (default: no optional TLVs at all)
+```
+```
+  Notification Interval ..... 10 secs     [5]
+  Tx Timer Interval ......... 15 secs     [30]
+  Hold-time Multiplier ...... 3           [4]
+  (Computed TTL value ....... 45 secs)
+```
+Expected on the wire after the reboot, if it persists: frames every **15 s**, TTL **45 s**,
+and a **System Name** TLV — a combination this DUT has produced at no other point in the case.
+
+### What the `write` added to startup-config — read, not assumed
+
+`show startup-config` was captured before and after the `write` and diffed. The complete
+difference:
+```
+ ! Startup-config saved on Tue Oct 20 23:45:48 2026 +0000   ->  Wed Oct 21 02:34:10 2026 +0000
++lldp holdtime-multiplier 3
++lldp notification-interval 10
++lldp timer 15
++ vlan 60 name ckMGMT-A
+- vlan 10,48 state enable      ->  + vlan 10,48,60 state enable
++interface port1.0.2
++ switchport mode trunk
++ switchport trunk allowed vlan add 60
++ lldp tlv-select system-name            (under interface port1.0.10)
++interface vlan60
++  ip address 10.38.22.97/27
+```
+Four lines are this case's own; the rest is **vlan 60**, the campaign infrastructure, landing
+in startup-config **exactly as the Test Engineer's decision anticipated and accepted**. It is
+recorded here so the campaign-end removal is unambiguous:
+🔴 **swi_d's startup-config now contains `vlan 60` (`ckMGMT-A`, `10.38.22.97/27`, tagged on
+port1.0.2). Removing it needs `no interface vlan60` / `no vlan 60`, which the permission system
+refuses for a tester, so it is the Test Engineer's own hands at campaign wrap.**
+
+### The reload
+
+```
+awplus#reload
+reboot question: 'reboot system? (y/n):' -> y        (tools/tb ckreload, which answers `y` to
+                                                      the reboot question and `n` to any
+                                                      save-config question)
+15:34:55 NZDT  reload issued
+15:35:58 NZDT  login banner seen after 60 s
+```
+The console transcript shows a genuine cold start — the kernel banner, the switch ports
+cycling through disabled state, the daemon list (`authd, irdpd, lacpd, lldpd, loopprotd,
+mstpd, nsm, rmond, sflowd, imi, imiproxyd`) and `Loading configuration file
+flash:/default.cfg, please wait. ... done!`. **60 s from `reload` to the login prompt** on this
+platform.
+
+### After the reboot — configuration
+
+```
+awplus#show running-config | include lldp
+lldp holdtime-multiplier 3
+lldp notification-interval 10
+lldp timer 15
+lldp run
+awplus#show running-config interface port1.0.10
+ lldp tlv-select system-name
+awplus#show lldp
+  Notification Interval ..... 10 secs     [5]
+  Tx Timer Interval ......... 15 secs     [30]
+  Hold-time Multiplier ...... 3           [4]
+  (Computed TTL value ....... 45 secs)
+awplus#show lldp interface port1.0.10
+ 1.0.10   Rx Tx  -- --  10.38.22.34      --Sn------ -------- -------- McNpLoPe--
+```
+All five configured items survived, including the per-interface TLV selection (`Sn` in the
+Base column).
+
+### After the reboot — ON THE WIRE, which is the actual verdict
+
+```
+pcap      /tmp/lldp1159/s12_persist.pcap
+packets   4 total, 4 LLDP
+
+source e2:1a:ea:d4:70:43 -> 01:80:c2:00:00:0e
+  frames 4 over 45.0 s
+  inter-frame gap  min 15.01 s  mean 15.01 s  max 15.01 s
+  --- frame at 1792550268.079, 5 TLVs ---
+    Chassis ID                         MAC address: e0:1a:ea:d4:70:43
+    Port ID                            Interface name: port1.0.10
+    Time To Live                       45 s
+    System Name                        awplus
+    OUI e01aea subtype 2               0c26573a87c541829d436cb04a0e77c2
+```
+**Every one of the three independent signatures is present after a cold boot:**
+
+| persisted setting | predicted on the wire | measured |
+| --- | --- | --- |
+| `lldp timer 15` | 15 s between frames | **15.01 s**, four frames, no spread |
+| `lldp holdtime-multiplier 3` | TTL = 15 × 3 = 45 | **45 s** |
+| `lldp tlv-select system-name` | a System Name TLV, 5 TLVs not 4 | **System Name `awplus`, 5 TLVs** |
+
+This is not a `show` command agreeing with itself after a reboot. It is the device behaving
+differently on the wire, in three measurable ways at once, because of configuration that
+survived a power-off-equivalent restart.
+
+### Other things the reboot confirmed, free
+
+- **Boot pointers unchanged:** `Current boot image : flash:/x960-tb277.rel (file exists)`,
+  `Current boot config: flash:/default.cfg (file exists)`, `Autoboot status : disabled` — the
+  gate-7 baseline, returned to.
+- **The inherited underlay and vlan 60 survived**, because they too are now saved:
+  `vlan10 10.38.22.34/27`, `vlan48 10.38.22.66/27`, `vlan60 10.38.22.97/27`, all
+  `admin up / running`.
+- **The neighbour table rebuilt itself** to the same four switch neighbours, so the partners
+  re-advertised to a freshly booted DUT without any help.
+- **swi_a and swi_b were not rebooted.** Only swi_d reloaded. The session constraint on swi_a
+  was never approached.
+
+### Restoration, and what startup-config holds now
+
+```
+awplus(config)#no lldp timer
+awplus(config)#no lldp holdtime-multiplier
+awplus(config)#no lldp notification-interval
+awplus(config-if)#no lldp tlv-select system-name       (interface port1.0.10)
+awplus#write
+Building configuration...
+[OK]
+```
+`show startup-config` diffed against the one taken after the test `write` — the **only**
+changes are the four test lines being removed:
+```
+ ! Startup-config saved on Wed Oct 21 02:34:10 2026 +0000  ->  02:38:03 2026 +0000
+-lldp holdtime-multiplier 3
+-lldp notification-interval 10
+-lldp timer 15
+- lldp tlv-select system-name
+```
+Startup-config now holds exactly: group A's underlay, `lldp run` (its own pre-campaign
+baseline), and vlan 60 — the accepted end state.
+
+**STEP 12 verdict: PASS. Reboot persistence is MEASURED, not NOT MEASURED.**
+
+---
+
+## HEALTH sample 2 of 2 — after the last step, before teardown (STANDING-ORDERS §8)
+
+Read on the console at 15:38:53-15:39:11 NZDT. Compared against sample 1 line by line.
+
+**`show reboot history`** — ONE new entry, and it is mine:
+```
+<date> <time> <type> <description>
+-------------------------------------------------------------------------
+2026-10-21 02:34:44 Expected   CLI(user request)
+2026-10-20 21:56:17 Expected   CLI(user request)
+2026-10-20 21:40:39 Expected   CLI(user request)
+2026-10-20 21:37:05 Expected   CLI(user request)
+2026-10-16 06:22:04 Expected   CLI(user request)
+2026-10-16 06:11:40 Expected   CLI(user request)
+```
+The new top entry `2026-10-21 02:34:44 Expected CLI(user request)` is the STEP 12 reload,
+issued at 15:34:55 NZDT = 02:34:55 UTC. It is typed **Expected**, not `Unexpected System
+reboot` — so it is not a framework power cycle and not a fault. No other entry changed.
+
+**`show exception log`** — unchanged from sample 1:
+```
+<date> <time> <facility>.<severity> <program[<pid>]>: <message>
+-------------------------------------------------------------------------
+None
+-------------------------------------------------------------------------
+15:38:59 >>> show log | include kernel|exception|crash|restart|Unexpected
+```
+
+**`show log | include kernel|exception|crash|restart|Unexpected`** — read on the box and
+filtered there, never chained with `| exclude` (`platforms/x960.md` §7G). New since sample
+1 are the boot-time kernel lines of my own reload, all at 02:35:15 UTC, e.g.:
+```
+2026 Oct 21 02:35:15 kern.notice awplus kernel: Linux version 6.12.110 (maker@maker33-build) ... #1 SMP PREEMPT Sun Oct 18 22:07:48 UTC 2026
+2026 Oct 21 02:35:15 kern.warning awplus kernel: KASLR disabled due to lack of seed
+2026 Oct 21 02:35:15 kern.warning awplus kernel: Malformed early option 'loglevel'
+2026 Oct 21 02:35:15 kern.notice awplus kernel: Kernel command line: console=ttyS0,115200 root=/dev/ram0 loglevel= releasefile=x960-tb277.rel crashkernel=32M
+2026 Oct 21 02:35:39 daemon.notice awplus HTTP: HTTP server restarted
+```
+Every one of them is the normal start-up sequence of the reload this case performed. The
+two `kern.warning` lines are standard AW+ boot messages on this platform, not errors of
+ours. There is **no panic, no oops, no crash, no unexpected daemon restart**, and nothing
+naming LLDP. `HTTP server restarted` is a daemon coming up at boot, 24 s after the kernel.
+
+**`show log tail 150`** (after sample only) — scanned for severity on the box:
+**not one line at `emerg`, `alert`, `crit`, `err` or `warning` severity** in the whole
+tail. Severity alone would not have been a fault in any case (AW+ logs normal events at
+`user.crit`), but here there is nothing even to weigh.
+
+**`show cpu`**
+```
+CPU averages:
+ 1 second: 0%, 20 seconds: 0%, 60 seconds: 0%
+System load averages:
+ 1 minute: 0.06, 5 minutes: 0.23, 15 minutes: 0.11
+Current CPU load:
+ userspace: 0%, kernel: 0%, interrupts: 0% iowaits: 0%
+
+```
+Sample 1 read `1 second: 1%, 20 seconds: 0%, 60 seconds: 0%`; sample 2 reads 0/0/0. The
+load averages (0.06 / 0.23 / 0.11) are the tail of the boot four minutes earlier and are
+already falling. **The CPU is not busy after the traffic stopped**, which is the thing
+worth reporting if it were otherwise.
+
+**`show memory`**
+```
+RAM total: 8092132 kB; free: 7460120 kB; buffers: 1380 kB
+
+```
+Sample 1: `RAM total: 8092132 kB; free: 7456176 kB`. Sample 2: `free: 7460120 kB`.
+**Free memory is 3944 kB HIGHER after the case than before it** — expected, because the
+DUT rebooted in STEP 12 and sample 2 is from a fresh boot. There is no step change in
+usage to report, and **no claim of a leak is made or could be made from one case**
+(STANDING-ORDERS §8). A leak test is its own case.
+
+**Health conclusion: the run is CLEAN, not confounded.** The single new reboot is
+accounted for by this case, the exception log is `None`, and nothing in the log is
+unexplained.
+
+---
+
+## Teardown and bench verification
+
+1. **Running-config diff, pre-case versus post-case.** `python3 tools/rcdiff.py
+   <pre ckcon stdout> <post ckcon stdout>` produced **no output at all**: swi_d's
+   running-config is **byte-for-byte what it was before step 1**, after twelve steps, a
+   reload and two `write`s.
+2. **Startup-config** holds exactly the accepted end state — group A's underlay, `lldp run`
+   (swi_d's own pre-campaign baseline, proven not to be probe residue), and vlan 60. The four
+   test lines were removed and the removal written. 🔴 vlan 60 is the Test Engineer's to
+   remove at campaign end.
+3. **Boot pointers** closed as they opened:
+   `Current boot image : flash:/x960-tb277.rel (file exists)`,
+   `Current boot config: flash:/default.cfg (file exists)`, `Autoboot status : disabled`.
+4. **The subject's own state** closed as it opened:
+   ```
+   awplus#show lldp
+     LLDP Status ............... Enabled     [Disabled]
+     Notification Interval ..... 5 secs      [5]
+     Tx Timer Interval ......... 30 secs     [30]
+     Hold-time Multiplier ...... 4           [4]
+     (Computed TTL value ....... 120 secs)
+     Total Neighbor Count ...... 4
+   awplus#show lldp interface port1.0.10
+    1.0.10   Rx Tx  -- --  10.38.22.34      ---------- -------- -------- McNpLoPe--
+   ```
+5. **And on the wire**, a final 70 s capture (`s13_final.pcap`): **2 frames, gap 30.03 s,
+   TTL 120, 4 TLVs** — identical to the STEP 1 baseline. The bench is not merely configured
+   back, it is *behaving* as it did before the case.
+6. **Host legs re-ARPed after the reboot.** The first closing probe raised
+   `[portlink] tb-swi_d eth3/eth4 CHECK_CABLE — NIC has link but its MAC was not learned on
+   any switch port`. That is a consequence of **my own reload** emptying swi_d's MAC table,
+   not a cable fault: `tools/tb ping tb277 eth3 10.38.22.34 3` and
+   `tools/tb ping tb277 eth4 10.38.22.66 3` both returned **3/3, 0% loss**, and the next probe
+   was clean. Recorded because a reader of the first probe output alone would misread it.
+7. **Closing probe.**
+   ```
+   tools/tb probe tb277 --consoles u2 --no-prompt --read-only --pdu 10.36.230.212 \
+        --outlet u2=1 --name u2=swi_d --template /tmp/lldp1159/tb277-u2.setup \
+        --out /tmp/lldp1159/bench-state-close2.md
+   ```
+   ```
+     /dev/u2: ok baud=115200 banner=awplus hostname=awplus
+   capturing 7 commands on 1 device(s) ...
+   MATCH -- the bench equals the template.
+   ```
+   **Exit 0 MATCH.**
+
+   The template for this check is a swi_d-only cut of the run `.setup`, written because
+   **u3 and u5 could not be opened at hand-back** — both consoles are locked out, and the
+   sentinel's standing instruction for this group is that nothing touches them, since every
+   attempt re-arms the five-minute lock. A probe naming them can only report them missing.
+   For completeness, the probe **was** first run against the full three-unit run `.setup` and
+   returned 11 `MISSING_IN_LIVE` rows, every one of them for swi_a or swi_b and every one of
+   them a consequence of not opening those consoles — **no row described swi_d or either host
+   leg**. The repo's `bench-setup/tb277/bench-state.md` was **not** overwritten: both probes
+   wrote to `/tmp`.
+8. **Nothing left running on the box.** Every capture was a bounded `timeout <secs> tcpdump`
+   and each one printed its own `N packets captured` summary at exit; `lldpsend.py` sends a
+   fixed count and returns. No watcher, no background sender, no framework run was started by
+   this case.
+9. **Consoles.** u2 was returned to `awplus login:`. u3 and u5 were not opened by this case at
+   all beyond what is described above.
+
+---
+
+## 🔬 Findings for `platforms/x960.md`
+
+1. **By default this platform advertises only the three mandatory LLDP TLVs** (Chassis ID,
+   Port ID, TTL) plus one Allied Telesis organisationally-specific TLV (OUI `e0:1a:ea`,
+   subtype 2, 16 bytes). Every Base, 802.1 and 802.3 optional TLV is off
+   (`show lldp interface` reads `---------- -------- --------`). **Consequence:** the
+   `Neighbor Sys Name` column of `show lldp neighbors` is empty for every AW+ partner, and
+   that is correct behaviour, not a defect — a reader who has not measured the frames will
+   report it as one.
+2. **The LLDPDU's source MAC is the chassis MAC with the locally-administered bit set**
+   (chassis `e0:1a:ea:d4:70:43`, source `e2:1a:ea:d4:70:43`). A capture filter written on the
+   chassis address finds nothing.
+3. **`lldp tlv-select` does not exist in global configuration mode** on this build
+   (`% Unrecognized command`); it is interface-only. `lldp med-tlv-select` likewise.
+4. **`no lldp receive` drops the frame before the packet counter.** Three frames sent to a
+   port with receive disabled moved `show lldp statistics interface <port>` `In` by **zero**.
+   With receive enabled the same three moved it by exactly three. So `In` counts frames
+   *accepted*, not frames *arrived*, and it cannot be used to prove a frame reached the port.
+5. **TTL expiry and an LLDP shutdown frame are counted separately and correctly.** A TTL
+   expiry increments both `Deleted Entries` and `Entry Age-outs`; a received TTL-0 frame
+   increments `Deleted Entries` **only**. The pair discriminates the two removal paths.
+6. **The MED TLVs are enabled in configuration by default** (`show lldp interface` MED column
+   reads `McNpLoPe--` on an untouched port) but do **not** appear in the frames until a
+   MED-capable endpoint is seen on that port. Relevant to T33398.
+7. **`lldp notification` is stored in running-config as `lldp notifications`** (plural). A
+   grep for the singular finds nothing on a port that has it enabled.
+8. **`snmp-server community <c> ro` is stored as `snmp-server community <c>`** — `ro` is the
+   default and is not written back. (Independently reproduces group B's T33386 finding.)
+9. **An x960-56YSQ cold-boots to its login prompt in about 60 s** (`reload` at 15:34:55,
+   login banner at 15:35:58). Useful for sizing a reboot step; `ckreload.py`'s 720 s default
+   wait is an IE520 figure and is very conservative here.
+10. **LLDP runs identically on RSTP-Discarding and RSTP-Forwarding ports**, measured on frame
+    counters with a no-link port as the zero control (STEP 9).
+
+## 🔬 Tooling defects found, and what was done about them
+
+1. 🔴 **`tools/awlogin.py:login()` is an account-lockout generator.** Its signature is
+   `login(c, tries=5, ...)`, and the loop body sends a complete username + password on every
+   iteration, `continue`-ing past a `Login incorrect`. AW+ locks an account at **five** failed
+   logins and every failure re-arms the five-minute timer, so **one call to this function can
+   lock any account it fails on once**. It did exactly that to swi_b's `manager` at 14:59:58
+   (five attempts in forty seconds).
+2. **At 9600 baud the username write is truncated.** The transcript shows the device echoing
+   `ma` and `manag` instead of `manager`, then jumping straight to `Password:` — so the first
+   failure was a transport fault, not a wrong credential. The control that proves it:
+   `bench_probe.py`, with its own login code and the **same** password from the same
+   environment, logged into that console successfully at 14:46.
+   The two together: a dropped-character write creates one failure, and the retry loop turns
+   that one failure into five.
+3. **Neither was fixed in this case, deliberately.** A login fix cannot be validated without
+   spending further attempts on the only two accounts that matter, both of which are now
+   locked. Reported to the sentinel as `NEEDS TEST ENGINEER:` and recorded in the campaign
+   queue so it survives this session. The fix belongs with the Test Engineer's unlock.
+4. This is the **same family** as the group-A finding ("a console driver's error recovery must
+   never type a word at a login or password prompt") but a **different mechanism**: there the
+   recovery typed `exit` at a password prompt; here the retry loop re-types a *correct*
+   credential after a transport-level truncation. The durable rule covering both: **an
+   explicitly supplied credential is tried once, and a credential dialog is never re-entered
+   by a loop.**
+
+## What was NOT measured, and why
+
+Said plainly rather than left for a reader to notice:
+
+- **`swi_a.cfg` and `swi_b.cfg` are absent.** Capturing a device's running-config requires
+  logging into it, and both partner consoles are locked out (swi_a before this group began,
+  swi_b by this repo's own driver at 14:59:58). This is a **console-lockout** limitation, not
+  a bench gap and not an omission. swi_d's `.cfg` is present.
+- **The partners' own views were not read.** Everything attributed to swi_a and swi_b in this
+  log is measured **from swi_d**: its neighbour table entries for them and its per-port LLDP
+  frame counters on the links to them. No claim is made about what swi_a or swi_b believes.
+- **`lldp faststart-count`, `lldp reinit`, `lldp tx-delay`, `lldp port-number-type` and
+  `lldp non-strict-med-tlv-order-check` were not exercised.** They were read off the CLI
+  surface and their default values are recorded, but each needs its own stimulus to grade.
+  Fast-start is exercised in T33398, where it belongs (it is an LLDP-MED mechanism).
+- **The 802.1 `vlan-names`, `port-and-protocol-vlans`, `protocol-ids` and the 802.3
+  `mac-phy-config`, `power-management`, `link-aggregation` TLVs were not individually
+  verified.** Seven optional TLVs were selected and all seven appeared with correct values,
+  which establishes that `lldp tlv-select` works; enumerating the remaining six would add
+  breadth, not confidence.
+
+## VERDICT
+
+**Run: clean** (not confounded — see HEALTH sample 2).
+
+**VERDICT: PASS -- LLDP is fully functional on the AT-x960-56YSQ and every limb was graded on
+frames, not on `show lldp`: transmission at the configured 30 s interval with the configured
+120 s TTL (30.03 s measured, three times); reception proven field-by-field against a crafted
+neighbour whose chassis ID, port ID, system name and capabilities all came back unchanged, with
+the `In` counter moving frame-for-frame at every step of the case; per-interface transmit and
+receive proven INDEPENDENT across all four on/off combinations (transmit off = 0 frames in 75 s
+while reception still counted +3; receive off = +0 counted while the DUT still transmitted at
+30.03 s); neighbour ageing timed against a TTL of 20 s that the sender chose, bracketed to an
+8 s window, with a TTL-120 neighbour on the SAME port surviving as the control; an LLDP
+shutdown frame deleting an entry with 110 s of hold time unused, and incrementing a DIFFERENT
+counter from an age-out; `lldp tlv-select` taking the advertisement from 4 TLVs to 11 with every
+value independently cross-checked, and removal putting it back to 4; timers changing the wire to
+10.01 s / TTL 20 and back; lldpRemTablesChange SNMP traps caught on the wire with varbinds
+naming the exact table change, against a zero-trap control for two real topology changes with
+notifications off; global removal stopping BOTH directions and the arc closing on both; LLDP
+running identically on three RSTP-Discarding ports and one Forwarding port with a no-link port
+counting zero in the same read; and 🔴 REBOOT PERSISTENCE MEASURED for the first time in three
+campaigns -- a 15 s timer, a 45 s TTL and a System Name TLV all surviving a cold boot and proven
+on the wire, not in a show command. The bench was returned byte-for-byte (rcdiff empty), the
+closing probe exits 0 MATCH, and the only deliverable that could not be produced is a .cfg for
+each partner switch, because both partner consoles are locked out.**

@@ -1349,6 +1349,64 @@ Policy, then does tagged DHCP, ARP and ping in the voice VLAN.
   - Exit 2 means either an argument error or "no OFFER".
 - **Status:** generalised 2026-10-02, not re-verified on hardware
 
+### `lldpsend.py`
+Advertises a **controllable LLDP neighbour** from a host NIC, with scapy. `lldpmed_phone.py`
+beside it emulates an IP phone and always sends the LLDP-MED endpoint set plus DHCP, ARP and a
+ping; this one sends a plain LLDPDU whose chassis ID, port ID, system name, capabilities,
+management address and above all **TTL** are arguments, and which you start and stop on command.
+- **Why it exists:** neighbour ageing is only measurable when you choose the TTL. With switch
+  partners it is a 120 s wait with nothing to compare against; with this, two neighbours
+  carrying different TTLs can sit on the same port at the same instant — one must go, the other
+  must stay, and that pair is the measurement (STANDING-ORDERS §7: the exact frame plus a
+  control that must NOT match). It is the sender half of `lldpwire.py`.
+- **Run:** `sudo lldpsend.py <iface> [--count N] [--interval S] [--ttl S] [--chassis-mac MAC]
+  [--src-mac MAC] [--port-id STR] [--port-desc STR] [--sys-name STR] [--sys-desc STR]
+  [--mgmt-ip A.B.C.D] [--caps bridge,router,station] [--vlan V] [--med-class 1|2|3]
+  [--med-policy voice:VLAN:PRIO:DSCP] [--shutdown] [--pcap FILE]`, or
+  `tools/tb sudotool <TB> <scratch> lldpsend eth3 --count 3 --ttl 20 --port-id ckLLDP-eth3 ...`
+- **Where:** testbox (root); **needs:** scapy
+- **Imports:** none
+- **`--shutdown`** sends a final TTL-0 LLDPDU (the IEEE 802.1AB shutdown frame), which asks the
+  neighbour to delete the entry at once instead of waiting out the hold time. On AW+ that
+  increments `Deleted Entries` **without** `Entry Age-outs`, which is how the two removal paths
+  are told apart.
+- **Limits:** IPv4 management address only; it sends, it does not listen (use `lldpwire.py` on a
+  capture); a MED Network Policy is advertised but no MED Location or Extended Power TLV.
+- **Status:** verified 2026-10-21 on tb277, x960-56YSQ (T44296): frames accepted field-for-field
+  by the DUT (chassis, port ID, system name and capabilities all read back unchanged in
+  `show lldp neighbors`), `In` counters moving frame-for-frame at every leg, a TTL-20 neighbour
+  ageing out on schedule beside a TTL-120 one on the same port, and `--shutdown` deleting an
+  entry with 110 s of hold time left
+
+### `lldpwire.py`
+Decodes the **LLDP frames** in a `tcpdump -w` pcap, in pure Python. Per source MAC it prints the
+frame count, the inter-frame gaps (min/mean/max) and the decoded TLVs, and it checks the three
+mandatory TLVs are present.
+- **Why it exists:** a verdict on LLDP cannot come from `show lldp neighbors` — that is the
+  device's answer about itself, and `platforms/x960.md` §5 records this platform reporting a
+  feature Enabled while the dataplane did nothing. The gaps are how a Tx Timer change is graded
+  and how LLDP-MED fast start is seen (three ~1 s frames where the steady state is 30 s); the
+  TLV decode is how "the DUT advertises X" is graded.
+- **Run:** `lldpwire.py <file.pcap> [--src MAC] [--tlv] [--quiet] [--expect-med] [--json]`, or
+  `tools/tb tool <TB> <scratch> lldpwire /tmp/<scratch>/<f>.pcap --tlv`
+- **Where:** anywhere; **needs:** nothing beyond Python (it reuses `tcpflow.py`'s pcap reader, so
+  classic pcap and pcapng, either endianness)
+- **Imports:** tcpflow
+- **Knows:** the base TLVs (chassis/port ID with their subtypes, TTL, port and system
+  description, capabilities, management address) and the organisationally-specific sets for
+  IEEE 802.1 (port VLAN ID, VLAN name), IEEE 802.3 (max frame size, link aggregation) and TIA
+  LLDP-MED (capabilities and device class, **Network Policy** with its 12-bit VLAN / 3-bit
+  priority / 6-bit DSCP packing, inventory strings). An unknown OUI prints as hex rather than
+  being dropped.
+- **Limits:** Ethernet link-type only (LLDP is link-local, so that is the whole of it); it
+  reports the outer 802.1Q tag and ignores inner tags.
+- **Status:** verified 2026-10-21 on tb277, x960-56YSQ (T44296): first against a
+  synthetic frame built in-process, which round-tripped every field including the MED Network
+  Policy bit-packing, then across thirteen real captures — 30.03 s / 10.01 s / 15.01 s gap
+  measurements, TTLs of 120, 45 and 20, a 4-TLV default advertisement growing to 11 and back,
+  and zero-frame captures whose zero was trustworthy because the same tool had just returned
+  non-zero
+
 ### `snmpwalk.py`
 Walks an SNMP agent's MIB with SNMPv2c, stdlib only (tb470 has no snmpwalk tool in `tools/` and the wrapper has no free-form
 exec). Every varbind goes to `<outfile>` (`<oid> = <TYPE>: <value>`); stdout gets a summary: varbinds, requests, retries,
