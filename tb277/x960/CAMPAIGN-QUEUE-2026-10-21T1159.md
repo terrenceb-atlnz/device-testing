@@ -433,6 +433,63 @@ above was never needed.
 
 ## Issues
 
+### 🔴🔥 TOOLING DEFECT (ours, not the product) — `tools/awlogin.py:login()` is a lockout generator
+
+Measured 2026-10-21 15:00. **One `login()` call put FIVE failed logins on swi_b's `manager` in
+40 seconds.** AW+ locks an account at five, so swi_b is now locked as well as swi_a.
+
+Verified in the source:
+
+```python
+def login(c, tries=5, username=None, password=None):   # awlogin.py:30
+    for _ in range(tries):                              # :35  up to 5 iterations
+        if p == LOGIN:
+            c.s.write(user + b"\r")                     # :42
+            c.s.write(pw + b"\r")                       # :44
+            if p3 in (None, BAD): continue              # :46  -> another FULL attempt
+```
+
+**The driver's retry count equals the platform's lockout threshold.** Any account it fails once
+against, it locks. Line 51 does the same at a bare `Password:` prompt.
+
+**What triggered it was NOT a wrong password.** At 9600 the device echoed `ma` and `manag`
+instead of `manager` and went straight to `Password:` — a single fast `write(b"manager\r")` is
+**truncated on the wire at 9600**. `bench_probe.py` had logged into the same console with the
+same password at 14:46, which is the control: the credential is right, the driver's write is
+not. The loop then re-sent a **correct** credential four more times into a desynced dialog.
+
+**This is a different mechanism from the group-A finding** (*"recovery must never type a word at
+a credential prompt"*). That one typed a stray word; this one re-sends a correct credential
+after a transport-level truncation. Both end in the same place.
+
+**The fix, NOT applied mid-case** (it cannot be tested without spending more attempts on the
+only two accounts that matter — it belongs with the Test Engineer's unlock):
+- an explicitly supplied password is tried **ONCE**, never looped;
+- a truncated-echo username is re-sent only after **proving the echo**, never by restarting the
+  credential dialog;
+- at 9600, write the username a character at a time or verify the echo before sending the
+  password.
+
+### 🔴 Both partners are now locked; group C continues on a better instrument
+
+swi_a (u5) locked from yesterday, re-armed by one correct-password probe at 14:47.
+swi_b (u3) locked at 15:00 by the defect above. **swi_d (the DUT) is unaffected** — 115200,
+factory password, at `awplus#`.
+
+**Clearing either needs an interactive login by the Test Engineer**; nothing automated can do it
+without spending attempts that re-arm the 5-minute timer.
+
+**Group C is NOT blocked.** The tester replaced swi_b as the driven partner with **the testbox
+itself**, sending crafted LLDPDUs from eth3 into swi_d port1.0.10 with scapy. That is **better
+evidence** than swi_b's console would have given: the chassis ID, port ID and TTL are all
+chosen, and transmission can be stopped on command, so the neighbour-ageing limb is graded
+against a TTL the tester sets rather than waiting out a 120 s one. swi_a and swi_b remain
+**passive** partners, measured from the DUT side.
+
+**Consequence for deliverables:** neither `swi_a.cfg` nor `swi_b.cfg` can be produced for group
+C, for console-lockout reasons and **not** bench gaps. Both logs say so.
+
+
 ### ✅ DECISION (Test Engineer, 2026-10-21 14:0x) — testers MAY `write`; vlan 60 is removed by hand at the end
 
 Asked because reboot persistence was coming back NOT MEASURED in case after case (T33380,
