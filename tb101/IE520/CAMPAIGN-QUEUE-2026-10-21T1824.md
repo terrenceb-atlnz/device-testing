@@ -83,7 +83,7 @@ allowed to reconfigure whatever you need to on the ixia and the devices in order
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | T17509 Longrun test: Normal operation with IXIA traffic | tb101/IE520/longrun-2026-10-21T1824/ | QUEUED | 3 phases (below): A = TRIAGE + setup + before-reads + start traffic and the detached sampler (bench-runner); B = 12 h unattended, sentinel watches the sampler's files; C = stop, after-reads, grade, restore (a fresh bench-runner dispatched by a one-shot cron at T0+12h) |
+| 1 | T17509 Longrun test: Normal operation with IXIA traffic | tb101/IE520/longrun-2026-10-21T1824/ | RUNNING Phase A (18:40) | 3 phases (below): A = TRIAGE + setup + before-reads + start traffic and the detached sampler (bench-runner); B = 12 h unattended, sentinel watches the sampler's files; C = stop, after-reads, grade, restore (a fresh bench-runner dispatched by a one-shot cron at T0+12h) |
 
 ## The plan (agreed with Terrence 2026-10-21 ~18:00; the tester may refine mechanics, never weaken a check)
 
@@ -100,6 +100,25 @@ which survives this session, a VPN drop and a usage cut. Claude only sets up, wa
   restart or reconfigure traffic mid-run without recording it as a run event), and surface it under NEEDS YOU.
 - **Phase C (fresh bench-runner, RUN dispatch "Phase C"):** stop traffic, final counters, after-reads, control
   burst, health 2, grade, restore, release IXIA ports, probe MATCH, `RESULT`.
+
+**Tester refinements (2026-10-21 18:40 NZDT, tester refinement; accepted by the sentinel at the RUN dispatch). Mechanics
+only, each tightens a check:**
+- R1 Per-stream counting. Each IXIA port received 85 non-test frames from the switch while idle (triage 18:28), so raw
+  `framesReceived` is not graded. Each rx port gets a filter: UDS1 = SA1 & DA1 = the peer's test stream (port 6: SA ::01
+  DA ::02; port 5: SA ::02 DA ::01), UDS2 = SA2 = the control SA ::03. Graded: `UDS1(rx) == framesSent(peer test
+  stream)` after stop. Raw rx is kept in every sample, and the non-test count (rx - UDS1 - UDS2) is reported as its own figure.
+- R2 The control burst has its own SA 00:00:00:00:00:03 (DA ::02, VLAN 3 tag, 1000 frames, port 5 -> port 6), counted
+  on port 6 UDS2: expected 0, beside the untagged positive 1000/1000 each way.
+- R3 Memory and CPU read per member (`show memory <1-4>`, `show cpu <1-4>`) at every sample, unless the bare form is
+  proven to cover all four; `show memory history` and `show cpu history` in the before- and after-reads.
+- R4 Each hourly sample saves the full `show log` to its file (never into context); before/after reads add `show log permanent`.
+- R5 `tools/longrun.py --detach` (setsid + double fork, PID file `<out>/sampler.pid`), launched with `tools/tb tool tb101
+  lr-1824 longrun ...`; stoppable with `tools/tb killmine tb101 <pid>`.
+- R6 A held master console at sample time is retried every 60 s for up to 50 min, never a silent gap (a skipped sample
+  is written as SKIPPED with its reason).
+- R7 Phase A's first probe ran WITHOUT --read-only before the first device change: 2026-10-21T053443Z MATCH (18:34),
+  so Phase C's restore probe compares like with like.
+- R8 No `take --force`: the owner `terrenceb-claude` persists; every ixtcl call does `ixLogin terrenceb-claude`.
 
 **Topology fidelity (case: IXIA → master → member → IXIA).** Make **member 3 the master** so IXIA port 5 enters the
 master (port3.0.25) and leaves on a member (port4.0.25), crossing the 3↔4 stack link: `stack 3 priority 1` and
@@ -169,6 +188,12 @@ Both run with `python3.8` on tb101 (`tools/tb` picks it). Test each against the 
 ## Group longrun-2026-10-21T1824 — bench setup and exact restore recipe
 
 (The tester re-checks and completes this block BEFORE its first device change; a fresh tester restores from here.)
+
+**Recipe check (tester, 2026-10-21 18:40):** setup and restore below re-read against the 18:34 capture: boot
+`flash:/tb101-bench.cfg (file exists)`; `vlan 2-3` only (VID 100 free); port3.0.25 access vlan3, port4.0.25 access
+vlan2; `stack 1 priority 1` the only priority line. Additions: restore step 1 also clears the UDS filters
+(`ixtcl.py reset` = port factory defaults) before `release`; restore step 3 uses whichever `stack N priority` form the
+config-mode qmark check accepts and the post-restore `show running-config` must again show only `stack 1 priority 1`.
 
 **Setup, in this order** (consoles via `tools/tb … tb101`, scratch `lr-1824`; stop on any `% ` line):
 1. Record pre-run state into `17509/work/`: master's `show running-config`, `show file flash:/tb101-bench.cfg`
