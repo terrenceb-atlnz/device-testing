@@ -1200,3 +1200,112 @@ If the DUT's clock was left wrong by a `clock set` and NTP is gone, put it back 
 
 Startup-config on swi_d ends as: group A's underlay + vlan 60 + `lldp run`, and nothing of
 group D's own.
+
+### 🔧 What group D left on the bench (written at hand-back, 2026-10-21 18:0x NZDT)
+
+**On swi_d, in running-config: nothing.** All three group-D cases **and** the three campaign-end
+limbs ended with `show running-config` **byte-for-byte identical** to the state group D
+inherited at 16:24 NZDT — **112 lines**, verified by `diff` of the extracted bodies after every
+single one of the six. That is six cases, **six reloads** and eleven `write`s with zero drift.
+(A direct `diff` was used rather than `tools/rcdiff.py`, because of rcdiff's measured
+spurious-`-HH:MM:SS` limit recorded by group C.)
+
+**In startup-config: exactly what group C left, and nothing else.** Every `write` group D did is
+accounted for, and the final `show startup-config` differs from the campaign baseline by **one
+line only** — the `! Startup-config saved on Wed Oct 21 04:56:08 2026 +0000 by manager via con0
+(ttyS0)` comment. Still present, all three intended:
+1. group A's layer-3 underlay (`vlan10 10.38.22.34/27`, `vlan48 10.38.22.66/27`);
+2. `lldp run`, swi_d's own saved baseline;
+3. 🔴 **vlan 60** — **left in place deliberately**, per this dispatch. The earlier plan had the
+   last group remove it; that changed when it reached startup-config, and `no interface vlan60`
+   / `no vlan 60` is permission-blocked for a tester. **It is the Test Engineer's at wrap.**
+
+- **Boot pointers close as they opened** on swi_d: `flash:/x960-tb277.rel`,
+  `flash:/default.cfg`, Autoboot disabled — re-read after every case.
+- **Six reloads, all swi_d only**, all `Expected CLI(user request)` in `show reboot history`,
+  all 60–61 s from `reload` to the login prompt. **swi_b and swi_a were never opened — not one
+  byte, not a bare CR, no probe, no `ckcon`, no credential of any kind.** The locked accounts
+  were never approached.
+- 🔴 **The DUT's clock was deliberately skewed during T33400 and is NOT left that way.** It was
+  moved -58 min 42 s, hand-corrected to within ~2 s, and then corrected by **NTP itself**
+  (`chronyd: System clock was stepped by 0.592688 seconds`); the NTP client was removed only
+  afterwards. Final read `04:21:17 UTC` against the box's `04:21:20` — inside the console's own
+  round-trip. **The next session inherits a correct clock.**
+- **Closing probe** (`--consoles u2`, swi_d-only template, `--read-only`, `--baud 115200`):
+  **exit 0 MATCH**, run twice (16:34 and 17:58). The repo's `bench-state.md` was never
+  overwritten; all three probes wrote to `/tmp`.
+- **u2 is at `awplus login:`**, confirmed from the console transcript
+  (`tools/tb tail tb277 /tmp/ntp1021/console-u2.log`), not from a tool's stdout.
+- **Host legs:** eth3 → 10.38.22.34 and eth4 → 10.38.22.66, both 3/3, 0% loss at hand-back.
+- Nothing of group D's is running on the box (`tools/tb ps` for tcpdump/arpleg/console tools:
+  empty). Every capture was a bounded `timeout <secs> tcpdump`.
+
+**Campaign-end job 1 is COMPLETE.** All three deferred reboot-persistence limbs were run, each
+as a proper **run 2** with its own working log beside the original run 1, and each graded on the
+wire:
+
+| case | limb | result |
+| --- | --- | --- |
+| **T33380** run 2 | `no service ssh ip` surviving a reload | **PASS** — saved as `service ssh ipv6`; after a 60 s cold boot IPv4 TCP/22 answered `RA` to 4 of 4 SYNs while ICMP answered 4 of 4, before anything was typed |
+| **T33386** run 2 | a management `access-group` surviving a reload | **PASS** — **both halves**: the non-specified host's 4 SYNs dropped silently in hardware (ICMP 4 of 4), the user-specified host still got 4 `SA`. TPS 6.1.1 now satisfied across a restart |
+| **T47192** run 2 | a DYNAMIC change surviving a reload | **PASS** — vlan48 `.66`→`.70` applied while operating, saved, and back after the boot with its full L3 identity including the source of its own ICMP unreachables. "Dynamic" does not mean "temporary" |
+
+**No case in this campaign now carries an unmeasured reboot-persistence limb.** T47192's other
+two NOT MEASURED items are untouched and still NOT MEASURED, deliberately: file-driven
+configuration needs a root write to the box's `/tftproot` (STANDING-ORDERS §4), and the mid-flow
+frames-lost timing number needs a tool that does not exist in `tools/`. Neither was improvised.
+
+**Open, carried forward (all reported to the sentinel, none blocking):**
+
+1. 🔴 **vlan 60 is still in swi_d's running-config AND startup-config**, by instruction.
+   Removing it needs `no interface vlan60` / `no vlan 60`, which the permission system refuses
+   for a tester. **The Test Engineer's own hands at campaign wrap.**
+2. 🔴 **Both partner consoles are still locked** (swi_b and swi_a `manager`). Group D designed
+   around them completely and never approached them, so nothing in this group re-armed either
+   timer. `tools/awlogin.py:login()` is **still unfixed** — group C's finding stands unchanged.
+3. **No `swi_b.cfg` or `swi_a.cfg` for any of group D's six cases**, for that reason. Every log
+   says so with the reason, as a console-lockout limitation and not a bench gap.
+4. 🔬 **A post-reload leg must be settled before it is read — this bit three times in one hour**
+   and once it would have **inverted a verdict**. T33380 run 2: a leg 9 s after the login prompt
+   showed no TCP reply rows and 1 of 4 ICMP. T33386 run 2: eth3's first ping was 0 of 4, the
+   second 4 of 4 — taken at the first attempt, the permitted host's leg would have read as *the
+   filter blocking the host it is meant to permit*. T47192 run 2: first ping 1 of 4, second
+   4 of 4. **With `arpleg --tcp`, "no reply row" means *silently dropped*, which is
+   indistinguishable from a unit still coming up.** Ping every leg to 4/4 first, then measure.
+   Same family as group C's spurious `CHECK_CABLE`.
+5. **Two new tools, both committed with their README entries and both instrument-controlled
+   before use:** `tools/ntpc.py` (crafted NTP client, IPv4+IPv6, no root — deliberately a plain
+   UDP socket rather than scapy, because the box's own `ntpd` owns UDP/123) and
+   `tools/ntpwire.py` (pcap decoder and counter, IPv4+IPv6, with request/reply pairing on the
+   origin timestamp). `ntpc` was proved against the box's own `ntpd` on 127.0.0.1 before the DUT
+   was touched; `ntpwire` was proved on a capture whose answer was already known. Both are now
+   IPv6-verified on hardware.
+6. 🔴 **tb277's own `ntpd` kiss-o'-death-rate-limits a booting DUT.** The DUT's boot-time poll
+   burst (two polls in the same millisecond from two source ports) tripped the box's stock
+   `limited kod` restriction; the DUT got a stratum-0 `RATE` reply and correctly backed off for
+   about **nine minutes**. It is a property of **our server**, not of the DUT, but it will
+   happen again — budget for it in any NTP client case on this bench, and read the KoD off the
+   capture (`ntpwire` flags it) rather than guessing at a stall.
+7. 🔴 **A manual `clock set` leaves a RUNNING `chronyd` unsynchronised** on the DUT, while it
+   keeps polling successfully at `reach 377` and reports the true offset. Not recovered within
+   the windows measured (90 s at a 3523 s offset, 75 s at a 2.12 s offset); whether it would
+   eventually slew is **NOT MEASURED**. A client restart steps the clock in 2 s. Worth a
+   developer's eye.
+8. **Thirty-odd product findings across the six logs**, listed per case. The ones most likely to
+   mislead a later reader:
+   - **`show ntp status` and `show ntp counters` print COMPLETELY EMPTY output when NTP is not
+     configured** — no error, no message; on a 115200 console it looks exactly like a hung
+     command. Confirmed in both directions;
+   - 🔥 **NTP server rate limiting is ON BY DEFAULT and invisible in running-config**
+     (burst 8, interval 8 s, leak 4): a 20-packet burst 0.5 s apart legitimately returns 11
+     answers, and `ntp rate-limit burst 64` makes the identical burst 20/20;
+   - 🔥 **`ntp rate-limit` holds exactly ONE keyword** — setting a second silently discards the
+     first, with no message and no `% ` line. Same family as group B's numbered-ACL finding;
+   - 🔥 **the NTP client randomises BOTH its UDP source port and its request transmit
+     timestamp** on every poll, so a filter written for source port 123 misses every packet and
+     that timestamp read as "the DUT's clock" gives a wildly wrong answer;
+   - **`show ntp counters` counts the CLIENT role only** — all three counters read 0 after the
+     DUT had served more than sixty requests as a server;
+   - **three more `ntp` commands whose stored running-config line cannot be typed back with
+     `no`** (`ntp restrict <addr> serve deny`, `ntp rate-limit <keyword>`,
+     `ntp restrict default-v6 serve deny`).
