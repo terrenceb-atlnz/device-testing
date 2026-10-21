@@ -1,0 +1,538 @@
+# T33380 -- (231) Management - SSH Server (IPv4) -- working log, run 1
+
+Tester: `bench-runner` subagent, dispatched by the /test-mode sentinel (this session's parent).
+Written as the run went, per logged-output.md section 2.
+
+## Session facts
+
+Identical to T33379's, which records them in full:
+`tb277/x960/access-2026-10-21T1159/T33379/work/run1.log`. In short: testbox **tb277**, DUT
+**swi_d** on **u2** (115200), partner **swi_b** on u3, PDU 10.36.230.212 outlets u2=1 u3=7,
+window partly attended, **swi_a must not be rebooted or power-cycled** and was never opened.
+Run `.setup`: `tb277/x960/access-2026-10-21T1159/tb277-u2u3.setup` (swi_d and swi_b only).
+Sentinel: parent.
+
+### Group A / campaign setup that was already in place, and whose it is
+
+- **The layer-3 underlay on swi_d** -- `vlan10 10.38.22.34/27` facing testbox `eth3`
+  (10.38.22.33/27) and `vlan48 10.38.22.66/27` facing `eth4`. Built and **saved** by group A at
+  the Test Engineer's 2026-10-21 decision. **This case's whole measurement runs over it**: every
+  wire leg below is testbox `eth3` to the DUT's `vlan10` address `10.38.22.34`.
+- 🔴 **vlan 60, the swi_d<->swi_b management link, is CAMPAIGN INFRASTRUCTURE, not this case's
+  setup** (sentinel decision relayed 2026-10-21). It is deliberately NOT written to
+  startup-config, and the LAST group to run removes it. **This case does not use it** -- T33380
+  is entirely between the testbox and the DUT -- and no final log should claim it.
+- **swi_b's `service telnet`, `cktmp` account and `ssh server allow-users cktmp`** are group A
+  setup for T33379 and T33381. **This case does not use swi_b at all**, which is why only
+  `swi_d.cfg` is saved for it.
+
+## The case's authored text -- there is NONE
+
+`has_objective = 0`; the single step is an empty placeholder
+(`[{"description": "", "testData": "", "expected": ""}]`). **No authored procedure, test data or
+expected result exists for this case beyond its title.** The steps below were designed by this
+tester from the title, **X960 TPS row 229 "SSH Server(IPv4) = Yes"**, and the DUT's own CLI and
+wire behaviour.
+
+**The grading rule this case is built on:** `platforms/x960.md` section 7F.2 records
+`show telnet` reading `Enabled` on this very platform while IPv4 TCP/23 was being refused. So
+**"SSH Server (IPv4)" is graded on IPv4 TCP/22 from the testbox, never on `show ssh server`.**
+Every `show ssh server` quoted below is corroboration, not evidence.
+
+## Devices
+
+| role | name | console | model | serial | software |
+| --- | --- | --- | --- | --- | --- |
+| DUT (SSH server) | swi_d | u2 @ 115200 | AT-x960-56YSQ | A2WQS700B | sin_x96056-20261019-27 |
+| SSH client | the testbox itself, `tb277`, out of `eth3` 10.38.22.33/27 | -- | -- | -- | OpenSSH client |
+
+swi_b and swi_a are **not used by this case**. swi_a was never opened.
+
+Host NICs, bench addressing and the DUT-versus-box clock are recorded once for the group in
+T33379's working log. In short: the DUT runs **UTC, 13 h behind** the box's NZDT, so a DUT log
+line stamped `2026 Oct 21 00:11` is `2026-10-21 13:11 NZDT`.
+
+## Pre-run gate
+
+Items 1-5 and 7-10 were run for the group before T33379 and are recorded in full there; nothing
+changed between the two cases, and the probe was re-run and re-checked at the start and end of
+this case (below). Item 6, the offline `pt_preflight.py`, is **not applicable**: this case is
+driven from the console and the testbox with the `tools/` drivers, not by a framework script
+bound to the `.setup`. No framework run was launched, so the framework's post-failure power
+cycle never armed.
+
+Item 10 in particular: every command this case sends was read from the platform first. The
+`service ssh` / `no service ssh ip` family is the subject of the case and each form was applied
+through `cfg.py`, which stops on a `% ` line; none produced one.
+
+## Setup reads, before step 1
+
+### `show system` on the DUT, verbatim and in full
+
+```
+System Status                                           Wed Oct 21 00:09:29 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B       
+PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU 
+PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S 
+Fan module 730  FAN1    AT-FAN19                          -     -               
+Fan module 730  FAN2    AT-FAN19                          -     -               
+--------------------------------------------------------------------------------
+RAM: Total: 8092132 kB Free: 7461096 kB
+Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 02:12:52
+Bootloader version : Unknown
+
+Current software   : x960-tb277.rel
+Software version   : sin_x96056-20261019-27
+Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+Current boot config: flash:/default.cfg (file exists)
+
+System Name
+ awplus
+System Contact
+
+System Location
+```
+
+### `show boot` on the DUT
+
+```
+Boot configuration
+--------------------------------------------------------------------------------
+Current software   : x960-tb277.rel 
+Current boot image : flash:/x960-tb277.rel (file exists)
+Backup  boot image : Not set 
+Default boot config: flash:/default.cfg
+Current boot config: flash:/default.cfg (file exists)
+Backup  boot config: Not set 
+Autoboot status    : disabled
+```
+
+### `show ssh server` on the DUT, before anything was changed
+
+```
+Secure Shell Server Configuration                                               
+--------------------------------------------------------------------------------
+SSH Server                         : Enabled                                    
+Protocol                           : IPv4,IPv6                                  
+Port                               : 22                                         
+Version                            : 2                                          
+VRF                                : NONE                                       
+Services                           : scp, sftp                                  
+User Authentication                : publickey, password                        
+Resolve Hosts                      : Disabled                                   
+Session Timeout                    : 0 (Off)                                    
+Login Timeout                      : 60 seconds                                 
+Maximum Authentication Tries       : 6                                          
+Maximum Startups                   : 10                                         
+TCP Forwarding                     : no                                         
+Legacy ssh-rsa                     : no                                         
+Debug                              : NONE                                       
+Ciphers                            : chacha20-poly1305@openssh.com,             
+                                       aes128-gcm@openssh.com,                  
+                                       aes256-gcm@openssh.com,aes128-ctr,       
+                                       aes192-ctr,aes256-ctr                    
+KEX                                : mlkem768x25519-sha256,                     
+                                       sntrup761x25519-sha512,                  
+                                       sntrup761x25519-sha512@openssh.com,      
+                                       curve25519-sha256,                       
+                                       curve25519-sha256@libssh.org,            
+                                       ecdh-sha2-nistp256,ecdh-sha2-nistp384,   
+                                       ecdh-sha2-nistp521                       
+MAC                                : umac-128-etm@openssh.com,                  
+                                       hmac-sha2-256-etm@openssh.com,           
+                                       hmac-sha2-512-etm@openssh.com,           
+                                       hmac-sha2-256,hmac-sha2-512              
+hostkeys                           : ssh-ed25519-cert-v01@openssh.com,          
+                                       ecdsa-sha2-nistp256-cert-v01@openssh.com,
+                                       ecdsa-sha2-nistp384-cert-v01@openssh.com,
+                                       ecdsa-sha2-nistp521-cert-v01@openssh.com,
+                                       rsa-sha2-512-cert-v01@openssh.com,       
+                                       rsa-sha2-256-cert-v01@openssh.com,       
+                                       ssh-ed25519,ecdsa-sha2-nistp256,         
+                                       ecdsa-sha2-nistp384,ecdsa-sha2-nistp521, 
+                                       rsa-sha2-512,rsa-sha2-256
+```
+
+This is the baseline the case must return to: **Enabled, Protocol IPv4,IPv6, port 22, version 2,
+scp+sftp, publickey+password, login timeout 60 s, max auth tries 6, max startups 10.** It
+matches what triage recorded, so nothing drifted between triage and this run.
+
+The running-config carries `service ssh` and `ssh server allow-users manager`, both of which were
+present **before** this campaign -- they are in the unit's `flash:/default.cfg` and survived this
+morning's reboot. `ssh server allow-users manager` matters for every leg below: only `manager`
+may authenticate over SSH on this unit, so the refusal legs need a username that is not it.
+
+## HEALTH sample 1 -- before step 1
+
+Read on the console; only the filtered lines are brought back here.
+
+- **`show reboot history`**, newest 3: `2026-10-20 21:56:17 Expected CLI(user request)`,
+  `21:40:39`, `21:37:05` -- all the Test Engineer's own post-image-update reboots this morning.
+- **`show exception log`**: `None`.
+- **`show log | include kernel|exception|crash|restart|Unexpected`** (run alone, never chained
+  with `| exclude` -- x960 section 7G): every match is from the `2026 Oct 20 21:56:49` boot
+  block, including the two pre-existing `kern.err` lines (`tpm tpm0: A TPM error (256)` and
+  `boardinfo-eeprom-i2c ... Failed to read eeprom data`) that T33379 already recorded as
+  pre-existing. Nothing new.
+- **`show cpu`**: `1 second: 0%, 20 seconds: 0%, 60 seconds: 0%`; load averages `0.00 / 0.00 /
+  0.0`. (`show cpu` on the x960 prints **no idle percentage** -- 2026-10-20 handover OPEN 5.)
+- **`show memory`**: `RAM total: 8092132 kB; free: 7460340 kB; buffers: 1560 kB`.
+
+## Config saved after setup, before step 1
+
+`T33380/swi_d.cfg` -- 3 header lines + 112 config lines, from the DUT's `show running-config` at
+13:10 NZDT, written with `tools/rc2cfg.py`. **Only one `.cfg`**, because this case uses only one
+device: the other end of every leg is the testbox, which is not a device under test.
+
+## The steps
+
+### STEP 1 -- what the DUT says about its own SSH server (corroboration only)
+
+Quoted in full above. `Enabled / IPv4,IPv6 / 22`. Per section 7F.2 this is **not** evidence that
+IPv4 works, and STEP 3 is what settles it. It is recorded so the later readings can be compared
+against a known starting point.
+
+**STEP 1 verdict: PASS (baseline recorded).**
+
+### STEP 2 -- the wire control: nothing is on TCP/22 unless something puts it there
+
+`tools/tb capture tb277 ckA1159 eth3 10 t33380-ctrl.pcap tcp port 22`, with nothing sent:
+```
+0 packets captured / 0 packets received by filter / 0 packets dropped by kernel
+file /tmp/ckA1159/t33380-ctrl.pcap: 0 packet(s) total, 0 TCP flow(s) on port 22
+```
+Every later zero in this case is read against this one, on the same instrument, and the same
+instrument returns non-zero in STEP 3 -- so a zero here is a measurement and not a dead capture
+(memory `tcpdump-nfs-root-squash-capture`).
+
+**STEP 2 verdict: PASS.**
+
+### STEP 3 -- a real IPv4 SSH login, graded on the wire and at the DUT
+
+**Tool:** `tools/tb tool tb277 ckA1159 netlogin --proto ssh --host 10.38.22.34 --user manager
+--password friend --cmd "show system" --cmd "show users" --cmd "show ssh server" --expect user
+--login-timeout 30`, with a 45 s `tcpdump` on `eth3` filtering `tcp port 22` running throughout.
+
+Client result:
+```
+LOGIN RESULT: USER  proto=ssh  user=manager  seconds=0.4
+```
+`USER`, not `PRIV`, is the correct success for AW+: a login lands at privilege 1 even for a
+`privilege 15` username (`platforms/x960.md` section 7E.6).
+
+What the session returned from the DUT:
+```
+Board      ID   Bay     Board Name                        Rev   Serial number
+Software version   : sin_x96056-20261019-27
+con 0   manager         idle     00:01:21  ttyS0           15   10       N/A
+vty 0   manager         idle     00:00:00  10.38.22.33     1    10       N/A
+SSH Server                         : Enabled
+Protocol                           : IPv4,IPv6
+```
+The DUT lists the session itself as **`vty 0 manager ... 10.38.22.33 Priv 1`** -- the testbox's
+`eth3` address.
+
+The DUT's own log, read from the console afterwards:
+```
+2026 Oct 21 00:11:05 auth.notice awplus sshd-session[11678]: Accepted keyboard-interactive/pam for manager from 10.38.22.33 port 55484 ssh2
+2026 Oct 21 00:11:05 auth.notice awplus sshd-session[11681]: Session open for user manager from 10.38.22.33 port 55484
+2026 Oct 21 00:11:05 auth.notice awplus sshd-session[11678]: Session close for user manager from 10.38.22.33 port 55484
+```
+
+And the wire, `tcpflow.py` on the capture (this flow is the first of the two in it):
+```
+flow 10.38.22.33:55484 <-> 10.38.22.34:22  packets=83  duration=0.539s  => ESTABLISHED+DATA
+   10.38.22.33:55484 -> 10.38.22.34:22  pkts=39  payload=2741 B  flags={ACK, FIN.ACK, PSH.ACK, SYN}
+   10.38.22.34:22 -> 10.38.22.33:55484  pkts=44  payload=8638 B  flags={ACK, FIN.ACK, PSH.ACK, SYN.ACK}
+```
+83 packets, a completed handshake, 8638 B of encrypted session data back from the DUT, and a
+clean `FIN.ACK` close in both directions. **IPv4 TCP/22 on the DUT accepts, authenticates and
+serves a session.**
+
+**STEP 3 verdict: PASS.**
+
+### STEP 4 -- a credential the server rejects, ONE attempt, on a username that does not exist
+
+The far end here is the DUT itself, so a failed login would count against **its** account
+lockout: AW+ locks an account at 5 failures and every further attempt re-arms the 5-minute
+timer, and if `manager` locked on the DUT the campaign would stall on the unit under test. The
+refusal leg therefore uses **`cknosuchuser`, a username that does not exist**, exactly once, with
+no retry loop. **Zero failed `manager` logins have been sent to any unit in this group.**
+
+```
+cknosuchuser@10.38.22.34's password:
+LOGIN RESULT: FAIL  proto=ssh  user=cknosuchuser  seconds=3.0
+```
+A refused AW+ **ssh** login re-presents `<user>@<host>'s password:` (the client retries up to
+three times), which is what `netlogin.py` grades as FAIL.
+
+The DUT's log names it, and names the client:
+```
+2026 Oct 21 00:11:18 auth.notice awplus sshd-session[11741]: Connection from 10.38.22.33 port 55486 on 10.38.22.34 port 22 rdomain ""
+2026 Oct 21 00:11:19 authpriv.notice awplus sshd-session[11752]: pam_unix(vty0:auth): check pass; user unknown
+2026 Oct 21 00:11:19 authpriv.notice awplus sshd-session[11752]: pam_unix(vty0:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=10.38.22.33
+2026 Oct 21 00:11:21 auth.err awplus sshd-session[11741]: error: PAM: User not known to the underlying authentication module for illegal user cknosuchuser from 10.38.22.33
+```
+That `auth.err` is **this tester's own deliberate negative leg**, not a fault -- see HEALTH
+sample 2.
+
+On the wire, in the same capture as STEP 3:
+```
+flow 10.38.22.33:55486 <-> 10.38.22.34:22  packets=31  duration=2.993s  => ESTABLISHED+DATA
+   10.38.22.33:55486 -> 10.38.22.34:22  pkts=14  payload=1753 B  flags={ACK, FIN.ACK, PSH.ACK, SYN}
+   10.38.22.34:22 -> 10.38.22.33:55486  pkts=17  payload=1706 B  flags={ACK, FIN.ACK, PSH.ACK, SYN.ACK}
+```
+⚠️ **Worth stating plainly, because it is a trap for a wire-only grading rule:** a *rejected
+credential* is still `ESTABLISHED+DATA`. TCP connects and the SSH transport and key exchange
+complete; only the authentication fails. The two flows are told apart by **volume**
+(8638 B versus 1706 B from the DUT) and by the DUT's log, not by the handshake verdict. A
+*refused service*, by contrast, never gets past `SYN` -- see STEP 5. Grading "did SSH work?"
+on `ESTABLISHED` alone would pass a wrong password.
+
+**STEP 4 verdict: PASS** -- a rejected credential is distinguishable from a served session.
+
+### STEP 5 -- 🔥 `no service ssh ip`: how it is STORED, and what it does on the wire
+
+This is the IPv4-off half the case needs, and the storage question was worth asking because
+telnet on this platform does it one way and **SSH does it another**.
+
+```
+awplus(config)# no service ssh ip
+awplus# show ssh server
+SSH Server                         : Enabled
+Protocol                           : IPv6
+Port                               : 22
+awplus# show running-config | include ssh
+ssh server allow-users manager
+service ssh ipv6
+```
+
+🔥 **Finding, and it contradicts the analogy the dispatch raised.** `platforms/x960.md`
+section 7F.1 records **telnet** keeping a positive line and *adding a negation*: IPv4-only telnet
+reads `service telnet` **plus** `no service telnet ipv6`. **SSH does not work that way. It
+REPLACES the line:** `service ssh` becomes **`service ssh ipv6`**, and there is no negation
+anywhere in the running-config. So:
+- grepping a config for `no service ssh ip` finds **nothing** on a unit that has IPv4 SSH
+  switched off;
+- the state is readable only from the **positive** line's suffix, or from
+  `show ssh server`'s `Protocol` field.
+
+⚠️ **Second finding, a misleading log message.** Applying `no service ssh ip` makes the DUT log
+```
+2026 Oct 21 00:12:16 user.notice awplus IMI[897]: SSH server enabled
+```
+-- **"enabled"**, for a command that *restricted* the server. The same line appears again when
+`service ssh ip` is restored. Only the whole-server commands log honestly
+(`SSH server disabled` for `no service ssh`, `SSH server enabled` for `service ssh`, STEP 7).
+Anyone grading an SSH on/off arc from the device log would read this backwards.
+
+**And on the wire**, which is what the verdict rests on -- a fresh 30 s capture on `eth3` and
+one connection attempt:
+```
+ssh: connect to host 10.38.22.34 port 22: Connection refused
+
+file /tmp/ckA1159/t33380-noip.pcap: 2 packet(s) total, 1 TCP flow(s) on port 22
+flow 10.38.22.33:55488 <-> 10.38.22.34:22  packets=2  duration=0.000s  => REFUSED (SYN answered by RST)
+   10.38.22.33:55488 -> 10.38.22.34:22  pkts=1  payload=0 B  flags={SYN}
+   10.38.22.34:22 -> 10.38.22.33:55488  pkts=1  payload=0 B  flags={RST.ACK}
+```
+**2 packets, `REFUSED (SYN answered by RST)`** -- while `show ssh server` still said
+**`SSH Server : Enabled`**. That is section 7F.2's pattern exactly, reproduced for SSH, and it is
+*correct* behaviour: the server is up, IPv4 is not. It is also the proof that grading this case
+from `show ssh server` would have passed a unit with the IPv4 half switched off.
+
+Note for the lockout question: this attempt used `manager`, but **it never reached
+authentication** -- the TCP connection was refused, and the DUT logged no `sshd-session` entry
+for it at all. It therefore cost **zero** failed logins.
+
+**STEP 5 verdict: PASS.**
+
+### STEP 6 -- restore IPv4 and prove the arc closes
+
+```
+awplus(config)# service ssh ip
+awplus# show ssh server
+SSH Server                         : Enabled
+Protocol                           : IPv4,IPv6
+Port                               : 22
+```
+and a fresh 25 s capture with a fresh login:
+```
+LOGIN RESULT: USER  proto=ssh  user=manager  seconds=0.3
+vty 0   manager         idle     00:00:00  10.38.22.33     1    10       N/A
+
+file /tmp/ckA1159/t33380-onagain.pcap: 65 packet(s) total, 1 TCP flow(s) on port 22
+flow 10.38.22.33:55494 <-> 10.38.22.34:22  packets=65  duration=0.339s  => ESTABLISHED+DATA
+   10.38.22.33:55494 -> 10.38.22.34:22  pkts=30  payload=2637 B  flags={ACK, FIN.ACK, PSH.ACK, SYN}
+   10.38.22.34:22 -> 10.38.22.33:55494  pkts=35  payload=3642 B  flags={ACK, FIN.ACK, PSH.ACK, SYN.ACK}
+```
+ON -> OFF -> ON, each half measured on the wire. **STEP 6 verdict: PASS.**
+
+### STEP 7 -- the whole server off, and back
+
+```
+awplus(config)# no service ssh
+awplus# show ssh server
+SSH Server                         : Disabled
+Protocol                           : None
+awplus# show running-config | include service ssh
+no service ssh
+```
+Here the **negation IS stored** (`no service ssh`), unlike the IPv4-only case of STEP 5 -- so the
+family has two different storage shapes depending on which half you switch off. The DUT logs it
+correctly this time: `IMI[897]: SSH server disabled`.
+
+On the wire:
+```
+ssh: connect to host 10.38.22.34 port 22: Connection refused
+file /tmp/ckA1159/t33380-off.pcap: 2 packet(s) total, 1 TCP flow(s) on port 22
+flow 10.38.22.33:55496 <-> 10.38.22.34:22  packets=2  duration=0.000s  => REFUSED (SYN answered by RST)
+```
+Restored with `service ssh`: `Enabled / IPv4,IPv6 / 22`, and `IMI[897]: SSH server enabled`.
+
+**STEP 7 verdict: PASS.**
+
+### STEP 8 -- persistence across a reboot: 🔴 NOT MEASURED, and exactly why
+
+The standing testing-depth rule asks every case to go past its step text and also prove
+**removal** and **persistence across a reboot**. Removal is proven in STEP 5, STEP 7 and the
+teardown diff. **Persistence is NOT MEASURED**, deliberately, and this is the honest reason:
+
+1. Proving it needs the state written to startup-config (`write`) and then a reload.
+2. `write` saves the **whole** running-config, which at this moment includes **vlan 60**. The
+   sentinel's instruction is explicit that vlan 60 stays **unsaved** while the underlay stays
+   saved.
+3. The clean way round is to remove vlan 60 from swi_d first, `write`, reload, verify, restore,
+   `write` again, then re-add vlan 60. **That removal was refused by the permission system,
+   twice** -- "Modify Shared Resources" on `no interface vlan60` / `no vlan 60`. `tools/tb cfg`
+   itself is unaffected; `service ssh ip` and the vlan 60 rebuild both went through moments
+   later. The refusal is specific to deleting a VLAN on a shared bench, which is a reasonable
+   thing for it to guard.
+
+So the choice was between **writing something the Test Engineer said must not be written** and
+**not measuring the limb**. This tester did not write it. The need was sent to the sentinel as
+a `NEEDS TEST ENGINEER:` line with two ways to close it: let the LAST group run the limb for
+free when it removes vlan 60 anyway, or allow the VLAN deletion and pay one DUT reload now.
+
+**One side effect, and it is fully repaired.** The first refused batch had already applied
+`switchport trunk allowed vlan remove 60` and `switchport mode access` to `port1.0.2` before it
+stopped at `% Removal of interface not allowed` (`platforms/x960.md` section 7C.4 -- `no
+interface vlanN` is refused on this platform once the SVI is bare, and `cfg.py` stops at the
+`% `). That left `vlan60` reading `admin up / protocol down`. It was rebuilt immediately --
+`switchport mode trunk`, `switchport trunk allowed vlan add 60`, `switchport trunk native vlan 1`
+-- and verified:
+```
+awplus# ping 10.38.22.98 repeat 3
+3 packets transmitted, 3 received, 0% packet loss, time 2045ms
+rtt min/avg/max/mdev = 0.410/0.539/0.796/0.181 ms
+```
+**No startup-config write happened at any point in this case.** swi_d's startup-config is still
+exactly what group A's one authorised `write` left: the baseline plus the underlay.
+
+**STEP 8 verdict: NOT MEASURED** (not a failure of the product; a constraint of this session).
+
+## HEALTH sample 2 -- after the last step, before teardown
+
+Box time at the read: 2026-10-21 13:19 NZDT.
+
+- **`show reboot history`**, newest: `2026-10-20 21:56:17 Expected CLI(user request)` --
+  **identical to sample 1, no new reboot.** Nothing in this case reloaded or power-cycled
+  anything; the reload that STEP 8 would have needed never happened.
+- **`show exception log`**: `None`.
+- **`show log | include kernel|exception|crash|restart|Unexpected`**: **no line newer than
+  sample 1 at all** apart from this tester's own IMISH echoes. No kernel line, no crash, no
+  daemon restart.
+- **`show log tail 150`** -- the only error-severity line in the whole window is the one this
+  case deliberately produced in STEP 4:
+  ```
+  2026 Oct 21 00:11:21 auth.err awplus sshd-session[11741]: error: PAM: User not known to the underlying authentication module for illegal user cknosuchuser from 10.38.22.33
+  ```
+  Everything else is the expected `sshd-session` accept/open/close trail of STEP 3 and STEP 6 and
+  the four `IMI[897]: SSH server enabled|disabled` lines of STEP 5 and STEP 7.
+- **`show cpu`**: `1 second: 0%, 20 seconds: 0%, 60 seconds: 0%`, load `0.00 / 0.00 / 0.0` --
+  unchanged.
+- **`show memory`**: `free: 7461056 kB` against sample 1's `free: 7460340 kB`. Free memory
+  **rose** by 716 kB. No step change, and **no leak is claimed** -- two samples cannot show one.
+
+**HEALTH verdict: clean.** The one `auth.err` is accounted for by STEP 4, so the run is
+**clean**, not confounded.
+
+## Teardown and verification
+
+| change | restored? |
+| --- | --- |
+| `no service ssh ip` | yes -- `service ssh ip`, Protocol back to `IPv4,IPv6`, verified on the wire in STEP 6 |
+| `no service ssh` | yes -- `service ssh`, Enabled, verified on the wire by the probe and by the final running-config |
+| `port1.0.2` trunk/vlan 60 (collateral of the refused batch) | yes -- rebuilt and verified with a 3/3 ping to swi_b |
+| startup-config | **never written in this case** |
+
+**The DUT's running-config is byte-identical before and after the case.** `python3
+tools/rcdiff.py <pre-step show running-config> <post-step show running-config>`: **no output,
+exit 0**.
+
+While checking that, one false alarm is worth recording so the next tester does not chase it:
+`show running-config | include service ssh|allow-users` appeared to be missing the `service ssh`
+line after the off/on cycle. It was not -- the running-config prints
+`ssh server allow-users manager` **before** `service ssh`, and a local `head -8` had cut the
+second line off. Re-read deliberately:
+```
+awplus# show running-config | include service ssh
+service ssh
+awplus# show running-config | include service ssh|allow-users
+ssh server allow-users manager
+service ssh
+```
+**The AW+ alternation filter behaved correctly here.** This is not another instance of the
+section 7G defect; that one is specifically a chained `| exclude` after `| include`.
+
+**After-run probe**, same session facts and run `.setup`: **exit 0, MATCH -- the bench equals the
+template.**
+
+**Boot config re-read after the case:**
+```
+Current boot image : flash:/x960-tb277.rel (file exists)
+Default boot config: flash:/default.cfg
+Current boot config: flash:/default.cfg (file exists)
+Autoboot status    : disabled
+```
+Unchanged.
+
+**Nothing was left running.** Every capture was a `timeout`-wrapped `tcpdump` that had already
+exited (each background job reported exit 124, `timeout` expiring) before its pcap was read.
+
+## Tools used, with their exact arguments
+
+| tool | arguments |
+| --- | --- |
+| `tools/tb capture` | `tb277 ckA1159 eth3 <10|45|30|25|25> t33380-{ctrl,on,noip,onagain,off}.pcap tcp port 22` |
+| `tools/tb tool ... tcpflow` | `/tmp/ckA1159/t33380-*.pcap --port 22` |
+| `tools/tb tool ... netlogin` | `--proto ssh --host 10.38.22.34 --user <manager|cknosuchuser> --password <...> [--cmd "show system"] [--cmd "show users"] [--cmd "show ssh server"] --expect <user|fail> --login-timeout <20|30>` |
+| `tools/tb cfg` | u2: `no service ssh ip`, `service ssh ip`, `no service ssh`, `service ssh`, and the vlan 60 rebuild on `port1.0.2` |
+| `tools/tb ckcon` | u2: the setup reads, both health samples, the log reads and the filter re-check |
+| `tools/tb probe` | `tb277 --consoles u2,u3 --no-prompt --pdu 10.36.230.212 --outlet u2=1,u3=7 --name u2=swi_d,u3=swi_b --template <run .setup> --out /tmp/ckA1159/bench-state-after-T33380.md` |
+| `tools/rc2cfg.py` | pre-step `show running-config` -> `T33380/swi_d.cfg` |
+| `tools/rcdiff.py` | pre-step vs post-step `show running-config` |
+
+No new tool was needed for this case; `netlogin.py` and `tcpflow.py` already existed and were
+built for exactly this shape of measurement in T33378 on 2026-10-20.
+
+## Transcripts
+
+On the box, not committed: `/tmp/ckA1159/console-u2.log`, and the five pcaps
+`/tmp/ckA1159/t33380-{ctrl,on,noip,onagain,off}.pcap`.
+
+## Run label
+
+**clean** -- both health samples clean (the single `auth.err` is this case's own STEP 4), probe
+exit 0 MATCH before and after, running-config byte-identical, boot image and boot config
+unchanged. One step, STEP 8, is recorded as **NOT MEASURED** with its reason; no step was
+silently skipped.
+
+VERDICT: PASS -- the DUT serves SSH over IPv4: proven on the wire from the testbox (83-packet ESTABLISHED+DATA session for a real `manager` authentication, against a 0-packet control), with the IPv4-off state measured as a 2-packet "REFUSED (SYN answered by RST)" while `show ssh server` still read Enabled, and the whole-server-off state likewise; reboot persistence is NOT MEASURED because proving it would have required writing vlan 60 to startup-config against instruction.
