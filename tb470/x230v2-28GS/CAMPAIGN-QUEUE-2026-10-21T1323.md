@@ -91,6 +91,9 @@ both:       terminal no monitor (exec, after `end`)
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
+| T47226 | check for sh version | platform-ports-2026-10-21T1323 | PASS | show version answers in full (AlliedWare Plus 0.0.0 10/19/26, Build name x220-awplus_main-20261019-75.rel, expected x220 target name); health clean | platform-ports-2026-10-21T1323/47226/work/run1.log | tester |
+| T47227 | check for sh license | platform-ports-2026-10-21T1323 | PASS | show license lists Base License (Full, 11 features) and ACCESS (Full), no error line; health clean | platform-ports-2026-10-21T1323/47227/work/run1.log | tester |
+| T47215 | sh sys environment | platform-ports-2026-10-21T1323 | PASS | show system environment Overall Status Normal, fan + 5 voltages + 3 temperatures all Ok within limits; health clean | platform-ports-2026-10-21T1323/47215/work/run1.log | tester |
 
 ## Issues
 
