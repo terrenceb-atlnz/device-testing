@@ -307,6 +307,92 @@ Both units' `flash:/default.cfg` already carried `service ssh`, `no service teln
 touched anything — measured 2026-10-21 12:42/12:43 NZDT. The `write` in (a) adds the underlay
 to that file and changes nothing else.
 
+## 🔧 Group B bench setup and its EXACT restore recipe (written before group B's first case)
+
+Written 2026-10-21 13:5x NZDT by the group-B tester **before** any case changed device state,
+so a tester that dies mid-group leaves a recoverable bench (dispatch requirement). Run `.setup`
+bound by this group: `tb277/x960/mgmt-2026-10-21T1159/tb277-u2u3.setup` — **swi_d and swi_b
+only**, swi_a deliberately absent so the framework's post-failure power cycle can never reach
+it. (The box has **no** deployed `/home/st-art/configs/tb277.setup`; the run file is cut from
+the generated fence of `bench-setup/tb277/bench-state.md`, capture 2026-10-20T230259Z.)
+
+### What group B INHERITS and does not touch
+
+- **(a) The layer-3 underlay on swi_d**, saved to startup-config by group A at the Test
+  Engineer's decision: `vlan 10 ckUNDERLAY-eth3` / `vlan10 10.38.22.34/27` on access port
+  `port1.0.10`, and `vlan 48 ckUNDERLAY-eth4` / `vlan48 10.38.22.66/27` on access port
+  `port1.0.48`. Testbox side `eth3 10.38.22.33/27`, `eth4 10.38.22.65/27`. **Group B never
+  removes it.** Confirmed present at 13:48 NZDT.
+- **(b) vlan 60, campaign infrastructure, NOT saved** — swi_d `10.38.22.97/27` and swi_b
+  `10.38.22.98/27`, tagged on `port1.0.2` with vlan 1 native. **Group B leaves it in place**;
+  the LAST group to run removes it. Confirmed present at 13:48 NZDT.
+- 🔴 **Group B issues no `write` / `copy running-config startup-config` on any unit**, for the
+  same reason group A's T33380 could not: a `write` on swi_d would save vlan 60, which must stay
+  unsaved. Every reboot-persistence limb in this group is therefore **NOT MEASURED, with that
+  reason stated**, not skipped.
+
+### What group B puts on the bench (all UNSAVED, all removed by the case that added it)
+
+Group B adds nothing that outlives its own case. Each case applies its configuration, measures,
+removes it, and proves the removal against the running-config captured before the case.
+
+**T33386 (Management ACL), on swi_d (u2) only:**
+```
+! numbered hardware ACL + access-group — the TPS 6.1.1 limb
+access-list 3010 <permit/deny rules, source-based, management ports only>
+interface port1.0.10
+ access-group 3010
+interface port1.0.48
+ access-group 3010
+! standard ACL bound to an SNMP community — the second, independent limb
+access-list 10 permit <the permitted host>
+snmp-server community <throwaway, ro> 10
+snmp-server enable       ! only if it is found off; restored to whatever it was
+```
+**T47192 (dynamic configuration), on swi_d (u2) only:** transient changes to
+`interface vlan48`'s IPv4 address (delete, add a different address, change back to
+`10.38.22.66/27`) and a transient hardware ACL, each measured in the dataplane and then undone
+inside the case.
+
+**swi_b (u3)** is configured by group B only if the optional third ACL source leg is run
+(a device-originated SSH from swi_b `10.38.22.98` to swi_d `10.38.22.97`); that leg adds no
+configuration to swi_b at all — it only drives swi_b's own SSH client from its console.
+
+### Restore recipe — run this if a group-B tester dies mid-case
+
+```
+! swi_d (u2), config mode — remove anything group B may have left
+interface port1.0.10
+ no access-group 3010
+interface port1.0.48
+ no access-group 3010
+interface port1.0.2
+ no access-group 3011
+no access-list 3010
+no access-list 3011
+no snmp-server community ckacl
+no access-list 10
+! T47192 only — put vlan48 back to the inherited underlay address
+interface vlan48
+ no ip address
+ ip address 10.38.22.66/27
+! swi_d: do NOT `write`. startup-config must keep ONLY group A's underlay.
+```
+Then confirm with `show ip interface brief` (vlan10 `.34`, vlan48 `.66`, vlan60 `.97`, all
+`admin up / running`), `show access-list` (empty) and `show running-config | include snmp-server`
+(nothing of ours).
+
+### Baseline group B must return to
+
+| unit | boot image | boot config | running-config |
+| --- | --- | --- | --- |
+| swi_d (u2) | `flash:/x960-tb277.rel` | `flash:/default.cfg`, Autoboot disabled | exactly `tb277/x960/mgmt-2026-10-21T1159/T33387/swi_d.cfg` (captured 13:48 NZDT, the bench as found) |
+| swi_b (u3) | `flash:/backup.rel` | `flash:/default.cfg` | untouched by group B |
+
+`T33387/swi_d.cfg` is the group's reference copy: any group-B teardown is checked by diffing a
+fresh `show running-config` against it.
+
+
 ## Issues
 
 ### 🔬 FINDING (T33381) — the SSH client's host-key trust is PERSISTENT and invisible
