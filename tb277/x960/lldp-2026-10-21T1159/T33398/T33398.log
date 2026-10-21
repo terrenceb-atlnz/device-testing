@@ -1,0 +1,667 @@
+================================================================================
+TEST T33398 -- (260) Management_LLDP - LLDP-Med
+================================================================================
+Run:      2026-10-21 15:48-16:02 NZDT.  LLDP-MED was measured on the wire on an
+          AT-x960-56YSQ, then removed and restored.
+          The DUT's clock reads UTC and is 15 s behind the box's UTC.  Device times
+          below are UTC, and tool and console times are box local (NZDT).
+Bench:    tb277, consoles u2 = swi_d (DUT), u3 = swi_b, u5 = swi_a;
+          Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     T33398.  The test-case database holds NO authored objective for this case, and
+          its single step is an empty placeholder with no description, no test data and
+          no expected result.  The only authored authority is the case title.
+          The tester designed the objective and all 8 steps below from three sources:
+          the case title; the X960 TPS, row 258 "LLDP-Med = Yes"; and the DUT's own CLI
+          surface, read read-only with `<cmd> ?` before anything was sent.
+          Objective (designed by the tester), in five parts.
+          1. The DUT types itself as an LLDP-MED Network Connectivity device, and sends
+             no LLDP-MED TLV until an LLDP-MED endpoint appears on the port.
+          2. A voice VLAN configured on a port becomes an LLDP-MED Network Policy TLV
+             that carries the configured VLAN, priority and DSCP.
+          3. The DUT classifies an LLDP-MED endpoint correctly, and a non-MED neighbour
+             on the same port differently.
+          4. LLDP-MED Fast Start sends the configured number of frames at the fast rate,
+             and the trigger for it can be named.
+          5. The LLDP-MED configuration can be removed by two different routes, and it
+             survives a reboot.
+          Every verdict below is graded on frames on the wire.  `show lldp local-info
+          med` and `show lldp neighbors detail` are quoted as corroboration only, never
+          as the proof.
+Build:    swi_d  sin_x96056-20261019-27  (flash:/x960-tb277.rel, build date Sun Oct 18
+          23:18:21 UTC 2026), AT-x960-56YSQ, S/N A2WQS700B
+          swi_b  awplus_main-20261020-78, AT-x960-28YSQ, S/N A10737A261700021
+          swi_a  awplus_main-20261019-73, AT-x950 GEN2-52XSTQm, S/N A10713A262600012
+
+awplus# show system
+    System Status                                           Wed Oct 21 02:47:43 2026
+
+    Board      ID   Bay     Board Name                        Rev   Serial number
+    --------------------------------------------------------------------------------
+    Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+    PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+    PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+    Fan module 730  FAN1    AT-FAN19                          -     -
+    Fan module 730  FAN2    AT-FAN19                          -     -
+    --------------------------------------------------------------------------------
+    RAM: Total: 8092132 kB Free: 7460788 kB
+    Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+    --------------------------------------------------------------------------------
+    Environment Status : Normal
+    Uptime             : 0 days 00:12:39
+    Bootloader version : Unknown
+
+    Current software   : x960-tb277.rel
+    Software version   : sin_x96056-20261019-27
+    Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+    Current boot config: flash:/default.cfg (file exists)
+
+    System Name
+     awplus
+    System Contact
+
+    System Location
+
+Configs:  swi_d.cfg (running-config after setup; saved to startup: no)
+          swi_a.cfg and swi_b.cfg could not be produced.  Reading a device's
+          running-config needs a console login, and the `manager` account on both partner
+          switches was locked out at the console.  Every further attempt re-arms a
+          five-minute lock, so neither console was opened by this case.  This is a console
+          lockout, not a missing device and not a topology limit.  Both partners were
+          present on the bench and both were visible to the DUT as LLDP neighbours.
+          swi_d is the only device this case configured.
+
+VERDICT: PASS -- LLDP-MED works on the AT-x960-56YSQ, and every limb was proven with frames.
+      DUT types itself correctly ....... yes      (MED Capabilities TLV: device type=Network Connectivity)
+      no MED TLV without an endpoint ... yes      (voice policy fully configured, 40 s capture, 0 MED TLVs on the wire)
+      MED TLVs appear for an endpoint .. yes      (4 TLVs -> 7 TLVs when a Class III phone appeared on the port)
+      policy carries the configuration . yes      (application=Voice vlan=70 tagged=True priority=5 dscp=46, all as configured)
+      two decoders agree ............... yes      (lldpmed_phone.py and lldpwire.py read the same bytes identically)
+      endpoint classified correctly .... yes      (Endpoint Class III / Telephone; a plain neighbour on the same port got blank MED columns)
+      fast start count and rate ........ yes      (exactly 3 frames at 1.00 s, against a 30.03 s steady state)
+      fast start trigger named ......... yes      (it fires when an endpoint is NEW on the port; 4 observations, see STEP 5)
+      policy tracks reconfiguration .... yes      (priority 5 -> 6 changed on the wire; VLAN and DSCP did not move)
+      removal by TLV deselect .......... yes      (7 TLVs -> 6; MED Capabilities, ordinary LLDP and fast start all still work)
+      removal by voice VLAN removal .... yes      (7 TLVs -> 6 by a completely different route; no empty or stale policy sent)
+      configuration survives a reboot .. yes      (vlan 70, tagged, non-default priority 6 and dscp 46 all measured after a cold boot)
+CAVEAT:  This run proves what swi_d does.  It does NOT prove what swi_a or swi_b believe.
+         Both partner consoles were locked out, and neither partner is part of the
+         measurement path of this case.
+         LLDP-MED Location Identification (`Lo`) was not configured.  The TLV is selected
+         by default and reads `[not configured]`.  It is a separate feature with its own
+         CLI and needs its own case.
+         Extended Power via MDI (`Pe`) is NOT testable on this unit.  The AT-x960-56YSQ
+         has no Power over Ethernet and reports `[not supported]` itself.  No bench
+         change here could close that.
+         `lldp med-notifications`, the LLDP-MED topology change trap, was not exercised
+         separately.
+         `lldp faststart-count` was not varied.  Its default of 3 was confirmed on the
+         wire four times.
+         The DHCP phase of the phone emulator was skipped with `--no-dhcp`.  There is no
+         DHCP server in VLAN 70 on this bench, so that phase could only have measured the
+         bench and not the DUT.
+         `switchport voice vlan dot1p`, `untagged` and `dynamic` were read off the CLI
+         surface but not exercised.  `dynamic` needs a RADIUS-assigned voice VLAN.
+HEALTH:  read on the DUT before STEP 0 (15:48 NZDT) and after STEP 8 (16:02 NZDT)
+         reboots ......... 1 new entry: `2026-10-21 02:59:10 Expected CLI(user request)`.
+                           That is this case's own STEP 8 reload, issued at 15:59:25 NZDT
+                           = 02:59:25 UTC.  It is typed Expected, not `Unexpected System
+                           reboot`.  The newest entry in the before sample was
+                           `2026-10-21 02:34:44 Expected CLI(user request)`, which is
+                           older than this case.  No other entry changed.
+         exception log ... None in both samples
+         log ............. no panic, no crash, no daemon restart we did not cause, and
+                           nothing naming LLDP, LLDP-MED or the voice VLAN.  The 33 new
+                           `kern.*` lines are all timestamped at the 03:00:0x UTC boot
+                           that followed this case's own reload.  The only other new
+                           matching line is `2026 Oct 21 03:00:06 daemon.notice awplus
+                           HTTP: HTTP server restarted`, a daemon starting at boot.
+                           `show log tail 150` after the case held no line at emerg,
+                           alert, crit, err or warning severity.
+         CPU ............. `show cpu` on this platform prints LOAD, not idle, so no idle
+                           figure exists.  CPU averages 1 s / 20 s / 60 s read 0% / 0% / 0%
+                           before and 1% / 0% / 0% after.  Current CPU load read
+                           userspace 0%, kernel 0%, interrupts 0%, iowaits 0% before, and
+                           userspace 0%, kernel 1%, interrupts 0%, iowaits 0% after.
+                           System load averages read 0.00 / 0.02 / 0.5 before and
+                           0.38 / 0.47 / 0.20 after, which is the tail of the STEP 8 boot
+                           two minutes earlier and is already falling.  The CPU is not
+                           busy after the traffic stopped.
+         memory .......... RAM free 7461884 kB before -> 7457572 kB after, of 8092132 kB
+                           total.  That is 4312 kB less free, which is 0.05% of the total.
+                           The two samples also straddle a reboot, so they are not
+                           comparable as a leak signal.  No leak is claimed, and one case
+                           cannot show one.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  LLDP-MED is a point-to-point conversation between the switch and an endpoint on one
+  port.  The endpoint in this case is the TESTBOX.  tb277 eth3 emulates an LLDP-MED
+  Endpoint Class III IP phone with tools/lldpmed_phone.py, and sends a plain non-MED
+  neighbour with tools/lldpsend.py as the control.  Everything is measured on swi_d
+  port1.0.10.
+  swi_a and swi_b are PASSIVE.  This case never logged in to them and never configured
+  them.  They appear only as neighbour rows that the DUT already held on other ports, and
+  they are shown here so those rows can be read.
+
+        tb277 eth3   10.38.22.33/27   MAC 00:0d:b9:55:77:0e
+        The ACTIVE partner, playing two roles in turn:
+          tools/lldpmed_phone.py  -- an LLDP-MED Endpoint Class III IP phone,
+                                     chassis / port ID 00:00:5e:00:53:NN, name ck-phone
+          tools/lldpsend.py       -- a plain Station-only neighbour, the non-MED control
+        It is also the capture point (tcpdump, ether proto 0x88cc)
+             |                                    ^
+             |  LLDP-MED endpoint advertisements  |  the DUT's LLDPDUs, captured and
+             |  into the DUT                      |  decoded on the box
+             v                                    |
+    +------------------------------------------------------------------+
+    |  swi_d    AT-x960-56YSQ                                   DUT     |
+    |  port1.0.10, switchport access vlan 10 (untagged)                 |
+    |             switchport voice vlan 70 "ckVOICE"  (tagged)          |
+    |  interface vlan10 10.38.22.34/27                                  |
+    +------------------------------------------------------------------+
+      | port1.0.2    | port1.0.16   | port1.0.4    | port1.0.14
+      v              v              v              v
+   swi_b p1.0.2   swi_b p1.0.16  swi_a p1.0.4   swi_a p1.0.14
+   PASSIVE neighbours.  Not configured and not measured in this case.
+   They appear in the `show lldp neighbors` output of STEP 4 and nowhere else.
+
+  DUT     : swi_d (AT-x960-56YSQ) console u2 at 115200 baud, S/N A2WQS700B,
+            chassis MAC e01a.ead4.7043.  Its LLDPDUs leave with source MAC
+            e2:1a:ea:d4:70:43, which is the chassis MAC with the locally-administered
+            bit set.
+  partner : swi_b (AT-x960-28YSQ) S/N A10737A261700021, chassis MAC 0000.cd42.3029.
+            PASSIVE.  Console u3 was never opened by this case.
+  partner : swi_a (AT-x950 GEN2-52XSTQm) S/N A10713A262600012, chassis MAC 889d.98df.2602.
+            PASSIVE.  Console u5 was never opened by this case.
+  host    : tb277 eth3, MAC 00:0d:b9:55:77:0e, 10.38.22.33/27 -> swi_d port1.0.10.
+            This is the only active partner and the only capture point.
+  link    : tb277 eth3 <-> swi_d port1.0.10 (copper; access vlan 10 untagged,
+            voice vlan 70 tagged while STEP 2 to STEP 8 are running)
+  vlan    : vlan 70 "ckVOICE" was created by this case on port1.0.10 and removed again.
+  tools   : tools/lldpmed_phone.py (the LLDP-MED Class III endpoint, and its own decoder),
+            tools/lldpsend.py (the plain non-MED control neighbour),
+            tools/lldpwire.py (decodes the LLDP frames in a pcap, independently),
+            tools/qmark.py (reads the CLI help surface with no CR),
+            tools/cfg.py (sends configuration, and stops at any `% ` line),
+            tools/rc2cfg.py (turns the saved running-config into the .cfg deliverable).
+            All ran on tb277.
+
+  Inherited bench infrastructure, NOT this case's own setup: the layer-3 underlay
+  (vlan10 10.38.22.34/27 on port1.0.10, vlan48 10.38.22.66/27 on port1.0.48) and vlan 60
+  (ckMGMT-A, 10.38.22.97/27, tagged on port1.0.2).  Both were on the bench before this
+  case began.
+
+STEP 0 -- baseline: the state of LLDP-MED on the DUT before anything changed   done
+--------------------------------------------------------------------------------
+  Method: read the subject before touching it, so every later change is measured against
+  a recorded value.
+
+awplus#show running-config | include lldp
+    lldp run
+
+awplus#show lldp interface port1.0.10
+     Port     Rx/Tx  Notif  Management Addr  Base       802.1    802.3    MED
+    --------------------------------------------------------------------------------
+     1.0.10   Rx Tx  -- --  10.38.22.34      ---------- -------- -------- McNpLoPe--
+
+  <-- The LLDP-MED TLVs are already selected on an untouched port: `Mc` LLDP-MED
+      Capabilities, `Np` Network Policy, `Lo` Location Identification, `Pe` Extended PoE.
+      The Base, 802.1 and 802.3 optional TLVs are all off.
+
+awplus#show lldp local-info med interface port1.0.10      (the MED fields)
+      LLDP-MED Device Type ............. Network Connectivity
+      LLDP-MED Capabilities ............ LLDP-MED Capabilities, Network Policy,
+                                         Location Identification, Inventory
+      Network Policy ................... [not configured]
+      Location Identification .......... [not configured]
+      Extended Power Via MDI (PoE) ..... [not supported]
+      Inventory Management:
+           Hardware Revision ........... A-0
+           Firmware Revision ........... -
+           Software Revision ........... sin_x96056-20261019-27
+           Serial Number ............... A2WQS700B
+           Manufacturer Name ........... Allied Telesis Inc.
+           Model Name .................. AT-x960-56YSQ
+           Asset ID .................... [zero length]
+
+  <-- The DUT types itself `Network Connectivity`, which is the switch side of LLDP-MED.
+      It is not an endpoint.
+  <-- Its inventory holds its real model, serial number and software version.
+  <-- `Extended Power Via MDI (PoE) ..... [not supported]`.  The AT-x960-56YSQ has no
+      Power over Ethernet, so the `Pe` TLV is selected but has nothing to say.
+  <-- `Network Policy ... [not configured]` is the baseline that STEP 2 changes.
+
+awplus#show vlan brief
+    (VLANs 1, 10, 48 and 60 only.  No voice VLAN exists.)
+
+awplus#show boot
+    Current boot image : flash:/x960-tb277.rel (file exists)
+    Current boot config: flash:/default.cfg (file exists)
+    Autoboot status    : disabled
+
+  Note on the CLI surface: `show interface port1.0.10 switchport` does NOT exist on this
+  build.  The DUT answers `% Invalid input detected at '^' marker.`  A port's VLAN
+  membership is read from `show vlan brief` instead.
+
+STEP 1 -- baseline on the wire: with no endpoint, the DUT sends NO MED TLV     PASS
+--------------------------------------------------------------------------------
+  Method: LLDP-MED only appears under certain conditions.  Before creating those
+  conditions, show that the thing being tested is really absent.  Then its later
+  appearance is a measurement and not a pre-existing state.
+  Capture on the box: tools/tb capture tb277 lldp1159 eth3 40 m1_base.pcap ether proto 0x88cc
+
+tb277$ tools/tb tool tb277 lldp1159 lldpwire /tmp/lldp1159/m1_base.pcap --src e2:1a:ea:d4:70:43 --tlv
+    pcap      /tmp/lldp1159/m1_base.pcap
+    source e2:1a:ea:d4:70:43 -> 01:80:c2:00:00:0e
+      --- frame at 1792550955.713, 4 TLVs ---
+        Chassis ID                         MAC address: e0:1a:ea:d4:70:43
+        Port ID                            Interface name: port1.0.10
+        Time To Live                       120 s
+        OUI e01aea subtype 2               0c26573a87c541829d436cb04a0e77c2
+
+  <-- Four TLVs: the three mandatory ones plus one Allied Telesis organisationally
+      specific TLV.  There is no LLDP-MED TLV of any kind.
+  <-- `show lldp interface` reports all four MED TLVs selected (`McNpLoPe--`), and the
+      wire carries none of them.  Selection is not advertisement.
+  => STEP 1 PASS: the baseline is established.  With no voice policy and no LLDP-MED
+     endpoint on the port, the DUT sends a plain 4-TLV advertisement and no MED TLV.
+
+STEP 2 -- a voice VLAN creates a Network Policy, but does NOT put it on the wire  PASS
+--------------------------------------------------------------------------------
+  Method: this is the step that tells "configured" from "advertised".  The show command
+  will report that the policy exists.  The question is whether the wire carries it.
+
+awplus(config)#vlan database
+awplus(config-vlan)#vlan 70 name ckVOICE
+awplus(config-vlan)#vlan 70 state enable
+awplus(config)#interface port1.0.10
+awplus(config-if)#switchport voice vlan 70
+awplus(config-if)#switchport voice vlan priority 5
+awplus(config-if)#switchport voice dscp 46
+
+  No `% ` line on any of them.
+
+awplus#show vlan brief
+    70      ckVOICE          STATIC  ACTIVE  port1.0.10(t)
+awplus#show running-config interface port1.0.10
+    interface port1.0.10
+     switchport
+     switchport mode access
+     switchport access vlan 10
+     spanning-tree portfast
+     switchport voice vlan 70
+     switchport voice dscp 46
+awplus#show lldp local-info med interface port1.0.10
+      Network Policy ................... Voice
+           VLAN ID ..................... 70
+           Tagged Flag ................. Tagged
+           Layer-2 Priority ............ 5
+           DSCP Value .................. 46
+
+  <-- The voice VLAN joins the port TAGGED, shown as `port1.0.10(t)`, while the access
+      VLAN stays untagged.  The inherited underlay was not disturbed, and that was
+      checked and not assumed: a ping from tb277 eth3 to the DUT's 10.38.22.34 returned
+      3 received, 0% packet loss with the voice VLAN in place.
+  <-- `switchport voice vlan` silently added `spanning-tree portfast` to the interface.
+      Nobody typed that line and it was not there before.  It is a teardown hazard: a
+      tester who removes only what they typed leaves it behind.
+  <-- `switchport voice vlan priority 5` was accepted but is NOT in the running-config,
+      while `switchport voice dscp 46` is.  5 is the default voice priority, and only a
+      value that is not the default is stored.  STEP 6 confirms this from the other side.
+
+  Measurement, with the policy fully configured and no MED endpoint on the port:
+
+tb277$ tools/tb tool tb277 lldp1159 lldpwire /tmp/lldp1159/m3_novoiceend.pcap --src e2:1a:ea:d4:70:43 --tlv
+    pcap      /tmp/lldp1159/m3_novoiceend.pcap        (a 40 s capture)
+      --- frame at 1792551045.796, 4 TLVs ---
+        Chassis ID / Port ID / Time To Live / OUI e01aea subtype 2
+
+  <-- Still four TLVs.  The Network Policy the DUT says it has is not on the wire.
+  => STEP 2 PASS: the DUT built the Network Policy from the voice VLAN configuration, and
+     reports it correctly.  It does not advertise it, because no LLDP-MED endpoint has
+     been seen on that port.  That is the behaviour TIA-1057 asks for.  A verdict taken
+     from `show lldp local-info med` alone would have reported a policy that no frame
+     carried.
+
+STEP 3 -- a real LLDP-MED endpoint makes the DUT advertise the policy          PASS
+--------------------------------------------------------------------------------
+  Method: present a real LLDP-MED Endpoint Class III IP phone on the port, then read the
+  DUT's reply out of the capture and compare it field by field with the configuration.
+
+tb277$ tools/tb sudotool tb277 lldp1159 lldpmed_phone eth3 /tmp/lldp1159/m4_phone.pcap \
+         --lldp-secs 14 --no-dhcp
+    15:51:16 phase 1: LLDP-MED from 00:00:5e:00:53:10 on eth3 for 14s
+      sent 14 LLDPDUs
+      voice network policy: {'app': 1, 'unknown': 0, 'tagged': 1, 'vlan': 70, 'l2prio': 5, 'dscp': 46}
+    no DHCP phase (vlan=70)
+    exit 0
+
+tb277$ tools/tb tool tb277 lldp1159 lldpwire /tmp/lldp1159/m4_phone.pcap --src e2:1a:ea:d4:70:43 --tlv
+    pcap      /tmp/lldp1159/m4_phone.pcap
+    packets   57 total, 3 LLDP from e2:1a:ea:d4:70:43
+
+    source e2:1a:ea:d4:70:43 -> 01:80:c2:00:00:0e
+      frames 3 over 2.0 s
+      inter-frame gap  min 1.00 s  mean 1.00 s  max 1.00 s
+      --- frame at 1792551077.827, 7 TLVs ---
+        Chassis ID                         MAC address: e0:1a:ea:d4:70:43
+        Port ID                            Interface name: port1.0.10
+        Time To Live                       120 s
+        OUI e01aea subtype 2               0c26573a87c541829d436cb04a0e77c2
+        802.3 MAC/PHY Configuration/Status 038001001e
+        MED LLDP-MED Capabilities          caps=[Capabilities, Network Policy, Location ID, Inventory] device type=Network Connectivity
+        MED Network Policy                 application=Voice vlan=70 tagged=True priority=5 dscp=46 unknown_policy=False
+
+  (all three frames are identical; the other two are at 1792551078.829 and 1792551079.830)
+
+  The advertisement went from 4 TLVs to 7, and every new field matches the configuration:
+
+    configured                          advertised in the frame                   match
+    switchport voice vlan 70            Network Policy vlan=70, tagged=True       yes
+    switchport voice vlan priority 5    Network Policy priority=5                 yes
+    switchport voice dscp 46            Network Policy dscp=46                    yes
+    (the application type)              application=Voice (TIA application type 1) yes
+    the DUT is a switch                 MED Capabilities device type=Network Connectivity  yes
+    the capability list in show         caps=[Capabilities, Network Policy,       yes
+    lldp local-info med                 Location ID, Inventory]
+
+  <-- The 802.3 MAC/PHY Configuration/Status TLV also appears, although no
+      `lldp tlv-select mac-phy-config` was configured.  LLDP-MED requires it of a
+      Network Connectivity device, so the DUT adds it by itself when it enters MED mode
+      on a port.  An 802.3 TLV can therefore appear on a port whose 802.3 selection
+      column reads `--------`.
+  <-- Two independent decoders agree.  tools/lldpmed_phone.py parsed the Network Policy
+      as {'app': 1, 'tagged': 1, 'vlan': 70, 'l2prio': 5, 'dscp': 46}.  tools/lldpwire.py,
+      which was written separately, parsed the same bytes as `application=Voice vlan=70
+      tagged=True priority=5 dscp=46`.  The 12-bit VLAN, 3-bit priority and 6-bit DSCP
+      packing is the easiest part of LLDP-MED to decode wrongly, and two tools built
+      independently from the standard read it the same way.
+  => STEP 3 PASS: when a real LLDP-MED endpoint appeared on the port, the DUT advertised
+     the Network Policy TLV, and the TLV carried exactly the VLAN, tagging, priority and
+     DSCP that were configured.
+
+STEP 4 -- the DUT classifies the endpoint as Class III, with a non-MED control PASS
+--------------------------------------------------------------------------------
+  Method: the other half of STEP 3.  The DUT must also recognise what the endpoint is.
+  The control is a plain, non-MED neighbour on the SAME port at the SAME time.  Without
+  it, a correct classification could just be the port's default.
+
+awplus#show lldp neighbors
+    Total number of neighbors on these ports .... 5
+
+    Local    Neighbor        Neighbor        Neighbor                System   MED
+    Port     Chassis ID      Port ID         Sys Name                Cap.     Ty Pwr
+    --------------------------------------------------------------------------------
+    1.0.2    0000.cd42.3029  port1.0.2
+    1.0.4    889d.98df.2602  port1.0.4
+    1.0.10   0000.5e00.5310  0000.5e00.5310  ck-phone                -----T-- 3
+    1.0.14   889d.98df.2602  port1.0.14
+    1.0.16   0000.cd42.3029  port1.0.16
+
+  <-- `-----T--` is Telephone in the capability codes this command prints.  `MED Ty = 3`
+      is Endpoint Class III.
+  <-- The four other rows are the passive partner switches on other ports.  They are not
+      part of this case's measurement.
+
+awplus#show lldp neighbors detail interface port1.0.10
+      Chassis ID Type .................. MAC address
+      Chassis ID ....................... 0000.5e00.5310
+      Port ID Type ..................... MAC address
+      System Name ...................... ck-phone
+      System Capabilities - Supported .. Telephone
+                          - Enabled .... Telephone
+      LLDP-MED Device Type ............. Endpoint Class III
+      LLDP-MED Capabilities ............ LLDP-MED Capabilities, Network Policy,
+                                         Extended Power - PD, Inventory
+      Inventory Management:
+           Hardware Revision ........... CK-PHONE-EMU
+
+  <-- Every field is what the endpoint advertises, including the inventory string
+      CK-PHONE-EMU.
+  <-- The DUT reads the endpoint's power capability as `Extended Power - PD`, a powered
+      device, where its own is `[not supported]`.  The two sides are read separately and
+      correctly.
+
+  The control.  A plain LLDPDU was sent with tools/lldpsend.py, advertising Station-only
+  capability and no MED TLV at all, while the phone entry was still live:
+
+awplus#show lldp neighbors interface port1.0.10
+    Total number of neighbors on these ports .... 2
+    1.0.10   0000.5e00.5310  0000.5e00.5310  ck-phone                -----T-- 3
+    1.0.10   0200.0000.00f0  ckPLAIN         ckplain                 -------S
+
+  <-- One port, one instant, two neighbours, two classifications.  The MED phone reads
+      `-----T--` with `MED Ty 3`.  The plain neighbour reads `-------S`, Station only,
+      and its MED columns are blank.
+  => STEP 4 PASS: the DUT classified the LLDP-MED endpoint as Endpoint Class III and
+     Telephone, and read its inventory and power capability correctly.  A non-MED
+     neighbour on the same port at the same time got no MED classification.  So the DUT
+     classifies by what the frame advertises, not by the port the frame arrived on.
+
+STEP 5 -- LLDP-MED Fast Start: three frames, one second apart, and its trigger PASS
+--------------------------------------------------------------------------------
+  Method: `show lldp` reports `Fast Start Count ... 3`.  Fast start exists so a phone
+  plugged into a port learns its voice VLAN in seconds instead of waiting out a 30 s
+  timer.  It is a timing behaviour, so it can only be graded from frame timestamps.
+
+  The measurement, from the same capture as STEP 3:
+    source e2:1a:ea:d4:70:43 -> 01:80:c2:00:00:0e
+      frames 3 over 2.0 s
+      inter-frame gap  min 1.00 s  mean 1.00 s  max 1.00 s
+
+  <-- Exactly three frames at 1.00 s, with no spread.  This DUT's steady-state rate on
+      the same port is 30.03 s.  `Fast Start Count 3` is three frames, and the fast-start
+      interval is one second.
+
+  What triggers it.  The burst did not happen every time a MED frame arrived, so the
+  trigger was pinned down with four observations instead of assumed:
+
+    run            MED endpoint   was it NEW to the port?                        burst?
+    m4_phone       ...53:10       yes, first appearance                          3 frames @ 1.00 s
+    m8_prio6       ...53:10       yes, its TTL-120 entry had expired at ~1792551197  3 frames @ 1.00 s
+    m9_nopolicy    ...53:10       no, entry still live (valid to ~1792551376)    none in a 10 s window
+    m11_newmac     ...53:20       yes, a different MAC is a different endpoint   3 frames @ 1.00 s
+
+  <-- The rule the evidence supports: the fast-start burst fires when an LLDP-MED
+      endpoint becomes NEW on the port.  It does not fire on every MED frame received.
+  <-- m11_newmac is the decisive one.  It used a different endpoint MAC to create a new
+      neighbour on demand, instead of waiting out a TTL, and the burst fired at once.
+      It also fired with the Network Policy TLV deselected, so fast start is triggered by
+      the endpoint and not by having a policy to send.
+  <-- One reading had to be corrected by arithmetic, and it is recorded so nobody repeats
+      it.  A 40 s capture taken at 1792551212 showed a 4-TLV frame with no MED TLVs, with
+      the phone's entry apparently still in the table.  The phone's last frame was at
+      about 1792551077 with TTL 120, so its entry expired at about 1792551197, which is
+      15 s BEFORE that frame.  There was no MED endpoint on the port at that moment, so
+      correctly there was no MED TLV.  STEP 7 settles the general question with a capture
+      taken while an endpoint was live.
+  => STEP 5 PASS: LLDP-MED Fast Start sent exactly 3 frames at 1.00 s, which matches the
+     configured `Fast Start Count 3`, against a steady state of 30.03 s.  The trigger is
+     an endpoint becoming new on the port, shown by four observations including one
+     driven with a deliberately different endpoint MAC.
+
+STEP 6 -- the advertisement follows the configuration: priority 5 becomes 6    PASS
+--------------------------------------------------------------------------------
+  Method: STEP 3 proved one policy was advertised correctly.  This proves the
+  advertisement tracks a change in the configuration.  It also checks the
+  default-priority observation from STEP 2 from the other side.
+
+awplus(config-if)#switchport voice vlan priority 6
+awplus#show running-config interface port1.0.10
+     switchport voice vlan 70
+     switchport voice vlan priority 6
+     switchport voice dscp 46
+awplus#show lldp local-info med interface port1.0.10
+           Layer-2 Priority ............ 6
+
+  <-- `switchport voice vlan priority 6` IS stored, where `priority 5` never was.  This
+      confirms STEP 2: the voice priority is written back only when it is not the
+      default of 5.
+
+tb277$ tools/tb tool tb277 lldp1159 lldpwire /tmp/lldp1159/m8_prio6.pcap --src e2:1a:ea:d4:70:43 --tlv
+      --- frame at 1792551247.982, 7 TLVs ---
+        MED Network Policy                 application=Voice vlan=70 tagged=True priority=6 dscp=46 unknown_policy=False
+
+  <-- The VLAN and the DSCP did not move.  Exactly the field that was reconfigured is
+      exactly the field that changed on the wire.
+  => STEP 6 PASS: changing the voice priority from 5 to 6 changed the advertised Network
+     Policy TLV from priority=5 to priority=6, and left the VLAN and DSCP alone.
+
+STEP 7 -- two independent removal paths, each proven on the wire               PASS
+--------------------------------------------------------------------------------
+  Method: removal must always be proven.  LLDP-MED has two different ways to stop
+  advertising a network policy: switch the TLV off, or remove the policy's content.  Both
+  are tested, and both must leave the rest of LLDP-MED working.
+
+  7a -- `no lldp med-tlv-select network-policy` (the TLV selection)
+
+awplus(config-if)#no lldp med-tlv-select network-policy
+awplus#show lldp interface port1.0.10
+     1.0.10   Rx Tx  -- --  10.38.22.34      ---------- -------- -------- Mc--LoPe--
+
+  <-- `Np` is gone from the MED column.  `Mc`, `Lo` and `Pe` remain.  The voice VLAN
+      configuration is untouched: `switchport voice vlan 70`, `priority 6` and `dscp 46`
+      are all still in the running-config.
+
+tb277$ tools/tb tool tb277 lldp1159 lldpwire /tmp/lldp1159/m11_newmac.pcap --src e2:1a:ea:d4:70:43 --tlv
+      frames 3 over 2.0 s        <- the fast-start burst still fires
+      --- frame, 6 TLVs ---
+        Chassis ID / Port ID / Time To Live / OUI e01aea subtype 2
+        802.3 MAC/PHY Configuration/Status 038001001e
+        MED LLDP-MED Capabilities          caps=[Capabilities, Network Policy, Location ID, Inventory] device type=Network Connectivity
+
+  <-- Seven TLVs became six.  The Network Policy TLV is gone and MED Capabilities stays.
+  <-- The endpoint-side tool agrees on its own: `voice network policy: None`.
+
+tb277$ tools/tb tool tb277 lldp1159 lldpwire /tmp/lldp1159/m10_nopolicy_periodic.pcap --src e2:1a:ea:d4:70:43 --tlv
+      frames 2 over 30.0 s        (a 70 s capture with a MED endpoint live on the port)
+      inter-frame gap  min 30.03 s  mean 30.03 s  max 30.03 s
+      --- frame at 1792551340.062, 6 TLVs ---
+        ... MED LLDP-MED Capabilities ... (no Network Policy TLV)
+
+  <-- Two things at once.  The removal holds in the ordinary 30 s advertisement as well
+      as in the fast-start burst.  And, answering the question STEP 5 raised: while a MED
+      endpoint is live on the port, the ordinary 30 s frames DO carry MED TLVs.
+  <-- Ordinary LLDP is completely unaffected: still 30.03 s, still TTL 120.
+
+  The arc closes.  `lldp med-tlv-select network-policy` restored gives `McNpLoPe--`
+  again, and to a new endpoint (MAC ...53:30) the phone emulator reports:
+    MED-network-policy {'app': 1, 'unknown': 0, 'tagged': 1, 'vlan': 70, 'l2prio': 6, 'dscp': 46}
+
+  <-- The policy is back, and it still carries the priority-6 value from STEP 6.
+
+  7b -- `no switchport voice vlan` (the policy's content)
+
+awplus(config-if)#no switchport voice vlan
+awplus#show lldp local-info med interface port1.0.10
+      LLDP-MED Capabilities ............ LLDP-MED Capabilities, Network Policy, ...
+      Network Policy ................... [not configured]
+
+  <-- Back to the STEP 0 wording.
+
+tb277$ tools/tb tool tb277 lldp1159 lldpwire /tmp/lldp1159/m14_novlan.pcap --src e2:1a:ea:d4:70:43 --tlv
+      frames 3 over 2.0 s        <- the fast-start burst still fires
+      --- frame at 1792551505.211, 6 TLVs ---
+        ... MED LLDP-MED Capabilities ... (no Network Policy TLV)
+
+  <-- Six TLVs again, the same result on the wire as 7a, reached by a completely
+      different route.  The TLV is still selected, because `Np` is in the column, but
+      there is no policy to put in it, so none is sent.  A device that advertised an
+      empty or stale policy here would be at fault.  This one advertises nothing.
+  <-- A teardown hazard, measured: after `no switchport voice vlan`, the lines
+      `switchport voice vlan priority 6` and `switchport voice dscp 46` REMAIN in the
+      running-config with no voice VLAN for them to describe.  They are not removed with
+      the VLAN and must each be removed on their own.  With the `spanning-tree portfast`
+      line of STEP 2, that is three lines a careless teardown leaves behind.
+  => STEP 7 PASS: both removal paths work and both were proven on the wire.  Deselecting
+     the TLV and removing the voice VLAN each took the advertisement from 7 TLVs to 6.
+     In both cases MED Capabilities, the fast-start burst and ordinary LLDP at 30.03 s
+     kept working, and both arcs were closed.
+
+STEP 8 -- the LLDP-MED configuration survives a cold boot, measured on the wire PASS
+--------------------------------------------------------------------------------
+  Method: the voice VLAN was restored, leaving the priority at 6.  6 is deliberately NOT
+  the default of 5, so a device that had silently gone back to defaults could never be
+  mistaken for one that persisted.  The configuration was saved, the DUT was reloaded,
+  and a fresh endpoint was then presented to the rebooted switch.
+
+awplus#show lldp local-info med interface port1.0.10
+      Network Policy ................... Voice
+           VLAN ID ..................... 70
+           Layer-2 Priority ............ 6
+           DSCP Value .................. 46
+awplus#write
+    Building configuration...
+    [OK]
+
+  What the `write` added to startup-config was read and diffed, not assumed:
+    ! Startup-config saved on Wed Oct 21 02:38:03 2026  ->  02:58:50 2026 +0000
+    + vlan 70 name ckVOICE
+    - vlan 10,48,60 state enable   ->  + vlan 10,48,60,70 state enable
+      (under interface port1.0.10)
+    + spanning-tree portfast
+    + switchport voice vlan 70
+    + switchport voice vlan priority 6
+    + switchport voice dscp 46
+
+  <-- `spanning-tree portfast`, the line the DUT added by itself in STEP 2, is saved with
+      the rest.
+
+awplus#reload
+    reboot system? (y/n): y
+    15:59:25 NZDT  reload issued
+    16:00:25 NZDT  login seen after 60 s
+
+  After the cold boot, the configuration:
+awplus#show running-config interface port1.0.10
+    interface port1.0.10
+     switchport
+     switchport mode access
+     switchport access vlan 10
+     spanning-tree portfast
+     switchport voice vlan 70
+     switchport voice vlan priority 6
+     switchport voice dscp 46
+awplus#show vlan brief
+    70      ckVOICE          STATIC  ACTIVE  port1.0.10(t)
+awplus#show lldp interface port1.0.10
+     1.0.10   Rx Tx  -- --  10.38.22.34      ---------- -------- -------- McNpLoPe--
+awplus#show lldp local-info med interface port1.0.10
+      Network Policy ................... Voice
+           VLAN ID ..................... 70
+awplus#show boot
+    Current boot image : flash:/x960-tb277.rel (file exists)
+    Current boot config: flash:/default.cfg (file exists)
+
+  After the cold boot, on the wire, which is the verdict.  tools/lldpmed_phone.py was run
+  again on eth3 with --no-dhcp and a fresh endpoint MAC ending 53:50, writing
+  /tmp/lldp1159/m18_persist.pcap.  A fresh MAC is a new endpoint, so the rebooted switch
+  had to answer it from nothing.  What the endpoint heard back:
+
+      1792551657.772 rx LLDPDU from e2:1a:ea:d4:70:43:
+          [('port-id', 'port1.0.10'), ('org-e01aea-2', ...), ('org-00120f-1', '038001001e'),
+           ('MED-capabilities', '002704'),
+           ('MED-network-policy', {'app': 1, 'unknown': 0, 'tagged': 1, 'vlan': 70, 'l2prio': 6, 'dscp': 46})]
+      1792551658.773 rx LLDPDU ... (identical)
+
+    persisted                              predicted in the frame        measured
+    vlan 70 ckVOICE, tagged on port1.0.10  Network Policy vlan=70,       yes
+                                           tagged=1
+    switchport voice vlan priority 6       l2prio=6, NOT the default 5   yes
+    switchport voice dscp 46               dscp=46                       yes
+    LLDP-MED itself                        MED Capabilities 002704,      yes
+                                           fast start at 1.00 s
+
+  <-- The priority of 6 is what makes this airtight.  A device that had silently gone
+      back to its defaults would advertise 5.
+  <-- The boot pointers are unchanged.
+  <-- Only swi_d was reloaded.  swi_a and swi_b were not rebooted and were not touched.
+  => STEP 8 PASS: the whole LLDP-MED configuration survived a cold boot, and it was
+     proven in a frame and not in a show command.  After the reboot the DUT advertised a
+     Network Policy carrying vlan 70, tagged, priority 6 and dscp 46, and it still sent
+     the fast-start burst at 1.00 s.
+================================================================================
