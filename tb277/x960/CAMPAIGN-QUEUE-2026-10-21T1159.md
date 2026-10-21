@@ -172,7 +172,7 @@ inherit it.** Reboot-persistence limbs are now measurable for the first time in 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
 | A | T33379 Telnet Client; T33380 SSH Server; T33381 SSH Client | `access-2026-10-21T1159` | **DONE** -- 3 PASS. Underlay built and SAVED; vlan 60 left in place as campaign infrastructure; swi_b's throwaway account and telnet server removed. T33380's reboot-persistence limb NOT MEASURED (see Issues) | **Rebuilds the underlay and SAVES it** — B, C, D inherit. T33379 is the DUT originating outward; its server half is NOT under test and `no service telnet` on the DUT is left alone. Far end swi_b needs `service telnet` enabled in group setup and removed in teardown. **T33381: use a throwaway account on swi_b, never type the real password down u2** |
-| B | T33386 Management ACL; T47192 dynamic config; **T33387 Management Stacking** | `mgmt-2026-10-21T1159` | PENDING | 🔴 **No `access-class` under `line vty` on this platform** — `acc ?` offers only `login`. `ip access-list ?` is `% Unrecognized command`. Use `access-list`+`access-group`, `snmp-server community <n>`, `ssh server allow-users/deny-users`, `service telnet\|ssh ip`. **Hardware ACLs implicitly PERMIT, software/standard implicitly DENY** (§5) — grading the wrong default round is the easy false pass. T33387 is a desk verdict: UNSUPPORTED on TPS row 236 |
+| B | T33386 Management ACL; T47192 dynamic config; **T33387 Management Stacking** | `mgmt-2026-10-21T1159` | **DONE** -- 2 PASS + 1 UNSUPPORTED. Closing probe exit 0 MATCH; running-config diff empty after BOTH bench cases; nothing written to startup-config; u2 and u3 left logged out at `awplus login:`; u5 never opened. Bench left exactly as group A handed it over -- underlay intact and saved, vlan 60 intact and unsaved. `tools/arpleg.py` gained a `--tcp` leg | 🔴 **No `access-class` under `line vty` on this platform** — `acc ?` offers only `login`. `ip access-list ?` is `% Unrecognized command`. Use `access-list`+`access-group`, `snmp-server community <n>`, `ssh server allow-users/deny-users`, `service telnet\|ssh ip`. **Hardware ACLs implicitly PERMIT, software/standard implicitly DENY** (§5) — grading the wrong default round is the easy false pass. T33387 is a desk verdict: UNSUPPORTED on TPS row 236 |
 | C | T44296 LLDP; T33398 LLDP-Med | `lldp-2026-10-21T1159` | PENDING | ✅ Loop question settled, safe to run. 🔴 **Run the probe with `--read-only` first** — the 11:59 probe toggled `lldp run` itself and may be the reason it is on. Record `show running-config \| include lldp` as the first act. `show lldp neighbors brief` does not exist. Run `.setup` carries swi_a **with no `[powerlink]`** so the post-failure cycle cannot reach it |
 | D | T33399 IPv4 NTP Server; T33400 IPv4 NTP Client; T44298 IPv6 NTP Server | `ntp-2026-10-21T1159` | PENDING | 🔴 **`show ntp status` and `show ntp counters` return EMPTY output**, not an error — read them before and after configuring and report if they stay empty. 🔴 **The DUT clock is UTC, 13 h behind the box** — record the pair once per group. Expect the longest-running group |
 | E | T33384 Auto boot from external media | `eom-2026-10-21T1159` | **DEFERRED to after hours** | Test Engineer, 2026-10-21: run A–D now, E after hours. MANUAL-ONLY (commit `4349a50`): a person must insert a FAT32 USB stick carrying `autoboot.txt` plus the release and config it names. **Automatable part gives a PARTIAL**: `autoboot enable` accepted and stored, `show boot` status change, and the negative limb (enabled, no media, still boots `flash:/x960-tb277.rel`) costing one DUT reboot |
@@ -392,6 +392,41 @@ Then confirm with `show ip interface brief` (vlan10 `.34`, vlan48 `.66`, vlan60 
 
 `T33387/swi_d.cfg` is the group's reference copy: any group-B teardown is checked by diffing a
 fresh `show running-config` against it.
+
+
+### 🔧 What group B left on the bench (written at hand-back, 2026-10-21 14:2x NZDT)
+
+**Nothing.** Group B added no configuration that outlived its own case, and its restore recipe
+above was never needed.
+
+- Both bench cases (T33386, T47192) ended with `tools/rcdiff.py` between the running-config
+  captured before step 1 and the one captured after the last step producing **no output** --
+  the DUT is byte-for-byte as group A handed it over.
+- **Nothing was written to startup-config.** `show boot` closes as it opened:
+  `Current boot image : flash:/x960-tb277.rel`, `Current boot config: flash:/default.cfg`,
+  `Autoboot status : disabled`.
+- The inherited underlay (`vlan10 10.38.22.34/27`, `vlan48 10.38.22.66/27`) and the inherited
+  campaign `vlan 60` (swi_d `.97`) are present and `admin up / running`. **vlan 60 is still
+  unsaved, as directed** -- the last group to run still removes it.
+- swi_b was never configured by group B. swi_a was never opened by group B.
+- Closing `tools/tb probe tb277 --consoles u2,u3 ... --template <the run .setup>`: **exit 0
+  MATCH**.
+- u2 and u3 are at `awplus login:`; nothing of this group's is running on the box
+  (`tools/tb ps` for `arpleg|tcpdump|console|ckcon|cfg.py|bench_probe` is empty).
+
+**Open, carried forward (all reported to the sentinel, none blocking):**
+1. **Reboot persistence is NOT MEASURED in T33386 and T47192**, the same bind as T33380: proving
+   it needs a `write` on swi_d, which would save vlan 60. The campaign-end teardown, which
+   removes vlan 60 anyway, remains the cheap place to run all three.
+2. **A TPS deviation** recorded in T33387: the TPS Default Configuration section says *"Stacking
+   is enabled by default"* while this DUT reads `Stacking hardware disabled`, with no `stack`
+   line in its running-config at all.
+3. **Two product findings** for `platforms/x960.md`, both new today and both in the case logs:
+   a **numbered** hardware ACL holds exactly ONE rule (each `access-list <n> <rule>` silently
+   replaces the previous, with an `err`-severity `EXFX ... pclIdActionUpdate` line from the
+   driver at the instant of the loss), and **NSM logs an address installation but never a
+   removal**. Plus: `access-class` does not exist under `line vty` and `ip access-list` does not
+   exist in global config on this build, contrary to the generic AW+ ACL guide.
 
 
 ## Issues
