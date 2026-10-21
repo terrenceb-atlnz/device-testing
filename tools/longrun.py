@@ -21,8 +21,101 @@ Per sample k = 0 .. hours*3600/every (so 13 samples for 12 h hourly, the first a
 Writes <out>/DONE (with the last progress line) after the last sample. --detach: setsid + double fork, stdio to
 <out>/sampler.out, PID to <out>/sampler.pid, prints `DETACHED pid=<pid>` and returns at once.
 Stop it with `tools/tb killmine <box> <pid>` (it runs as python3 from /tmp/<x>/tools/) or touch <out>/STOP.
+
+  longrun.py --report <out>      (offline, anywhere; T17509 review 2026-10-22)
+    prints the grading tables from <out>/progress.tsv as markdown: stack state / Ready / master per sample,
+    memory free per member per sample with min / max / range / least-squares slope (kB per hour) and a
+    STEADY-FALL flag (slope negative, most hour-to-hour steps falling, total fall above 1 %), CPU 60 s busy per
+    member, and per IXIA port the link / tx rate / UDS1 rate / FCS per sample. Phase C grades from these.
 """
 import argparse, os, re, subprocess, sys, time, traceback
+
+
+def report(out):
+    """Markdown grading tables from <out>/progress.tsv. Returns 0, or 2 when the file is missing."""
+    prog = os.path.join(out, 'progress.tsv')
+    if not os.path.exists(prog):
+        print('no %s' % prog); return 2
+    rows = [l.rstrip('\n').split('\t') for l in open(prog) if l.strip()]
+    cols, data = rows[0], rows[1:]
+    ix = {c: i for i, c in enumerate(cols)}
+    get = lambda r, c: r[ix[c]] if c in ix and ix[c] < len(r) else '-'
+    members = [c[len('memfree_m'):] for c in cols if c.startswith('memfree_m')]
+    ports = sorted({c.split('_')[0] for c in cols if re.match(r'^\d+/\d+_', c)})
+    print('### Samples: %d (k=%s..%s), %s .. %s' % (len(data), get(data[0], 'k'), get(data[-1], 'k'),
+                                                   get(data[0], 'time'), get(data[-1], 'time')))
+    # 1. stack per sample
+    print('\n#### Stack per sample\n')
+    print('| k | time | console | stack | ready | master | log lines | `% ` lines | ixia |')
+    print('| --- | --- | --- | --- | --- | --- | --- | --- | --- |')
+    for r in data:
+        print('| %s | %s | %s | %s | %s | %s | %s | %s | %s |' % tuple(get(r, c) for c in
+              ('k', 'time', 'console', 'stack', 'ready', 'master', 'loglines', 'pct_lines', 'ixia')))
+    bad = [get(r, 'k') for r in data if get(r, 'stack') != 'Normal operation' or get(r, 'console') != 'ok'
+           and not get(r, 'console').startswith('ok(')]
+    print('\nSamples not `Normal operation` with a good console read: %s' % (', '.join(bad) if bad else 'none'))
+    # 2. memory per member
+    if members:
+        print('\n#### Memory free (kB) per member per sample\n')
+        print('| k | time | ' + ' | '.join('m%s' % m for m in members) + ' |')
+        print('| --- | --- | ' + ' | '.join('---' for _ in members) + ' |')
+        for r in data:
+            print('| %s | %s | ' % (get(r, 'k'), get(r, 'target')) +
+                  ' | '.join(get(r, 'memfree_m%s' % m) for m in members) + ' |')
+        print('\n| member | samples | min | max | range | first -> last | slope kB/h | steady fall? |')
+        print('| --- | --- | --- | --- | --- | --- | --- | --- |')
+        for m in members:
+            pts = []
+            for r in data:
+                v = get(r, 'memfree_m%s' % m)
+                if v.isdigit():
+                    pts.append((float(get(r, 'k')), int(v)))
+            if len(pts) < 2:
+                print('| m%s | %d | - | - | - | - | - | not enough samples |' % (m, len(pts))); continue
+            xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+            n = len(pts); mx, my = sum(xs) / n, sum(ys) / n
+            sxx = sum((x - mx) ** 2 for x in xs)
+            slope = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx if sxx else 0.0
+            falls = sum(1 for i in range(1, n) if ys[i] < ys[i - 1])
+            total = ys[-1] - ys[0]
+            steady = slope < 0 and falls >= 0.75 * (n - 1) and -total > 0.01 * ys[0]
+            print('| m%s | %d | %d | %d | %d | %d -> %d (%+d) | %+.0f | %s |' % (
+                m, n, min(ys), max(ys), max(ys) - min(ys), ys[0], ys[-1], total, slope,
+                'STEADY-FALL (grade it)' if steady else 'no (%d of %d steps fall)' % (falls, n - 1)))
+        # 3. cpu per member (60 s busy)
+        print('\n#### CPU busy % per member per sample (1 s / 20 s / 60 s)\n')
+        print('| k | time | ' + ' | '.join('m%s' % m for m in members) + ' |')
+        print('| --- | --- | ' + ' | '.join('---' for _ in members) + ' |')
+        for r in data:
+            print('| %s | %s | ' % (get(r, 'k'), get(r, 'target')) +
+                  ' | '.join(get(r, 'cpu_m%s(1s/20s/60s)' % m) for m in members) + ' |')
+        hi = []
+        for m in members:
+            for r in data:
+                v = get(r, 'cpu_m%s(1s/20s/60s)' % m).split('/')
+                if len(v) == 3 and v[2].isdigit():
+                    hi.append(int(v[2]))
+        if hi:
+            print('\n60 s busy: min %d %%, max %d %% over every member and sample.' % (min(hi), max(hi)))
+    # 4. IXIA per port
+    if ports:
+        print('\n#### IXIA per port per sample\n')
+        print('| k | time | ' + ' | '.join('%s link / tx fps / UDS1 fps / FCS' % p for p in ports) + ' |')
+        print('| --- | --- | ' + ' | '.join('---' for _ in ports) + ' |')
+        for r in data:
+            print('| %s | %s | ' % (get(r, 'k'), get(r, 'target')) + ' | '.join(
+                '%s / %s / %s / %s' % (get(r, p + '_link'), get(r, p + '_txfps'), get(r, p + '_uds1fps'),
+                                       get(r, p + '_fcs')) for p in ports) + ' |')
+        for p in ports:
+            tx = [int(get(r, p + '_txfps')) for r in data if get(r, p + '_txfps').isdigit()]
+            fcs = [int(get(r, p + '_fcs')) for r in data if get(r, p + '_fcs').isdigit()]
+            dn = [get(r, 'k') for r in data if get(r, p + '_link') not in ('1', '-')]
+            print('%s: tx fps %s..%s, FCS max %s, link not up at k=%s; final sent %s rcvd %s UDS1 %s' % (
+                p, min(tx) if tx else '-', max(tx) if tx else '-', max(fcs) if fcs else '-',
+                ','.join(dn) if dn else 'none', get(data[-1], p + '_sent'), get(data[-1], p + '_rcvd'),
+                get(data[-1], p + '_uds1')))
+        print('\nLoss is graded after `ixtcl stop` only: UDS1(rx port) == framesSent(peer) once nothing is in flight.')
+    return 0
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -139,12 +232,13 @@ def ixia_sample(a, f):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument('--hours', type=float, required=True)
+    ap.add_argument('--report', metavar='OUTDIR', help='offline: print the grading tables from OUTDIR/progress.tsv and exit')
+    ap.add_argument('--hours', type=float)
     ap.add_argument('--every', type=int, default=3600)
-    ap.add_argument('--console', required=True)
+    ap.add_argument('--console')
     ap.add_argument('--baud', type=int, default=115200)
-    ap.add_argument('--transcript', required=True)
-    ap.add_argument('--out', required=True)
+    ap.add_argument('--transcript')
+    ap.add_argument('--out')
     ap.add_argument('--members', default='', help='stack member ids for per-member show memory/cpu, e.g. 1,2,3,4')
     ap.add_argument('--dut-ports', default='', help='e.g. port3.0.25,port4.0.25 (read with show interface)')
     ap.add_argument('--cmd', action='append', default=[])
@@ -154,6 +248,11 @@ def main():
     ap.add_argument('--cmd-timeout', type=float, default=120.0)
     ap.add_argument('--detach', action='store_true')
     a = ap.parse_args()
+    if a.report:
+        sys.exit(report(a.report))
+    for need in ('hours', 'console', 'transcript', 'out'):
+        if getattr(a, need) is None:
+            ap.error('--%s is required (unless --report)' % need)
     a.members = [m for m in a.members.split(',') if m]
     a.out = os.path.abspath(a.out)
     os.makedirs(os.path.join(a.out, 'hourly'), exist_ok=True)

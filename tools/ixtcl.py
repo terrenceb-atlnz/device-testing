@@ -22,6 +22,13 @@ Actions
   clear                     ixClearStats on --ports
   start | stop              ixStartTransmit / ixStopTransmit on --ports
   burst [--timeout S]       clear, start, wait for ixCheckTransmitDone (count streams), print counters
+  pair --ports A,B --sa1 MAC --sa2 MAC --control-sa MAC --control-vlan VID --count N [--size --percent --sip --dip]
+                            the STANDING-ORDERS §7 control + positive pair in ONE call (T17509 review): first a
+                            tagged control burst A -> B (SA control-sa, DA sa2, VLAN control-vlan, N frames;
+                            expected UDS2 on B = 0), then the untagged positive pair A <-> B (sa1 <-> sa2, N frames
+                            each; expected UDS1 = N on both). Needs the UDS filters already set (`filter`:
+                            UDS1 = the peer's test stream, UDS2 = control-sa). Prints the four counter lines
+                            and a `PAIR` summary; exit 5 when an expectation fails.
 
 MACs as 00:00:00:00:00:01 (or 00-00-..., or 6 space-separated bytes). Ports as card/port; the chassis id
 is the one ixGetChassisID returns. Env IXOS_HOME (default /home/ixos-IxNetwork), IXIA_VERSION (default 9.20).
@@ -127,10 +134,47 @@ def counters(chassis, login, ports, timeout=120):
     return rc, parse_tsv(out), out
 
 
+def stream_body(prt, sa, da, sip, dip, sport, dport, size, percent, continuous, count, vlan, stream_id=1,
+                write=True):
+    """Tcl for ONE EthernetII/IPv4/UDP stream on port (c, p), written to hardware unless write=False."""
+    c, p = prt
+    b = [plist_tcl([prt]),
+         'stream setDefault', 'protocol setDefault',
+         'protocol config -name ipV4', 'protocol config -ethernetType ethernetII']
+    if vlan is not None:
+        b += ['protocol config -enable802dot1qTag 1', 'vlan setDefault',
+              'vlan config -vlanID %d' % vlan, 'rc vlan_set_%d/%d vlan set $ch %d %d' % (c, p, c, p)]
+    b += ['ip setDefault',
+          'ip config -sourceIpAddr %s -destIpAddr %s -ipProtocol ipV4ProtocolUdp' % (sip, dip),
+          'rc ip_set_%d/%d ip set $ch %d %d' % (c, p, c, p),
+          'udp setDefault', 'udp config -sourcePort %d -destPort %d' % (sport, dport),
+          'rc udp_set_%d/%d udp set $ch %d %d' % (c, p, c, p),
+          'stream config -enable true -sa %s -da %s -framesize %d -frameSizeType sizeFixed '
+          '-rateMode usePercentRate -percentPacketRate %s -dma %s%s'
+          % (sa, da, size, percent, 'contPacket' if continuous else 'stopStream',
+             # -numFrames 0 makes `stream set` return 1 (2026-10-21, chassis 82): a continuous
+             # stream leaves numFrames at its default
+             '' if continuous else ' -numFrames %d' % count),
+          'rc stream_set_%d/%d stream set $ch %d %d %d' % (c, p, c, p, stream_id)]
+    if write:
+        b += ['rc write_%d/%d ixWriteConfigToHardware pl' % (c, p)]
+    b += ['if {[stream get $ch %d %d %d] == 0} {puts "STREAM %d/%d#%d sa=[stream cget -sa] da=[stream cget -da] '
+          'size=[stream cget -framesize] pct=[stream cget -percentPacketRate] dma=[stream cget -dma] '
+          'num=[stream cget -numFrames]"}' % (c, p, stream_id, c, p, stream_id)]
+    if vlan is not None:
+        b += ['if {[vlan get $ch %d %d] == 0} {puts "VLAN %d/%d id=[vlan cget -vlanID]"}' % (c, p, c, p)]
+    return b
+
+
+def burst_body(ports):
+    return [plist_tcl(ports), 'rc clear ixClearStats pl', 'after 1000', 'rc start ixStartTransmit pl',
+            'after 500', 'rc done ixCheckTransmitDone pl', 'after 2000']
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('action', choices=['status', 'counters', 'take', 'release', 'reset', 'stream', 'filter',
-                                       'clear', 'start', 'stop', 'burst'])
+                                       'clear', 'start', 'stop', 'burst', 'pair'])
     ap.add_argument('--chassis', required=True)
     ap.add_argument('--login', default=None)
     ap.add_argument('--ports', default=None, help='card/port[,card/port...] for status/counters/take/release/reset/clear/start/stop/burst')
@@ -149,17 +193,25 @@ def main():
     ap.add_argument('--stream-id', type=int, default=1)
     for n in ('uds1-sa', 'uds1-da', 'uds2-sa', 'uds2-da'):
         ap.add_argument('--' + n, type=mac, default=None)
+    ap.add_argument('--sa1', type=mac, help='pair: port A test SA (and port B test DA)')
+    ap.add_argument('--sa2', type=mac, help='pair: port B test SA (and port A test DA)')
+    ap.add_argument('--control-sa', type=mac, help='pair: the control burst SA (counted as UDS2 on port B)')
+    ap.add_argument('--control-vlan', type=int, help='pair: the control burst VLAN tag (a VID the DUT port does not carry)')
+    ap.add_argument('--control-sip', default='0.0.0.0', help='pair: the control burst source IP')
     ap.add_argument('--timeout', type=int, default=180)
     a = ap.parse_args()
 
     ports = [port(x) for x in a.ports.split(',')] if a.ports else []
-    if a.action in ('status', 'counters', 'take', 'release', 'reset', 'clear', 'start', 'stop', 'burst') and not ports:
+    if a.action in ('status', 'counters', 'take', 'release', 'reset', 'clear', 'start', 'stop', 'burst', 'pair') and not ports:
         ap.error('--ports is required for %s' % a.action)
     if a.action in ('stream', 'filter') and not a.port:
         ap.error('--port is required for %s' % a.action)
     login = a.login
-    if a.action in ('take', 'release', 'reset', 'stream', 'filter', 'clear', 'start', 'stop', 'burst') and not login:
+    if a.action in ('take', 'release', 'reset', 'stream', 'filter', 'clear', 'start', 'stop', 'burst', 'pair') and not login:
         ap.error('--login is required for an action that writes to the chassis')
+    if a.action == 'pair':
+        if len(ports) != 2 or not (a.sa1 and a.sa2 and a.control_sa) or a.control_vlan is None or not a.count:
+            ap.error('pair needs --ports A,B (exactly two), --sa1, --sa2, --control-sa, --control-vlan and --count N')
 
     body = []
     if a.action == 'status':
@@ -185,37 +237,29 @@ def main():
         cmd = {'clear': 'ixClearStats', 'start': 'ixStartTransmit', 'stop': 'ixStopTransmit'}[a.action]
         body += [plist_tcl(ports), 'rc %s %s pl' % (a.action, cmd)]
     elif a.action == 'burst':
-        body += [plist_tcl(ports), 'rc clear ixClearStats pl', 'after 1000', 'rc start ixStartTransmit pl',
-                 'after 500', 'rc done ixCheckTransmitDone pl', 'after 2000']
-        body += counter_body(ports)
+        body += burst_body(ports) + counter_body(ports)
     elif a.action == 'stream':
         if not (a.sa and a.da) or not (a.continuous or a.count):
             ap.error('stream needs --sa, --da and --continuous or --count N')
-        c, p = a.port
-        body += [plist_tcl([a.port]),
-                 'stream setDefault', 'protocol setDefault',
-                 'protocol config -name ipV4', 'protocol config -ethernetType ethernetII']
-        if a.vlan is not None:
-            body += ['protocol config -enable802dot1qTag 1', 'vlan setDefault',
-                     'vlan config -vlanID %d' % a.vlan, 'rc vlan_set vlan set $ch %d %d' % (c, p)]
-        body += ['ip setDefault',
-                 'ip config -sourceIpAddr %s -destIpAddr %s -ipProtocol ipV4ProtocolUdp' % (a.sip, a.dip),
-                 'rc ip_set ip set $ch %d %d' % (c, p),
-                 'udp setDefault', 'udp config -sourcePort %d -destPort %d' % (a.sport, a.dport),
-                 'rc udp_set udp set $ch %d %d' % (c, p),
-                 'stream config -enable true -sa %s -da %s -framesize %d -frameSizeType sizeFixed '
-                 '-rateMode usePercentRate -percentPacketRate %s -dma %s%s'
-                 % (a.sa, a.da, a.size, a.percent, 'contPacket' if a.continuous else 'stopStream',
-                    # -numFrames 0 makes `stream set` return 1 (2026-10-21, chassis 82): a continuous
-                    # stream leaves numFrames at its default
-                    '' if a.continuous else ' -numFrames %d' % a.count),
-                 'rc stream_set stream set $ch %d %d %d' % (c, p, a.stream_id),
-                 'rc write ixWriteConfigToHardware pl',
-                 'if {[stream get $ch %d %d %d] == 0} {puts "STREAM %d/%d#%d sa=[stream cget -sa] da=[stream cget -da] '
-                 'size=[stream cget -framesize] pct=[stream cget -percentPacketRate] dma=[stream cget -dma] '
-                 'num=[stream cget -numFrames]"}' % (c, p, a.stream_id, c, p, a.stream_id)]
-        if a.vlan is not None:
-            body += ['if {[vlan get $ch %d %d] == 0} {puts "VLAN %d/%d id=[vlan cget -vlanID]"}' % (c, p, c, p)]
+        body += stream_body(a.port, a.sa, a.da, a.sip, a.dip, a.sport, a.dport, a.size, a.percent,
+                            a.continuous, a.count, a.vlan, a.stream_id)
+    elif a.action == 'pair':
+        A, B = ports
+        # 1. CONTROL: tagged burst A -> B with the control SA; the DUT port is untagged access, so B must see
+        #    0 of them (UDS2 = control SA, set by `filter`). Only A transmits.
+        body += ['puts "PHASE CONTROL"']
+        body += stream_body(A, a.control_sa, a.sa2, a.control_sip, a.dip, a.sport, a.dport, a.size, a.percent,
+                            False, a.count, a.control_vlan, a.stream_id)
+        body += [plist_tcl(ports), 'rc clear_c ixClearStats pl', 'after 1000', plist_tcl([A]),
+                 'rc start_c ixStartTransmit pl', 'after 500', 'rc done_c ixCheckTransmitDone pl', 'after 2000']
+        body += counter_body(ports)
+        # 2. POSITIVE: the untagged test pair, N frames each way; UDS1 on each port must read N.
+        body += ['puts "PHASE POSITIVE"']
+        body += stream_body(A, a.sa1, a.sa2, a.sip, a.dip, a.sport, a.dport, a.size, a.percent,
+                            False, a.count, None, a.stream_id)
+        body += stream_body(B, a.sa2, a.sa1, a.dip, a.sip, a.dport, a.sport, a.size, a.percent,
+                            False, a.count, None, a.stream_id)
+        body += burst_body(ports) + counter_body(ports)
     elif a.action == 'filter':
         c, p = a.port
         zero = '{00 00 00 00 00 00}'
@@ -244,9 +288,29 @@ def main():
                  '/[filter cget -userDefinedStat2SA]/[filter cget -userDefinedStat2DA]"' % (c, p)]
 
     rc, out = run_tcl(a.chassis, login, body, timeout=a.timeout)
-    if a.header and a.action in ('counters', 'status', 'burst'):
+    if a.header and a.action in ('counters', 'status', 'burst', 'pair'):
         print('TSV\t' + TSV_HEADER)
     sys.stdout.write(out)
+    if a.action == 'pair':
+        # the four counter lines: CONTROL (A, B) then POSITIVE (A, B)
+        phases, cur = {}, None
+        for line in out.splitlines():
+            if line.startswith('PHASE '):
+                cur = line.split()[1]; phases[cur] = []
+            elif line.startswith('TSV\t') and cur:
+                phases[cur].append(line)
+        ctl = {r['port']: r for r in parse_tsv('\n'.join(phases.get('CONTROL', [])))}
+        pos = {r['port']: r for r in parse_tsv('\n'.join(phases.get('POSITIVE', [])))}
+        pa, pb = '%d/%d' % A, '%d/%d' % B
+        n = str(a.count)
+        c_sent = ctl.get(pa, {}).get('framesSent', '?'); c_uds2 = ctl.get(pb, {}).get('userDefinedStat2', '?')
+        p_a = pos.get(pa, {}).get('userDefinedStat1', '?'); p_b = pos.get(pb, {}).get('userDefinedStat1', '?')
+        ok = (c_sent == n and c_uds2 == '0' and p_a == n and p_b == n)
+        print('PAIR control: %s sent %s tagged VLAN %d -> %s UDS2 %s (expect 0)' % (pa, c_sent, a.control_vlan, pb, c_uds2))
+        print('PAIR positive: %s UDS1 %s, %s UDS1 %s (expect %s each)' % (pa, p_a, pb, p_b, n))
+        print('PAIR RESULT: %s' % ('control 0 beside %s/%s -- as expected' % (n, n) if ok else 'NOT as expected'))
+        if rc == 0 and not ok:
+            print('IXTCL pair exit=5'); sys.exit(5)
     if a.tsv:
         rows = [l[4:] for l in out.splitlines() if l.startswith('TSV\t')]
         new = not os.path.exists(a.tsv)

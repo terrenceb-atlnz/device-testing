@@ -56,3 +56,13 @@ watch loop, not the test work.
 - Measure with `tools/case_tokens.py`; the rules are logged-output.md §5.
 
 Related: [[sentinel-session-keeps-long-runs-moving]], [[log-is-the-deliverable]].
+
+**2026-10-22, T17509 (12 h detached IXIA long-run, tb101): applied on Terrence's "follow the suggestions and
+update it".** The sentinel's own Phase B (a Monitor whose IDLE alarm fired every 5 min + the 15-min cron, for 12 h
+with nothing to watch) was 87 % of the campaign's 145 M cache-read tokens; 13 wake-ups were useful. Now in
+`/test-mode` §7: once a row is `RUNNING-DETACHED`, stop the Monitor, delete the backstop, one cron per sample
+(`cron-trigger.template.md` "DETACHED LONG RUN"), keep the one-shot Phase C cron, re-arm when Phase C's tester
+is dispatched. The Phase C dispatch carries a short brief (Phase record lines, restore recipe, grading block), not
+"read the queue top to bottom" (§6), and bench-runner reads the queue by section (its Read-first item 4). Tools:
+`longrun.py --report` (grading tables), `ixtcl.py pair` (control + positive in one call, unverified on hardware),
+`health.py --before` no longer labels a run DIRTY for an exception log that is byte-identical to the before sample.

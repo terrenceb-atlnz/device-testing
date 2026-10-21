@@ -169,9 +169,15 @@ if before:
         print("  reboots ......... !! %d NEW: %s" % (len(new_reb), "; ".join(new_reb)))
     else:
         print("  reboots ......... no new entry (newest stays %s)" % (newest or "(none)"))
-    if exc != "None":
-        dirty.append("exception log not None")
-    print("  exception log ... %s -> %s" % (b_exc.replace("\n", " | "), exc.replace("\n", " | ")))
+    if exc != "None" and exc == b_exc:
+        # T17509 review (2026-10-22): entries that were already there before the run are not this
+        # run's doing. Say so, and do not label the run confounded for them.
+        print("  exception log ... not None, but UNCHANGED since before (pre-existing entries, not this run's): %s"
+              % exc.replace("\n", " | ")[:160])
+    else:
+        if exc != "None":
+            dirty.append("exception log %s" % ("CHANGED since before" if b_exc not in ("?", None) else "not None"))
+        print("  exception log ... %s -> %s" % (str(b_exc).replace("\n", " | "), exc.replace("\n", " | ")))
     print("  log (filtered) .. %d new non-echo lines" % len(new_other))
     for l in new_other[:8]:
         print("      %s" % l)

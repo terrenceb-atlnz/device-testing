@@ -302,6 +302,14 @@ For each runnable group, in order:
      `work/run<N>.log`, commit, and send me the `RESULT` line. Do NOT write the final log. Hand
      back when the group is done or every remaining row is BLOCKED; if you stop for any other
      reason, say which row is next".
+   - **A later phase of a multi-phase case (Phase C of a detached long run, a re-dispatch after
+     a cut): a short brief, not "read the queue top to bottom"** (T17509 review, 2026-10-22:
+     each tester re-read the whole 17–22 k-char queue file and Phase A's 20 k-char `run1.log`).
+     Paste into the dispatch, or name by `sed -n` line range: the queue's Phase record lines
+     (T0, PIDs, file paths, the health-1 json path, the IXIA state), the group's restore recipe,
+     and the grading block. Say: "read only the sections this brief names; the earlier phase's
+     `run<N>.log` is summarised by the record lines, do not read it". The tester still reads the
+     Session facts block.
 2. Fill the subagent's name into the brief. Say one line. **End your turn.**
 3. On its completion notification, read the report against the queue file and the group's case
    folders, never from memory:
@@ -367,6 +375,25 @@ unacknowledged NEEDS YOU on the table.
   - An IDLE alarm while a case is mid-run and the box shows a live job is not.
 - **Cron ticks** classify per the template: healthy → silent; NEEDS YOU → surface; idle with
   rows left → continue or dispatch.
+- **A detached long run — a row `RUNNING-DETACHED`, a sampler on the box, no tester (T17509
+  review, 2026-10-22).** The Monitor and the 15-min backstop have nothing to watch for hours, yet
+  every IDLE alarm and tick re-reads the whole conversation: the 12 h Phase B of T17509 cost
+  125 M cache-read tokens for 13 useful reads. So, the moment the tester hands back with the
+  row `RUNNING-DETACHED`:
+  1. **Stop the Monitor and do not re-arm it** (let its expiry pass; sweep your own
+     `sentinel.sh` as in the kit's ARMING step). `CronDelete` the 15-min backstop.
+  2. **`CronCreate` one recurring cron per sample**, due just after each sample is written
+     (hourly samples at :55 → `57 * * * *`), with the template's DETACHED LONG RUN block
+     (`cron-trigger.template.md`): read-only, the sampler's last `progress.tsv` line and
+     `sampler.out` tail through `tools/tb tail`, never a console. Healthy → silent.
+  3. **Keep the one-shot Phase C cron** at T0 + run length + 5 min.
+  4. When Phase C's tester is dispatched, `CronDelete` the per-sample cron and arm the Monitor
+     and the 15-min backstop again (§4): a tester is on the bench once more.
+  A sampler that is dead, a `SKIPPED` or `ERR` sample, a stack not `Normal operation`, or an
+  IXIA rate of 0 → dispatch a bench-runner for a bounded check of the SAMPLER (never the
+  traffic), record it as a run event, and surface it under NEEDS YOU. Phase C grades from
+  `tools/longrun.py --report <work>` (the memory / CPU / IXIA tables) and runs the end control
+  pair with `tools/ixtcl.py pair`, one call each.
 - **Mechanical blocks** (the `no-stray-py` hook, the auto-mode classifier, the company `git
   push` denial) are not consent questions, and a relay cannot lift them. Route them to the Test
   Engineer to do themselves.

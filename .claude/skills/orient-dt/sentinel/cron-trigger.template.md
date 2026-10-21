@@ -57,3 +57,34 @@ C. Idle, nothing running, no question pending → stalled, or the usage window c
 
 Never drive a console or change config yourself — the peer owns the bench.
 ```
+
+## DETACHED LONG RUN variant (test-mode §7; T17509 review 2026-10-22)
+
+While a queue row is `RUNNING-DETACHED` (a sampler on the box, no tester), the Monitor is
+stopped and the 15-min backstop deleted; this per-sample cron replaces both. Create it due just
+after each sample is written (hourly samples at :55 → `CronCreate(cron: "57 * * * *",
+recurring: true, prompt: <the block below, filled>)`), and delete it when Phase C's tester is
+dispatched.
+
+```text
+[AUTO-TRIGGER: detached long run — one check per sample, read-only]
+
+Campaign <CAMPAIGN>, queue <QUEUE FILE>, row <ROW> RUNNING-DETACHED until <T0+RUN>. The sampler
+is tb101-style `longrun.py` pid <PID> on <TB>; its files are under <WORK> (repo path).
+SCRATCH=<SCRATCH>
+
+ONE Bash call, nothing on a console:
+  tools/tb tail <TB> <WORK on the box>/progress.tsv 2; tools/tb tail <TB> <WORK on the box>/sampler.out 3;
+  tools/tb ps <TB> longrun
+(or read the repo copies of progress.tsv / sampler.out when the box writes over NFS).
+
+CLASSIFY:
+A. A new progress line since the last tick, console `ok`, stack `Normal operation`, ready N/N,
+   ixia `ok`, tx fps steady, FCS 0 → healthy. SILENT.
+B. No new line within <EVERY> + 10 min, or the pid is gone, or a line reads SKIPPED / ERR, or the
+   stack is not `Normal operation`, or an IXIA rate is 0 → dispatch a bench-runner for a bounded
+   check of the SAMPLER only (restart it with `--start-epoch <T0>` so k stays aligned; never
+   restart or reconfigure the traffic without recording it as a run event), add the event to the
+   queue's `## Issues`, and surface it under **NEEDS YOU:**.
+C. `DONE` present → say so in one line; Phase C's one-shot cron does the rest.
+```

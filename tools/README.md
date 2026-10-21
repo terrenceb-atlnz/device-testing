@@ -252,9 +252,14 @@ with counts and one example each, CPU and memory before -> after) and a CLEAN / 
   `... --before /tmp/<run>/health-<uN>-<stamp>.out.json --label after`
 - **Where:** testbox; **needs:** pyserial
 - **Imports:** console, awlogin
-- **Exit codes:** 0 clean; 4 DIRTY (a new reboot entry, an exception log that is not None, or a
-  new kernel / crash / restart line that is not an echo: `NEEDS TEST ENGINEER:` and label the
-  run confounded); 7 no privileged prompt; 2 usage
+- **Exit codes:** 0 clean; 4 DIRTY (a new reboot entry, an exception log that is not None and
+  CHANGED since the before sample, or a new kernel / crash / restart line that is not an echo:
+  `NEEDS TEST ENGINEER:` and label the run confounded); 7 no privileged prompt; 2 usage.
+  An exception log that is not None but byte-identical to the before sample's is printed as
+  "UNCHANGED since before (pre-existing entries)" and does NOT make the run DIRTY (T17509
+  review, 2026-10-22: the 10-20 stack-merge snapshots sat in every member's exception log and
+  were not that run's doing). A before sample alone still reports it, so the Test Engineer can
+  `clear exception log` before a campaign if they want a None baseline.
 - **Limits:**
   - `show cpu` on AW+ prints BUSY averages (1 s / 20 s / 60 s), never idle; the summary says so.
   - A memory difference across one case is printed as a number and never called a leak.
@@ -313,34 +318,6 @@ root shell before a run.
 - **Imports:** none
 - **Limits:** it sends one CR, so it is not strictly passive
 - **Status:** verified 2026-10-02 on tb470: IE520 (u3) and x230 (u0, 9600)
-
-### `health.py`
-The STANDING-ORDERS §8 health sample of one unit in ONE call, summarised to a few lines. It runs
-`show reboot history`, `show exception log`, `show log | include kernel|exception|crash|restart|Unexpected`,
-`show cpu` and `show memory` (plus `show log tail N` in the after sample), saves every command
-with its full output to `<save>` in the `HH:MM:SS >>> cmd` format (quote that in the working
-log), writes a `.json` summary, and prints only: entries and newest reboot, exception log,
-filtered lines split into echoes of our own commands and others, the CPU busy averages as
-printed, and free memory. With `--before <the before sample's .json>` it adds a HEALTH-DIFF
-block: new reboot entries, exception log change, new non-echo filtered lines, the tail's line
-signatures with counts, cpu and memory before -> after, and a CLEAN / DIRTY verdict.
-- **Run:** `health.py <tty> <baud> <transcript> [--before SUMMARY.json] [--save FILE] [--json FILE] [--tail N] [--label TEXT] [--raw]`;
-  through the wrapper `tools/tb health <TB> <run> <uN> <baud> --label before`, then
-  `... --before /tmp/<run>/health-<uN>-<stamp>.out.json --label after`
-- **Where:** testbox; **needs:** pyserial
-- **Imports:** console, awlogin
-- **Exit codes:** 0 clean; 4 DIRTY (a new reboot entry, an exception log that is not `None`, or a
-  new kernel / crash / restart line: `NEEDS TEST ENGINEER:`, label the run confounded); 7 no
-  privileged prompt; 2 usage
-- **Limits:**
-  - `show cpu` on AW+ prints BUSY averages (1 s / 20 s / 60 s), never idle; the summary says so.
-  - One case's two samples cannot show a memory leak; the diff prints the number only.
-  - Parsed on the x230v2 output shapes (`RAM total: … kB; free: … kB`, `1 second: n%, …`); another
-    family that prints these differently reads "not parsed" and keeps the raw file.
-  - An IMISH keystroke echo is counted as an echo, not as a finding.
-- **Status:** verified 2026-10-21 on tb470, x230v2-28GS (u1): before and after samples, 17-21 s
-  each; the diff grouped 150 tail lines into 6 signatures and read CLEAN; nothing was pulled
-  into the context but the summary.
 
 ### `speedrow.py`
 Speed/duplex rows on a DUT port and its link partner, BOTH ends driven from one process, so
@@ -1816,7 +1793,13 @@ fcsErrors, bytes, undersize/oversize, then the rates of framesSent/framesReceive
 EthernetII/IPv4/UDP stream: `--sa --da --sip --dip --sport --dport --size --percent`, `--continuous` or
 `--count N`, optional `--vlan VID`), `filter` (UDS1 = frames matching `--uds1-sa/--uds1-da`, UDS2 =
 `--uds2-sa/--uds2-da`; an omitted address is "any"), `clear`, `start`, `stop`, `burst` (clear, start, wait for
-`ixCheckTransmitDone`, counters). Also a library: `ixtcl.counters(chassis, login, [(card, port), ...])`.
+`ixCheckTransmitDone`, counters), and `pair` (T17509 review, 2026-10-22: the STANDING-ORDERS §7 control + positive
+pair in ONE call: `pair --ports A,B --sa1 MAC --sa2 MAC --control-sa MAC --control-vlan VID --count N [--size
+--percent --sip --dip --control-sip]` = a tagged control burst A → B with the control SA, counters, then the untagged
+test pair A ↔ B with N frames each, counters; prints the four `TSV` lines, `PAIR control/positive/RESULT` lines,
+exit 5 when B's UDS2 is not 0 or either UDS1 is not N; needs the `filter`s already set. Replaces the five calls
+Phase C built by hand twice; **not yet run on hardware** — check its first run). Also a library:
+`ixtcl.counters(chassis, login, [(card, port), ...])`, `ixtcl.stream_body(...)`, `ixtcl.burst_body(ports)`.
 - **Run:** `tools/tb tool <TB> <run> ixtcl <action> --chassis <ip> --login <name> --ports 10/5,10/6 [...]`
   (`--port 10/5` for `stream`/`filter`)
 - **Where:** a testbox that mounts the lab `/home` (the client lives in `/home/ixos-IxNetwork`); **needs:** that
@@ -1848,6 +1831,12 @@ reason. A failed read is written to the sample and its progress line, and the ru
   --transcript /tmp/<run>/console-u2.log --members 1,2,3,4 --dut-ports port3.0.25,port4.0.25 --ixia <ip>
   --ixia-login <name> --ports 10/5,10/6 --out <dir>`; prints `DETACHED pid=<pid>`. Stop it with
   `tools/tb killmine <TB> <pid>`, or create `<out>/STOP` (it then writes DONE as STOPPED).
+  **Grading tables:** `python3 tools/longrun.py --report <out dir>` (offline, dev host or box; T17509 review,
+  2026-10-22) prints markdown from `progress.tsv`: stack / Ready / master per sample, memory free per member per
+  sample with min / max / range / least-squares slope (kB per hour) and a STEADY-FALL flag (slope negative, at
+  least 75 % of hour-to-hour steps falling, total fall above 1 %), CPU 1 s / 20 s / 60 s per member, and per IXIA
+  port link / tx fps / UDS1 fps / FCS per sample with the final sent / rcvd / UDS1. Verified 2026-10-22 on the
+  T17509 table (13 samples, 4 members, 2 ports): no member flagged, CPU 60 s 2–5 %, FCS 0.
 - **Where:** testbox; **needs:** pyserial, `fuser` (psmisc), the IXIA client for `--ixia`
 - **Imports:** console, ixtcl
 - **Limits:**
