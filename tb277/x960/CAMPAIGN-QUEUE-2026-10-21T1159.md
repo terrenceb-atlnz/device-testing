@@ -173,7 +173,7 @@ inherit it.** Reboot-persistence limbs are now measurable for the first time in 
 | --- | --- | --- | --- | --- |
 | A | T33379 Telnet Client; T33380 SSH Server; T33381 SSH Client | `access-2026-10-21T1159` | **DONE** -- 3 PASS. Underlay built and SAVED; vlan 60 left in place as campaign infrastructure; swi_b's throwaway account and telnet server removed. T33380's reboot-persistence limb NOT MEASURED (see Issues) | **Rebuilds the underlay and SAVES it** — B, C, D inherit. T33379 is the DUT originating outward; its server half is NOT under test and `no service telnet` on the DUT is left alone. Far end swi_b needs `service telnet` enabled in group setup and removed in teardown. **T33381: use a throwaway account on swi_b, never type the real password down u2** |
 | B | T33386 Management ACL; T47192 dynamic config; **T33387 Management Stacking** | `mgmt-2026-10-21T1159` | **DONE** -- 2 PASS + 1 UNSUPPORTED. Closing probe exit 0 MATCH; running-config diff empty after BOTH bench cases; nothing written to startup-config; u2 and u3 left logged out at `awplus login:`; u5 never opened. Bench left exactly as group A handed it over -- underlay intact and saved, vlan 60 intact and unsaved. `tools/arpleg.py` gained a `--tcp` leg | 🔴 **No `access-class` under `line vty` on this platform** — `acc ?` offers only `login`. `ip access-list ?` is `% Unrecognized command`. Use `access-list`+`access-group`, `snmp-server community <n>`, `ssh server allow-users/deny-users`, `service telnet\|ssh ip`. **Hardware ACLs implicitly PERMIT, software/standard implicitly DENY** (§5) — grading the wrong default round is the easy false pass. T33387 is a desk verdict: UNSUPPORTED on TPS row 236 |
-| C | T44296 LLDP; T33398 LLDP-Med | `lldp-2026-10-21T1159` | PENDING | ✅ Loop question settled, safe to run. 🔴 **Run the probe with `--read-only` first** — the 11:59 probe toggled `lldp run` itself and may be the reason it is on. Record `show running-config \| include lldp` as the first act. `show lldp neighbors brief` does not exist. Run `.setup` carries swi_a **with no `[powerlink]`** so the post-failure cycle cannot reach it |
+| C | T44296 LLDP; T33398 LLDP-Med | `lldp-2026-10-21T1159` | **DONE** -- 2 PASS, both with reboot persistence MEASURED (the first in three campaigns). Bench returned byte-for-byte to the state group C inherited; closing probe exit 0 MATCH; u2 logged out; swi_a never opened. 🔴 `lldp run` proven to be swi_d's SAVED baseline, not probe residue. 🔴 startup-config now holds vlan 60 -- the Test Engineer's to remove at wrap. swi_a.cfg/swi_b.cfg absent: both partner consoles locked out. New tools `lldpsend.py` + `lldpwire.py` | ✅ Loop question settled, safe to run. 🔴 **Run the probe with `--read-only` first** — the 11:59 probe toggled `lldp run` itself and may be the reason it is on. Record `show running-config \| include lldp` as the first act. `show lldp neighbors brief` does not exist. Run `.setup` carries swi_a **with no `[powerlink]`** so the post-failure cycle cannot reach it |
 | D | T33399 IPv4 NTP Server; T33400 IPv4 NTP Client; T44298 IPv6 NTP Server | `ntp-2026-10-21T1159` | PENDING | 🔴 **`show ntp status` and `show ntp counters` return EMPTY output**, not an error — read them before and after configuring and report if they stay empty. 🔴 **The DUT clock is UTC, 13 h behind the box** — record the pair once per group. Expect the longest-running group |
 | E | T33384 Auto boot from external media | `eom-2026-10-21T1159` | **DEFERRED to after hours** | Test Engineer, 2026-10-21: run A–D now, E after hours. MANUAL-ONLY (commit `4349a50`): a person must insert a FAT32 USB stick carrying `autoboot.txt` plus the release and config it names. **Automatable part gives a PARTIAL**: `autoboot enable` accepted and stored, `show boot` status change, and the negative limb (enabled, no media, still boots `flash:/x960-tb277.rel`) costing one DUT reboot |
 | — | T33388 Hardware Watchdog; T33389 Software Watchdog | — | **NOT TESTED** | Test Engineer's decision, 2026-10-21: *"Drop them — NOT TESTED"*. See Issues |
@@ -189,6 +189,7 @@ inherit it.** Reboot-persistence limbs are now measurable for the first time in 
 | T33386 | (237) EnhancedOperationManagement - Management ACL | mgmt-2026-10-21T1159 | PASS | both halves of TPS 6.1.1 proven in the dataplane, never from a `show`: a named hardware ACL gave the specified host 4/4 SYN-ACK while the non-specified host got 0 replies to 4 SYNs, with an ICMP control from that same denied host answered 4/4 in the SAME leg and the DUT's counters agreeing frame for frame (permit 8, deny 4); a standard ACL on an SNMP community failed exactly one cell of a 2x2 against a control; `ssh server 2222` moved the service on the wire and back. Reboot persistence NOT MEASURED | T33386/work/run1.log | tester |
 | T47192 | (243) Config_File - A dynamic configuration while operating (Change, Delete) | mgmt-2026-10-21T1159 | PASS | **all three operations TPS line 894 names — addition, change AND deletion, not just the title's two** — take effect dynamically, proven on two unrelated subsystems: a bound hardware filter took an add, an in-place edit that made two flows swap state in opposite directions, and a delete restoring the baseline frame-for-frame; vlan48's address took a change, a delete and an add with every ARP/ICMP signature inverting each time. **Nine operations, zero restarts** — uptime advanced by exactly the elapsed 6 m 14 s. Reboot persistence NOT MEASURED | T47192/work/run1.log | tester |
 | T44296 | (259) Management_LLDP - LLDP | lldp-2026-10-21T1159 | PASS | twelve designed steps (the case has **zero** authored steps), all graded on frames and never on `show lldp`: transmit/receive proven independent across all four on/off combinations; ageing timed against a TTL the SENDER chose, with a longer-TTL neighbour on the same port as control; `lldpRemTablesChange` traps caught on the wire against a zero-trap control; neighbours confirmed on the RSTP **Alternate/Discarding** ports 1.0.4, 1.0.14 and 1.0.16 as well as the forwarding 1.0.2. 🔴 **REBOOT PERSISTENCE MEASURED — the first time in three campaigns**: a 15 s timer, 45 s TTL and a System Name TLV all survived a cold boot and were proven on the wire (15 s inter-frame gaps), then defaults restored and re-proven at 30.03 s. Bench returned byte-for-byte, closing probe exit 0 MATCH | T44296/work/run1.log | tester |
+| T33398 | (260) Management_LLDP - LLDP-Med | lldp-2026-10-21T1159 | PASS | graded on frames: **the §5 read-back trap caught in the honest direction** — a fully configured voice policy that `show lldp local-info med` reports in full while 40 s of capture carries **zero** MED TLVs, because no MED endpoint is on the port yet; a real Class III endpoint then drew a 7-TLV reply carrying exactly the configured Voice/vlan 70/tagged/priority/dscp policy; Class III classified against a plain Station-only neighbour **on the same port at the same instant**; Fast Start measured at exactly 3 frames 1.00 s apart with its trigger pinned to a NEW endpoint; both removal paths proven independently. 🔴 **REBOOT PERSISTENCE MEASURED** — a non-default priority 6 survived a cold boot | T33398/work/run1.log | tester |
 | T33388 | (239) EnhancedOperationManagement - Hardware Watchdog | — | NOT TESTED | Dropped by the Test Engineer 2026-10-21. No user-facing watchdog CLI exists on this platform and **TPS 5.3.6 says so deliberately** (*"can be enabled or disabled by user command"* = No): no `show watchdog`, nothing in config mode. The only trigger available was deliberate crash injection via `start-shell`, which was not authorised | — | Test Engineer |
 | T33389 | (240) EnhancedOperationManagement - Software Watchdog | — | NOT TESTED | Dropped by the Test Engineer 2026-10-21, same reason as T33388 | — | Test Engineer |
 
@@ -433,6 +434,33 @@ above was never needed.
 
 
 ## Issues
+
+### 🔴 FINDING (T33398) — `switchport voice vlan` SILENTLY adds `spanning-tree portfast`
+
+Measured 2026-10-21. Configuring a voice VLAN on an interface **silently adds
+`spanning-tree portfast` to that interface**. Nobody types it, nothing announces it, and a
+`write` saves it.
+
+**Why it bites a tester and an operator alike:** a teardown that removes only the voice lines
+leaves `spanning-tree portfast` behind, and the running-config diff then fails **for a reason
+that looks unrelated to the case**. An operator removing a voice VLAN is left with portfast on a
+port they never enabled it on — which changes that port's spanning-tree behaviour.
+
+Two smaller siblings from the same case:
+- **`no switchport voice vlan` does NOT remove `switchport voice vlan priority` or
+  `switchport voice dscp`.** They survive the parent command and must be removed by name.
+- `switchport voice vlan priority 5` is accepted but **never written back**, because 5 is the
+  default.
+
+### 🔬 METHOD NOTE (T33398) — the §5 read-back trap, caught in the honest direction
+
+Worth keeping as a worked example. A fully configured LLDP-MED voice policy is reported **in
+full** by `show lldp local-info med` while 40 s of capture carries **zero** MED TLVs — because
+MED TLVs do not appear until a MED-capable endpoint is seen on that port. The `show` is not
+lying and the device is not broken; the read-back simply describes **configuration**, not **what
+is on the wire**. A case graded on the `show` alone would PASS without a single MED frame ever
+being sent.
+
 
 ### ✅ ANSWERED (T44296) — `lldp run` was NOT probe residue
 
