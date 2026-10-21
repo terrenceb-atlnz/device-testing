@@ -59,6 +59,17 @@ u3/u5"**. So:
   running- and startup-config at the end of the case that added it, and proves the removal by
   re-reading, never by the absence of an error.
 
+## Occupancy — checked before anything, 2026-10-22 11:2x NZDT
+
+`tools/tb precheck tb277 u2`: **u2 free** (`/dev/u2 -> /dev/ttyUSB2`, no holder). One FOUND
+item, `ser2net` (pid 744, root, up 41 days) — the box's own console daemon. It is **the
+identical process the Test Engineer adjudicated "Proceed" for both the 2026-10-20 and the
+2026-10-21 campaigns**, so it is treated as a standing adjudication and nothing was displaced.
+It does not hold u2: `sudo -n fuser -v /dev/ttyUSB2` returns no holder, and `/etc/ser2net.conf`
+has no `ttyUSB2` line. The Test Engineer's own login on pts/1 is information only.
+
+**u3 and u5 were not checked, because this session does not open them.**
+
 ## Rules
 
 - Verdicts, working logs, the `RESULT` line, the results list and the final log template:
