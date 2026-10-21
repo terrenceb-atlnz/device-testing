@@ -127,8 +127,8 @@ question) and **T33403** (what a "script" is on this platform).
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| A | T44299 IPv6 NTP Client | `ntp6-2026-10-22T1122` | TRIAGE | Mirrors yesterday's T33400 (IPv4 client) with the family swapped. **The server must be reachable over IPv6 from the DUT.** First choice is tb277's own ntpd — **check it is listening on IPv6 and that the box↔DUT leg has IPv6 reachability before designing the case**; `ss -lun` on the box, then a counted leg. swi_a served IPv6 NTP yesterday but is **not available this session** (u5 not opened). 🔴 `show ntp status` and `show ntp counters` return **EMPTY output, not an error** — read them before and after configuring and report if they stay empty. 🔴 **The DUT clock is UTC, 13 h behind the box** — record the pair once. 🔴 tb277's ntpd has `limited kod` armed: a boot-time burst draws a **kiss-o'-death, refid RATE**, which cost 10 m 55 s to converge yesterday and nearly became a false defect report. Expect it; it is the bench, not the DUT |
-| B | T33401 Syslog Facility Override; T33402 Syslog stored in NVS; T33403 Scripting | `oper-2026-10-22T1122` | TRIAGE | Three Operation cases, all DUT-centric. **T33401** needs a syslog collector that records the facility byte — run one on tb277 and grade on the **received PRI**, not on `show log config`. **T33402 is the reboot case**: `write` + `reload` are permitted; prove storage survives a cold boot with nothing typed afterwards. **T33403**: establish what "scripting" means on this platform before designing — `.scp` activation, trigger scripts, or neither — and say which. 🔴 A file-driven `activate <script>.scp` from the box's `/tftproot` needs a **root write to the box** (STANDING-ORDERS §4) — that limb is `NEEDS TEST ENGINEER:`, not something to work around |
+| A | T44299 IPv6 NTP Client | `ntp6-2026-10-22T1122` | **RUNNING** | Mirrors yesterday's T33400 (IPv4 client) with the family swapped. **The server must be reachable over IPv6 from the DUT.** First choice is tb277's own ntpd — **check it is listening on IPv6 and that the box↔DUT leg has IPv6 reachability before designing the case**; `ss -lun` on the box, then a counted leg. swi_a served IPv6 NTP yesterday but is **not available this session** (u5 not opened). 🔴 `show ntp status` and `show ntp counters` return **EMPTY output, not an error** — read them before and after configuring and report if they stay empty. 🔴 **The DUT clock is UTC, 13 h behind the box** — record the pair once. 🔴 tb277's ntpd has `limited kod` armed: a boot-time burst draws a **kiss-o'-death, refid RATE**, which cost 10 m 55 s to converge yesterday and nearly became a false defect report. Expect it; it is the bench, not the DUT |
+| B | T33401 Syslog Facility Override; T33402 Syslog stored in NVS; T33403 Scripting | `oper-2026-10-22T1122` | QUEUED (after A) | Three Operation cases, all DUT-centric. **T33401** needs a syslog collector that records the facility byte — run one on tb277 and grade on the **received PRI**, not on `show log config`. **T33402 is the reboot case**: `write` + `reload` are permitted; prove storage survives a cold boot with nothing typed afterwards. **T33403**: establish what "scripting" means on this platform before designing — `.scp` activation, trigger scripts, or neither — and say which. 🔴 A file-driven `activate <script>.scp` from the box's `/tftproot` needs a **root write to the box** (STANDING-ORDERS §4) — that limb is `NEEDS TEST ENGINEER:`, not something to work around |
 
 Both groups run on the **same single console**, so they run **sequentially**, A then B. Nothing
 runs on the bench between groups.
@@ -184,6 +184,148 @@ below 19200 baud with its echo verified before the password is sent. The old `tr
 a retry count exactly equal to the platform's lockout threshold. Verified on hardware (tb277 u2)
 this morning. **If a login fails, it now fails once and tells you — do not re-run it in a loop
 to "make sure".**
+
+## ✅ TRIAGE ANSWER, 2026-10-22 11:39 NZDT — 4 runnable, 0 blocked. Test Engineer: **"go ahead"** (11:5x)
+
+Measured on swi_d through u2 only. No device state changed, no case run.
+
+**Both blockers this queue anticipated were DISPROVED by measurement:**
+
+1. 🔴 **The scripting limb does NOT need a root write to the box.** This queue said an
+   `activate <script>.scp` served from `/tftproot` would be a STANDING-ORDERS §4 item. It is
+   not: **`/tftproot` is mode `1777`** (world-writable, sticky, symlinked from `/tftpboot`)
+   with `tftpd-hpa` **active**, so a plain user stages the file and the DUT pulls it with
+   `copy tftp://10.38.22.33/<f>.scp flash:/<f>.scp` — the method already endorsed in memory
+   `file-to-unit-via-device-copy-tftp`. A second zero-box-write route is to write the `.scp`
+   on the DUT through `start-shell` (`tools/awshell.py`). **T33403 has no blocking limb.**
+2. 🔴 **No partner switch is needed for the IPv6 NTP case.** tb277's own ntpd listens on IPv6
+   on every leg and is synced (`reach 377`), so losing swi_a costs this campaign nothing.
+
+**Gates.** Occupancy: u2 free, one FOUND item (`ser2net` pid 744, the standing adjudication),
+nothing displaced, u3/u5 never touched. Probe `--consoles u2`: **exit 1 MISMATCH, no
+Advisories, no USER-CONFLICT** — all 15 lines are the expected artefact of probing one console
+against a deployed template that describes **swi_a only**. Nothing to resolve, nothing to apply.
+
+**Boot baseline T33402's reload must return to**, read from the DUT today:
+
+```
+Current software   : x960-tb277.rel
+Current boot image : flash:/x960-tb277.rel (file exists)
+Default boot config: flash:/default.cfg
+Current boot config: flash:/default.cfg (file exists)
+Autoboot status    : disabled
+```
+Build `sin_x96056-20261019-27`, standalone, Active Master.
+
+**No forwarding loop — re-measured 11:32 NZDT today, not inherited.** RSTP converged, root
+`8000:0000cd423029` (swi_b), **one** root port `port1.0.2` Forwarding, `port1.0.4` / `1.0.14` /
+`1.0.16` Alternate/Discarding, and **both box legs Designated/Forwarding** (`port1.0.10` ← eth3,
+`port1.0.48` ← eth4). Counted traffic legs are safe. *(This is the same state as 2026-10-21: the
+"2 of 6 forwarding" recorded then counted the swi_a—swi_b link, which swi_d cannot see.)*
+
+### TPS — all four rows say **Yes**, so no case has UNSUPPORTED grounds
+
+| TPS No. | item | supported | case |
+| --- | --- | --- | --- |
+| 263 | NTP / IPv6 NTP Client | **Yes** | T44299 |
+| 264 | Operation / Syslog facility override (Log) | **Yes** | T33401 |
+| 265 | Syslog stored in NVS (Log) | **Yes** | T33402 |
+| 267 | Scripting | **Yes** | T33403 |
+
+🔴 **The bracketed number in each case title is offset +2 from the TPS row number**
+(263→"(265)", 264→"(266)", 265→"(267)", 267→"(269)"). The TPS row *numbered* 265 is "Syslog
+stored in NVS" = **T33402**, not the NTP case. **Never look these cases up by the bracketed
+number.** Anchor: 260 NTP Server(IPv4), 261 NTP Client(IPv4), 262 IPv6 NTP Server.
+
+Since every row is Yes, **a feature missing on the DUT would be a finding, not a bench limit.**
+
+### Measured prerequisites, per group
+
+**A / T44299 — IPv6 NTP source AVAILABLE.**
+- tb277's ntpd listens on `[fd32:b1f0:dff8:1602::1]:123` (eth2), `[fd32:b1f0:dff8:1603::1]:123`
+  (eth3), `[fd32:b1f0:dff8:1604::1]:123` (eth4) and `[::]:123`; service active, `ntpq -p` shows
+  `*ntp.atlnz.lc st 4 reach 377`. chrony/chronyd/ntpsec inactive.
+- Box has ULA IPv6 on all three legs; `net.ipv6.conf.all.forwarding = 1`.
+- **IPv6 box↔DUT proven today: `ping -c 3 -I eth2 fe80::9c31:61ff:fef7:77e7` → 3/3, 0% loss,
+  rtt 0.494/0.623/0.714 ms.**
+- DUT surface: `ntp server ?` accepts `X:X::X:X`; `ntp source` takes an address, which is how
+  the poll is pinned to a leg. `show ntp status` returns **completely empty output, no error**
+  (unconfigured) — record it before and after.
+- DUT IPv6 today: eth0 `fe80::9c31:61ff:fef7:77e7/64`, vlan1 link-local; **vlan10/48/60 have no
+  IPv6**, so the case adds a ULA to the leg SVI and removes it afterwards.
+- 🔴 **Budget for the kiss-o'-death.** `/etc/ntp.conf` carries
+  `restrict -6 default kod notrap nomodify nopeer noquery limited` — identical to the IPv4 line
+  that cost 10 m 55 s to converge on 2026-10-21. **Our bench's ntpd, not a DUT defect.**
+- 🔴 Clock pair, once: DUT `UTC Wed, 21 Oct 2026 22:32:24 +0000` vs box 2026-10-22 11:32 NZDT —
+  **13 h behind**.
+
+**B1 / T33401 — the collector is a CAPTURE, and it is available.**
+- **No UDP :514 listener on tb277.** `rsyslog` inactive with `imudp` commented out; `syslog-ng`
+  running but binding no syslog UDP port. **Starting or reconfiguring either is a root change
+  (§4) and is NOT needed.**
+- Grade on the **received PRI** (`PRI = facility*8 + severity`) from a bounded
+  `tcpdump … udp port 514` capture. `sudo -n` is passwordless and `tcpdump` is present.
+- DUT surface: `log facility ?` offers all 20 RFC3164 facilities; `log host <ip> facility` also
+  exists (per-destination); `log host ?` accepts `X:X::X:X`, so an **IPv6 syslog limb is free**
+  if wanted. Baseline `show log config` → **`Facility: default`** — a clean OFF to measure from.
+- 🔧 **`tools/` has NO syslog decoder** (60+ entries, none). A generic `tools/syslogwire.py`
+  is needed: decode PRI/facility/severity/host/tag from a `tcpdump -w` pcap and count by
+  facility, built on `snmpwire`'s classic-pcap reader the way `ntpwire.py` is. It goes in
+  `tools/` **with its `tools/README.md` entry**, never loose in the lab tree.
+
+**B2 / T33402 — the NVS mechanism is present and already on.**
+```
+Permanent log:
+  Status ......... enabled
+  Maximum size ... 50kb
+  Filters:  *1  Level ...... warnings   Program .... any   Facility ... any
+  Statistics ..... 11668 messages received, 36 accepted, 0 excluded
+```
+`show log permanent` exists; `log permanent ?` offers `size level program msgtext exclude
+facility`. ⚠️ **The filter defaults to level `warnings`, so a notice-level event is NOT
+stored.** The case must raise the filter (`log permanent level informational`) or generate a
+warning-or-worse event — **and put the filter back**.
+
+**B3 / T33403 — the scripting surface is `activate` + `trigger`.**
+- exec `activate ?` → `SCRIPT  Script to activate` / `background`;
+- config `trigger ?` → `<1-250>`, entering trigger-config mode;
+- `show trigger` → `% No triggers currently defined` (present, nothing configured — clean
+  baseline). ⚠️ **that line starts with `% ` and is informational**, so a stop-on-error driver
+  will abort on it;
+- 🔴 **`show script` → `% Unrecognized command`.** Write it in exactly those words: *no
+  `show script` CLI command exists*. The surface is `activate` + `trigger`, and `dir flash:`
+  lists the file. The CLI surface is not the device's surface.
+
+### Bench facts learned at triage (the Test Engineer's to record, or not)
+
+- **Box `eth2` is cabled to swi_d's out-of-band `eth0` management port**, not to a switchport.
+  That is why its MAC is learned on no switch port, and it explains the probe's one NEEDS-CHECK
+  `[portlink] tb-swi_a eth2 CHECK_CABLE` as a **stale template line, not a mis-cable**.
+  Proven: `fe80::9c31:61ff:fef7:77e7` is swi_d eth0, and the box's `ip -6 neigh` holds it on
+  `dev eth2` with lladdr `9e:31:61:f7:77:e7`.
+- The DUT's L3 underlay as measured: vlan10 `ckUNDERLAY-eth3` port1.0.10 `10.38.22.34/27`;
+  vlan48 `ckUNDERLAY-eth4` port1.0.48 `10.38.22.66/27`; vlan60 `ckMGMT-A` port1.0.2(t)
+  `10.38.22.97/27`; eth0 IPv4 unassigned.
+- 🔴 **vlan 60 sits on `port1.0.2`, which is the RSTP ROOT PORT.** If the Test Engineer removes
+  it, re-check STP afterwards.
+
+### Two triage claims the sentinel checked and CORRECTED
+
+- The report said the branch was **"46 ahead / 39 behind origin"** and that it should be
+  resolved before adding a tool. **It is not**: `git rev-list --left-right --count
+  main...origin/main` read **2 ahead, 0 behind** with a clean tree. That line was the
+  2026-10-22 handover's OPEN 1 text, not a current reading. Nothing is blocked. (The foreign
+  stash is still present and still blocks nothing.)
+- The probe **overwrote `bench-setup/tb277/bench-state.md` with a swi_d-only record**, dropping
+  swi_a and swi_b from the shared bench file (25 lines removed). The regeneration was kept in
+  the sentinel's scratchpad and the **tracked file reverted** to the three-unit version, whose
+  `Generated 2026-10-21T201917Z` stamp honestly says when it was measured. Nothing on the bench
+  changed, so no information was lost.
+
+### MANUAL-ONLY
+
+None of the four is listed, and triage found **nothing new needing a person**: no cable swap,
+no LED, no GUI, no account, no removable media, no partner switch. Nothing was added.
 
 ## Results
 
