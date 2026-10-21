@@ -33,7 +33,8 @@ The case segment is 87% of all tokens. Inside it, the hand-built event sequence 
 Only one case ran, so the per-case findings are in [17584/17584-review.md](17584/17584-review.md).
 Two of them apply to any future traffic-plus-event case on tb101:
 - Save every console read of an event into `work/` at the time it is taken, so the final log can quote it.
-- Build one event-window script instead of 15-20 calls per event.
+- Build one event-window script instead of 15-20 calls per event. **Built 2026-10-21: `tools/eventwin.py`**, with
+  `l2flows.py --per-link` and the `rcdiff.py` fix (Test Engineer: "yes, all").
 
 ## Process facts worth keeping (from the hand-back)
 - `ckyn` stopped with "no prompt within 60 s" on the first `boot config-file` because the stack file sync

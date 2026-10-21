@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""l2flows.py <duration_s> <pps_per_flow> <outdir> <nicA> <nicB> [--ethertype 0x88B5]
+"""l2flows.py <duration_s> <pps_per_flow> <outdir> <nicA> <nicB> [--ethertype 0x88B5] [--per-link N]
 Four L2 test flows between two host NICs cabled to the DUT (raw AF_PACKET, ethertype
 0x88B5 by default):
   B<a><b> broadcast nicA->nicB          B<b><a> broadcast nicB->nicA
@@ -11,7 +11,18 @@ Each frame carries tag(3) + seq(4, big-endian) + send epoch (double). Receivers 
 nicA/nicB record (tag, seq, t_send, t_recv) for every frame not sent by that NIC.
 Writes <outdir>/rx-<nicA>.txt, rx-<nicB>.txt, tx.txt (per-flow sent counts) and touches
 <outdir>/DONE when finished. Needs root (raw sockets). Analyse with flowstat.py and
-loopwin.py, giving them the same <nicA> <nicB>."""
+loopwin.py, giving them the same <nicA> <nicB>.
+
+--per-link N (added 2026-10-21, for a LAG between a host bond and the DUT): each of the 4 flows
+becomes N sub-flows, tagged <tag>.1 .. <tag>.N, each with its OWN source MAC
+02:4c:<nic MAC byte 5>:<byte 6>:<a0 for nicA | b0 for nicB>:<k> and its own sequence numbers, at
+<pps_per_flow> each (so 4 x N x pps frames per second in all). A bond or a LAG hashes on the
+source MAC, so the sub-flows land on different links: when one link fails, the sub-flows on it
+show the outage and the others show none. Without it every flow has ONE source MAC and sits on
+ONE link, so an event on the other link is invisible to the flows (T17584 E2, tb101). Use N of at
+least twice the number of links. The sub-flow number travels in the first padding byte (0 =
+no sub-flow), so N = 1 writes exactly the old format.
+The DUT learns the 2 x N fake source MACs."""
 import argparse, os, socket, struct, sys, threading, time
 
 ETH_P = 0x88B5
@@ -42,23 +53,35 @@ def main(argv=None):
     ap.add_argument('nicB', help='second host NIC')
     ap.add_argument('--ethertype', type=lambda x: int(x, 0), default=ETH_P,
                     help='EtherType of the test frames (default 0x88B5, IEEE local experimental)')
+    ap.add_argument('--per-link', type=int, default=1, metavar='N',
+                    help='split each flow into N sub-flows with different source MACs, so a LAG '
+                         'spreads them over its links (default 1 = one source MAC per flow)')
     a = ap.parse_args(argv)
     dur, pps, outdir, eth_p = a.duration_s, a.pps_per_flow, a.outdir, a.ethertype
     nic_a, nic_b = a.nicA, a.nicB
     if nic_a == nic_b:
         ap.error('nicA and nicB must differ')
+    if not 1 <= a.per_link <= 64:
+        ap.error('--per-link must be 1..64')
     os.makedirs(outdir, exist_ok=True)
 
     MA, MB = mac(nic_a), mac(nic_b)
     BC = b'\xff' * 6
     (b_ab, b_ba, u_ab, u_ba), _ = flow_tags(nic_a, nic_b)
-    FLOWS = [(nic_a, BC, MA, b_ab.encode()), (nic_b, BC, MB, b_ba.encode()),
-             (nic_a, MB, MA, u_ab.encode()), (nic_b, MA, MB, u_ba.encode())]
+    FLOWS = []
+    for ifn, dst, own, tag, side in ((nic_a, BC, MA, b_ab, 0xa0), (nic_b, BC, MB, b_ba, 0xb0),
+                                     (nic_a, MB, MA, u_ab, 0xa0), (nic_b, MA, MB, u_ba, 0xb0)):
+        if a.per_link == 1:
+            FLOWS.append((ifn, dst, own, tag.encode(), 0))
+        else:
+            for k in range(1, a.per_link + 1):
+                src = bytes([0x02, 0x4c, own[4], own[5], side, k])
+                FLOWS.append((ifn, dst, src, tag.encode(), k))
     sent = {}
     stop = threading.Event()
     t_start = time.time() + 1.0          # common start so flows are phase-aligned
 
-    def sender(ifn, dst, src, tag):
+    def sender(ifn, dst, src, tag, sub):
         s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
         s.bind((ifn, 0))
         hdr = dst + src + struct.pack('!H', eth_p)
@@ -71,8 +94,8 @@ def main(argv=None):
             d = target - time.time()
             if d > 0:
                 time.sleep(d)
-            s.send(hdr + tag + struct.pack('!Id', i, time.time()) + b'\0' * 30)
-        sent[tag.decode()] = n
+            s.send(hdr + tag + struct.pack('!Id', i, time.time()) + bytes([sub]) + b'\0' * 29)
+        sent[tag.decode() + ('.%d' % sub if sub else '')] = n
         s.close()
 
     def receiver(ifn, out):
@@ -88,9 +111,10 @@ def main(argv=None):
             tr = time.time()
             if addr[2] == socket.PACKET_OUTGOING:
                 continue
-            tag = data[14:17]
+            tag = data[14:17].decode(errors='replace')
             seq, ts = struct.unpack('!Id', data[17:29])
-            rec.append((tag.decode(errors='replace'), seq, ts, tr))
+            sub = data[29] if len(data) > 29 else 0
+            rec.append((tag + ('.%d' % sub if sub else ''), seq, ts, tr))
         s.close()
         with open(out, 'w') as f:
             for r in rec:

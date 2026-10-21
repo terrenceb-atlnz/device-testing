@@ -571,13 +571,20 @@ the whole file is history and only this case's own window is evidence.
   unreadable-file exit tested offline
 
 ### `rcdiff.py`
-Unified diff of the first `show running-config` in two saved `ckcon.py` **stdouts** (not the `<transcript>` argument, which has no `HH:MM:SS >>>` headers). This is the
-pre-case versus post-case teardown check (STANDING-ORDERS §1).
-- **Run:** `rcdiff.py <before.log> <after.log>`
+Unified diff of the first FULL `show running-config` in two saved `ckcon.py` / `cfg.py` **stdouts** (not the
+`<transcript>` argument, which has no `>>>` headers). This is the pre-case versus post-case teardown check
+(STANDING-ORDERS §1).
+- **Run:** `rcdiff.py [--last] <before.log> <after.log>`; exit 0 = no difference, 1 = difference printed, 2 = a file
+  with no full dump (or unreadable)
 - **Where:** anywhere; **needs:** nothing beyond Python
 - **Imports:** none
-- **Limits:** it needs ckcon-style `HH:MM:SS >>> cmd` headers, and crashes if a file has no running-config
-- **Status:** verified 2026-10-02 on tb470 (two real IE520 captures, identical -> no output)
+- **Limits:** needs `HH:MM:SS >>> cmd` headers (an epoch prefix, as `cfg.py` prints, is accepted). Only a header whose
+  command is exactly `show running-config` counts. **Fixed 2026-10-21:** it used the first match of the text, so a
+  `show running-config | include ...` earlier in the same capture gave a false diff (128 lines on T17584, tb101).
+  `--last` uses the last full dump when a file has several.
+- **Status:** verified 2026-10-02 on tb470 (two real IE520 captures, identical -> no output). 2026-10-21 on T17584's
+  captures (tb101): the raw pre-run file now gives no diff, a changed `stack 1 priority` line is caught (exit 1), and a
+  file with no dump exits 2
 
 ### `rc2cfg.py`
 Turns the first `show running-config` in a saved `ckcon.py` stdout into a loadable per-device
@@ -683,14 +690,55 @@ on the others. It uses tcpreplay and tcpdump.
 Runs four sequence-numbered L2 flows between two host NICs, through the DUT, and records every
 frame received. The flows are broadcast and unicast, in each direction. Use it for continuity
 across a failover or a ring switch-over.
-- **Run:** `sudo l2flows.py <duration_s> <pps_per_flow> <outdir> <nicA> <nicB> [--ethertype 0x88B5]`
+- **Run:** `sudo l2flows.py <duration_s> <pps_per_flow> <outdir> <nicA> <nicB> [--ethertype 0x88B5] [--per-link N]`
+- **`--per-link N` (added 2026-10-21):** each flow becomes N sub-flows `<tag>.1`..`<tag>.N`, each with its own source
+  MAC `02:4c:<nic MAC byte 5>:<byte 6>:<a0|b0>:<k>` and its own sequence numbers, at `pps_per_flow` each. A host bond or
+  a DUT LAG hashes on the source MAC, so the sub-flows spread over the links and an event on ONE link shows as an
+  outage on the sub-flows that sat on it. Without it every flow sits on one link (T17584 E2, tb101: the flows could not
+  see a leg shutdown). Use N of at least twice the number of links. The sub-flow number travels in the first padding
+  byte (0 = none), so N = 1 writes the old format exactly. The DUT learns 2 x N extra source MACs.
 - **Where:** testbox (root); **needs:** Python only (AF_PACKET, Linux)
 - **Imports:** none. It provides `flow_tags` to `flowstat.py` and `loopwin.py`
 - **Limits:**
   - Exactly two NICs.
   - The flow tags come from the last character of each NIC name, or A/B if those match.
   - Pacing is Python sleep.
-- **Status:** verified on tb470 2026-10-02: 10 s, 20 pps per flow, eth1 <-> eth3 through the stack; 4 x 200 frames, 0 lost
+- **Status:** verified on tb470 2026-10-02: 10 s, 20 pps per flow, eth1 <-> eth3 through the stack; 4 x 200 frames, 0 lost.
+  `--per-link` tested OFFLINE only, 2026-10-21 (a fake socket layer between two simulated NICs: 4 x 3 sub-flows, one
+  sub-flow made to lose 10 frames showed a 500 ms outage and its siblings none; N = 1 output unchanged). Not yet run on
+  hardware.
+
+### `eventwin.py`
+One traffic EVENT WINDOW in one call (built 2026-10-21 from T17584, where each of 6 events took 15-20
+hand-made tool calls): starts `l2flows.py` (and optionally `linerate.py` both ways) with `sudo -n`, runs
+timed console actions and reads through the console tools, polls until the DUT is ready, waits for the
+traffic to end, then runs `flowstat.py` (with every action's event time) and `loopwin.py`, and writes
+one `summary.txt`.
+- **Run:** on the box, as the user: `tools/tb tool <TB> <scratch> eventwin --out /tmp/<scratch>/eN --nic-a NIC
+  --nic-b NIC [--flows-secs 360] [--pps 100] [--per-link N] [--rate Mbps|top --rate-secs 300 --a-dst-mac MAC
+  --b-dst-mac MAC [--a-src-ip IP] [--b-src-ip IP] [--src-macs 16]] [--act AT TOOL uN ARG ...]... [--read AT uN CMD
+  ...]... [--bond BOND] [--poll uN SECS REGEX CMD] [--after uN CMD ...]... [--stats-nics a,b,c] [--baud 115200]
+  [--save DIR] [--dry-run]`. TOOL is cfg, ckcon, ckyn, reloadc, ckreload or listen; every act except `listen` is
+  an event (ev0, ev1 ... in flowstat), timed by the tool's own output (reloadc `EVENT y-sent`, else the header of
+  the last command that is not `end`/`exit`/`configure terminal`). `--save` copies every text result into one
+  folder per event (e.g. the case's `work/eN` on the NFS home) so the final log quotes the reads verbatim.
+  Example (T17584 E3 shape): `--act 10 listen u0 330 /tmp/s/e3-u0.done --act 25 reloadc u1 240 /tmp/s/e3.done
+  reload stack-member 1 --read 90 u2 "show stack" "show lacp sys-id" --poll u2 330 '1\s+-\s+84e3\.2787\.0ac0\s+1\s+Ready'
+  'show stack' --after u2 "show etherchannel detail" --bond bond0`. Check the plan first with `--dry-run`.
+- **Where:** testbox, from a `tools/tb scratch` copy (transcripts go to `/tmp/<scratch>/console-uN.log`, the path the
+  sentinel watches); **needs:** `sudo -n` for the traffic tools, plus what those tools need
+- **Imports:** none; runs `l2flows.py`, `linerate.py`, `flowstat.py`, `loopwin.py`, `hostinfo.py` and the console
+  tools from its own directory
+- **Limits:**
+  - One console is used by one action at a time (a lock); an action waits while a `listen` holds its console.
+  - A console another process holds (`fuser`) is not opened: the action is skipped and reported.
+  - `--out` must not exist yet; the raw flow files stay there (they can be several MB) and are not copied by `--save`.
+  - Exit 1 when any step failed: a held console, a tool's non-zero exit, a `!!!` line, or a `% ` line other than
+    `remote-diff`'s own `% Comparing` / `% Results are identical`.
+  - It runs for the whole flow time; call it from a backgrounded `tools/tb` command and wait on the summary.
+- **Status:** tested OFFLINE only, 2026-10-21: `--dry-run` on an E3-shaped plan, the usage errors, and a full run
+  through a harness with stub console and traffic tools (real `flowstat.py`/`loopwin.py`): event times taken from the
+  tools' output, every read saved, a stubbed `% Invalid input` caught (exit 1). Not yet run on hardware.
 
 ### `flowstat.py`
 For an `l2flows.py` run, reports per flow:
@@ -703,7 +751,10 @@ For an `l2flows.py` run, reports per flow:
 - **Limits:**
   - Give it the same `nicA` and `nicB` as the run.
   - Single lost frames are counted but not listed. That was fixed 2026-10-02 to match the documentation; earlier output listed them.
-- **Status:** verified on tb470 2026-10-02 on that `l2flows.py` run: 0 lost, 0 dups, median latency ~0.37 ms
+  - A `--per-link` run (2026-10-21): each sub-flow is reported on its own, then one `<tag> ALL` line per flow with the
+    totals, the longest outage of any sub-flow, and how many sub-flows had an outage of 5 frames or more.
+- **Status:** verified on tb470 2026-10-02 on that `l2flows.py` run: 0 lost, 0 dups, median latency ~0.37 ms.
+  2026-10-21 regression on tb101 (T17584's E3 flow files): output byte-identical to the original analysis.
 
 ### `loopwin.py`
 Finds windows of loop evidence in an `l2flows.py` run: duplicates, and frames echoed back to
@@ -711,8 +762,9 @@ their sender. Windows are clustered with a 1 s gap.
 - **Run:** `loopwin.py <flowsdir> <nicA> <nicB>`
 - **Where:** anywhere; **needs:** nothing beyond Python
 - **Imports:** l2flows
-- **Limits:** give it the same `nicA` and `nicB` as the run
-- **Status:** ran on tb470 2026-10-02 on a loop-free `l2flows.py` run: 0 windows, as expected. Not yet run against a real loop
+- **Limits:** give it the same `nicA` and `nicB` as the run. Reads `--per-link` sub-flow tags (2026-10-21).
+- **Status:** ran on tb470 2026-10-02 on a loop-free `l2flows.py` run: 0 windows, as expected. 2026-10-21 on tb101
+  (T17584 E3): found the one 30 ms window of 4 duplicated broadcast frames, the same as during the run
 
 ### `vsend.py`
 Sends a burst of `CKVLAN`-marked frames of one kind: IPv4, IPv6, IPX, another EtherType, or ARP.

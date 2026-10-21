@@ -99,14 +99,13 @@ the size of any one output.
   (decode LACPDUs), `tools/hostinfo.py --stats` (host NIC drop counters), `tools/linerate.py`,
   `tools/l2flows.py` + `flowstat.py` + `loopwin.py`, `tools/vsend.py` + `vcount.py`, `tools/reloadc.py`,
   `tools/ckreload.py`, `tools/listen.py`, `tools/rcdiff.py`, `tools/rc2cfg.py`.
-- **Proposed `tools/eventwin.py`** (not built; the Test Engineer's call): one call per event.
-  Arguments: `<box> <scratch> --event "<console> <baud> <cli...>" --flows-secs N --rate Mbps
-  --bond bond0 --far eth2 --dut-console u0 --poll-ready '<regex>' --reads "<show ...>" --out work/eN`.
-  It starts l2flows + both linerate senders, fires the event, polls Ready, saves every read to
-  `work/eN-*.out`, runs flowstat + loopwin + hostinfo --stats, and prints one summary line per flow.
-- **Proposed `l2flows.py --per-link N`**: N source MACs per flow, so a leg event is always measured.
-- **Fix `tools/rcdiff.py`**: it takes the FIRST `>>> show running-config` header, so an earlier
-  `show running-config | include ...` in the same capture gives a false diff (run1.log line 640).
+- **`tools/eventwin.py`** (BUILT 2026-10-21 on the Test Engineer's "yes, all"; tested offline, not yet on hardware): one call per event.
+  The arguments as built are in `tools/README.md` (`--act`, `--read`, `--poll`, `--after`, `--save work/eN`).
+  It starts l2flows + both linerate senders, fires the timed actions, polls Ready, saves every read,
+  runs flowstat + loopwin + hostinfo --stats, and writes one summary.
+- **`l2flows.py --per-link N`** (BUILT 2026-10-21): N sub-flows per flow, each with its own source MAC, so a leg event is always measured; `flowstat.py`/`loopwin.py` read the sub-flows.
+- **`tools/rcdiff.py` FIXED 2026-10-21**: it now uses only a header whose command is exactly
+  `show running-config`, so the filtered read earlier in the capture no longer gives a false diff.
 
 ## Next run: references
 - The group recipe and the event plan: the `## Group lacp-2026-10-21T1222` and `## Triage` sections of

@@ -71,10 +71,13 @@ reported, not failed.
 ## OPEN
 1. **Should `bondctl` stay in `tools/tb`'s `SUDO_TOOLS`?** It makes a root change on the host reachable through the
    wrapper. The permission given 2026-10-21 covered T17584 only. Evidence: `tools/tb`, commit 5cdad39.
-2. **O-1 and O-2:** worth a developer's look, or a follow-up measurement? The recipe to prove each is in
-   `platforms/IE520.md` §3 and `lacp-2026-10-21T1222/17584/17584-review.md` "Accuracy risks".
-3. Proposed tools from the review (not built): `tools/eventwin.py` (one call per traffic event), `l2flows.py
-   --per-link`, and an `rcdiff.py` fix (it takes the first `show running-config` header). Build any?
+   (15:2x: Terrence asked what it does; answered in the session. Still his decision.)
+2. ~~O-1 and O-2: a developer or a follow-up measurement?~~ **Terrence 2026-10-21: "no".** They stay recorded in
+   `platforms/IE520.md` §3 as observations; nothing is scheduled.
+3. ~~Build the proposed tools?~~ **Terrence 2026-10-21: "yes, all". Built the same afternoon:** `tools/eventwin.py`
+   (new), `l2flows.py --per-link` (+ `flowstat.py`/`loopwin.py` read sub-flows), `rcdiff.py` fix. Tested offline
+   (fake socket layer, stub-tool harness) and by a regression on tb101's E3 flow files (identical output); **not yet
+   run on hardware** — the first traffic case that uses them is their hardware test. README entries in `tools/README.md`.
 4. Unchanged from 10-20: `port4.0.26`'s far end; flash housekeeping on the master (old cfgs, a 242 KB debug tgz);
    `/nfsHome` fstab line on tb101.
 
