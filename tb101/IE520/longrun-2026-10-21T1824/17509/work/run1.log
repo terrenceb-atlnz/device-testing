@@ -188,3 +188,146 @@ System Location
 - 18:55:31-18:56:13 Sample 0 (T0) by the sampler: progress.tsv k=0: console ok, stack `Normal operation`, ready 4/4, master 3, memfree m1-m4 280112/279844/271976/280364 kB, cpu m1-m4 (1s/20s/60s) 2/3/2, 4/5/4, 1/5/4, 4/4/4 %, log lines 544, `% ` lines 0; IXIA ok: 10/5 sent 91926630 rcvd 91926628 UDS1 91926622 FCS 0 tx 1174765 fps; 10/6 sent 92512501 rcvd 92512499 UDS1 92512493 FCS 0 tx 1174766 fps. u2 transcript ends `IE520#`, closed 18:56:13.
 - PHASE A COMPLETE 18:56. Row state RUNNING-DETACHED until 2026-10-22 06:55 NZDT. Still to come (Phase C): ixtcl stop + final counters, control + positive at end, after-reads (same list as before-reads), health 2 (`--before /tmp/lr-1824/health-u2-20261021T184955.out.json`), grading, restore recipe, probe MATCH, RESULT.
   Run label so far: clean (no unexplained event; the exception-log entries are the 10-20 baseline).
+
+## Phase B (unattended, 2026-10-21 18:55 .. 2026-10-22 06:55 NZDT) -- sentinel only, no tester
+- The sampler (tb101 pid 25173) wrote 13 samples k=0..12 to work/progress.tsv, work/ixia.tsv and work/hourly/sample-<kk>-<stamp>.txt, then `DONE 13 samples at 2026-10-22 06:55:49` (work/DONE, work/sampler.out). Committed by the sentinel as 0cec1a0. No run event recorded during Phase B (no restart, no re-take of IXIA, no skipped sample).
+
+## Phase C (bench-runner, started 2026-10-22 07:04 NZDT) -- same run, run1
+- 07:04 Uncommitted `bench-setup/tb101/bench-state.md` found in the repo: it is Phase A's own 18:34 non-read-only probe (capture 2026-10-21T053443Z, MATCH, host-NIC portlinks eth2->port3.0.1, eth3->port2.0.1, eth4->port1.0.1 learned), generated output Phase A never committed. Committed unchanged as e205267 before this phase's probe regenerates it.
+- 07:04:11 Gates: `tools/tb precheck tb101 0-3` -> /dev/u0..u3 free; FOUND only ser2net pid 594 (root, the box's standing service; queue: normal, exit 5 expected). `tools/tb ps tb101 longrun` -> empty (sampler 25173 has exited; nothing to kill). `/tmp/lr-1824/health-u2-20261021T184955.out.json` still present (no reboot of tb101). `tools/tb template tb101` -> /nfsHome not mounted, no deployed tb101.setup (unchanged from Phase A: the box has no deployed template; the generated bench-state.md is its description). `tools/tb peek` u0 `IE520-1 login:`, u1 `IE520-2 login:`, u2 `IE520#`, u3 `IE520-4 login:` (no console parked in config or a shell). u2's transcript /tmp/lr-1824/console-u2.log last closed at exec 06:55:43 by the sampler.
+- 07:04:47 IXIA STOP: `tools/tb tool tb101 lr-1824 ixtcl stop --chassis 10.36.10.82 --login terrenceb-claude --ports 10/5,10/6` -> RC tclserver/chassis/login/stop 0. Traffic ran T0 18:55:00 -> 07:04:47 = 12 h 09 min 47 s.
+- 07:04:57 and 07:05:03 FINAL COUNTERS (two reads 6 s apart, identical = settled; work/ixia-stop-final.txt), transmitState 0 both:
+      port  framesSent    framesReceived  UDS1 (peer test stream)  UDS2 (SA ::03)  fcsErrors  bytesSent        bytesReceived    undersize oversize
+      10/5  51445932572   51445934018     51445932572              0               0          26340317476864   26340317575192   0         0
+      10/6  51445932572   51445934018     51445932572              0               0          26340317476864   26340317575192   0         0
+  The two ports read the same totals because both streams were started (ixtcl start, one port list) and stopped together on one card at the same rate; the hourly reads differ by up to ~1.2 M only because each port was read ~0.5 s after the other while running. `counters` issues a separate `stat get statAllStats` per port (tools/ixtcl.py counter_body), and the control burst below reads 10/5 sent 1000 beside 10/6 sent 0, so the rows are two ports.
+  Check: 51445932572 frames / 1174765 fps = 43792.6 s = 12 h 09 min 53 s, matching the 12 h 09 min 47 s run time to within the start/stop read granularity.
+  **Per-stream: UDS1(10/6) 51445932572 == framesSent(10/5) 51445932572 -> loss 0. UDS1(10/5) 51445932572 == framesSent(10/6) 51445932572 -> loss 0. FCS 0, undersize 0, oversize 0 both. Non-test rx (rx - UDS1 - UDS2) = 1446 frames per port (switch-originated multicast, R1).**
+- 07:05:4x Switch after stop, master u2 (`CKTO=120 tools/tb ckcon tb101 lr-1824 u2 115200 'show clock' 'show stack' 'show interface port3.0.25,port4.0.25' 'show mac address-table | include 0000.0000.000'` -> work/stop-switch.txt): member 3 Active Master, Normal operation; DUT clock 18:07:02 UTC (box 07:05:4x NZDT = 18:05:4x UTC; still ~85 s ahead).
+      port3.0.25 input packets 51445934672, bytes 26340318552064, dropped 0 ; output packets 51445935141, multicast 1469
+      port4.0.25 input packets 51445933672, bytes 26340318040064, dropped 0 ; output packets 51445935141, multicast 1469
+      100  port3.0.25   0000.0000.0001   forward  dynamic ; 100  port4.0.25   0000.0000.0002   forward  dynamic
+  Reconciles exactly since the start reboot: port3.0.25 in = 100 learn + 1000 control + 1000 positive + 51445932572 continuous; port4.0.25 in = 100 + 1000 + 51445932572; each port's out = the peer's forwarded frames (100 + 1000 + 51445932572 = 51445933672) + 1469 multicast = 51445935141. **Switch dropped 0 on both ports.** IXIA's 1446 non-test frames = 1469 multicasts less the ~23 the switch sent before the T0 `clear`.
+- 07:05:54 CONTROL at end (R2), port 5 -> port 6 (work/ixia-control-end.txt, work/control-end-switch.txt):
+      ixtcl stream --port 10/5 --sa 00:00:00:00:00:03 --da 00:00:00:00:00:02 --sip 192.168.1.3 --dip 192.168.1.2 --sport 5000 --dport 5000 --size 512 --percent 50 --count 1000 --vlan 3   (RC vlan_set/ip_set/udp_set/stream_set/write 0; read back VLAN 10/5 id=3)
+      ixtcl clear --ports 10/5,10/6 ; ixtcl burst --ports 10/5 ; ixtcl counters --ports 10/5,10/6
+      10/5 sent 1000 (512000 B), rcvd 1 ; 10/6 sent 0, rcvd 1 (68 B, a switch multicast), UDS1 0, **UDS2 (SA ::03) 0**   -> control 0 of 1000
+      switch: port3.0.25 input 51445934672 -> 51445935672 (+1000, bytes +512000: the tagged frames arrived), dropped 0; port4.0.25 output 51445935141 -> 51445935143 (+2 = multicast 1469 -> 1471 only)
+- 07:06:37 POSITIVE at end, beside the control (work/ixia-positive-end.txt, work/positive-end-switch.txt): streams 10/5 ::01->::02 and 10/6 ::02->::01, untagged, 512 B, 50 %, --count 1000 (both IXTCL stream exit 0); `ixtcl burst --ports 10/5,10/6` -> 10/5 sent 1000 rcvd 1000 **UDS1 1000**; 10/6 sent 1000 rcvd 1000 **UDS1 1000**; FCS 0. Switch: port3.0.25 input +1000 (51445936672), output +1001 (51445936144, multicast 1472); port4.0.25 input +1000 (51445934672), output +1001; dropped 0 both. **CONTROL 0 BESIDE 1000/1000 -- as expected, same as at start.**
+- 07:07:44-07:09:10 AFTER-READS (case step 1's reads "before and after Ixia long run" + plan + R3/R4; the same 23 commands as the before-reads), master u2: `CKTO=180 tools/tb ckcon tb101 lr-1824 u2 115200 'show clock' 'show system' 'show log' 'show cpu history' 'show stack detail' 'show stack' 'show memory' 'show memory 1'..'show memory 4' 'show cpu' 'show cpu 1'..'show cpu 4' 'show memory history' 'show log permanent' 'show reboot history' 'show boot' 'show interface port3.0.25,port4.0.25' 'show mac address-table' 'show running-config'` -> exit 0, work/after-reads.txt (5288 lines, 0 `% ` lines).
+- DUT `show system` (after), verbatim and in full:
+```
+System Status                                           Wed Oct 21 18:09:15 2026
+
+Stack member 1
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       717  Base    AT-IE520-28GSX                    X1-0  264A23061       
+--------------------------------------------------------------------------------
+RAM: Total: 506724 kB Free: 279440 kB
+Flash: 106.3MB Used: 41.4MB Available: 64.9MB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 12:26:30
+Bootloader version : 9.2.0
+
+
+Stack member 2
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       717  Base    AT-IE520-28GSX                    X1-0  264A23068       
+--------------------------------------------------------------------------------
+RAM: Total: 506724 kB Free: 280524 kB
+Flash: 106.3MB Used: 41.6MB Available: 64.7MB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 12:26:29
+Bootloader version : 9.2.0
+
+
+Stack member 3
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       717  Base    AT-IE520-28GSX                    X1-0  264A23052       
+--------------------------------------------------------------------------------
+RAM: Total: 506724 kB Free: 271312 kB
+Flash: 106.3MB Used: 41.8MB Available: 64.6MB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 12:26:29
+Bootloader version : 9.2.0
+
+
+Stack member 4
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       717  Base    AT-IE520-28GSX                    X1-0  264A23066       
+--------------------------------------------------------------------------------
+RAM: Total: 506724 kB Free: 279524 kB
+Flash: 106.3MB Used: 47.2MB Available: 59.2MB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 12:26:29
+Bootloader version : 9.2.0
+
+
+Current software   : IE520-awplus_main-20261019-75.rel
+Software version   : awplus_main-20261019-75
+Build date         : Mon Oct 19 08:37:01 UTC 2026
+
+Current boot config: flash:/tb101-bench.cfg (file exists)
+
+System Name
+ IE520
+System Contact
+
+System Location
+```
+- 07:09:19-07:09:47 HEALTH 2 (after), master u2: `CKTO=180 tools/tb health tb101 lr-1824 u2 115200 --before /tmp/lr-1824/health-u2-20261021T184955.out.json --label after` -> **exit 4 (DIRTY)**; raw /tmp/lr-1824/health-u2-20261022T070919.out (copied to work/health2-raw.txt), json work/health2.json, summary work/health2.txt:
+      reboots ......... 289 entries, no new entry (newest stays 2026-10-21 05:42:02 Expected User Request = this run's start reboot, UTC)
+      exception log ... NOT None -> the tool's DIRTY. Compared field by field with health 1: **byte-identical** (1535 characters both): the 2026-10-20 01:58-02:02 UTC `duplicate-master debug snapshot saved to /flash/debug-duplicate-master-...tgz` entries on members 1-4, dated the day before this run (Phase A recorded them as baseline). No new exception entry during the run.
+      log (filtered) .. 33 lines = 7 echoes of our own commands + the same 26 boot kern.notice/warning lines as health 1; 0 new non-echo lines
+      log tail 150 .... 150 lines, all echoes of our own commands
+      cpu ............. busy 1 s / 20 s / 60 s 3/3/3 % -> 4/3/3 %; load 2.73 -> 2.26 (traffic stopped 07:04:47; CPU not busy after it)
+      memory .......... free 281456 -> 279548 kB (-1908 kB, 0.4 % of 506724; the hourly table below shows it is within the run's noise)
+  Work-file fix: Phase A's work/health1.json held only the last 199 of the 373 lines of /tmp/lr-1824/health-u2-20261021T184955.out.json (not valid JSON; it could not have served as the `--before` fallback). Replaced with the full box copy (26032 B) at 07:10. work/health1-raw.txt was complete (cmp-identical to the box's .out).
+
+## Grading (queue Grading block; 13 samples k=0..12 from work/progress.tsv)
+1. **`show system` before (18:49:36 NZDT 10-21) -> after (07:09:15 NZDT 10-22)** (diff of the two captures): differences are ONLY the header clock, `Uptime` (0 days 00:06:5x -> 0 days 12:26:29/30, i.e. no member restarted) and `RAM ... Free` per member (m1 279520 -> 279440, m2 280716 -> 280524, m3 273532 -> 271312, m4 280676 -> 279524 kB). Board ID/name/rev/serials, RAM total, Flash used/available, Environment Status `Normal`, bootloader 9.2.0, software `IE520-awplus_main-20261019-75.rel`, build date, boot config `flash:/tb101-bench.cfg (file exists)`, System Name: all unchanged. (This IE520 `show system` prints no temperature/fan/voltage lines.) -> PASS
+2. **`show stack detail`** before -> after: **no difference at all** (74 lines identical). `show stack` identical (member 3 Active Master prio 1, members 1/2/4 Backup prio 128, all Ready, Normal operation). -> PASS
+3. **VCS `Normal operation` at every sample**: 13/13 samples `Normal operation`, Ready 4/4, master 3, console read ok; plus at stop (07:05) and in the after-reads. **No new `show reboot history` entry** after the start reboot (311 lines identical before/after on the master; health: 289 entries, newest 2026-10-21 05:42:02 Expected User Request). Uptime 12 h 26 min on all four. -> PASS
+4. **CPU not high**: hourly `show cpu <m>` busy % (1 s / 20 s / 60 s) max over 13 samples: m1 6/4/4, m2 7/5/4, m3 7/5/5, m4 9/4/4 — under 10 % throughout, with 1.17 Mpps each way switched in hardware. `show cpu history` before: every per-minute and per-30-min peak (70-80 %) sits in the column of the start reboot (5-7 min before the read). After: per-30-min average in the 10 % row for all 24 run columns on every member, the only `+` maximum above 20 % is the reboot column (col 35, 70 %); per-minute maxima 20 % (m1/m2/m4) and 40 % (m3, master, in the minutes of our own console reads). Per-second averages after: 10 % row (m1/m2), 30 % (m3, during the read), 20 % (m4) — the same rows as before. No sustained rise. -> PASS
+5. **No error log in `show log`**: after-read `show log` has 745 lines, the before-read's 467 all still present (no rotation); the 278 new lines are ALL `user.notice IMISH[...]: [manager@ttyS0]<command>` echoes of the sampler's and this phase's own commands (15 per hourly sample). **0 new lines of any other kind** (no err/crit/warning, no kernel, no VCS, no link, no daemon line). Each of the 13 hourly full `show log` files: 0 new non-IMISH lines. `show log permanent` 1321 lines before and after, 0 new lines. The crit/err lines in the log all pre-date traffic (the start boot, listed in the Phase A before-reads entry). -> PASS
+6. **No memory leak (`show memory` hourly)**, free kB per member (`show memory <m>`, RAM total 506724 kB each):
+
+| k | time (NZDT) | m1 free kB | m2 free kB | m3 free kB (master) | m4 free kB |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 2026-10-21 18:55:31 | 280112 | 279844 | 271976 | 280364 |
+| 1 | 2026-10-21 19:55:00 | 280180 | 280844 | 271740 | 280100 |
+| 2 | 2026-10-21 20:55:00 | 280004 | 282168 | 272180 | 279560 |
+| 3 | 2026-10-21 21:55:00 | 281068 | 281084 | 271896 | 280508 |
+| 4 | 2026-10-21 22:55:00 | 280288 | 280592 | 271672 | 280200 |
+| 5 | 2026-10-21 23:55:00 | 279404 | 280676 | 269116 | 280208 |
+| 6 | 2026-10-22 00:55:00 | 280720 | 281460 | 271128 | 280416 |
+| 7 | 2026-10-22 01:55:00 | 280352 | 281252 | 270788 | 280364 |
+| 8 | 2026-10-22 02:55:00 | 280980 | 281868 | 272132 | 280268 |
+| 9 | 2026-10-22 03:55:00 | 279440 | 280748 | 273088 | 278936 |
+| 10 | 2026-10-22 04:55:00 | 279672 | 280688 | 272180 | 279764 |
+| 11 | 2026-10-22 05:55:00 | 280864 | 279336 | 272108 | 279708 |
+| 12 | 2026-10-22 06:55:00 | 280216 | 280740 | 272644 | 278684 |
+
+   | member | first k0 | last k12 | min | max | range | least-squares slope | mean k0-5 | mean k7-12 | monotonic decline | before-read 18:49 | after-read 07:08 |
+   | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+   | m1 | 280112 | 280216 | 279404 | 281068 | 1664 | +0.9 kB/h | 280176 | 280254 | no | 280592 | 279988 |
+   | m2 | 279844 | 280740 | 279336 | 282168 | 2832 | -32.8 kB/h | 280868 | 280772 | no | 282084 | 280160 |
+   | m3 | 271976 | 272644 | 269116 | 273088 | 3972 | +66.0 kB/h | 271430 | 272157 | no | 272892 | 271880 |
+   | m4 | 280364 | 278684 | 278684 | 280508 | 1824 | -86.0 kB/h | 280157 | 279621 | no | 280064 | 280148 |
+
+   No member declines monotonically; every series moves up and down within 0.3-0.8 % of RAM. m3's single dip (269116 at k=5) recovered at k=6. m4 has the steepest fit (-86 kB/h) and its k=12 reading is its minimum, but it was back to 280148 kB at the 07:08 after-read (above its 18:49 before-read, 280064). `show memory history` before and after: utilisation flat in the 50 % row on all members at every time scale, no maximum marks. **Verdict: no memory leak across 12 h** (no trend beyond the sample-to-sample noise). -> PASS
+7. **Traffic** (makes "Normal operation" measurable): after stop, UDS1(10/6) 51,445,932,572 == framesSent(10/5) 51,445,932,572 and UDS1(10/5) 51,445,932,572 == framesSent(10/6) 51,445,932,572 -> **0 frames lost either way over 12 h 09 min 47 s** (~51.4 G frames, ~26.3 TB each way). FCS 0, undersize 0, oversize 0, UDS2 0 on both ports. Switch port3.0.25/port4.0.25 dropped 0, and the switch's input/output counts reconcile with IXIA frame for frame (above). Hourly rates steady: txfps and UDS1 fps 1,174,764-1,174,766 on both ports at all 13 samples (UDS1 fps == txfps at each), link 1 always. -> PASS
+8. **Control** (STANDING-ORDERS §7): start 18:51 0 of 1000 (VID 3 tagged, SA ::03) at 10/6 UDS2 beside positive 1000/1000; end 07:05 0 of 1000 beside 1000/1000; both times the switch took the tagged frames in (input +1000) and forwarded none (port4.0.25 output +2 multicast only). -> PASS
+- Run label: **clean** -- no unexplained event; the only DIRTY flag (health.py: exception log not None) is the pre-run 2026-10-20 duplicate-master entries, byte-identical before and after, sent to the sentinel as a NEEDS TEST ENGINEER note for his confirmation.

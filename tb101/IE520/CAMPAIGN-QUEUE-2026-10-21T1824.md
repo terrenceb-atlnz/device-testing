@@ -83,7 +83,7 @@ allowed to reconfigure whatever you need to on the ixia and the devices in order
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | T17509 Longrun test: Normal operation with IXIA traffic | tb101/IE520/longrun-2026-10-21T1824/ | RUNNING-DETACHED until 2026-10-22 06:55 NZDT (T0+12h; DONE ~06:56) | 3 phases (below): A = TRIAGE + setup + before-reads + start traffic and the detached sampler (bench-runner); B = 12 h unattended, sentinel watches the sampler's files; C = stop, after-reads, grade, restore (a fresh bench-runner dispatched by a one-shot cron at T0+12h) |
+| 1 | T17509 Longrun test: Normal operation with IXIA traffic | tb101/IE520/longrun-2026-10-21T1824/ | PHASE C RESTORING (traffic stopped 07:04:47 10-22, graded PASS in run1.log; restore recipe in progress) | 3 phases (below): A = TRIAGE + setup + before-reads + start traffic and the detached sampler (bench-runner); B = 12 h unattended, sentinel watches the sampler's files; C = stop, after-reads, grade, restore (a fresh bench-runner dispatched by a one-shot cron at T0+12h) |
 
 ## The plan (agreed with Terrence 2026-10-21 ~18:00; the tester may refine mechanics, never weaken a check)
 
