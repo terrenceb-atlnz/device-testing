@@ -56,6 +56,37 @@ Test Engineer's rulings carried into this campaign (2026-10-21):
 | --- | --- | --- | --- | --- |
 | 1 | platform + ports: T47226 (sh version), T47227 (sh license), T47215 (sh sys environment), T46421 (link flap), T47208 (copper pluggable speeds), T47210 (MAC/PHY TLV vs speed/duplex) | tb470/x230v2-28GS/platform-ports-2026-10-21T1323/ | QUEUED | manual CLI on u1 (DUT) with u0 as the link partner / LLDP decoder; the three show cases first (read-only), then the three port cases on the one link port1.0.1 <-> 4050 port1.0.2; no PDU, no reload expected; restore the link to auto/1000-full and LLDP after each port case |
 
+### Group setup and exact restore recipe (written at triage 2026-10-21 13:3x by bench-runner, before any device change)
+
+Pre-run baseline, measured (probe `2026-10-21T002632Z` MATCH; capture `bench-setup/captures/2026-10-21T002632Z/`):
+- u1 x230 `port1.0.1`: `connected trunk a-full a-1000 1000BASE-T`; running-config stanza = `switchport` / `switchport mode trunk` /
+  `snmp trap link-status` / 2 `rmon collection history` lines / `switchport atmf-link`; NO `speed`, NO `duplex`, NO `lldp tlv-select` lines.
+  `lldp run` global. `show system pluggable` lists ONLY 1.0.1 (ATI AT-SPTXa A04906R191400072, 1000BASE-T). `port1.0.7 shutdown` is saved baseline: leave it.
+- u0 4050 `port1.0.2`: `connected 10 a-full a-1000 1000BASE-T`; stanza = `switchport` / `switchport mode access` / `switchport access vlan 10`;
+  NO `speed`/`duplex`/`lldp tlv-select` lines. `lldp run` global.
+- Both: `show boot` -> `Current boot config: flash:/tb470-bench.cfg (file exists)`. Nothing in this group changes it; no `write` at any point.
+
+Setup the port cases add (running-config only, never saved):
+- T47210 only: `lldp tlv-select mac-phy-config` on u1 `interface port1.0.1` AND on u0 `interface port1.0.2` (so each end's 802.3 MAC/PHY TLV is readable
+  at the other with `show lldp neighbors detail`).
+- T47208 / T47210: `speed …` / `duplex …` under u1 `interface port1.0.1`, and for the fixed-speed combos the matching `speed`/`duplex` under u0
+  `interface port1.0.2`. T46421: `shutdown` / `no shutdown` on u1 `port1.0.1` (local flaps) and on u0 `port1.0.2` (remote flaps). The three
+  show cases change nothing.
+
+Restore, after EACH port case (the next case starts from the baseline above), all on the console, then verified:
+```
+u1 (x230):  configure terminal / interface port1.0.1 / no speed / no duplex / no lldp tlv-select mac-phy-config / no shutdown / end
+u0 (4050):  configure terminal / interface port1.0.2 / no speed / no duplex / no lldp tlv-select mac-phy-config / no shutdown / end
+both:       terminal no monitor (exec, after `end`)
+```
+- `no speed` returns the port to `speed auto` (all rates advertised) and `no duplex` to `duplex auto`; status must read `connected ... a-full a-1000`
+  on both ends within ~5 s, and `show lldp neighbors` must list the peer again on both ends (LLDP re-learns inside one Tx interval, 30 s max).
+- Proof: `show running-config` on each unit diffed against the pre-run capture (`tools/rcdiff.py`, or the probe's capture file) must be
+  byte-identical apart from the header's time stamp. `show boot` still `flash:/tb470-bench.cfg` on both. The final probe (same facts) must read MATCH.
+- Never: `write`, `boot config-file`, `reload`, a PDU command, any `/dev/uN` other than u0/u1, any change to `switchport atmf-link` or VLANs.
+- If a session dies mid-case: run the two restore blocks above as written, then the proof; a port left `shutdown` or at a forced speed is the
+  only state this group can leave behind.
+
 ## Results
 
 | case | title | group | verdict | reason | working log | graded |
