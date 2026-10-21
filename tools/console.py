@@ -65,7 +65,13 @@ ADVISORY = re.compile(
     # afterwards read `Telnet server : Enabled / Protocol : IPv4 / Port : 23` with
     # `service telnet` in the running-config.  Without it cfg.py abandons the rest of the
     # batch at the very command that turns the feature on.
-    r"|Telnet is insecure and deprecated",
+    r"|Telnet is insecure and deprecated"
+    # `exec-timeout 0 0` under `line console 0`: the setting IS stored; this says the CURRENT
+    # session keeps its old timeout.  Measured on tb101 2026-10-21 (T17509, IE520
+    # awplus_main-20261019-75): printed at `IE520(config-line)#`, and `show running-config`
+    # immediately afterwards read ` exec-timeout 0 0` under `line con 0`.  Without it cfg.py
+    # abandons the rest of the batch (it stopped T17509's setup at that line).
+    r"|The new exec-timeout settings will apply to new sessions only",
     re.I)
 
 def is_advisory(line):

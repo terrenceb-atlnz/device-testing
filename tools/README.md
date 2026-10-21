@@ -1804,3 +1804,55 @@ Decodes and **counts** the NTP packets in a `tcpdump -w` pcap -- **IPv4 and IPv6
   restrict/removed arc (2 requests + 0 replies with the server off, 3+3 all paired with it on,
   3 requests + 0 replies while `ntp restrict ... serve deny` was in force) and on IPv6 in
   T44298
+
+### `ixtcl.py`
+Drives an IXIA chassis through the lab's IxOS Tcl client (IxTclHal 6.80 with its own `tclsh8.5` in
+`/home/ixos-IxNetwork`, which proxies to the chassis's IxTclServer). Every call connects (`ixConnectToTclServer`
+FIRST, then `ixConnectToChassis`, then `ixLogin <name>`), acts and disconnects. Each IxTclHal action's return code is
+printed as `RC <label> <code>`; any non-zero code or Tcl error makes the call exit 1. Actions: `status` and
+`counters` (read-only; one `TSV` line per port: link, transmitState, framesSent/Received, userDefinedStat1/2,
+fcsErrors, bytes, undersize/oversize, then the rates of framesSent/framesReceived/UDS1; `--tsv FILE` appends them),
+`take [--force]`, `release`, `reset` (port factory defaults, clears streams AND filters), `stream` (one
+EthernetII/IPv4/UDP stream: `--sa --da --sip --dip --sport --dport --size --percent`, `--continuous` or
+`--count N`, optional `--vlan VID`), `filter` (UDS1 = frames matching `--uds1-sa/--uds1-da`, UDS2 =
+`--uds2-sa/--uds2-da`; an omitted address is "any"), `clear`, `start`, `stop`, `burst` (clear, start, wait for
+`ixCheckTransmitDone`, counters). Also a library: `ixtcl.counters(chassis, login, [(card, port), ...])`.
+- **Run:** `tools/tb tool <TB> <run> ixtcl <action> --chassis <ip> --login <name> --ports 10/5,10/6 [...]`
+  (`--port 10/5` for `stream`/`filter`)
+- **Where:** a testbox that mounts the lab `/home` (the client lives in `/home/ixos-IxNetwork`); **needs:** that
+  client; nothing from pip
+- **Imports:** none (stdlib)
+- **Limits:**
+  - Raw `framesReceived` includes frames the DUT itself sends (on tb101 ~1.4 per minute per port, ~68 B, while
+    idle), so grade loss on a UDS filtered on the stream's SA/DA, never on raw rx.
+  - The global error flag is `::ixtcl_bad`: IxTclHal itself uses a global `bad`, and a script that used it
+    exited 3 with every RC 0 (2026-10-21).
+  - Writing (`stream`, `filter`, `start` ...) needs port ownership under the same `--login` (memory
+    `ixia-chassis-82-tcl-access`); a `take --force` steals ports from their owner, so it needs the Test Engineer's OK.
+  - The framework's `ATDrivers/ATIxia.py` cannot do chassis 82; this does.
+- **Status:** verified 2026-10-21 on tb101 -> chassis 82 (10.36.10.82, IxOS 9.20), card 10 ports 5/6: `status`,
+  `counters` (read-only); the write actions are recorded in T17509's run1.log as they are first used.
+
+### `longrun.py`
+The detached long-run sampler (T17509, 2026-10-21). Every `--every` s for `--hours` (k = 0 .. hours*3600/every, so 13
+samples for 12 h hourly, the first at the start) it reads an AW+ console and, optionally, IXIA counters, and writes
+one file per sample (`<out>/hourly/sample-<kk>-<stamp>.txt`, every command with its full output, `HH:MM:SS >>> cmd`),
+one line per sample to `<out>/progress.tsv` (stack state, Ready count, master, per-member memory free and CPU
+1s/20s/60s, `show log` line count, `% ` line count, per-port IXIA link/sent/rcvd/UDS1/UDS2/FCS/rates), the IXIA rows
+to `<out>/ixia.tsv`, and `<out>/DONE` after the last sample. Console reads: `show clock`, `show stack`, `show memory
+<m>` and `show cpu <m>` per `--members`, `show interface <--dut-ports>`, each `--cmd`, then the full `show log`. It
+opens the console only for the sample and closes it after (`terminal no monitor`, exec-safe). A console another
+process holds is retried every 60 s for up to `--held-retry` s, then the sample is written as SKIPPED with the
+reason. A failed read is written to the sample and its progress line, and the run goes on.
+- **Run:** `tools/tb tool <TB> <run> longrun --detach --hours 12 --every 3600 --console /dev/u2 --baud 115200
+  --transcript /tmp/<run>/console-u2.log --members 1,2,3,4 --dut-ports port3.0.25,port4.0.25 --ixia <ip>
+  --ixia-login <name> --ports 10/5,10/6 --out <dir>`; prints `DETACHED pid=<pid>`. Stop it with
+  `tools/tb killmine <TB> <pid>`, or create `<out>/STOP` (it then writes DONE as STOPPED).
+- **Where:** testbox; **needs:** pyserial, `fuser` (psmisc), the IXIA client for `--ixia`
+- **Imports:** console, ixtcl
+- **Limits:**
+  - The `show stack` parser expects the AW+ VCS summary table; on another product the stack columns read `?`.
+  - `--detach` uses setsid + a double fork; the process survives the ssh session, the dev host and a VPN drop, but
+    not a reboot of the testbox.
+- **Status:** first used 2026-10-21 on tb101 (IE520 4-stack, T17509): see that case's run1.log for the short test
+  sample and the 12 h launch.

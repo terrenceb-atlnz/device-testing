@@ -1,4 +1,4 @@
-# T17509 run 1 -- working log (bench-runner, Phase A started 2026-10-21 18:40 NZDT)
+# T17509 run 1 -- working log (bench-runner, Phase A started 2026-10-21 18:33 NZDT)
 
 ## Session facts (Test Engineer's, from the dispatch / queue CAMPAIGN-QUEUE-2026-10-21T1824.md)
 - Test Engineer: terrenceb@terrenceb-dl (Terrence Beach). Testbox: tb101 (the Test Engineer's own box, not shared).
@@ -53,3 +53,24 @@ Note: step 1 spells `no spannig-tree rstp enable`; the parser would reject it, s
 ## Log (as it goes; times NZDT unless marked)
 - 18:28 TRIAGE gates (same session): precheck CLEAR apart from ser2net pid 594; u0-u3 at `IE520#`; read-only probe 2026-10-21T052847Z NEEDS-CHECK (host-NIC portlinks only, read-only artefact); IXIA read-only: 10/5, 10/6 owner terrenceb-claude, link 1, 10G full, framesReceived 85 of non-test frames each; VID 100 unused; qmark: show cpu history / show stack detail / show memory <1-8> accepted. Commit febc1c7.
 - 18:34 Phase A baseline probe WITHOUT --read-only (tester refinement 7): `tools/tb probe tb101 --consoles 0-3 --baud 115200 --no-prompt` -> exit 0 MATCH, capture 2026-10-21T053443Z.
+- 18:37 Tool built: tools/ixtcl.py. `tools/tb tool tb101 lr-1824 ixtcl status --chassis 10.36.10.82 --login terrenceb-claude --ports 10/5,10/6 --header` -> RC tclserver/chassis/login/port_get 0; 10/5 and 10/6 owner terrenceb-claude, speed 10000, duplex 1, autoneg 0, type 102; stream 1 on each = the 10-21 17:45 write test (512 B, 1 %, dma 2 = stopStream, 100 frames); counters 10/5: sent 100 rcvd 99, 10/6: sent 100 rcvd 99 (the rcvd figure rose 85 -> 99 in ~10 min while idle: switch-originated frames, ~68 B average; tester refinement R1). First version exited 3 with every RC 0: IxTclHal uses a global `bad`; the flag was renamed `::ixtcl_bad`, re-run exit 0.
+- 18:37:42 Pre-run state (setup step 1), master u0 (member 1): `tools/tb ckcon tb101 lr-1824 u0 115200 'show clock' 'show system' 'show boot' 'show stack' 'show stack detail' 'show reboot history' 'show file flash:/tb101-bench.cfg' 'show running-config'` (CKTO=120) -> work/pre-run-u0.txt (734 lines, no `% ` line). Boot config copy -> work/tb101-bench.cfg.pre (125 lines). Member 1 reboot history newest: `2026-10-21 00:50:12 Expected User Request` (UTC).
+- Clock (once per group): DUT `show clock` UTC 05:39:07 at box time 18:37:42 NZDT (= 05:37:42 UTC): the DUT clock runs ~85 s AHEAD of tb101. DUT timezone UTC; reboot history and log times are UTC.
+- Host NICs: none used by this case (traffic is IXIA chassis 82 card 10 ports 5/6, cabled 10/5 <-> port3.0.25, 10/6 <-> port4.0.25, MAC-learned 2026-10-21 17:47).
+- 18:38 Config-mode forms, read-only help (qmark, no CR; self-test OK): `tools/tb qmark tb101 lr-1824 u0 115200 --mode 'configure terminal' -- 'stack 3 priority ' 'no stack 1 ' 'no stack 1 priority '` and `--mode 'configure terminal' 'vlan database' -- 'no vlan ' 'vlan 100 '` -> `<0-255>`; `no stack 1 priority <cr>`; `no vlan <1-4094>`; `vlan 100 state`. Output work/qmark-config.txt. u0 transcript ends `IE520#`, closed.
+- 18:39:21 SETUP step 2 + case step 1 config, master u0: `tools/tb cfg tb101 lr-1824 u0 115200 'configure terminal' 'vlan database' 'vlan 100 state enable' 'exit' 'interface port3.0.25,port4.0.25' 'switchport access vlan 100' 'exit' 'stack 3 priority 1' 'no stack 1 priority' 'no spanning-tree rstp enable' 'line console 0' 'exec-timeout 0 0' 'end' ...` (CKTO=120) -> work/setup-config.txt. Every line accepted up to `exec-timeout 0 0`, which printed `% The new exec-timeout settings will apply to new sessions only` at `IE520(config-line)#`; cfg.py treated it as an error and stopped (exit 2) before `end` and the show reads, then left the console at exec (`end`, `terminal no monitor`, `IE520#`). It is an advisory: the running-config read next shows ` exec-timeout 0 0` (as before the run). Added to `console.ADVISORY` (tools/console.py) with this evidence.
+- 18:39:49 Verify: `tools/tb ckcon tb101 lr-1824 u0 115200 'show vlan brief' 'show running-config interface port3.0.25,port4.0.25' 'show running-config | include stack|spanning|exec-timeout|vlan' 'remote-diff all show running-config'` -> work/setup-verify.txt:
+      100     VLAN0100         STATIC  ACTIVE  port3.0.25(u) port4.0.25(u)
+      interface port3.0.25 / interface port4.0.25: switchport mode access, switchport access vlan 100
+      stack virtual-mac / stack virtual-chassis-id 3439 / stack 3 priority 1   (no `stack 1 priority` line: default 128)
+      spanning-tree mode rstp / no spanning-tree rstp enable / vlan 2-3,100 state enable / exec-timeout 0 0
+      remote-diff: node 1 vs 2, 1 vs 3, 1 vs 4 -> `% Results are identical`
+- 18:40:24 Case step 1 `write` (= wr), u0: `CKTO=300 tools/tb cfg tb101 lr-1824 u0 115200 'write' 'show boot'` -> `Building configuration... [OK]`, `File synchronization with stack member 3/2/4 successfully completed`, `[DONE]`; show boot: `Current boot config: flash:/tb101-bench.cfg (file exists)`. work/write.txt.
+- 18:40:4x Case step 1 `reboot` (whole stack), u0: `tools/tb reloadc tb101 lr-1824 u0 115200 420 /tmp/lr-1824/reboot.done reboot` (background) -> work/reboot.txt.
+- 18:4x Tools built during the reboot: tools/longrun.py (sampler) + README entries for ixtcl.py and longrun.py.
+- 18:4x IXIA setup (R1/R2), `tools/tb tool tb101 lr-1824 ixtcl <action> --chassis 10.36.10.82 --login terrenceb-claude ...` -> work/ixia-setup.txt, every RC 0:
+      reset --ports 10/5,10/6                       (port setFactoryDefaults both; clears the 17:45 write-test streams)
+      filter --port 10/6 --uds1-sa ::01 --uds1-da ::02 --uds2-sa ::03   -> read back SA1=::01 DA1=::02 SA2=::03 uds1=1/1/1 uds2=1/3/0 (addr2, any DA)
+      filter --port 10/5 --uds1-sa ::02 --uds1-da ::01 --uds2-sa ::03   -> read back SA1=::02 DA1=::01 SA2=::03 uds1=1/1/1 uds2=1/3/0
+      stream --port 10/5 --sa ::01 --da ::02 --sip 192.168.1.1 --dip 192.168.1.2 --sport 5000 --dport 5000 --size 512 --percent 1 --count 100
+      stream --port 10/6 --sa ::02 --da ::01 --sip 192.168.1.2 --dip 192.168.1.1 --sport 5000 --dport 5000 --size 512 --percent 1 --count 100
