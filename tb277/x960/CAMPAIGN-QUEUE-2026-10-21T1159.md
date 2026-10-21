@@ -182,6 +182,7 @@ inherit it.** Reboot-persistence limbs are now measurable for the first time in 
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
+| T33379 | (230) Management - Telnet Client (IPv4) | access-2026-10-21T1159 | PASS | the DUT originates IPv4 telnet as a client, proven on the wire (SYN to TCP/23 from its own SVI, full RFC 854 option negotiation captured at the far end) and end to end (authenticated login to swi_b, commands run there, swi_b logging the session from 10.38.22.97); server-off, bad-credential and wrong-port controls all failed correctly. The DUT's own `no service telnet` was never touched — its server is not under test | T33379/work/run1.log | tester |
 | T33388 | (239) EnhancedOperationManagement - Hardware Watchdog | — | NOT TESTED | Dropped by the Test Engineer 2026-10-21. No user-facing watchdog CLI exists on this platform and **TPS 5.3.6 says so deliberately** (*"can be enabled or disabled by user command"* = No): no `show watchdog`, nothing in config mode. The only trigger available was deliberate crash injection via `start-shell`, which was not authorised | — | Test Engineer |
 | T33389 | (240) EnhancedOperationManagement - Software Watchdog | — | NOT TESTED | Dropped by the Test Engineer 2026-10-21, same reason as T33388 | — | Test Engineer |
 
