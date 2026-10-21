@@ -28,11 +28,16 @@ The one way a device-testing session reaches a testbox: `tools/tb <action> <box>
   - forwards a local `CKTO=<secs>` (the console drivers' per-command timeout) to the box for the
     console actions, since ssh carries no environment (2026-10-21; e.g. `CKTO=600 tools/tb ckcon …`
     for a long `copy`);
-  - forwards the login secrets `CK_USER` / `CK_PASSWORD` and the per-console `CK_USER_U<N>` /
-    `CK_PASSWORD_U<N>` (what `tools/console.py` and `bench-setup/bench_probe.py` read) to the box
-    **over stdin**, exporting them there before the tool runs — never on the remote command line,
-    which `ps` shows to every other user on a shared box (added 2026-10-21 for tb277, whose u3 and
-    u5 are on a non-default password);
+  - forwards every login secret — `CK_USER` / `CK_PASSWORD`, the per-console `CK_USER_U<N>` /
+    `CK_PASSWORD_U<N>` that `tools/console.py` and `bench-setup/bench_probe.py` read, and any
+    other `CK_PASSWORD*` / `CK_USER*` name a tool wants — to the box **over stdin**, exporting
+    them there before the tool runs, never on the remote command line, which `ps` shows to every
+    other user on a shared box (added 2026-10-21 for tb277, whose u3 and u5 are on a non-default
+    password). 🔴 The secret lines come FIRST and **the caller's own piped stdin follows them**:
+    an earlier version replaced stdin outright, which silently emptied the password a tool was
+    reading from it and cost a bench account four failed logins the same day. A tool that needs
+    a far-end password through this wrapper should still prefer an environment variable
+    (`devclient --password-env`) over stdin;
   - picks the box's Python (tb105 and tb277: `python3.8`, because their `python3` is 3.6 and
     `bench_probe.py` dies on it with `TypeError: __init__() got an unexpected keyword argument
     'capture_output'`; or set `TB_PY`);
