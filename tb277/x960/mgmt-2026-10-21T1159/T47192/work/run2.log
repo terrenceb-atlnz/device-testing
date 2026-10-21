@@ -1,0 +1,263 @@
+# T47192 (241) Dynamic configuration (Change, Delete) -- working log, RUN 2
+
+**Run 2 exists for ONE of run 1's three NOT MEASURED items.** Run 1 (group B, 2026-10-21 14:2x)
+graded the case PASS and closed its STEP 7 by naming three things it did not measure. This run
+closes the first and leaves the other two exactly where run 1 left them:
+
+| run 1's NOT MEASURED item | run 2 |
+| --- | --- |
+| **persistence of a dynamic change across a reboot** | **MEASURED here** |
+| configuration applied from a FILE while operating (`copy <file> running-config`, `activate <script>.scp`) | **still NOT MEASURED.** It needs a `.scp` or config file on the DUT's flash, which needs a root write to the box's `/tftproot` -- STANDING-ORDERS §4, the Test Engineer's. Not improvised |
+| a change measured *mid-flow* as frames-lost-at-the-instant-of-change | **still NOT MEASURED.** It needs a continuous rate-limited stream spanning the console write, which no tool in `tools/` drives from the same process as a console write |
+
+Run 1's bind for the first item was the same as T33380's and T33386's: proving persistence needs
+a `write`, and a `write` would then have saved vlan 60. That bind is gone -- testers may `write`,
+and vlan 60 has been in startup-config since group C. Run by the **group D** tester
+(`ntp-2026-10-21T1159`) after group D's own three cases.
+
+Run 1 also said, correctly, that **persistence is not what this case is about**: TPS line 894 is
+about a change taking effect *"even during in operation"*. Run 2 does not change that reading.
+What it adds is the other end of the lifecycle: **a change made dynamically is indistinguishable
+from one made before boot** -- it is saved and restored like any other, so "dynamic" does not
+mean "temporary".
+
+Run label: **clean**.
+
+## Session facts
+
+Testbox **tb277**, console **u2 ONLY**, PDU 10.36.230.212 outlet u2=1, u2 = **swi_d** (DUT).
+Sentinel: the parent `/test-mode` session.
+
+🔴 **swi_b (u3) and swi_a (u5) both have a locked `manager` account** and were never opened by
+this run. **There is no `swi_b.cfg` and no `swi_a.cfg`** -- a console-lockout limitation, not a
+bench gap. Both ends of every leg here are the testbox's `eth4` and the DUT's own vlan48 SVI.
+
+## Device
+
+swi_d, AT-x960-56YSQ, S/N A2WQS700B, `sin_x96056-20261019-27` (build Sun Oct 18 23:18:21 UTC
+2026), `/dev/u2` @115200. `show system` verbatim and the host NIC / RSTP details are in
+`../../../ntp-2026-10-21T1159/T33399/work/run1.log`. Boot pointers before and after:
+`flash:/x960-tb277.rel`, `flash:/default.cfg`, Autoboot disabled.
+
+## Pre-run gate
+
+Group D's gate still held (recorded in `../../../ntp-2026-10-21T1159/T33399/work/run1.log`:
+occupancy CLEAR, no deployed `tb277.setup`, probe **exit 0 MATCH** against the swi_d-only run
+`.setup`, `--read-only`, sentinel = parent). This limb began with running-config verified
+byte-for-byte at the **112-line campaign baseline**.
+
+## Health check 1 of 2 -- before the limb (2026-10-21 17:52 NZDT)
+
+```
+show ip interface brief
+vlan10   10.38.22.34/27   admin up  running
+vlan48   10.38.22.66/27   admin up  running
+vlan60   10.38.22.97/27   admin up  running
+
+show reboot history   -> newest 2026-10-21 04:46:05 Expected CLI(user request)
+                         (T33386 run 2's own reload; nothing newer)
+show exception log    -> None
+show cpu              -> 1 second: 0%, 20 seconds: 0%, 60 seconds: 0%
+show memory           -> RAM total: 8092132 kB; free: 7454380 kB; buffers: 1388 kB
+```
+
+## The change under test, and why this one
+
+Run 1's own dynamic change: **move vlan48's address from `10.38.22.66/27` to
+`10.38.22.70/27`** while the device is operating. Run 1 established that
+`ip address A.B.C.D/M` on an SVI that already has one **replaces it in place** -- no error, no
+secondary -- and that **the whole L3 identity moves with it, including the source address of
+that interface's own ICMP unreachables**.
+
+That last part is what makes this limb gradeable on the wire with no ambiguity. One
+`arpleg.py` leg sends ICMP to **both** addresses from `eth4` and the answer is a matched pair:
+
+- the address that **exists** answers **type 0 code 0**, an echo reply, from itself;
+- the address that **does not** draws **type 3 code 1**, host unreachable, **sourced from
+  whichever address vlan48 currently holds** -- and that source is the discriminator.
+
+So each leg carries its own control: whichever of the two is the subject, the other must NOT
+answer, and the unreachable's source address says which one the DUT thinks it is.
+
+```
+sudo arpleg.py --tag <tag> --out /tmp/ntp1021/T47192 --iface eth4 \
+     --icmp 10.38.22.66,10.38.22.70 \
+     --sender-ip 10.38.22.65 --sender-mac 00:0d:b9:55:77:0f \
+     --gw-mac e0:1a:ea:d4:70:43 --count 4 --wait 4
+```
+(`--gw-mac` is the DUT's SVI MAC; every SVI on this platform shares one, `platforms/x960.md`
+§6.5, so the same value addresses either SVI.)
+
+## The limb
+
+### LEG A -- baseline, vlan48 is `.66` (tag `t192-base`)
+
+```
+  cap t192-base-eth4.pcap: 19 frame(s)
+    x4   ICMP t8/c0 10.38.22.65 -> 10.38.22.66   [ours]
+    x4   ICMP t0/c0 10.38.22.66 -> 10.38.22.65   [ours]     <- .66 answers
+    x4   ICMP t8/c0 10.38.22.65 -> 10.38.22.70   [ours]
+    x4   ICMP t3/c1 10.38.22.66 -> 10.38.22.65   [ours]     <- .70 unreachable, FROM .66
+    x3   ARP-REQ who-has 10.38.22.70 tell 10.38.22.66
+```
+`.66` answers 4 of 4; `.70` does not exist and the DUT ARPs for it from `.66`.
+
+### LEG B -- the change applied WHILE OPERATING (tag `t192-changed`)
+
+```
+awplus(config)#interface vlan48
+awplus(config-if)#ip address 10.38.22.70/27          [box 04:52:55 UTC]
+awplus#show ip interface brief
+vlan48   10.38.22.70/27   admin up  running
+```
+No reload, no service restart, no `write` yet.
+```
+  cap t192-changed-eth4.pcap: 21 frame(s)
+    x4   ICMP t8/c0 10.38.22.65 -> 10.38.22.66   [ours]
+    x4   ICMP t8/c0 10.38.22.65 -> 10.38.22.70   [ours]
+    x4   ICMP t0/c0 10.38.22.70 -> 10.38.22.65   [ours]     <- .70 now answers
+    x4   ICMP t3/c1 10.38.22.70 -> 10.38.22.65   [ours]     <- .66 unreachable, FROM .70
+    x3   ARP-REQ who-has 10.38.22.66 tell 10.38.22.70
+```
+**The exact mirror image of leg A, in every one of the five rows.** The DUT now answers for
+`.70`, declares `.66` unreachable, sources that unreachable from `.70`, and ARPs for `.66` --
+the address it used to own. The change took effect dynamically; this is run 1's result
+reproduced as this run's own control.
+
+### LEG C -- the limb: after a cold boot, nothing typed (tag `t192-afterboot`)
+
+```
+awplus#write
+Building configuration...
+[OK]
+awplus#show startup-config | include 10.38.22
+ip address 10.38.22.34/27
+ ip address 10.38.22.70/27          <- the dynamic change, saved
+ ip address 10.38.22.97/27
+
+tools/tb ckreload tb277 ntp1021 u2 115200 240
+17:53:40 >>> reload   (04:53:40 UTC)
+reboot question: 'reboot system? (y/n):' -> y
+17:54:41 login seen after 60 s
+```
+
+🔬 **The leg was settled before it was read** -- the lesson from T33380 run 2 and T33386 run 2
+earlier the same hour. The first post-boot `ping` to `.70` returned **1 of 4, 75% packet loss**;
+the second returned **4 of 4**. Only then was the leg taken.
+
+```
+  cap t192-afterboot-eth4.pcap: 22 frame(s)
+    x4   ICMP t8/c0 10.38.22.65 -> 10.38.22.66   [ours]
+    x4   ICMP t8/c0 10.38.22.65 -> 10.38.22.70   [ours]
+    x4   ICMP t0/c0 10.38.22.70 -> 10.38.22.65   [ours]     <- .70 still answers
+    x4   ICMP t3/c1 10.38.22.70 -> 10.38.22.65   [ours]     <- .66 unreachable, FROM .70
+    x3   ARP-REQ who-has 10.38.22.66 tell 10.38.22.70
+    x1   ARP-REQ who-has 10.38.22.70 tell 10.38.22.70       (duplicate-address probe at boot)
+    x1   ARP-REQ who-has 10.38.22.65 tell 10.38.22.70
+```
+**Row for row identical to leg B**, taken 22 s after the login prompt with **nothing typed into
+the DUT**. The change made dynamically survived the restart complete with its side effects --
+the unreachable source address is still `.70`, so the whole L3 identity was restored, not just
+the address line.
+
+The extra `who-has 10.38.22.70 tell 10.38.22.70` is the SVI's own duplicate-address probe at
+boot, which is itself evidence that the interface was brought up from the saved configuration
+rather than left over.
+
+### LEG D -- restore (tag `t192-restored`)
+
+```
+awplus(config)#interface vlan48
+awplus(config-if)#ip address 10.38.22.66/27
+awplus#show ip interface brief
+vlan48   10.38.22.66/27   admin up  running
+```
+```
+  cap t192-restored-eth4.pcap: 21 frame(s)
+    x4   ICMP t0/c0 10.38.22.66 -> 10.38.22.65   [ours]     <- .66 answers again
+    x4   ICMP t3/c1 10.38.22.66 -> 10.38.22.65   [ours]     <- .70 unreachable, FROM .66
+    x3   ARP-REQ who-has 10.38.22.70 tell 10.38.22.66
+```
+Back to leg A exactly. **The arc on the wire: `.66` -> `.70` -> (cold boot) `.70` -> `.66`.**
+
+## Health check 2 of 2 -- after the limb (2026-10-21 17:56 NZDT)
+
+```
+show reboot history   -> ONE new entry vs the before sample:
+                         2026-10-21 04:53:40 Expected CLI(user request)
+                         = this run's own leg-C reload. Matched and expected.
+show exception log    -> None
+show log | include kernel|exception|crash|restart|Unexpected
+                      -> only the boot sequence of that reload, the same line set as every
+                         other boot in this campaign. No new kernel line, no crash, no
+                         unexplained daemon restart.
+show cpu              -> 1 second: 0%, 20 seconds: 0%, 60 seconds: 0%
+show memory           -> RAM total: 8092132 kB; free: 7454540 kB; buffers: 1360 kB
+```
+Memory is within 200 kB of the before sample across a run containing a full reboot. **No leak is
+claimed.**
+
+**Health: clean. The run is clean, not confounded.**
+
+## Teardown and verification
+
+```
+awplus#write
+```
+- **running-config: 112 lines, byte-for-byte IDENTICAL to the campaign baseline**, with vlan48
+  back at `10.38.22.66/27`.
+- **startup-config differs from the campaign baseline by exactly its saved-on comment**
+  (`... 04:56:08 ...` against `... 03:01:22 ...`). **Nothing of this limb survives.**
+- The inherited underlay, **vlan 60** and `lldp run` are all still present in both. vlan 60
+  remains the Test Engineer's to remove at wrap.
+- Boot pointers unchanged.
+- **swi_b and swi_a were never opened.**
+- Nothing left running on the box; all four legs exited 0 and `arpleg.py` stops its own
+  `tcpdump`.
+
+## What run 2 adds
+
+1. 🔴 **A configuration change applied dynamically, while the device is operating, is saved and
+   restored exactly like any other.** vlan48's address moved `.66` -> `.70` with no restart, was
+   written, survived a 60 s cold boot, and came back with its full L3 identity -- including the
+   source address of its own ICMP unreachables -- before anything was typed into the device.
+   **T47192's reboot-persistence item is no longer NOT MEASURED.** "Dynamic" on this platform
+   does not mean "temporary".
+2. 🔬 **An SVI's own ICMP host-unreachable source address is a free, exact discriminator for
+   which address an interface currently holds.** One leg to two addresses gives a matched pair
+   -- echo reply from the address that exists, type 3 code 1 from the one that does not, sourced
+   from the live one -- so the subject and its control are read from the same four rows. It
+   needed no extra tooling and it is reusable for any address-change case.
+3. 🔬 **A rebooted SVI sends a duplicate-address probe for its own address**
+   (`who-has 10.38.22.70 tell 10.38.22.70`), which distinguishes an interface brought up from
+   saved configuration from one that was merely never torn down.
+4. 🔬 **Third hit of the post-reload settle trap in one hour** (T33380 run 2, T33386 run 2, this
+   run): the first post-boot ping was 1 of 4, the second 4 of 4. Ping to 4/4 on every leg before
+   reading any leg after a reload.
+5. **Two of run 1's three NOT MEASURED items remain NOT MEASURED, deliberately** -- file-driven
+   configuration needs a root write to the box's `/tftproot` (STANDING-ORDERS §4), and the
+   mid-flow timing number needs a tool that does not exist in `tools/`. Neither was improvised.
+
+## Tools used, with exact arguments
+
+- `tools/tb sudotool tb277 ntp1021 arpleg --tag <t192-base|t192-changed|t192-afterboot|
+  t192-restored> --out /tmp/ntp1021/T47192 --iface eth4 --icmp 10.38.22.66,10.38.22.70
+  --sender-ip 10.38.22.65 --sender-mac 00:0d:b9:55:77:0f --gw-mac e0:1a:ea:d4:70:43
+  --count 4 --wait 4|5`
+- `tools/tb cfg tb277 ntp1021 u2 115200 "configure terminal" "interface vlan48"
+  "ip address 10.38.22.70/27"|"ip address 10.38.22.66/27" "end" "show ip interface brief"`
+- `tools/tb ckcon tb277 ntp1021 u2 115200 "write" "show ..."` (`CKTO` 180-300)
+- `tools/tb ckreload tb277 ntp1021 u2 115200 240`
+- `tools/tb ping tb277 eth4 10.38.22.70 4`
+- `python3 tools/rc2cfg.py <ckcon stdout> tb277/x960/mgmt-2026-10-21T1159/T47192/swi_d.cfg "<3 headers>"`
+
+## Files saved
+
+- `tb277/x960/mgmt-2026-10-21T1159/T47192/swi_d.cfg` (**overwritten by run 2**, per
+  logged-output.md §2; run 1's is in git history)
+- `tb277/x960/mgmt-2026-10-21T1159/T47192/work/run2.log` (this file; run1.log untouched beside it)
+- On the box, not committed: `/tmp/ntp1021/T47192/t192-*.pcap`, `/tmp/ntp1021/console-u2.log`
+
+**No `swi_b.cfg` and no `swi_a.cfg`**: both partner consoles are locked out.
+
+VERDICT: PASS -- the first of run 1's three NOT MEASURED items is measured. A change applied dynamically while the device was operating (vlan48 `10.38.22.66/27` -> `10.38.22.70/27`, no restart) was saved, survived a 60 s cold boot, and came back with its full L3 identity intact -- `.70` answering 4 of 4 echoes and `.66` drawing host-unreachables sourced from `.70`, row for row identical to the pre-reload leg, with nothing typed into the device. The other two items (file-driven configuration, and a mid-flow frames-lost timing number) remain NOT MEASURED with run 1's reasons unchanged, and were not improvised. Taken with run 1, T47192 is PASS with its reboot-persistence item MEASURED.
