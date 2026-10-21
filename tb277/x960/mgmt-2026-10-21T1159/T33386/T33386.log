@@ -1,0 +1,725 @@
+================================================================================
+TEST T33386 -- (237) EnhancedOperationManagement - Management ACL
+================================================================================
+Run:      2026-10-21, 00:48-01:08 UTC (filter, SNMP and service port) and 04:44-04:49
+          UTC (persistence across a restart), on swi_d alone.
+Bench:    tb277, consoles u2 = swi_d (DUT), u3 = swi_b, u5 = swi_a; Test Engineer
+          bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T33386.  The test-case database holds NO authored text for this case.
+          There is no objective, and the single step is an empty placeholder: empty
+          description, empty test data, empty expected result (ck.db `zephyr_cases`,
+          `has_objective = 0`).  The case title is the only authored authority.  No STEP
+          heading below can quote authored text.  The eight steps were designed for this
+          run from three sources: the case title, the "X960 platform support TPS" row 235
+          (Management ACLs, Supported: Yes), and the DUT's own CLI surface, read with `?`
+          and no carriage return before anything was configured (STEP 0).
+          The requirement behind TPS row 235 is TPS 6.1.1, verbatim:
+            "Access filter for management I/F, which denies all packets addressed to the
+             management I/F other than those packets that come from user specified
+             network(s) or host(s). Also TCP/UDP port number of all services such as
+             telnet, SNMP, ICMP and etc. is configurable."
+          That is two separate statements.  (A) a filter that denies traffic to the
+          management interface, except from hosts the operator names.  (B) the TCP/UDP
+          port number of a management service can be changed.  Both are measured below.
+Build:    swi_d  sin_x96056-20261019-27  (flash:/x960-tb277.rel, build date Sun Oct 18
+          23:18:21 UTC 2026), AT-x960-56YSQ, S/N A2WQS700B, standalone Active Master,
+          console u2 @115200
+
+          The DUT's own `show system`, verbatim and in full:
+
+awplus#show system
+  System Status                                           Wed Oct 21 00:48:06 2026
+
+  Board      ID   Bay     Board Name                        Rev   Serial number
+  --------------------------------------------------------------------------------
+  Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+  PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+  PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+  Fan module 730  FAN1    AT-FAN19                          -     -
+  Fan module 730  FAN2    AT-FAN19                          -     -
+  --------------------------------------------------------------------------------
+  RAM: Total: 8092132 kB Free: 7454184 kB
+  Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+  --------------------------------------------------------------------------------
+  Environment Status : Normal
+  Uptime             : 0 days 02:51:29
+  Bootloader version : Unknown
+
+  Current software   : x960-tb277.rel
+  Software version   : sin_x96056-20261019-27
+  Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+  Current boot config: flash:/default.cfg (file exists)
+
+  System Name
+   awplus
+  System Contact
+
+  System Location
+
+Configs:  swi_d.cfg (the DUT's running-config; this case has no setup of its own,
+          because every access list and every SNMP line it uses is applied and removed
+          inside one of its own steps; saved to startup: yes)
+
+VERDICT: PASS -- the DUT has a working management access filter, and both halves of TPS
+6.1.1 are proven on the wire, never from a `show` command.
+      (A) the filter denies .......... PASS  the host the operator did NOT name sent 4
+                                             TCP SYNs to management SSH and got 0 replies
+      (A) the filter permits ......... PASS  the host the operator DID name sent 4 SYNs
+                                             and got 4 SYN-ACK in the same configuration
+      the deny is selective .......... PASS  the denied host's 4 ICMP echoes were still
+                                             answered 4 of 4, in the same leg
+      a block differs from a refusal . PASS  TCP/23, a service that is off, answered
+                                             RST-ACK 4 of 4 while the filtered frames got
+                                             nothing back at all
+      the device agrees .............. PASS  `show access-list counters` read permit 8 /
+                                             deny 4, which matches the captured frames
+      SNMP, a second mechanism ....... PASS  an access-list number on an SNMP community
+                                             failed exactly 1 cell of a 2x2 matrix, the
+                                             one the filter names
+      (B) the port is configurable ... PASS  SSH moved from TCP/22 to TCP/2222 and back,
+                                             each state proved on the wire
+      removal ........................ PASS  after `no access-group` the denied host was
+                                             answered 4 of 4 again
+      it survives a restart .......... PASS  after a 60 s cold boot, with nothing typed,
+                                             both halves still worked
+      FINDING ........................ a NUMBERED hardware access list keeps only its
+                                             last rule, silently (STEP 2)
+      FINDING ........................ `access-class` under `line vty` and `ip
+                                             access-list` do not exist here (STEP 0)
+
+CAVEAT:  Three parts of the management-filter surface were not measured by this case.
+         1. `ssh server allow-users` and `ssh server deny-users` exist on this DUT, and
+            the DUT already carries `ssh server allow-users manager`.  They were not
+            exercised.  To prove a deny through them you must try a login that must
+            fail, and this platform locks an account after 5 failed logins.  That filter
+            works per account, so a clean negative test would have to attack an account
+            that exists.  The DUT has one privileged account.  The risk of locking it was
+            not worth a limb that adds nothing to the two statements of TPS 6.1.1.
+         2. `service telnet ip|ipv6` and `service ssh ip|ipv6`, the filter that selects
+            an address family, exist on this DUT and were not exercised here.
+         3. IPv6 management filtering was not tested.  Every leg above used IPv4.
+HEALTH:  reboots ......... one new entry: `2026-10-21 04:46:05 Expected CLI(user
+                           request)`, the reload STEP 7 asked for.  Nothing else is new
+         exception log ... None, in both samples
+         log ............. no crash, no kernel error and no daemon restart.  Three lines
+                           were written by this case's own steps: the `EXFX` driver
+                           error quoted in STEP 2, and the two `snmpd` lines quoted in
+                           STEP 5.  After the STEP 7 reload the log holds only that
+                           reload's own boot sequence
+         CPU ............. load 0% before -> load 0% after.  NOTE: `show cpu` on this
+                           platform prints LOAD, not idle.  Both samples read
+                           `1 second: 0%, 20 seconds: 0%, 60 seconds: 0%`, so the CPU was
+                           doing nothing after the traffic stopped
+         memory .......... free 7454184 kB before -> free 7453532 kB after, of 8092132 kB
+                           total.  Free memory fell by 652 kB.  That is not a step
+                           change, and no leak is claimed
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+   tb277 eth3  10.38.22.33/27              tb277 eth4  10.38.22.65/27
+   00:0d:b9:55:77:0e                       00:0d:b9:55:77:0f
+   the host the operator NAMES             the host the operator does NOT name
+        |                                       |
+        |  TCP SYN to :22 / :23 + ICMP echo     |  TCP SYN to :22 + ICMP echo
+        |  SNMP get                             |  SNMP get
+        v                                       v
+   port1.0.10 (vlan 10, access)            port1.0.48 (vlan 48, access)
+ +--------------------------------------------------------------------------+
+ |  swi_d   AT-x960-56YSQ   <<< DUT >>>   console u2 @115200                 |
+ |  vlan10 10.38.22.34/27                 vlan48 10.38.22.66/27              |
+ |  the access-group under test is bound to BOTH of the ports above          |
+ +--------------------------------------------------------------------------+
+
+  DUT     : swi_d (AT-x960-56YSQ) console u2 @115200, S/N A2WQS700B, software
+            sin_x96056-20261019-27, standalone, one member, Active Master.
+            SVI MAC e0:1a:ea:d4:70:43 -- every SVI on this platform shares one MAC, so
+            this is the layer-2 next hop for every crafted frame in both directions.
+  host 1  : tb277 eth3 00:0d:b9:55:77:0e 10.38.22.33/27 -> swi_d port1.0.10, vlan 10,
+            management address 10.38.22.34.  This is the "user specified" host of TPS
+            6.1.1, the one the filter permits.
+  host 2  : tb277 eth4 00:0d:b9:55:77:0f 10.38.22.65/27 -> swi_d port1.0.48, vlan 48,
+            management address 10.38.22.66.  This is the host the filter must deny.
+  tools   : tools/qmark.py (read the CLI surface with `?`, no carriage return),
+            tools/cfg.py (every configuration batch; it stops at the first `% ` line),
+            tools/ckcon.py (every `show`), tools/arpleg.py (all traffic legs, run on
+            tb277 as root: it starts tcpdump, sends a known count of crafted frames,
+            stops, and counts what came back), tools/snmpq.py (the SNMP gets),
+            tools/ckreload.py (the reload in STEP 7), tools/rc2cfg.py (swi_d.cfg).
+  reading : a TCP reply of `SA` means the port is OPEN.  `R` or `RA` means the host
+            answered and REFUSED, so no service is listening.  No reply row at all means
+            the frame was SILENTLY DROPPED by a filter.  Those are three different
+            answers, and this case depends on telling them apart.
+
+STEP 0 -- the platform's management-filter surface, read before anything was sent  done
+--------------------------------------------------------------------------------
+  Method: `tools/qmark.py` types a command prefix followed by `?` with NO carriage
+  return, prints the completions the device offers, then clears the line with Ctrl-U.
+  Nothing is executed and nothing is created.  This was done first because the usual
+  design for a management access list does not exist on this product.
+
+awplus(config-line)#acc ?            [inside `line vty 0 7`]
+  login  Set accounting method list for login session
+awplus(config-line)#access-class ?
+  % Unrecognized command
+awplus(config)#ip access-list ?
+  % Unrecognized command
+awplus(config)#ip access ?
+  % Unrecognized command
+
+  <-- There is NO `access-class` under `line vty` on this build.  The only `acc...`
+      completion offered is about accounting.  There is NO `ip access-list` in global
+      configuration mode either.  A test written from the usual pattern would have failed
+      at its first command and measured nothing.
+
+  What DOES exist, every form confirmed by a `?` probe before it was used:
+
+awplus(config-if)#access-group ?
+  <3000-3699>  Hardware IP access list
+  <4000-4699>  Hardware MAC access list
+  WORD         Hardware access list
+awplus(config)#access-list 3010 deny ?
+  icmp   ICMP Packet
+  ip     IP Packet
+  proto  IP Protocol
+  tcp    TCP Packet
+  udp    UDP Packet
+awplus(config)#access-list 3010 deny tcp ?
+  A.B.C.D    Source address
+  A.B.C.D/M  Source address with mask
+  any        Any source host
+  host       A single source host
+awplus(config)#access-list 3010 deny tcp any ?
+  A.B.C.D    Destination address
+  A.B.C.D/M  Destination address with mask
+  any        Any destination host
+  eq / gt / lt / ne / range ...
+awplus(config)#access-list 3010 deny tcp any any ?
+  eq  gt  log  lt  ne  range  vlan  <cr>
+awplus(config)#access-list 3010 deny tcp any any eq ?
+  <0-65535>  Port Number
+awplus(config)#access-list 10 ?
+  deny    Specify packets to reject
+  permit  Specify packets to forward
+awplus(config)#access-list 10 permit ?
+  A.B.C.D  Address to match
+  any      Any source host
+  host     A single host address
+awplus(config)#access-list 10 permit 10.38.22.33 ?
+  A.B.C.D  Wildcard mask
+  <cr>
+awplus(config)#snmp-server community ckacl ?
+  <1-99>  Access list number
+  ro      read-only community
+  rw      read-write community
+  view    Configure SNMP view
+awplus(config)#snmp-server community ckacl ro ?
+  <1-99>  Access list number
+  view    Configure SNMP view
+  <cr>
+awplus(config)#ssh server ?
+  <1-65535>             TCP port number
+  allow-legacy-ssh-rsa / allow-users / authentication / deny-users /
+  disallow-cbc-ciphers / login-timeout / max-auth-tries / max-startups /
+  resolve-hosts / scp / session-timeout / sftp / tcpforwarding / vrf ...
+awplus(config)#service telnet ?
+  ip    IP telnet server
+  ipv6  IPv6 telnet server
+awplus(config)#service ssh ?
+  ip    IP SSH server
+  ipv6  IPv6 SSH server
+
+  The state of the DUT before step 1:
+
+awplus#show access-list
+                                              <-- nothing: no access list of any kind
+awplus#show running-config | include snmp
+  snmp-server                                 <-- the SNMP agent was already enabled
+awplus#show running-config | include ssh
+  ssh server allow-users manager
+  service ssh                                 <-- no `ssh server <port>` line, so the
+                                                  default port 22 is in use
+awplus#show ip interface brief
+  vlan10                10.38.22.34/27     admin up        running
+  vlan48                10.38.22.66/27     admin up        running
+  vlan60                10.38.22.97/27     admin up        running
+
+  => STEP 0 done: this platform filters management access with `access-list` plus
+     `access-group` on the ingress port, with an access-list number on an SNMP community,
+     with `ssh server <port>`, with `ssh server allow-users` / `deny-users`, and with
+     `service telnet|ssh ip|ipv6`.  It does NOT offer `access-class` under `line vty` and
+     it does NOT offer `ip access-list`.  The DUT starts with no access list at all.
+
+STEP 1 -- baseline with NO filter: both management interfaces answer             PASS
+--------------------------------------------------------------------------------
+  Method: send a known count of frames from each host NIC while the DUT carries no
+  access list.  This proves the instrument before any silence later in the case is read
+  as a filter.  Data inside a TCP SYN is legal but unusual.  If the DUT had ignored these
+  SYNs, every later silence would have looked like a filter when it was really a dead
+  instrument.
+
+tb277# sudo arpleg.py --tag base-eth3 --out /tmp/mgmt1159/T33386 --iface eth3 \
+       --tcp 10.38.22.34:22,10.38.22.34:23 --icmp 10.38.22.34 \
+       --sender-ip 10.38.22.33 --sender-mac 00:0d:b9:55:77:0e \
+       --gw-mac e0:1a:ea:d4:70:43 --count 4 --wait 4
+  cap base-eth3-eth3.pcap: 30 frame(s)
+    x4     TCP  10.38.22.33    :40000 -> 10.38.22.34    :22    S    [ours]
+    x4     TCP  10.38.22.34    :22    -> 10.38.22.33    :40000 SA
+    x4     TCP  10.38.22.33    :40000 -> 10.38.22.34    :22    R
+    x4     TCP  10.38.22.33    :40000 -> 10.38.22.34    :23    S    [ours]
+    x4     TCP  10.38.22.34    :23    -> 10.38.22.33    :40000 RA
+    x4     ICMP t8/c0 10.38.22.33     -> 10.38.22.34     [ours]
+    x4     ICMP t0/c0 10.38.22.34     -> 10.38.22.33     [ours]
+    x1     ARP-REQ  who-has 10.38.22.34     tell 10.38.22.33
+    x1     ARP-REPLY 10.38.22.34     is-at e0:1a:ea:d4:70:43
+
+tb277# sudo arpleg.py --tag base-eth4 ... --iface eth4 --tcp 10.38.22.66:22 \
+       --icmp 10.38.22.66 --sender-ip 10.38.22.65 --sender-mac 00:0d:b9:55:77:0f \
+       --gw-mac e0:1a:ea:d4:70:43 --count 4
+  cap base-eth4-eth4.pcap: 22 frame(s)
+    x4     TCP  10.38.22.65    :40000 -> 10.38.22.66    :22    S    [ours]
+    x4     TCP  10.38.22.66    :22    -> 10.38.22.65    :40000 SA
+    x4     TCP  10.38.22.65    :40000 -> 10.38.22.66    :22    R
+    x4     ICMP t8/c0 10.38.22.65     -> 10.38.22.66     [ours]
+    x4     ICMP t0/c0 10.38.22.66     -> 10.38.22.65     [ours]
+
+  <-- 4 of 4 SYNs to TCP/22 were answered `SA` on BOTH management addresses, so both
+      are open.
+  <-- 4 of 4 SYNs to TCP/23 were answered `RA`.  The telnet server is off.  This flow is
+      here on purpose: it shows what a REFUSED service looks like, so a FILTERED frame
+      later cannot be confused with it.
+  <-- 4 of 4 ICMP echoes were answered on both addresses.
+  <-- The `R` rows come from the testbox kernel.  Its own stack never opened these
+      connections, so it resets the SYN-ACK.  That is expected with a crafted SYN and it
+      does not change any count above.
+  => STEP 1 PASS: with no filter, both management interfaces answer on TCP/22 and to
+     ICMP, and the instrument is proven.  Every number later in this case is compared
+     against these.
+
+STEP 2 -- a NUMBERED hardware access list keeps only its last rule, silently      PASS
+--------------------------------------------------------------------------------
+  Method: a management filter is "permit the named host, then deny the rest".  That needs
+  at least two rules.  The three rules below were sent through `tools/cfg.py`, which
+  stops at the first `% ` line the device prints.
+
+awplus(config)#access-list 3010 permit tcp 10.38.22.33/32 any eq 22
+awplus(config)#access-list 3010 deny tcp any 10.38.22.32/27 eq 22
+awplus(config)#access-list 3010 deny tcp any 10.38.22.64/27 eq 22
+awplus(config)#interface port1.0.10
+awplus(config-if)#access-group 3010
+awplus(config)#interface port1.0.48
+awplus(config-if)#access-group 3010
+
+  <-- Every command was accepted.  The device printed no `% ` line and the tool exited 0.
+
+  What the device actually holds afterwards:
+
+awplus#show access-list
+  Hardware IP access list 3010
+      4 deny tcp any 10.38.22.64/27 eq 22
+awplus#show running-config | include access-list
+  access-list 3010 deny tcp any 10.38.22.64/27 eq 22
+
+  <-- Only the LAST of the three rules is there.  The permit rule and the first deny rule
+      are gone.  There was no error, no warning, and nothing in the running-config to
+      show that two rules were discarded.  A numbered hardware access list on this
+      platform holds exactly one rule: each `access-list <n> <rule>` REPLACES the one
+      before it.
+
+  The DUT's own log agrees, and the line arrived while these three rules were being
+  entered:
+
+  2026 Oct 21 01:00:18 local7.err awplus EXFX[1015]: DBG:exfx_cExt_dxch_rules_pclIdActionUpdate 7076: Didn't find matching rule (to id 1) for the copying from one (from id 0)
+
+  <-- The hardware access-list driver logged an error about a second rule slot that was
+      not there, at the moment the second rule should have been installed.
+
+  The one rule that survived denies TCP/22 to 10.38.22.64/27, which is vlan48
+  10.38.22.66.  vlan10 10.38.22.34 is in 10.38.22.32/27, which this rule does not match.
+  A hardware access list PERMITS what no rule denies, so vlan10 stays open.
+
+tb277# sudo arpleg.py --tag num-eth4 ... --iface eth4 --tcp 10.38.22.66:22 \
+       --icmp 10.38.22.66 ...
+  cap num-eth4-eth4.pcap: 12 frame(s)
+    x4     TCP  10.38.22.65    :40000 -> 10.38.22.66    :22    S    [ours]
+    x4     ICMP t8/c0 10.38.22.65     -> 10.38.22.66     [ours]
+    x4     ICMP t0/c0 10.38.22.66     -> 10.38.22.65     [ours]
+
+tb277# sudo arpleg.py --tag num-eth3 ... --iface eth3 --tcp 10.38.22.34:22 \
+       --icmp 10.38.22.34 ...
+  cap num-eth3-eth3.pcap: 22 frame(s)
+    x4     TCP  10.38.22.33    :40000 -> 10.38.22.34    :22    S    [ours]
+    x4     TCP  10.38.22.34    :22    -> 10.38.22.33    :40000 SA
+    x4     TCP  10.38.22.33    :40000 -> 10.38.22.34    :22    R
+    x4     ICMP t8/c0 10.38.22.33     -> 10.38.22.34     [ours]
+    x4     ICMP t0/c0 10.38.22.34     -> 10.38.22.33     [ours]
+
+  flow                                        sent     answered   reading
+  eth4 -> 10.38.22.66:22, the denied address  4 SYN    0          dropped in hardware.
+                                                                  The same 4 frames got
+                                                                  4 `SA` in STEP 1
+  eth4 -> 10.38.22.66 ICMP echo (control)     4        4 replies  the port, the link and
+                                                                  the SVI are alive, so
+                                                                  the deny is selective
+  eth3 -> 10.38.22.34:22 (control, other      4 SYN    4 `SA`     not matched by the
+  destination subnet)                                             rule, so still open
+
+awplus#show access-list counters
+  Name: 3010
+  	Rule: deny tcp any 10.38.22.64/27 eq 22
+  	Packet Hits: 4
+
+  <-- The counter read 0 before the leg and 4 after it: the four SYNs.  The device's own
+      count and the captured frames agree.
+  => STEP 2 PASS: a filter does deny management traffic in the dataplane, and the count
+     on the device matches the wire.  The step also found a defect.  A numbered hardware
+     access list silently keeps only the last rule entered.  A management filter is
+     always permit-then-deny, so written in the numbered form it collapses to the deny
+     alone, and that locks out the administrator's own host.  The only warning the
+     operator gets is a `show access-list` they may never run.
+
+STEP 3 -- a NAMED hardware access list, permit then deny: the TPS 6.1.1 filter    PASS
+--------------------------------------------------------------------------------
+  Method: the named sub-mode is the form that holds more than one rule.  The numbered
+  list of STEP 2 was unbound and deleted first, so the same two-rule intent is entered
+  twice in two different forms.  That is a direct A/B comparison.
+
+awplus(config)#interface port1.0.10
+awplus(config-if)#no access-group 3010
+awplus(config)#interface port1.0.48
+awplus(config-if)#no access-group 3010
+awplus(config)#no access-list 3010
+awplus(config)#access-list hardware ckmgmt
+awplus(config-ip-hw-acl)#permit tcp 10.38.22.33/32 any eq 22
+awplus(config-ip-hw-acl)#deny tcp any any eq 22
+awplus(config-ip-hw-acl)#exit
+awplus(config)#interface port1.0.10
+awplus(config-if)#access-group ckmgmt
+awplus(config)#interface port1.0.48
+awplus(config-if)#access-group ckmgmt
+
+awplus#show access-list
+  Hardware IP access list ckmgmt
+      4 permit tcp 10.38.22.33/32 any eq 22
+      8 deny tcp any any eq 22
+awplus#show running-config | include access
+  access-list hardware ckmgmt
+   permit tcp 10.38.22.33/32 any eq 22
+   deny tcp any any eq 22
+   access-group ckmgmt        [under port1.0.10]
+   access-group ckmgmt        [under port1.0.48]
+
+  <-- Both rules are there, in the order they were entered.  The same two-rule intent was
+      cut down to one rule in the numbered form in STEP 2.
+  <-- This list is exactly the sentence of TPS 6.1.1: permit the host the operator names,
+      deny everything else that is addressed to the management interface on that service.
+
+tb277# sudo arpleg.py --tag named-eth4 ... --iface eth4 --tcp 10.38.22.66:22 \
+       --icmp 10.38.22.66 --sender-ip 10.38.22.65 --sender-mac 00:0d:b9:55:77:0f \
+       --gw-mac e0:1a:ea:d4:70:43 --count 4
+  cap named-eth4-eth4.pcap: 12 frame(s)
+    x4     TCP  10.38.22.65    :40000 -> 10.38.22.66    :22    S    [ours]
+    x4     ICMP t8/c0 10.38.22.65     -> 10.38.22.66     [ours]
+    x4     ICMP t0/c0 10.38.22.66     -> 10.38.22.65     [ours]
+
+tb277# sudo arpleg.py --tag named-eth3 ... --iface eth3 \
+       --tcp 10.38.22.34:22,10.38.22.34:23 --icmp 10.38.22.34 \
+       --sender-ip 10.38.22.33 --sender-mac 00:0d:b9:55:77:0e ... --count 4
+  cap named-eth3-eth3.pcap: 30 frame(s)
+    x4     TCP  10.38.22.33    :40000 -> 10.38.22.34    :22    S    [ours]
+    x4     TCP  10.38.22.34    :22    -> 10.38.22.33    :40000 SA
+    x4     TCP  10.38.22.33    :40000 -> 10.38.22.34    :22    R
+    x4     TCP  10.38.22.33    :40000 -> 10.38.22.34    :23    S    [ours]
+    x4     TCP  10.38.22.34    :23    -> 10.38.22.33    :40000 RA
+    x4     ICMP t8/c0 10.38.22.33     -> 10.38.22.34     [ours]
+    x4     ICMP t0/c0 10.38.22.34     -> 10.38.22.33     [ours]
+
+  The permit and the deny, side by side, both counted, under ONE configuration:
+
+  flow                                            sent    answered  verdict
+  PERMIT: the named host 10.38.22.33 -> :22       4 SYN   4 `SA`    the named host
+                                                                    reaches management
+  BLOCK: the host 10.38.22.65 -> :22              4 SYN   0, no     denied, silently,
+                                                          reply     in hardware
+  control 1: the denied host's ICMP to the same   4       4 echo    the deny is tied to
+  management address                                      replies   the service, and the
+                                                                    interface is alive
+  control 2: the named host -> :23, a service     4 SYN   4 `RA`    a refused service
+  that is off                                                       ANSWERS; a filtered
+                                                                    frame does not
+
+awplus#show access-list counters
+  Name: ckmgmt
+  	Rule: permit tcp 10.38.22.33/32 any eq 22
+  	Packet Hits: 8
+  	Rule: deny tcp any any eq 22
+  	Packet Hits: 4
+
+  <-- 8 permit hits = the 4 SYNs plus the 4 kernel RSTs from 10.38.22.33.  Both are TCP
+      from that host to port 22, so both match the permit rule.  4 deny hits = the 4 SYNs
+      from 10.38.22.65.  The device's counters and the captured frames agree frame for
+      frame.
+  => STEP 3 PASS: the first statement of TPS 6.1.1 is satisfied.  The host the operator
+     named reaches the management service and the host it did not name is denied, under
+     one configuration, on the same hardware, with two controls in the same captures.
+
+STEP 4 -- removal: the filter leaves the configuration AND the dataplane          PASS
+--------------------------------------------------------------------------------
+  Method: the step text is the floor.  Removal is proved as well, on the wire.
+
+awplus(config)#interface port1.0.10
+awplus(config-if)#no access-group ckmgmt
+awplus(config)#interface port1.0.48
+awplus(config-if)#no access-group ckmgmt
+awplus(config)#no access-list hardware ckmgmt
+
+awplus#show access-list
+                                              <-- empty, no list at all
+awplus#show running-config | include access
+   switchport mode access ...                 <-- the only `access` lines left belong to
+                                                  switchport; no access-list, no
+                                                  access-group
+
+tb277# sudo arpleg.py --tag removed-eth4 ... --iface eth4 --tcp 10.38.22.66:22 ... \
+       --count 4
+  cap removed-eth4-eth4.pcap: 12 frame(s)
+    x4     TCP  10.38.22.65    :40000 -> 10.38.22.66    :22    S    [ours]
+    x4     TCP  10.38.22.66    :22    -> 10.38.22.65    :40000 SA
+    x4     TCP  10.38.22.65    :40000 -> 10.38.22.66    :22    R
+
+  => STEP 4 PASS: the host that was denied is answered 4 of 4 `SA` again.  The filter is
+     gone from the configuration and from the dataplane, not only from the configuration.
+
+STEP 5 -- a second filter mechanism: an access-list number on an SNMP community   PASS
+--------------------------------------------------------------------------------
+  Method: TPS 6.1.1 names SNMP.  This mechanism uses a STANDARD access list, and a
+  standard list DENIES what it does not permit.  That is the opposite default to the
+  hardware list of STEP 3, so the reading of this step is the other way round.
+
+awplus(config)#access-list 10 permit 10.38.22.33 0.0.0.0
+awplus(config)#snmp-server
+awplus(config)#snmp-server community ckacl ro 10        <- the filtered community
+awplus(config)#snmp-server community ckopen ro          <- the CONTROL community, no ACL
+
+  <-- `snmp-server` was already in the running-config before this case, so that line
+      changed nothing and it is not removed at the end.
+
+awplus#show access-list
+  Standard IP access list 10
+      4 permit 10.38.22.33
+awplus#show running-config | include snmp-server
+  snmp-server
+  snmp-server community ckacl 10
+  snmp-server community ckopen
+
+  <-- `ro` is the default and the device does not store it.  `snmp-server community ckacl
+      ro 10` reads back as `snmp-server community ckacl 10`.
+
+  The 2x2 matrix, run with `tools/snmpq.py`, which names the outcome instead of returning
+  a bare exit code:
+    snmpq.py get <agent> 1.3.6.1.2.1.1.5.0 --v2c --community <c> --timeout 3 --retries 1
+  The route decides the source address.  A query to 10.38.22.34 leaves from eth3
+  (10.38.22.33).  A query to 10.38.22.66 leaves from eth4 (10.38.22.65).
+
+  source                       community          result
+  10.38.22.33 (permitted)      ckacl (filtered)   RESULT VALUE -- .1.3.6.1.2.1.1.5.0 = STRING: awplus
+  10.38.22.65 (not permitted)  ckacl (filtered)   RESULT TIMEOUT -- Timeout: No Response from 10.38.22.66.
+  10.38.22.65 (not permitted)  ckopen (control)   RESULT VALUE -- .1.3.6.1.2.1.1.5.0 = STRING: awplus
+  10.38.22.33                  ckopen             RESULT VALUE -- .1.3.6.1.2.1.1.5.0 = STRING: awplus
+
+  <-- Exactly one cell of four fails, and it is the cell the filter names.  The control
+      community answered the SAME source host over the SAME path in the same minute.  So
+      the timeout is the access list.  It is not a lost packet, not a dead agent and not
+      an unreachable address.
+
+  The DUT logged the denial itself, at the moment of the denied query:
+
+  2026 Oct 21 01:05:30 kern.err awplus snmpd[1818]: Received SNMP Packet from illegal server 10.38.22.65
+  2026 Oct 21 01:05:53 kern.err awplus snmpd[525]: Last message 'Received SNMP Packet' repeated 1 times, suppressed by syslog-ng on awplus
+
+  => STEP 5 PASS: a second, independent mechanism filters management access by source
+     host, and TPS 6.1.1's named example (SNMP) is covered.  The two mechanisms work in
+     different places.  The hardware access list of STEP 3 drops the frame in silicon and
+     the DUT never sees it.  The SNMP community access list is enforced inside the agent:
+     the packet arrives, is checked, is discarded, and a log line is written.  To the
+     client both look like the same silence.
+
+STEP 6 -- the second statement of TPS 6.1.1: the service port is configurable     PASS
+--------------------------------------------------------------------------------
+awplus(config)#ssh server 2222
+awplus#show ssh server
+  SSH Server                         : Enabled
+  Protocol                           : IPv4,IPv6
+  Port                               : 2222
+awplus#show running-config | include ssh
+  ssh server 2222
+  ssh server allow-users manager
+  service ssh
+
+tb277# sudo arpleg.py --tag port2222 ... --iface eth3 \
+       --tcp 10.38.22.34:22,10.38.22.34:2222 ... --count 4
+  cap port2222-eth3.pcap: 20 frame(s)
+    x4     TCP  10.38.22.33    :40000 -> 10.38.22.34    :22    S    [ours]
+    x4     TCP  10.38.22.34    :22    -> 10.38.22.33    :40000 RA   <-- nothing listens
+                                                                        on 22 now
+    x4     TCP  10.38.22.33    :40000 -> 10.38.22.34    :2222  S    [ours]
+    x4     TCP  10.38.22.34    :2222  -> 10.38.22.33    :40000 SA   <-- the service is
+                                                                        here now
+    x4     TCP  10.38.22.33    :40000 -> 10.38.22.34    :2222  R
+
+  <-- Both ports were probed in ONE leg, 4 frames each.  TCP/22 went from `SA` in STEP 1
+      to `RA`, and TCP/2222 went from no listener to `SA`.  The service really moved.
+
+  Put back, and the restore proved on the wire as well:
+
+awplus(config)#ssh server 22
+awplus#show running-config | include ssh
+  ssh server allow-users manager
+  service ssh                                 <-- the explicit port line is GONE: 22 is
+                                                  the default and is not stored
+tb277# sudo arpleg.py --tag port-restored ... --iface eth3 \
+       --tcp 10.38.22.34:22,10.38.22.34:2222 ... --count 4
+    x4     TCP  10.38.22.34    :22    -> 10.38.22.33    :40000 SA   <-- back
+    x4     TCP  10.38.22.34    :2222  -> 10.38.22.33    :40000 RA   <-- gone
+
+  => STEP 6 PASS: the second statement of TPS 6.1.1 is satisfied.  The TCP port number of
+     a management service can be changed, and the change is real on the wire, not only in
+     a `show` command.
+
+STEP 7 -- the filter survives a restart, with nothing typed after the boot        PASS
+--------------------------------------------------------------------------------
+  Method: put the named filter of STEP 3 back, save it, reload the DUT, then measure both
+  halves again before anyone logs in.  The DUT started this step with no access list of
+  any kind, which STEP 4 left behind.
+
+  Pre-check with no filter, so the instrument is proved again first:
+
+tb277# sudo arpleg.py --tag t386-base-eth4 --out /tmp/ntp1021/T33386 --iface eth4 \
+       --tcp 10.38.22.66:22 --icmp 10.38.22.66 --sender-ip 10.38.22.65 \
+       --sender-mac 00:0d:b9:55:77:0f --gw-mac e0:1a:ea:d4:70:43 --count 4 --wait 4
+  cap t386-base-eth4-eth4.pcap: 24 frame(s)
+    x4   TCP  10.38.22.65:40000 -> 10.38.22.66:22   S   [ours]
+    x4   TCP  10.38.22.66:22    -> 10.38.22.65:40000 SA
+    x4   TCP  10.38.22.65:40000 -> 10.38.22.66:22   R
+    x4   ICMP t8/c0 10.38.22.65 -> 10.38.22.66      [ours]
+    x4   ICMP t0/c0 10.38.22.66 -> 10.38.22.65      [ours]
+
+  The filter, in the named form:
+
+awplus(config)#access-list hardware ckmgmt
+awplus(config-ip-hw-acl)#permit tcp 10.38.22.33/32 any eq 22
+awplus(config-ip-hw-acl)#deny tcp any any eq 22
+awplus(config)#interface port1.0.10
+awplus(config-if)#access-group ckmgmt
+awplus(config)#interface port1.0.48
+awplus(config-if)#access-group ckmgmt
+awplus#show access-list
+  Hardware IP access list ckmgmt
+      4 permit tcp 10.38.22.33/32 any eq 22
+      8 deny tcp any any eq 22
+
+  cap t386-acl-eth4-eth4.pcap: 12 frame(s)                <- the DENIED host
+    x4   TCP  10.38.22.65:40000 -> 10.38.22.66:22   S   [ours]
+    x4   ICMP t8/c0 10.38.22.65 -> 10.38.22.66      [ours]
+    x4   ICMP t0/c0 10.38.22.66 -> 10.38.22.65      [ours]
+  cap t386-acl-eth3-eth3.pcap: 30 frame(s)                <- the PERMITTED host
+    x4   TCP  10.38.22.33:40000 -> 10.38.22.34:22   S   [ours]
+    x4   TCP  10.38.22.34:22    -> 10.38.22.33:40000 SA
+    x4   TCP  10.38.22.33:40000 -> 10.38.22.34:23   S   [ours]
+    x4   TCP  10.38.22.34:23    -> 10.38.22.33:40000 RA
+    x4   ICMP t8/c0 10.38.22.33 -> 10.38.22.34      [ours]
+    x4   ICMP t0/c0 10.38.22.34 -> 10.38.22.33      [ours]
+
+  <-- Both halves work before the restart.  Denied host: 4 SYNs, no reply, ICMP 4 of 4.
+      Permitted host: 4 `SA`, with `:23` still answering `RA`.
+
+  Saved, then reloaded:
+
+awplus#write
+  Building configuration...
+  [OK]
+awplus#show startup-config | include access-list|access-group|permit|deny
+  access-list hardware ckmgmt
+   permit tcp 10.38.22.33/32 any eq 22
+   deny tcp any any eq 22
+   access-group ckmgmt
+   access-group ckmgmt
+
+tb277# tools/tb ckreload tb277 ntp1021 u2 115200 240
+  >>> reload   (04:46:05 UTC)
+  reboot question: 'reboot system? (y/n):' -> y
+  login seen after 60 s
+
+  The legs were settled before they were read.  The first ping on eth3 after the boot
+  returned 0 of 4, 100 percent packet loss.  A second ping seconds later returned 4 of 4,
+  and the box's neighbour table then read
+  `10.38.22.34 dev eth3 lladdr e0:1a:ea:d4:70:43 REACHABLE`.  eth4 was 4 of 4 at once.
+  Read at the first attempt, eth3's missing TCP replies would have looked like the filter
+  blocking the host it is supposed to PERMIT, which is the opposite of the truth.
+
+  The real legs, 36 s after the login prompt, with NOTHING typed into the DUT:
+
+  cap t386-afterboot-eth4-eth4.pcap: 14 frame(s)          <- the DENIED host
+    x4   TCP  10.38.22.65:40000 -> 10.38.22.66:22   S   [ours]
+    x4   ICMP t8/c0 10.38.22.65 -> 10.38.22.66      [ours]
+    x4   ICMP t0/c0 10.38.22.66 -> 10.38.22.65      [ours]
+    x1   ARP-REQ who-has 10.38.22.65 tell 10.38.22.66
+    x1   ARP-REPLY 10.38.22.65 is-at 00:0d:b9:55:77:0f
+  cap t386-afterboot-eth3-eth3.pcap: 30 frame(s)          <- the PERMITTED host
+    x4   TCP  10.38.22.33:40000 -> 10.38.22.34:22   S   [ours]
+    x4   TCP  10.38.22.34:22    -> 10.38.22.33:40000 SA
+    x4   TCP  10.38.22.33:40000 -> 10.38.22.34:23   S   [ours]
+    x4   TCP  10.38.22.34:23    -> 10.38.22.33:40000 RA
+    x4   ICMP t8/c0 10.38.22.33 -> 10.38.22.34      [ours]
+    x4   ICMP t0/c0 10.38.22.34 -> 10.38.22.33      [ours]
+
+  <-- Both halves survived the restart.  The deny still drops the host that is not named,
+      silently, while that host's ICMP is answered 4 of 4.  The permit still lets the
+      named host complete a handshake.  The `RA` control still separates a refused
+      service from a filtered frame.
+
+  Only after the legs was the console opened:
+
+awplus#show access-list
+  Hardware IP access list ckmgmt
+      4 permit tcp 10.38.22.33/32 any eq 22
+      8 deny tcp any any eq 22
+awplus#show running-config | include access-group
+  access-group ckmgmt
+   access-group ckmgmt
+awplus#show access-list counters
+  Hardware ACL Packet Counters
+  Name: ckmgmt
+  	Rule: permit tcp 10.38.22.33/32 any eq 22
+  	Packet Hits: 8
+  	Rule: deny tcp any any eq 22
+  	Packet Hits: 4
+
+  <-- The reboot set the counters back to zero, and after it they account for the
+      post-boot legs exactly: deny 4 is eth4's four SYNs, permit 8 is eth3's four SYNs
+      plus its four RSTs.  Nothing is left over from before the reload.
+
+  Removed again, and the removal proved on the wire:
+
+awplus(config-if)#no access-group ckmgmt          [port1.0.10]
+awplus(config-if)#no access-group ckmgmt          [port1.0.48]
+awplus(config)#no access-list hardware ckmgmt
+awplus#show access-list
+     (nothing)
+  cap t386-removed-eth4-eth4.pcap: 22 frame(s)
+    x4   TCP  10.38.22.65:40000 -> 10.38.22.66:22   S   [ours]
+    x4   TCP  10.38.22.66:22    -> 10.38.22.65:40000 SA
+    x4   TCP  10.38.22.65:40000 -> 10.38.22.66:22   R
+    x4   ICMP t8/c0 ... [ours] ; x4 ICMP t0/c0 ... [ours]
+
+  => STEP 7 PASS: a management access list bound with `access-group` is saved and
+     restored like any other configuration.  After a 60 s cold boot, with nothing typed
+     into the device, the host that is not named still got 0 replies to 4 SYNs while its
+     ICMP was answered 4 of 4, and the named host still completed its handshake with 4
+     `SA`.  The arc on the wire across this step is: open -> dropped -> (cold boot) ->
+     dropped -> open.  So TPS 6.1.1 holds across a restart, not only inside one session.
+================================================================================

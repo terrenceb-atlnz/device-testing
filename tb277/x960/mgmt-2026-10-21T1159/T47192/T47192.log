@@ -1,0 +1,550 @@
+================================================================================
+TEST T47192 -- (243) Config_File - A dynamic configuration while operating (Change, Delete)
+================================================================================
+Run:      2026-10-21, 01:15-01:21 UTC (the nine live configuration operations) and
+          04:52-04:56 UTC (the change across a restart), on swi_d alone.
+Bench:    tb277, consoles u2 = swi_d (DUT), u3 = swi_b, u5 = swi_a; Test Engineer
+          bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T47192.  The test-case database holds NO authored text for this case.
+          There is no objective, and the single step is an empty placeholder: empty
+          description, empty test data, empty expected result (ck.db `zephyr_cases`,
+          `has_objective = 0`).  The case title is the only authored authority.  No STEP
+          heading below can quote authored text.  The seven steps were designed for this
+          run from three sources: the case title, the "X960 platform support TPS" row 241
+          (Dynamic configuration (Change, Delete), Supported: Yes), and the DUT's own CLI
+          surface, read with `?` before anything was configured.
+          The requirement behind TPS row 241 is at TPS line 894, verbatim:
+            "Support a Dynamic configuration. Even during in operation, addition, change
+             and deletion of a configuration must be effected dynamically unless a chip
+             set or another hardware component requires restart..."
+          Read the requirement carefully, because it asks for more than the title.
+          1. It names THREE operations: addition, change AND deletion.  The title names
+             only two.  All three are measured below.
+          2. The key words are "during in operation" and "effected dynamically".  So the
+             thing under test is not that a command is accepted.  It is that the running
+             system's BEHAVIOUR changes, with no restart, while it is running.
+          3. The only escape clause is "unless a chip set or another hardware component
+             requires restart".  This log records whether any operation needed a restart.
+Build:    swi_d  sin_x96056-20261019-27  (flash:/x960-tb277.rel, build date Sun Oct 18
+          23:18:21 UTC 2026), AT-x960-56YSQ, S/N A2WQS700B, standalone Active Master,
+          console u2 @115200
+
+          The DUT's own `show system`, verbatim and in full:
+
+awplus#show system
+  System Status                                           Wed Oct 21 01:14:35 2026
+
+  Board      ID   Bay     Board Name                        Rev   Serial number
+  --------------------------------------------------------------------------------
+  Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+  PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+  PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+  Fan module 730  FAN1    AT-FAN19                          -     -
+  Fan module 730  FAN2    AT-FAN19                          -     -
+  --------------------------------------------------------------------------------
+  RAM: Total: 8092132 kB Free: 7448340 kB
+  Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+  --------------------------------------------------------------------------------
+  Environment Status : Normal
+  Uptime             : 0 days 03:17:58
+  Bootloader version : Unknown
+
+  Current software   : x960-tb277.rel
+  Software version   : sin_x96056-20261019-27
+  Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+  Current boot config: flash:/default.cfg (file exists)
+
+  System Name
+   awplus
+  System Contact
+
+  System Location
+
+  <-- The `Uptime` line is evidence in this case, not decoration.  It is read again in
+      STEP 6, and it is how "with no restart" is proved.
+
+Configs:  swi_d.cfg (the DUT's running-config; this case has no setup of its own,
+          because every change it makes is made and undone inside one of its own steps;
+          saved to startup: yes)
+
+VERDICT: PASS -- all three operations named at TPS line 894 take effect on this DUT while
+it is running, with no restart, and this was proved by counting frames on the wire on two
+unrelated subsystems.
+      ADDITION, forwarding filter ..... PASS  a new bound deny rule stopped 4 of 4 TCP
+                                              SYNs, while the ICMP control in the same
+                                              leg still returned 4 of 4
+      CHANGE, forwarding filter ....... PASS  editing that rule while it was bound to a
+                                              live port made the two flows swap state in
+                                              opposite directions
+      DELETION, forwarding filter ..... PASS  the capture after the delete was frame for
+                                              frame the same as the baseline
+      CHANGE, layer-3 interface ....... PASS  moving vlan48's address inverted every ARP
+                                              and ICMP signature, including the source
+                                              address of the DUT's own unreachables
+      DELETION, layer-3 interface ..... PASS  16 frames sent, 0 came back, while an
+                                              untouched control interface answered 4 of
+                                              4 in the same minute
+      ADDITION, layer-3 interface ..... PASS  re-adding the address reproduced the
+                                              baseline capture exactly, 33 frames
+      no restart was needed ........... PASS  nine operations; uptime advanced by exactly
+                                              the 6 m 14 s that passed, and `show reboot
+                                              history` gained no entry
+      a dynamic change is not
+      temporary ....................... PASS  the change was saved, survived a 60 s cold
+                                              boot, and came back with its whole layer-3
+                                              identity before anything was typed
+
+CAVEAT:  Two things are NOT MEASURED by this case, on purpose.  Neither was improvised.
+         1. CONFIGURATION APPLIED FROM A FILE while the device operates
+            (`copy <file> running-config`, `activate <script>.scp`).  NOT MEASURED.  It
+            needs a `.scp` or configuration file on the DUT's flash.  Putting one there
+            needs a root write to the testbox's `/tftproot`, which is the Test Engineer's
+            to do (STANDING-ORDERS section 4).  This is a bench limit, not a product
+            limit.
+         2. A CHANGE MEASURED MID-FLOW, as a number of frames lost at the instant of the
+            change.  NOT MEASURED as a timing number.  Every step below measures the
+            state BEFORE and the state AFTER with counted bursts.  That proves THAT the
+            change took effect while the device was running, and it bounds WHEN to the
+            few seconds between the `end` command and the next leg's first frame.  A
+            figure below one second would need a continuous rate-limited stream that
+            spans the configuration command.  No tool in `tools/` drives such a stream
+            from the same process as a console write.  The bound is stated; no precision
+            is claimed.
+HEALTH:  reboots ......... one new entry: `2026-10-21 04:53:40 Expected CLI(user
+                           request)`, the reload STEP 7 asked for.  Nothing else is new.
+                           In STEP 6 the absence of a new entry is itself the evidence
+         exception log ... None, in both samples
+         log ............. no crash, no kernel error and no daemon restart.  This case
+                           wrote two lines of its own, both quoted in STEP 5:
+                           `NSM[913]: vlan48 installed address ...`.  Two `snmpd` lines
+                           dated 01:05 were already in the log before this case's first
+                           step at 01:15 and were not caused by it.  After the STEP 7
+                           reload the log holds only that reload's own boot sequence
+         CPU ............. load 0% before -> load 0% after.  NOTE: `show cpu` on this
+                           platform prints LOAD, not idle.  Both samples read
+                           `1 second: 0%, 20 seconds: 0%, 60 seconds: 0%`
+         memory .......... free 7448856 kB before -> free 7454540 kB after, of 8092132 kB
+                           total.  Free memory ROSE by 5684 kB across a case that
+                           contains a full reboot.  There is no step change and no leak
+                           is claimed
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+   tb277 eth3  10.38.22.33/27              tb277 eth4  10.38.22.65/27
+   00:0d:b9:55:77:0e                       00:0d:b9:55:77:0f
+   subsystem A: the filter                 subsystem B: the interface address
+   (and the control for subsystem B)
+        |                                       |
+        |  TCP SYN to :22 + ICMP echo           |  ARP who-has + ICMP echo, to BOTH
+        |                                       |  10.38.22.66 and 10.38.22.70
+        v                                       v
+   port1.0.10 (vlan 10, access)            port1.0.48 (vlan 48, access)
+ +--------------------------------------------------------------------------+
+ |  swi_d   AT-x960-56YSQ   <<< DUT >>>   console u2 @115200                 |
+ |  vlan10 10.38.22.34/27                 vlan48 10.38.22.66/27              |
+ |  NEVER touched by this case            its address is changed and deleted |
+ |  (the control)                         inside the steps, then restored    |
+ +--------------------------------------------------------------------------+
+
+  DUT     : swi_d (AT-x960-56YSQ) console u2 @115200, S/N A2WQS700B, software
+            sin_x96056-20261019-27, standalone, one member, Active Master.
+            SVI MAC e0:1a:ea:d4:70:43 -- every SVI on this platform shares one MAC, so
+            this is the layer-2 next hop for every crafted frame.
+  host 1  : tb277 eth3 00:0d:b9:55:77:0e 10.38.22.33/27 -> swi_d port1.0.10, vlan 10.
+            It carries subsystem A, and it is the untouched control for subsystem B.
+  host 2  : tb277 eth4 00:0d:b9:55:77:0f 10.38.22.65/27 -> swi_d port1.0.48, vlan 48.
+            It carries subsystem B.
+  tools   : tools/cfg.py (every configuration batch; it stops at the first `% ` line),
+            tools/ckcon.py (every `show`), tools/arpleg.py (all traffic legs, run on
+            tb277 as root: it starts tcpdump, sends a known count of crafted frames,
+            stops, and counts what came back), tools/ckreload.py (the reload in STEP 7),
+            tools/rc2cfg.py (swi_d.cfg).
+  method  : two unrelated subsystems, each taking all three operations.  One subsystem
+            could be a special case.  Two of them, one in the forwarding filter and one
+            in the layer-3 interface, is evidence about configuration in general, which
+            is what the requirement claims.  Every leg sends a known count of 4 frames
+            per flow and counts what comes back.  A `ping` could not do this: it cannot
+            choose the TCP port, it cannot carry a non-matching control in the same run,
+            and it keeps no per-frame record.
+
+STEP 1 -- baseline, before any change: what each subsystem looks like untouched   PASS
+--------------------------------------------------------------------------------
+awplus#show ip interface brief
+  Interface             IP-Address         Status          Protocol
+  eth0                  unassigned         admin up        running
+  lo                    unassigned         admin up        running
+  vlan1                 unassigned         admin up        running
+  vlan10                10.38.22.34/27     admin up        running
+  vlan48                10.38.22.66/27     admin up        running
+  vlan60                10.38.22.97/27     admin up        running
+awplus#show access-list
+                                              <-- no output: no access list of any kind
+
+tb277# sudo arpleg.py --tag dyn-base --out /tmp/mgmt1159/T47192 --iface eth3 \
+       --tcp 10.38.22.34:22 --icmp 10.38.22.34 --sender-ip 10.38.22.33 \
+       --sender-mac 00:0d:b9:55:77:0e --gw-mac e0:1a:ea:d4:70:43 --count 4 --wait 4
+  cap dyn-base-eth3.pcap: 22 frame(s)
+    x4     TCP  10.38.22.33    :40000 -> 10.38.22.34    :22    S    [ours]
+    x4     TCP  10.38.22.34    :22    -> 10.38.22.33    :40000 SA
+    x4     TCP  10.38.22.33    :40000 -> 10.38.22.34    :22    R
+    x4     ICMP t8/c0 10.38.22.33     -> 10.38.22.34     [ours]
+    x4     ICMP t0/c0 10.38.22.34     -> 10.38.22.33     [ours]
+    x1     ARP-REQ  who-has 10.38.22.34     tell 10.38.22.33
+    x1     ARP-REPLY 10.38.22.34     is-at e0:1a:ea:d4:70:43
+
+  <-- Subsystem A baseline: BOTH flows pass.  TCP/22 answered `SA` 4 of 4.  ICMP answered
+      4 of 4.  In every later state of subsystem A exactly one of these two flows must
+      pass, so a dead instrument cannot look like a result.
+
+tb277# sudo arpleg.py --tag dyn-base4 --out /tmp/mgmt1159/T47192 --iface eth4 \
+       --arp 10.38.22.66,10.38.22.70 --icmp 10.38.22.66,10.38.22.70 \
+       --sender-ip 10.38.22.65 --sender-mac 00:0d:b9:55:77:0f \
+       --gw-mac e0:1a:ea:d4:70:43 --count 4 --wait 4
+  cap dyn-base4-eth4.pcap: 31 frame(s)
+    x4     ARP-REQ  who-has 10.38.22.66     tell 10.38.22.65
+    x4     ARP-REPLY 10.38.22.66     is-at e0:1a:ea:d4:70:43        <- .66 EXISTS
+    x4     ARP-REQ  who-has 10.38.22.70     tell 10.38.22.65        <- .70 does not: no reply
+    x4     ICMP t8/c0 10.38.22.65     -> 10.38.22.66     [ours]
+    x4     ICMP t0/c0 10.38.22.66     -> 10.38.22.65     [ours]     <- echo REPLY from .66
+    x4     ICMP t8/c0 10.38.22.65     -> 10.38.22.70     [ours]
+    x4     ICMP t3/c1 10.38.22.66     -> 10.38.22.65     [ours]     <- host UNREACHABLE, from .66
+    x3     ARP-REQ  who-has 10.38.22.70     tell 10.38.22.66
+
+  <-- Subsystem B baseline: .66 exists and .70 does not, and each state has its own clear
+      signature.  An address that exists answers ARP and answers an echo.  An address
+      that does not exist draws no ARP reply, and the DUT sends ICMP type 3 code 1 (host
+      unreachable) SOURCED FROM the address it does have.
+  => STEP 1 PASS: both subsystems are in a known state, and every signature that later
+     steps read is recorded here first.
+
+STEP 2 -- ADDITION: a new filter is added, and the dataplane changes at once      PASS
+--------------------------------------------------------------------------------
+awplus(config)#access-list hardware ckdyn
+awplus(config-ip-hw-acl)#deny tcp any any eq 22
+awplus(config-ip-hw-acl)#exit
+awplus(config)#interface port1.0.10
+awplus(config-if)#access-group ckdyn
+awplus(config-if)#exit
+awplus(config)#end
+
+  <-- No `% ` line; `tools/cfg.py` exited 0.
+
+tb277# sudo arpleg.py --tag dyn-add ... --iface eth3 --tcp 10.38.22.34:22 \
+       --icmp 10.38.22.34 ... --count 4
+  cap dyn-add-eth3.pcap: 12 frame(s)
+    x4     TCP  10.38.22.33    :40000 -> 10.38.22.34    :22    S    [ours]
+    x4     ICMP t8/c0 10.38.22.33     -> 10.38.22.34     [ours]
+    x4     ICMP t0/c0 10.38.22.34     -> 10.38.22.33     [ours]
+
+  flow                            STEP 1       after the ADDITION   reading
+  TCP/22, 4 SYNs                  4 `SA`       0 replies            the new rule is in
+                                                                     the dataplane
+  ICMP echo, 4 (the control)      4 replies    4 replies            the port and the
+                                                                     capture are alive,
+                                                                     so the silence is a
+                                                                     measurement
+
+  => STEP 2 PASS: addition takes effect dynamically.  The leg's first frame left the
+     testbox a few seconds after the `end` command, and the rule was already enforced.
+     There was no reload, no `write` and no restart of any kind.
+
+STEP 3 -- CHANGE: the bound filter is edited in place and the two flows swap state PASS
+--------------------------------------------------------------------------------
+  Method: this is the strongest form of the test.  It is not "remove, then add again".
+  It is a change to a filter that is bound to a live port right now, with two flows that
+  must exchange their fates.
+
+awplus(config)#access-list hardware ckdyn
+  % This access-list is attached to an interface. The modified configuration will be applied to the interface automatically after exiting this configuration mode  by entering "exit" or "end" command.
+awplus(config-ip-hw-acl)#no deny tcp any any eq 22
+awplus(config-ip-hw-acl)#deny icmp any any
+awplus(config-ip-hw-acl)#end
+
+  <-- That `% ` line is ADVICE, not a rejection.  This platform has two near-identical
+      messages whose difference is one word: `is attached` is advice, `is currently
+      attached` is a rejection.  `tools/cfg.py` carried on correctly because the string
+      is in its advisory list.  Had the tool treated it as an error, this step would have
+      read as a product failure while the product was working.  The message also says
+      WHEN the change lands: not at the rule, but on leaving the sub-mode.
+
+awplus#show access-list                       [read 7 s later]
+  Hardware IP access list ckdyn
+      4 deny icmp any any
+
+tb277# sudo arpleg.py --tag dyn-change ... --iface eth3 --tcp 10.38.22.34:22 \
+       --icmp 10.38.22.34 ... --count 4
+  cap dyn-change-eth3.pcap: 18 frame(s)
+    x4     TCP  10.38.22.33    :40000 -> 10.38.22.34    :22    S    [ours]
+    x4     TCP  10.38.22.34    :22    -> 10.38.22.33    :40000 SA
+    x4     TCP  10.38.22.33    :40000 -> 10.38.22.34    :22    R
+    x4     ICMP t8/c0 10.38.22.33     -> 10.38.22.34     [ours]
+    x1     ARP-REQ  who-has 10.38.22.34     tell 10.38.22.33
+    x1     ARP-REPLY 10.38.22.34     is-at e0:1a:ea:d4:70:43
+
+  flow                  STEP 1      STEP 2 (added)   STEP 3 (changed)
+  TCP/22, 4 SYNs        4 `SA`      0                4 `SA` -- open again
+  ICMP echo, 4          4 replies   4 replies        0 -- now blocked
+
+awplus#show access-list counters
+  Name: ckdyn
+  	Rule: deny icmp any any
+  	Packet Hits: 4
+
+  <-- 4 hits = the 4 echo requests.  The device's count matches the wire.
+  => STEP 3 PASS: change takes effect dynamically, including on a filter that is already
+     bound to a live port.  Both flows changed state on one edit, in opposite directions.
+     A stale dataplane could not produce that, and a `show` command could not prove it.
+
+STEP 4 -- DELETION: the filter is removed and both flows return                   PASS
+--------------------------------------------------------------------------------
+awplus(config)#interface port1.0.10
+awplus(config-if)#no access-group ckdyn
+awplus(config-if)#exit
+awplus(config)#no access-list hardware ckdyn
+awplus(config)#end
+
+tb277# sudo arpleg.py --tag dyn-del ... --iface eth3 --tcp 10.38.22.34:22 \
+       --icmp 10.38.22.34 ... --count 4
+  cap dyn-del-eth3.pcap: 22 frame(s)
+    x4     TCP  10.38.22.33    :40000 -> 10.38.22.34    :22    S    [ours]
+    x4     TCP  10.38.22.34    :22    -> 10.38.22.33    :40000 SA
+    x4     TCP  10.38.22.33    :40000 -> 10.38.22.34    :22    R
+    x4     ICMP t8/c0 10.38.22.33     -> 10.38.22.34     [ours]
+    x4     ICMP t0/c0 10.38.22.34     -> 10.38.22.33     [ours]
+    x1     ARP-REQ  who-has 10.38.22.34     tell 10.38.22.33
+    x1     ARP-REPLY 10.38.22.34     is-at e0:1a:ea:d4:70:43
+
+awplus#show access-list
+                                              <-- empty again
+awplus#show running-config interface port1.0.10
+  !
+  interface port1.0.10
+   switchport
+   switchport mode access
+   switchport access vlan 10
+  !                                           <-- no access-group line
+
+  => STEP 4 PASS: deletion takes effect dynamically.  Both flows pass again, and the
+     capture holds 22 frames, the same as the STEP 1 baseline.
+
+STEP 5 -- the same three operations on a layer-3 interface address                PASS
+--------------------------------------------------------------------------------
+  Method: subsystem A is a forwarding filter.  If dynamic configuration were a property
+  of the access-list engine alone, the requirement would not be met.  So the same three
+  operations now run on `interface vlan48`, with `vlan10` as an untouched control.
+
+  5a -- CHANGE, in place, on a live interface
+
+awplus(config)#interface vlan48
+awplus(config-if)#ip address 10.38.22.70/27
+awplus(config-if)#end
+
+  <-- Accepted with no `% ` line.  The address was REPLACED in place.  It was not
+      rejected as a duplicate and it was not quietly added as a second address.
+
+awplus#show ip interface brief                [read 8 s later]
+  vlan10                10.38.22.34/27     admin up        running
+  vlan48                10.38.22.70/27     admin up        running
+
+  The DUT logged the installation itself, as the command was entered:
+
+  2026 Oct 21 01:18:03 user.notice awplus NSM[913]: vlan48 installed address 10.38.22.70/27
+
+tb277# sudo arpleg.py --tag svi-change ... --iface eth4 --arp 10.38.22.66,10.38.22.70 \
+       --icmp 10.38.22.66,10.38.22.70 ... --count 4
+  cap svi-change-eth4.pcap: 33 frame(s)
+    x4     ARP-REQ  who-has 10.38.22.66     tell 10.38.22.65
+    x4     ARP-REQ  who-has 10.38.22.70     tell 10.38.22.65
+    x4     ARP-REPLY 10.38.22.70     is-at e0:1a:ea:d4:70:43
+    x4     ICMP t8/c0 10.38.22.65     -> 10.38.22.66     [ours]
+    x4     ICMP t8/c0 10.38.22.65     -> 10.38.22.70     [ours]
+    x4     ICMP t0/c0 10.38.22.70     -> 10.38.22.65     [ours]
+    x4     ICMP t3/c1 10.38.22.70     -> 10.38.22.65     [ours]
+    x3     ARP-REQ  who-has 10.38.22.66     tell 10.38.22.70
+    x1     ARP-REQ  who-has 10.38.22.65     tell 10.38.22.70
+    x1     ARP-REPLY 10.38.22.65     is-at 00:0d:b9:55:77:0f
+
+  probe                  baseline (.66 configured)   after the change (.70 configured)
+  ARP who-has .66        4 replies                   0 replies
+  ARP who-has .70        0 replies                   4 replies, from the same MAC
+  ICMP echo to .66       4 echo replies              4 host unreachable, sourced from .70
+  ICMP echo to .70       4 host unreachable,         4 echo replies
+                         sourced from .66
+
+  <-- This is the exact mirror image of the STEP 1 baseline.  Note the detail that makes
+      it certain: the SOURCE address of the ICMP unreachable moved too.  The whole
+      layer-3 identity of the interface moved in the dataplane, with no restart.
+
+  5b -- DELETION, with the control on the other interface
+
+awplus(config)#interface vlan48
+awplus(config-if)#no ip address 10.38.22.70/27
+awplus(config-if)#end
+awplus#show ip interface brief
+  vlan10                10.38.22.34/27     admin up        running
+  vlan48                unassigned         admin up        running          <- gone
+
+tb277# sudo arpleg.py --tag svi-del ... --iface eth4 --arp 10.38.22.66,10.38.22.70 \
+       --icmp 10.38.22.66,10.38.22.70 ... --count 4
+  cap svi-del-eth4.pcap: 16 frame(s)
+    x4     ARP-REQ  who-has 10.38.22.66     tell 10.38.22.65
+    x4     ARP-REQ  who-has 10.38.22.70     tell 10.38.22.65
+    x4     ICMP t8/c0 10.38.22.65     -> 10.38.22.66     [ours]
+    x4     ICMP t8/c0 10.38.22.65     -> 10.38.22.70     [ours]
+
+  <-- 16 frames sent, 16 frames captured, and NOTHING came back.  There is no ARP reply
+      for either address.  There is not even an ICMP unreachable, because with no address
+      on that subnet the DUT has nothing to source one from.  That is a different silence
+      from the baseline's, and it is the correct one for "the address was deleted".
+
+  The control, in the same minute, on the interface this step did not touch:
+
+tb277# sudo arpleg.py --tag svi-del-ctrl ... --iface eth3 --arp 10.38.22.34 \
+       --icmp 10.38.22.34 ... --count 4
+  cap svi-del-ctrl-eth3.pcap: 16 frame(s)
+    x4     ARP-REQ  who-has 10.38.22.34     tell 10.38.22.33
+    x4     ARP-REPLY 10.38.22.34     is-at e0:1a:ea:d4:70:43
+    x4     ICMP t8/c0 10.38.22.33     -> 10.38.22.34     [ours]
+    x4     ICMP t0/c0 10.38.22.34     -> 10.38.22.33     [ours]
+
+  <-- 4 of 4 and 4 of 4.  The deletion only affected the interface it named.  The box,
+      the capture and the DUT's IP stack are all alive.
+  <-- Worth knowing for the next test: the DUT writes a log line for every address it
+      INSTALLS, and no log line at all when an address is REMOVED.  The deletion above is
+      the most visible change of this whole case on the wire, and it left nothing in the
+      device log.  A test that looked for the deletion in the log would find nothing and
+      could wrongly decide it had not happened.
+
+  5c -- ADDITION, putting the address back
+
+awplus(config)#interface vlan48
+awplus(config-if)#ip address 10.38.22.66/27
+awplus(config-if)#end
+
+  2026 Oct 21 01:19:49 user.notice awplus NSM[913]: vlan48 installed address 10.38.22.66/27
+
+tb277# sudo arpleg.py --tag svi-add ... --iface eth4 --arp 10.38.22.66,10.38.22.70 \
+       --icmp 10.38.22.66,10.38.22.70 ... --count 4
+  cap svi-add-eth4.pcap: 33 frame(s)
+    x4     ARP-REQ  who-has 10.38.22.66     tell 10.38.22.65
+    x4     ARP-REPLY 10.38.22.66     is-at e0:1a:ea:d4:70:43
+    x4     ARP-REQ  who-has 10.38.22.70     tell 10.38.22.65
+    x4     ICMP t8/c0 10.38.22.65     -> 10.38.22.66     [ours]
+    x4     ICMP t0/c0 10.38.22.66     -> 10.38.22.65     [ours]
+    x4     ICMP t8/c0 10.38.22.65     -> 10.38.22.70     [ours]
+    x4     ICMP t3/c1 10.38.22.66     -> 10.38.22.65     [ours]
+    x3     ARP-REQ  who-has 10.38.22.70     tell 10.38.22.66
+    x1     ARP-REQ  who-has 10.38.22.65     tell 10.38.22.66
+    x1     ARP-REPLY 10.38.22.65     is-at 00:0d:b9:55:77:0f
+
+  <-- 33 frames, flow for flow the same as the STEP 1 baseline.
+  => STEP 5 PASS: addition, change and deletion all take effect dynamically on a second
+     subsystem that has nothing to do with the first one.  So this is a property of
+     configuration on this product, not a property of one engine inside it.
+
+STEP 6 -- "with no restart", proved rather than assumed                           PASS
+--------------------------------------------------------------------------------
+  evidence                          before step 1        after the last step
+  `show system` Uptime              0 days 03:17:58      0 days 03:24:12
+  `show reboot history`, newest     2026-10-20 21:56:17  2026-10-20 21:56:17
+                                    Expected CLI(user    Expected CLI(user request)
+                                    request)             -- the same entry, nothing new
+
+  => STEP 6 PASS: nine configuration operations ran across two subsystems and the DUT
+     never restarted.  Uptime advanced by exactly the 6 m 14 s that passed, and no new
+     entry appeared in the reboot history.  The requirement's escape clause ("unless a
+     chip set or another hardware component requires restart") was not needed for any of
+     the nine.  That includes the hardware forwarding filter, which is the one place
+     where a chipset really is involved.
+
+STEP 7 -- a change made dynamically is saved and survives a restart               PASS
+--------------------------------------------------------------------------------
+  Method: apply the STEP 5a change again, save it, reload the DUT, and read the same
+  signatures before anyone logs in.  One leg sends ICMP to BOTH addresses, so each leg
+  carries its own control: whichever address is the subject, the other must NOT answer,
+  and the source address of the unreachable says which one the DUT currently holds.
+
+tb277# sudo arpleg.py --tag <tag> --out /tmp/ntp1021/T47192 --iface eth4 \
+       --icmp 10.38.22.66,10.38.22.70 --sender-ip 10.38.22.65 \
+       --sender-mac 00:0d:b9:55:77:0f --gw-mac e0:1a:ea:d4:70:43 --count 4 --wait 4
+
+  Baseline, vlan48 is .66:
+  cap t192-base-eth4.pcap: 19 frame(s)
+    x4   ICMP t8/c0 10.38.22.65 -> 10.38.22.66   [ours]
+    x4   ICMP t0/c0 10.38.22.66 -> 10.38.22.65   [ours]     <- .66 answers
+    x4   ICMP t8/c0 10.38.22.65 -> 10.38.22.70   [ours]
+    x4   ICMP t3/c1 10.38.22.66 -> 10.38.22.65   [ours]     <- .70 unreachable, FROM .66
+    x3   ARP-REQ who-has 10.38.22.70 tell 10.38.22.66
+
+  The change, applied while the device is operating:
+
+awplus(config)#interface vlan48
+awplus(config-if)#ip address 10.38.22.70/27          [04:52:55 UTC]
+awplus#show ip interface brief
+  vlan48   10.38.22.70/27   admin up  running
+
+  <-- No reload, no service restart, and no `write` yet.
+
+  cap t192-changed-eth4.pcap: 21 frame(s)
+    x4   ICMP t8/c0 10.38.22.65 -> 10.38.22.66   [ours]
+    x4   ICMP t8/c0 10.38.22.65 -> 10.38.22.70   [ours]
+    x4   ICMP t0/c0 10.38.22.70 -> 10.38.22.65   [ours]     <- .70 now answers
+    x4   ICMP t3/c1 10.38.22.70 -> 10.38.22.65   [ours]     <- .66 unreachable, FROM .70
+    x3   ARP-REQ who-has 10.38.22.66 tell 10.38.22.70
+
+  <-- The exact mirror image of the leg above, in every one of the five rows.
+
+  Saved, then reloaded:
+
+awplus#write
+  Building configuration...
+  [OK]
+awplus#show startup-config | include 10.38.22
+  ip address 10.38.22.34/27
+   ip address 10.38.22.70/27          <- the change made while operating, now saved
+   ip address 10.38.22.97/27
+
+tb277# tools/tb ckreload tb277 ntp1021 u2 115200 240
+  >>> reload   (04:53:40 UTC)
+  reboot question: 'reboot system? (y/n):' -> y
+  login seen after 60 s
+
+  The leg was settled before it was read.  The first ping to .70 after the boot returned
+  1 of 4, 75 percent packet loss.  The second returned 4 of 4.  Only then was the leg
+  taken, 22 s after the login prompt, with NOTHING typed into the DUT:
+
+  cap t192-afterboot-eth4.pcap: 22 frame(s)
+    x4   ICMP t8/c0 10.38.22.65 -> 10.38.22.66   [ours]
+    x4   ICMP t8/c0 10.38.22.65 -> 10.38.22.70   [ours]
+    x4   ICMP t0/c0 10.38.22.70 -> 10.38.22.65   [ours]     <- .70 still answers
+    x4   ICMP t3/c1 10.38.22.70 -> 10.38.22.65   [ours]     <- .66 unreachable, FROM .70
+    x3   ARP-REQ who-has 10.38.22.66 tell 10.38.22.70
+    x1   ARP-REQ who-has 10.38.22.70 tell 10.38.22.70       (duplicate-address probe at boot)
+    x1   ARP-REQ who-has 10.38.22.65 tell 10.38.22.70
+
+  <-- Row for row the same as the leg before the reload.  The source of the unreachable
+      is still .70, so the whole layer-3 identity came back, not only the address line.
+  <-- The extra `who-has 10.38.22.70 tell 10.38.22.70` is the interface's own
+      duplicate-address probe at boot.  It shows the interface was brought up from the
+      saved configuration, rather than simply never torn down.
+
+  Put back:
+
+awplus(config)#interface vlan48
+awplus(config-if)#ip address 10.38.22.66/27
+awplus#show ip interface brief
+  vlan48   10.38.22.66/27   admin up  running
+  cap t192-restored-eth4.pcap: 21 frame(s)
+    x4   ICMP t0/c0 10.38.22.66 -> 10.38.22.65   [ours]     <- .66 answers again
+    x4   ICMP t3/c1 10.38.22.66 -> 10.38.22.65   [ours]     <- .70 unreachable, FROM .66
+    x3   ARP-REQ who-has 10.38.22.70 tell 10.38.22.66
+
+  => STEP 7 PASS: a change applied while the device was operating is saved and restored
+     like any other configuration.  The arc on the wire is: .66 -> .70 -> (cold boot) ->
+     .70 -> .66.  So "dynamic" on this platform does not mean "temporary".
+================================================================================
