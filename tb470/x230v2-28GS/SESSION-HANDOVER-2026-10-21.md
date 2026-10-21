@@ -1,3 +1,129 @@
+# Session handover — 2026-10-21 afternoon (12:2x–15:5x NZDT): x230v2-28GS platform-ports campaign (6 PASS, final logs created), health + speedrow tools built, bench whole
+
+Session `4ba10cb2…` (VS Code, `device-testing-77`; one harness restart at ~15:4x, nothing lost), Test Engineer
+terrenceb@terrenceb-dl. `/orient-dt tb470`, record housekeeping, one `/test-mode` campaign (this session = sentinel, one
+bench-runner subagent), `/create-logs`, then the three REVIEW.md savings built on the Test Engineer's instruction, then this wrap.
+A parallel session (`device-testing-e7`) ran a tb101 LACP campaign all afternoon; out of scope, but see "Sentinel" below.
+
+## Session facts
+Test Engineer: terrenceb@terrenceb-dl
+Testbox: tb470
+Consoles: u0,u1 (u0 = AR4050S swi_e, the link partner; u1 = x230v2-28GS swi_f, the DUT). No other console exists on tb470 (u2-u9 absent).
+PDU: "No PDU / do not power-cycle" (Test Engineer, 13:2x); tb470.static's outlets u0=3, u1=4 not disputed, not used.
+Constraints: "None: reloads allowed now" (office hours; none needed). Sentinel stand-down when the run ends. Host: VS Code.
+
+## TL;DR
+- **Campaign 2026-10-21T1323 complete: 6 of 6 PASS** (T47226, T47227, T47215, T46421, T47208, T47210), no reload, no PDU, no `write`.
+  Final logs CREATED (`2140004`): [platform-ports-2026-10-21T1323/README.md](platform-ports-2026-10-21T1323/README.md). No `work/` remains.
+- **Bench is whole.** Wrap probe `2026-10-21T024948Z` (15:49 NZDT, u0/u1) **MATCH**, no advisories. Both running-configs carry no
+  `speed`/`duplex`/`tlv-select` line (startup-config neither); link a-full a-1000 both ends; boot configs `flash:/tb470-bench.cfg (file exists)`;
+  AMF on the 4050 still Network Name Not Set, 1 node. **No new `Unexpected System reboot` on either unit all afternoon**
+  (4050 newest 2026-10-15 15:01:55; x230 newest 2026-10-19 22:30:23 UTC).
+- **Three new pieces of tooling, verified on this bench** (`9dd1caa`): `tools/tb health` (the §8 health sample in one call, with
+  a before/after diff and CLEAN/DIRTY verdict), `tools/tb speedrow` (speed/duplex rows on BOTH ends of a link from one process:
+  link-up timing, LLDP, MAC/PHY TLV decode, flaps, restore), and a 40k-character reading budget + the sequential-tool-block rule in
+  `.claude/agents/bench-runner.agent.md`.
+- **Sentinel stood down** (Monitor stopped at /create-logs, cron deleted, 0 stray `sentinel.sh` of this session at the wrap).
+- **Committed, NOT pushed** (push is yours): see Git.
+
+## Bench state at the wrap (read 15:49 on u0/u1, then probe 024948Z MATCH)
+| unit | console | build | boot image / config | ports | notes |
+| --- | --- | --- | --- | --- | --- |
+| AR4050S swi_e S/N A10401G214000005 | u0, 115200 | awplus_main-20261008-57 | `AR4050S-awplus_main-20261008-57.rel (file exists)` / `flash:/tb470-bench.cfg (file exists)` | port1.0.2: `switchport mode access`, `switchport access vlan 10`, no speed/duplex/tlv line | AMF Network Name Not Set, Role Member, 1 node; USB stick present (`usb:/atmf/Enterprise-AMF/` kept, your decision 13:0x) |
+| x230v2-28GS swi_f S/N A10783G262900002 | u1, 115200 | awplus_main-20261019-75 (build Mon Oct 19 08:39:33 UTC 2026), bootloader 6.2.40 | `x230v2_28GS-awplus_main-20261019-75.rel (file exists)` / `flash:/tb470-bench.cfg (file exists)` | port1.0.1: `switchport mode trunk`, `switchport atmf-link`, no speed/duplex/tlv line; port1.0.7 `shutdown` (saved, as before) | flash 60.6 MB free; exception log None; the only pluggable is the AT-SPTXa in 1.0.1 |
+
+- Link: 4050 port1.0.2 <-> x230 port1.0.1 (copper SPTXa), a-full a-1000 both ends, LLDP both ends. The only link.
+- tb470 eth1/eth2/eth3 carrier DOWN all day; no host change by this session.
+- Scratch on tb470 (tmpfs, dies with the box): `/tmp/orient1021b/`, `/tmp/pp1323/` (the campaign's console transcripts),
+  `/tmp/sr1021/` (the tool validations: `health-u1-*.out`, `speedrow-*.out`).
+- Lock files `LCK..u0`/`LCK..u1` REMOVED at 13:0x on your instruction; precheck reads CLEAR since.
+
+Verify in one go (repo root):
+```
+tools/tb precheck tb470 0,1; tools/tb probe tb470 --consoles 0,1 --baud 115200 --no-prompt --name u0=swi_e --name u1=swi_f
+tools/tb scratch tb470 w1021; tools/tb health tb470 w1021 u1 115200 --label check      # one call: reboots/exception/log/cpu/memory
+tools/tb ckcon tb470 w1021 u0 115200 "show boot" "show running-config interface port1.0.2" "show atmf"
+```
+
+## What was accomplished
+1. **Orient (12:2x):** git in sync after the morning's push; probe 232516Z MATCH; the only FOUND were the stale lock files.
+2. **Housekeeping on your word:** lock files removed (precheck CLEAR); T46810's functional reading CONFIRMED and written into its final
+   log, README, the morning handover and memory (`17d0256`); OPEN 2 closed as KEEP (`cf675ac`).
+3. **Triage answer to the 18-case Zephyr screenshot:** 6 runnable now / 2 UNSUPPORTED to record / 1 MANUAL-ONLY / 9 needing a module
+   or cable (the table is in this session's transcript; the reasoning per case is in the queue's Triage section).
+4. **Campaign 2026-10-21T1323** ([CAMPAIGN-QUEUE-2026-10-21T1323.md](CAMPAIGN-QUEUE-2026-10-21T1323.md)): TRIAGE 13:25–13:31 (6/0/0),
+   RUN 13:46–14:31, all six PASS, restore proven (probe 013029Z MATCH, configs byte-identical).
+5. **`/create-logs` (`2140004`):** six final logs, group README, REVIEW.md + per-case reviews; the three port logs quote the group's
+   13:46:45 `show system` on your ruling. Two points flagged for your review (below).
+6. **Tooling (`9dd1caa`):** `tools/health.py`, `tools/speedrow.py`, `tools/tb` actions `health` and `speedrow`, README entries,
+   logged-output.md §2 pointer, bench-runner reading budget and rules, memory `two-console-calls-in-one-block-run-sequentially`.
+   Validations on this bench: health before/after on u1 (CLEAN); speedrow rows auto-100 / 100-full / auto-1000 with one flap each
+   from the 4050, then auto-100 / 100-half with `--tlv` (MAU 16 → 15, autoneg Enabled → Disabled), restore proven by re-read.
+7. **Records at this wrap:** this section; three rows in `platforms/x230v2-28GS.md` (AMF link-reset audit, snmpd trap lines, unsorted reboot history).
+
+## Results (queue `## Results`) — final logs CREATED, commit 2140004
+| case | verdict | run label | one line |
+| --- | --- | --- | --- |
+| T47226 check for sh version | PASS (tester) | clean | `show version` in full; x220 build name expected |
+| T47227 check for sh license | PASS (tester) | clean | Base License (Full, 11 features) + ACCESS (Full) |
+| T47215 sh sys environment | PASS (tester) | clean | Overall Status Normal; 9 sensors Ok |
+| T46421 Link flap | PASS (tester) | clean | 18 flaps at auto 1000/100/10, back in 2.8–4.5 s, LLDP re-learned |
+| T47208 Copper pluggable speeds | PASS (tester) | clean | SPTXa at auto 10/100/1000, fixed 1000, forced 100/10 full; 2500/10000/100000 refused. CAVEAT one module type |
+| T47210 MAC/Phy TLV | PASS (tester) | clean | 9 combinations decoded at the 4050; reverse agreed |
+
+**For your review before upload (from /create-logs):** (1) T46421: after the change to 10 Mb/s the x230's LLDP table was read once,
+2 s after link-up, and showed no neighbour; not re-read until the end (CAVEAT in the log). (2) T47208: the 4050 was not read for the
+auto 1000 / fixed 1000 / back-to-auto rows ("not read" in the log's table). Neither changes the verdict unless you re-grade.
+
+## Findings
+**Measured (2026-10-21, tb470, x230v2 awplus_main-20261019-75, 4050 awplus_main-20261008-57):**
+- 9 fast flaps on the x230's `atmf-link` port log `ATMF Sec_Audit - Possible DOS attack, link resets on port1.0.1 exceed limit by 4`;
+  the audit, not a fault. Every link change logs an `snmpd send_trap ... Network is unreachable` line (trap host 10.37.108.166 unroutable).
+- Fixed `speed 1000` advertises autoneg Disabled in the TLV while the link runs 1000 full (as on 10-09, not graded).
+- A forced-100-full DUT against an auto partner reads `a-half a-100` at the partner (parallel detection) until the partner is matched.
+- The x230 prints `show reboot history` unsorted.
+- Process: two console calls in one tool block run in sequence (T47208 lost ~4 min + 4 calls); cache reads were 97% of the run's
+  tokens, the context per call growing from ~93k (triage) to ~223k (T47210). Both now have fixes in the agent file and tools.
+**Inferred:** none.
+
+## OPEN (Test Engineer)
+1. **Review the two /create-logs points above**, re-grade or upload as is.
+2. **The 12 remaining Zephyr cases** need: one copper SFP + eth3 cable to the x230 (T15255, T47228, T44179), a second NIC cable
+   (T38294/T38295), two more modules + a port-to-port lead (T20358, T18570/71), an SX module + fibre partner (T47209), you at the
+   bench with a magnet (T47214); T33234 and T30403 can be recorded UNSUPPORTED without a run.
+3. **Sentinel sweeps across sessions:** at 13:25 this session's and the tb101 session's ARMING sweeps killed each other's `sentinel.sh`.
+   The peer committed the template fix (`ddcc0c6`: kill only wrappers carrying YOUR $SCRATCH) and a memory; this session's brief and cron
+   used the same rule afterwards. Nothing further unless it recurs.
+4. **Git:** below.
+
+## Next steps
+1. Push (`git push origin main`).
+2. Decide OPEN 1; cable per OPEN 2 if the remaining cases are wanted.
+
+## Recipes
+- **The whole T46421/T47208/T47210 method in one call each (next run):**
+  `tools/tb speedrow tb470 <run> u1 u0 115200 --dut-port port1.0.1 --partner-port port1.0.2 --lldp --flap 3 --flap-end both auto-1000 auto-100 auto-10`
+  (link flap); `... auto-100 auto-10 auto-1000 1000 100-full 10-full` (copper speeds; refusals print as REFUSED);
+  `... --lldp --tlv auto auto-100 auto-100-half auto-10 1000 100-full 100-half 10-full 10-half` (MAC/PHY TLV, 9 rows).
+  Raw output lands in `/tmp/<run>/speedrow-<stamp>.out` for the working log.
+- **Health samples:** `tools/tb health tb470 <run> u1 115200 --label before`, then `... --before /tmp/<run>/health-u1-<stamp>.out.json --label after`.
+
+## Git
+Fetched at the wrap (see the brief): this session's commits since the morning's push: `17d0256`, `cf675ac`, `b530972`, `d6eb7b1`
+(tester), `b477a23`, `6b97789`, `862da1f`, `5364cc6`, the tester's per-case commits, `8b33d7c`, `2140004`, `9dd1caa`, and the wrap
+commit that follows. The tb101 session's commits sit between them. `bench-setup/*.current` and `backups/2026-10-20T192905Z.*`
+(your 08:29 apply) are still uncommitted, as the morning wrap left them.
+
+## Pointers
+- Queue and results: [CAMPAIGN-QUEUE-2026-10-21T1323.md](CAMPAIGN-QUEUE-2026-10-21T1323.md)
+- Final logs and reviews: [platform-ports-2026-10-21T1323/](platform-ports-2026-10-21T1323/) (README, REVIEW.md)
+- Bench: [../../bench-setup/bench-state.md](../../bench-setup/bench-state.md) (stamp 2026-10-21T024948Z)
+- Platform facts: [../../platforms/x230v2-28GS.md](../../platforms/x230v2-28GS.md)
+- Tools: [../../tools/README.md](../../tools/README.md) (`health.py`, `speedrow.py`, `tb`)
+- Morning session (same day, below): the ATMF campaign and its OPEN list, all closed this afternoon except option (c)
+
+---
+
 # Session handover — 2026-10-21 (08:20–12:3x NZDT): x230v2-28GS ATMF campaign (2 cases, 2 PASS), final logs created, bench whole
 
 Session `db650952…` (VS Code, `device-testing-e5`, re-attached after a 09:33 process restart as `device-testing-d7`), Test
