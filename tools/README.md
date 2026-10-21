@@ -632,8 +632,15 @@ pre-case versus post-case teardown check (STANDING-ORDERS §1).
 - **Run:** `rcdiff.py <before.log> <after.log>`
 - **Where:** anywhere; **needs:** nothing beyond Python
 - **Imports:** none
-- **Limits:** it needs ckcon-style `HH:MM:SS >>> cmd` headers, and crashes if a file has no running-config
-- **Status:** verified 2026-10-02 on tb470 (two real IE520 captures, identical -> no output)
+- **Limits:**
+  - it needs ckcon-style `HH:MM:SS >>> cmd` headers, and crashes if a file has no running-config;
+  - ⚠ **an "empty" diff can still print one spurious `-HH:MM:SS` line** when the
+    `show running-config` is immediately followed by the next command's timestamp header, which
+    it mistakes for a config line (tb277, 2026-10-21, T33398). Read what the line IS before
+    treating it as config drift; a direct `diff` of the extracted `show running-config` bodies
+    is the tie-breaker.
+- **Status:** verified 2026-10-02 on tb470 (two real IE520 captures, identical -> no output);
+  the spurious-line limit measured 2026-10-21 on tb277
 
 ### `rc2cfg.py`
 Turns the first `show running-config` in a saved `ckcon.py` stdout into a loadable per-device
@@ -1347,7 +1354,16 @@ Policy, then does tagged DHCP, ARP and ping in the voice VLAN.
 - **Limits:**
   - `--mac` must be lower-case.
   - Exit 2 means either an argument error or "no OFFER".
-- **Status:** generalised 2026-10-02, not re-verified on hardware
+- **Status:** verified 2026-10-21 on tb277, x960-56YSQ (T33398) -- its first hardware run.
+  Six runs against a real switch: it sent its LLDP-MED Class III advertisements, the DUT
+  learned it as `Endpoint Class III` / Telephone with the inventory string `CK-PHONE-EMU`, and
+  it decoded the switch's Network Policy correctly every time, agreeing byte-for-byte with the
+  independently written `lldpwire.py` on the 12-bit VLAN / 3-bit priority / 6-bit DSCP packing.
+  It returned `voice network policy: None` correctly when the policy TLV was deselected and
+  when the voice VLAN was removed. **`--mac` is more useful than it looks**: a different MAC is
+  a NEW endpoint, which is what makes the LLDP-MED fast-start trigger testable on demand
+  instead of waiting out a 120 s TTL. Use `--no-dhcp` on a bench with no DHCP server in the
+  voice VLAN, or the run can only ever report "no OFFER"
 
 ### `lldpsend.py`
 Advertises a **controllable LLDP neighbour** from a host NIC, with scapy. `lldpmed_phone.py`
@@ -1400,12 +1416,14 @@ mandatory TLVs are present.
   being dropped.
 - **Limits:** Ethernet link-type only (LLDP is link-local, so that is the whole of it); it
   reports the outer 802.1Q tag and ignores inner tags.
-- **Status:** verified 2026-10-21 on tb277, x960-56YSQ (T44296): first against a
+- **Status:** verified 2026-10-21 on tb277, x960-56YSQ (T44296 and T33398): first against a
   synthetic frame built in-process, which round-tripped every field including the MED Network
   Policy bit-packing, then across thirteen real captures — 30.03 s / 10.01 s / 15.01 s gap
   measurements, TTLs of 120, 45 and 20, a 4-TLV default advertisement growing to 11 and back,
   and zero-frame captures whose zero was trustworthy because the same tool had just returned
-  non-zero
+  non-zero. T33398 added the LLDP-MED path: a Network Policy TLV decoded identically to
+  `lldpmed_phone.py`'s independent parser, and 4 / 6 / 7-TLV advertisements told apart to grade
+  two different MED removal routes
 
 ### `snmpwalk.py`
 Walks an SNMP agent's MIB with SNMPv2c, stdlib only (tb470 has no snmpwalk tool in `tools/` and the wrapper has no free-form
