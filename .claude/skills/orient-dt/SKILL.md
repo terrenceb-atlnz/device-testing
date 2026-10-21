@@ -303,6 +303,20 @@ else; it is not repeated here on purpose. What is durable is *how* to read it:
 
 ### Things that present as something else (any AW+ product; the product's own are in §2's file)
 
+- **A LOGIN PROMPT IS NOT READINESS — a unit still coming up looks exactly like a working
+  filter.** After any reload, **ping every leg to 4/4 before taking a measurement on it**, and
+  say in the log that you did. Measured on tb277 three times in one hour on 2026-10-21, and once
+  it **inverted a verdict**: a host the filter was supposed to PERMIT showed no TCP replies on
+  its first post-boot leg and would have been written up as blocked. With a TCP prober, *no
+  reply row at all* means **silently dropped**, which is indistinguishable from a device that
+  has not finished booting. The same transient has also shown up as a spurious `CHECK_CABLE`.
+  Detail and the timings are in `platforms/x960.md` §7H.6.
+- **A TIMEOUT IS NOT A MEASUREMENT.** When a wait ends without the thing you were waiting for,
+  the window itself is a variable. If an earlier leg of the same case did the same thing faster,
+  **the inconsistency is the finding, not the silence** — on tb277, 2026-10-21, a 180 s NTP
+  re-sync timeout would have been written up as "NTP does not resume after a reboot", a defect
+  report against the product; extended, it converged at 10 min 55 s because the DUT had tripped
+  the **testbox's own** ntpd rate limiter.
 - **A DESTACKED UNIT KEEPS ITS OLD STACK ID — the *phantom-port* trap.** Its whole old-range
   (e.g. `port1.0.x`) goes phantom — `Provisioned`, MAC `0000.0000.0000` — while the real ports are
   the other range. Whether any unit is in that state today is a bench fact (bench-state.md);
