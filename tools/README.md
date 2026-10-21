@@ -37,9 +37,11 @@ The one way a device-testing session reaches a testbox: `tools/tb <action> <box>
   - read-only: `hostname`, `precheck`, `probe` (`bench_probe.py run` only), `holders`, `ps`,
     `nics`, `template`, `tail`, `grep`, `waitfor`;
   - scratch: `scratch <name>` (a fresh copy of `tools/` into `/tmp/<name>/tools`), `put`;
-  - consoles: `ckcon ckyn cfg qmark peek listen poll reloadc ckreload` (`<scratch> <uN> <baud>
-    ...`; the transcript goes to `/tmp/<scratch>/console-<uN>.log`), and `tftp_copy flash_copy
-    bootmenu_escape bootmenu_park witness_log` (`<scratch> <uN> ...`);
+  - consoles: `ckcon ckyn cfg qmark peek listen poll reloadc ckreload conlogin awshell health`
+    (`<scratch> <uN> <baud> ...`; the transcript goes to `/tmp/<scratch>/console-<uN>.log`),
+    `speedrow` (`<scratch> <dutU> <partnerU> <baud> ...`: two consoles from one process, both
+    checked for holders; 2026-10-21), and `tftp_copy flash_copy bootmenu_escape bootmenu_park
+    witness_log` (`<scratch> <uN> ...`);
   - other tools: `tool`, `sudotool` (the root traffic tools), `capture` (tcpdump), `ping`,
     `case` (a case script you `put` first), `pdu`;
   - framework runs: `fwprep`, `fw` (always `--noupdate --nodefaultcfg`; writes `run.log` and
@@ -203,7 +205,77 @@ clears the line with Ctrl-U. A self-test first proves that nothing gets executed
 - **Limits:**
   - It relies on AW+ Ctrl-U line-kill; the self-test aborts with exit 3 if that fails.
   - `--mode` commands are executed normally, to reach the mode being probed.
+  - After the probes it clears the line with Ctrl-U and leaves the mode with `end`, so the
+    console is back at exec; the transcript shows it (2026-10-21: a tester read the source to
+    learn this; it is stated here now).
 - **Status:** verified 2026-10-02 on tb470, IE520 standalone (u3), read-only (self-test passed; line left clean, checked with peek)
+
+### `health.py`
+The STANDING-ORDERS §8 health sample of one unit in ONE call, summarised. It logs in, runs
+`show reboot history`, `show exception log`, `show log | include kernel|exception|crash|restart|Unexpected`,
+`show cpu` and `show memory` (plus `show log tail N` for the after sample), saves every command
+with its full output to `<save>` in the `HH:MM:SS >>> cmd` format (quote that in the working
+log), writes a `.json` summary, and prints only the summary: entry count and newest reboot,
+exception log, filtered lines split into echoes of our own commands and others, CPU busy
+averages, memory free. With `--before <the before sample's .json>` it prints a HEALTH-DIFF
+block (new reboot entries, exception change, new non-echo lines, the tail's line signatures
+with counts and one example each, CPU and memory before -> after) and a CLEAN / DIRTY verdict.
+- **Run:** `health.py <tty> <baud> <transcript> [--before SUMMARY.json] [--save FILE] [--json FILE] [--tail N] [--label TEXT] [--raw]`;
+  through the wrapper `tools/tb health <TB> <run> <uN> <baud> --label before`, then
+  `... --before /tmp/<run>/health-<uN>-<stamp>.out.json --label after`
+- **Where:** testbox; **needs:** pyserial
+- **Imports:** console, awlogin
+- **Exit codes:** 0 clean; 4 DIRTY (a new reboot entry, an exception log that is not None, or a
+  new kernel / crash / restart line that is not an echo: `NEEDS TEST ENGINEER:` and label the
+  run confounded); 7 no privileged prompt; 2 usage
+- **Limits:**
+  - `show cpu` on AW+ prints BUSY averages (1 s / 20 s / 60 s), never idle; the summary says so.
+  - A memory difference across one case is printed as a number and never called a leak.
+  - An "echo" is an `IMISH[...]: [user@tty]<cmd>` line (our own typing) or its suppression note.
+  - It strips the terminal-size escape AW+ prints before `show log` output.
+- **Status:** verified 2026-10-21 on tb470, x230v2-28GS (u1): before sample 17 s, after sample
+  with `--before` 21 s, diff CLEAN; the tail's signatures named the snmpd `send_trap` lines (12)
+  and the NSM port notifications (6 each) with one example line each
+
+### `speedrow.py`
+Speed/duplex rows on a DUT port and its link partner, BOTH consoles driven from ONE process, so
+the partner is polled while the DUT changes. Two console tools issued in one tool block run one
+after the other (memory `two-console-calls-in-one-block-run-sequentially`; T47208 lost 4 min
+and a second pass to it on 2026-10-21). Per ROW it sets the DUT, sets the partner per `--match`,
+polls both ends' `show interface <port> status` in parallel until each reads connected at the
+expected speed and duplex (link-up time per end), optionally waits for the LLDP neighbour on
+both ends (`--lldp`), decodes the DUT's MAC/PHY TLV at the partner (`--tlv`: auto-negotiation,
+advertised set, operational MAU type, polled until the MAU expected for the DUT's mode appears;
+plus the reverse read at the DUT), holds (`--hold S`) and flaps the link (`--flap N --flap-end
+dut|partner|both`: shutdown / no shutdown with the down time, both ends' link-up times and the
+LLDP re-learn times). One summary line per row and per flap; every command and output goes to
+`<save>` as `[dut] HH:MM:SS >>> cmd` / `[partner] ...` for the working log.
+- **Run:** `speedrow.py <dut-tty> <partner-tty> <baud> <dut-transcript> <partner-transcript> --dut-port P --partner-port P [--match forced|always|never] [--wait S] [--lldp] [--lldp-wait S] [--tlv] [--hold S] [--flap N] [--flap-end dut|partner|both] [--no-restore] [--save FILE] ROW...`;
+  through the wrapper `tools/tb speedrow <TB> <run> <dutU> <partnerU> <baud> --dut-port P --partner-port P [opts] ROW...`
+- **ROW grammar:** `auto` | `auto-<speed>` | `auto-<speed>-half` | `<speed>` (fixed, partner left at auto) |
+  `<speed>-full` | `<speed>-half` (forced; the partner mirrors it with `--match forced`, the default,
+  and returns to auto on every other row)
+- **Where:** testbox; **needs:** pyserial
+- **Imports:** console, awlogin
+- **Exit codes:** 0 every row linked as expected; 3 a row or flap timed out or read another
+  speed/duplex; 4 a row was refused (`% ...` printed verbatim as REFUSED, the next row runs);
+  7 no privileged prompt; 2 usage
+- **Limits:**
+  - Restore is in a `finally:`: both ends `no speed` / `no duplex`, and with `--tlv`
+    `no lldp tlv-select mac-phy-config` on both. `--no-restore` leaves the last row in place.
+    A bench whose saved config carries `lldp tlv-select mac-phy-config` loses it with `--tlv`;
+    re-apply it after.
+  - Both consoles stay in config-if for the run (`do show ...`) and are left at exec with
+    `terminal no monitor`.
+  - Copper only so far; a fibre module refuses most rows (reported as REFUSED).
+  - A bare `auto` row expects a-full at any speed; `<speed>` fixed rows expect `full <speed>`.
+- **Status:** verified 2026-10-21 on tb470, x230v2-28GS port1.0.1 (DUT, u1, AT-SPTXa) <->
+  AR4050S port1.0.2 (u0): rows auto-100, 100-full, auto-1000 each linked in 1.8-3.1 s on both
+  ends with LLDP in 2-4 s, one flap per row from the partner (down 0.6 s, up 3.1-4.3 s), restore
+  to a-full a-1000 both ends. `--tlv` run (auto-100, 100-half): the 4050 decoded the x230's TLV
+  as `Supported, Enabled` / adv `100BaseTXFD, 100BaseTX` / MAU 100BaseTXFD (16), then
+  `Supported, Disabled` / adv `[none]` / MAU 100BaseTXHD (15), each within 2 s of link-up; the
+  reverse read agreed; `lldp tlv-select mac-phy-config` was gone from both ports afterwards
 
 ### `peek.py`
 Pre-run console check. It sends one bare CR and reports the last line: `login:`, `>`, `#`, a
@@ -214,6 +286,68 @@ root shell before a run.
 - **Imports:** none
 - **Limits:** it sends one CR, so it is not strictly passive
 - **Status:** verified 2026-10-02 on tb470: IE520 (u3) and x230 (u0, 9600)
+
+### `health.py`
+The STANDING-ORDERS §8 health sample of one unit in ONE call, summarised to a few lines. It runs
+`show reboot history`, `show exception log`, `show log | include kernel|exception|crash|restart|Unexpected`,
+`show cpu` and `show memory` (plus `show log tail N` in the after sample), saves every command
+with its full output to `<save>` in the `HH:MM:SS >>> cmd` format (quote that in the working
+log), writes a `.json` summary, and prints only: entries and newest reboot, exception log,
+filtered lines split into echoes of our own commands and others, the CPU busy averages as
+printed, and free memory. With `--before <the before sample's .json>` it adds a HEALTH-DIFF
+block: new reboot entries, exception log change, new non-echo filtered lines, the tail's line
+signatures with counts, cpu and memory before -> after, and a CLEAN / DIRTY verdict.
+- **Run:** `health.py <tty> <baud> <transcript> [--before SUMMARY.json] [--save FILE] [--json FILE] [--tail N] [--label TEXT] [--raw]`;
+  through the wrapper `tools/tb health <TB> <run> <uN> <baud> --label before`, then
+  `... --before /tmp/<run>/health-<uN>-<stamp>.out.json --label after`
+- **Where:** testbox; **needs:** pyserial
+- **Imports:** console, awlogin
+- **Exit codes:** 0 clean; 4 DIRTY (a new reboot entry, an exception log that is not `None`, or a
+  new kernel / crash / restart line: `NEEDS TEST ENGINEER:`, label the run confounded); 7 no
+  privileged prompt; 2 usage
+- **Limits:**
+  - `show cpu` on AW+ prints BUSY averages (1 s / 20 s / 60 s), never idle; the summary says so.
+  - One case's two samples cannot show a memory leak; the diff prints the number only.
+  - Parsed on the x230v2 output shapes (`RAM total: … kB; free: … kB`, `1 second: n%, …`); another
+    family that prints these differently reads "not parsed" and keeps the raw file.
+  - An IMISH keystroke echo is counted as an echo, not as a finding.
+- **Status:** verified 2026-10-21 on tb470, x230v2-28GS (u1): before and after samples, 17-21 s
+  each; the diff grouped 150 tail lines into 6 signatures and read CLEAN; nothing was pulled
+  into the context but the summary.
+
+### `speedrow.py`
+Speed/duplex rows on a DUT port and its link partner, BOTH ends driven from one process, so
+the partner is watched while the DUT changes. Per row it sets the DUT, sets the partner per
+`--match`, polls both ends' `show interface <port> status` in parallel until each reads
+connected at the expected speed, and optionally: waits for the LLDP neighbour on both ends
+(`--lldp`), selects the MAC/PHY TLV on both ports and decodes the DUT's TLV at the partner plus
+the reverse direction (`--tlv`: auto-negotiation, advertised set, operational MAU type, polled
+until the MAU matches the DUT's operational mode), holds the row (`--hold S`), and flaps the
+link N times from one end with link-up and LLDP timing (`--flap N --flap-end dut|partner|both`).
+One summary line per row and per flap; every command with its full output goes to `<save>`
+(`[dut]` / `[partner]` prefixed, `HH:MM:SS >>> cmd` format) for the working log. Both ends are
+restored to `no speed` / `no duplex` (and `no lldp tlv-select mac-phy-config` with `--tlv`) in a
+`finally:`, even after an error, unless `--no-restore`.
+- **Run:** `speedrow.py <dut-tty> <partner-tty> <baud> <dut-transcript> <partner-transcript> --dut-port P --partner-port P [--match forced|always|never] [--wait S] [--lldp] [--lldp-wait S] [--tlv] [--hold S] [--flap N] [--flap-end dut|partner|both] [--no-restore] [--save FILE] ROW...`;
+  through the wrapper `tools/tb speedrow <TB> <run> <dutU> <partnerU> <baud> --dut-port P --partner-port P [opts] ROW...`.
+  ROW: `auto` | `auto-<speed>` | `auto-<speed>-half` | `<speed>` | `<speed>-full` | `<speed>-half`
+  (e.g. `auto-100 10-half 1000`). `--match forced` (default) mirrors the forced rows on the partner and
+  returns it to auto on the others.
+- **Where:** testbox; **needs:** pyserial
+- **Imports:** console, awlogin
+- **Exit codes:** 0 every row linked as expected; 3 a row or flap timed out, read another
+  speed/duplex, or the expected MAU was not seen; 4 a row was REFUSED (`% …` quoted); 7 no
+  privileged prompt; 2 usage
+- **Limits:**
+  - Copper rows only have been run; a fibre module refuses most rows (reported as REFUSED).
+  - Both consoles stay in config-if for the run (`do show …`) and are left at exec with
+    `terminal no monitor`; two console tools in one tool block would run one after the other
+    (memory `two-console-calls-in-one-block-run-sequentially`), which is why this exists.
+  - It counts nothing in the device log; read that with `health.py`'s after sample.
+- **Status:** verified 2026-10-21 on tb470, x230v2-28GS port1.0.1 (u1, AT-SPTXa) <-> AR4050S
+  port1.0.2 (u0): `auto-100`, `100-full`, `auto-1000` with `--lldp --flap 1 --flap-end partner`
+  (link back in 1.8-4.3 s, LLDP 0.6-3.7 s, restore to a-full a-1000 both ends); `--tlv` run
+  the same day (`auto-100`, `10-half`).
 
 ### `awshell.py`
 Runs shell commands inside an AlliedWare Plus **`start-shell` root shell** on one console,

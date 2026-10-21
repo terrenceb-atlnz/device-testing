@@ -81,7 +81,12 @@ Every later call re-reads the triage reading. So the triage reading is paid for 
    CRLF endings in the `?` help capture, dropped the help's typed-line echoes, wrote `@poll` and `@sleep` as plain
    notes, and cut repeated log reads as labelled ranges (checked by diff to be identical to an earlier read).
 
-## Proposed scripts (not built; building one is the Test Engineer's call)
+## Proposed scripts
+
+**Built the same afternoon on the Test Engineer's instruction:** `tools/health.py` (`tools/tb health`) and
+`tools/speedrow.py` (`tools/tb speedrow`), both verified on tb470 u0/u1; the reading budget and the
+background-watcher rule went into `.claude/agents/bench-runner.agent.md`. The proposals as written at review time:
+
 
 - **`tools/health.py <dev> <baud> <transcript> [--before FILE]`**, wrapped as `tools/tb health <scratch> <uN> <baud>`.
   It runs the six STANDING-ORDERS §8 reads (adds `show log tail 150` when `--before` is given), saves the raw output,

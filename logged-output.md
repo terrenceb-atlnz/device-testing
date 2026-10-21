@@ -203,6 +203,14 @@ show memory
 into the agent's context**: read it on the console, keep the filtered lines and the tail, and
 write those down.
 
+**One call per sample (2026-10-21): `tools/tb health <TB> <run> <uN> <baud> --label before`**
+with the setup reads, and the same with `--before <that sample's .json>` after the last step.
+`tools/health.py` runs the reads above, saves every command with its full output to
+`/tmp/<run>/health-<uN>-<stamp>.out` (quote that file in the working log, verbatim) and prints
+one summary; with `--before` it adds the diff below and a CLEAN / DIRTY verdict (exit 4 =
+DIRTY). It reads the output the way the five points below say, so the tester does not rebuild
+the six commands or re-read four samples by hand per case.
+
 **How to read each one. Every trap below has already cost someone a session.**
 
 1. **`show reboot history`.** Compare the after sample with the before sample. Only a **new**
