@@ -872,3 +872,223 @@ ntpwire: 0 frames in the capture, 0 NTP packets on port(s) 123
      (This capture's filter was `udp port 123` alone, which is why the frame count is 0
      rather than "some ICMPv6 and no NTP". The independent liveness evidence is the ping,
      taken on the same leg at the same time.)
+
+--------------------------------------------------------------------------------
+STEP 6 -- THE CONFIGURATION SURVIVES A COLD BOOT                            PASS
+--------------------------------------------------------------------------------
+The Test Engineer granted permission on 2026-10-22 for swi_d to be written to
+startup-config and reloaded as often as a case needs. All three NTP cases on 2026-10-21
+measured reboot persistence and it is now the expectation for an NTP case on this bench.
+
+awplus#configure terminal
+awplus(config)#ntp server fd32:b1f0:dff8:1603::1
+awplus(config)#end
+awplus#write
+Building configuration...
+[OK]
+awplus#show running-config | include ntp
+ntp server fd32:b1f0:dff8:1603::1
+awplus#show startup-config | include ntp
+ntp server fd32:b1f0:dff8:1603::1
+awplus#show startup-config | include ipv6 address fd32
+ipv6 address fd32:b1f0:dff8:1603::34/64
+   (only the real server was re-added. The control address had done its work in steps 1-5
+    and was left out, so the reboot limb is about persistence and nothing else.)
+   (a single `| include` per command. NEVER chained with `| exclude` -- §7G.)
+
+awplus#show boot
+Current boot image : flash:/x960-tb277.rel (file exists)
+Current boot config: flash:/default.cfg (file exists)
+Autoboot status    : disabled
+   -> the write changed the CONTENTS of flash:/default.cfg. It did not change which image
+      or which config file the unit boots. The baseline is intact before the reload.
+
+The capture was started FIRST, then the reload:
+tb277$ tools/tb capture tb277 ntp61022 eth3 780 t44299-s6-persist.pcap udp port 123
+tb277$ tools/tb ckreload tb277 ntp61022 u2 115200 300
+
+    time (UTC)   event
+    ----------   -----
+    23:30:15     `reload` issued
+    23:31:18     login prompt -- A 63 SECOND COLD BOOT
+    23:31:30     the leg answers 4/4 ICMPv6
+                 (0.476/0.590/0.756 ms)
+    23:31:30     chronyd steps the clock
+    23:31:38     first read: already synchronised
+
+🔴 A LOGIN PROMPT IS NOT READINESS -- MEASURED AGAIN, FOR THE FOURTH TIME ON THIS BENCH.
+   The script pings the leg in a loop and only reads the DUT once it gets 4/4. THE FIRST
+   PING ATTEMPT FAILED; the second, 5 s later, got 4/4. So there was a real window after
+   the login prompt in which the leg did not pass traffic. Anything read in that window --
+   an association table, a counter, a filter test -- would have been read off a device that
+   was not ready, and on 2026-10-21 exactly that would have inverted a verdict.
+
+WITH NOTHING TYPED INTO THE DUT except read-only `show` commands:
+
+awplus#show ntp status                              <- 23:31:38, 20 s after the login prompt
+Reference ID    : 09D7146F (fd32:b1f0:dff8:1603::1)
+Stratum         : 6
+Ref time (UTC)  : Wed Oct 21 23:31:30 2026
+System time     : 0.000000000 seconds slow of NTP time
+Last offset     : -0.655756295 seconds
+RMS offset      : 0.655756295 seconds
+Frequency       : 2.118 ppm slow
+Residual freq   : +8.752 ppm
+Skew            : 1.048 ppm
+Precision       : -22 (0.000000238 seconds)
+Root delay      : 0.045458429 seconds
+Root dispersion : 0.015153968 seconds
+Update interval : 0.0 seconds
+Leap status     : Normal
+
+awplus#show ntp associations
+remote          refid           st t when poll reach    delay   offset    disp
+--------------------------------------------------------------------------------
+* fd32:b1f0:dff8:1603::1 
+                  10.32.16.2       5 u    8   64     7    0.674  655.756   0.002
+* system peer, # backup, + candidate, - outlier, x false ticker, @ dynamic
+
+awplus#show ntp counters
+Client Sent               8
+Client Valid Received     3
+Client Received           3
+
+awplus#show running-config | include ntp
+ntp server fd32:b1f0:dff8:1603::1
+                                           <-- came back by itself from startup-config
+
+awplus#show log | include chronyd
+2026 Oct 21 23:31:30 daemon.warning awplus chronyd[2289]: System clock was stepped by 0.655756 seconds
+   (chronyd pid 2289 -- a fresh process from this boot. The log before the reload is gone
+    from this filtered view because the unit restarted.)
+
+awplus#show boot
+Current software   : x960-tb277.rel 
+Current boot image : flash:/x960-tb277.rel (file exists)
+Default boot config: flash:/default.cfg
+Current boot config: flash:/default.cfg (file exists)
+Autoboot status    : disabled
+                                           <-- BOOT BASELINE UNCHANGED after the reload
+
+  => STEP 6 PASS: the saved `ntp server fd32:b1f0:dff8:1603::1` came back by itself after
+     a cold boot, the IPv6 address on vlan10 came back with it, and the client resumed
+     polling and reached synchronisation with NOTHING typed into the device. Three
+     independent witnesses say so: the DUT's association table (`*`, reach 7), its own
+     counters (8 sent, 3 valid received), and its own log (a clock step). The boot
+     pointers are unchanged.
+
+--------------------------------------------------------------------------------
+STEP 7 -- TIME TO RE-ACQUIRE FROM COLD, AND THE KISS-O'-DEATH THAT DID NOT HAPPEN
+--------------------------------------------------------------------------------
+    time (UTC)   event                                            elapsed from login
+    ----------   -----                                            ------------------
+    23:31:18     login prompt                                     0
+    23:31:30     leg passes traffic 4/4                           12 s
+    23:31:30     `chronyd[2289]: System clock was stepped
+                  by 0.655756 seconds`                            12 s
+    23:31:38     `Leap status : Normal`, Stratum 6,
+                 `* fd32:b1f0:dff8:1603::1 ... reach 7`           20 s
+
+  RE-ACQUISITION FROM COLD: about 12 s to the clock step, about 20 s to a confirmed
+  synchronised read. The poll driver was armed to wait 660 s and MATCHED on its FIRST
+  read, so no part of this number is a timeout.
+
+🔴 THE KISS-O'-DEATH BUDGETED FOR DID NOT OCCUR, AND THAT IS ITSELF THE MEASUREMENT.
+  The dispatch and the campaign queue both warned to expect one: tb277's /etc/ntp.conf
+  carries `restrict -6 default kod notrap nomodify nopeer noquery limited`, and on
+  2026-10-21 the IPv4 client's COLD BOOT tripped it, drew a stratum-0 reply with
+  refid `RATE`, and cost 10 MINUTES 55 SECONDS to converge. Today's IPv6 cold boot drew
+  no kiss-o'-death at all and converged in 20 s -- 33 times faster.
+
+  This is reported as a DIFFERENCE OBSERVED, not as an explanation. What would have to be
+  checked before anyone claims a cause:
+   - the `restrict -6` line is the IPv6 restriction, so it was armed for this leg;
+   - the trigger yesterday was the SHAPE of the boot burst (two polls in the same
+     millisecond from two source ports), not the protocol;
+   - this run's boot burst is in t44299-s6-persist.pcap and is decoded below.
+  What must NOT be written anywhere is "IPv6 NTP recovers faster than IPv4 NTP". Nothing
+  in this case measures that. A slow convergence on this bench is a property of the
+  BENCH'S OWN ntpd rate limiter, and a fast one is the absence of that limiter firing.
+
+  => STEP 7 PASS: re-acquisition from a cold boot was measured, not assumed: 20 s from the
+     login prompt to a confirmed `Leap status : Normal` at Stratum 6, with a real 0.655756 s
+     clock step on the way. The 0.655756 s is also a measurement of this DUT's real-time
+     clock drift across a 63 s reboot -- it keeps time across the power interruption and
+     loses about two thirds of a second doing it. (Yesterday, across a 60 s reboot:
+     0.592688 s. The same order, from the same hardware.)
+
+--------------------------------------------------------------------------------
+HEALTH SAMPLE -- AFTER THE LAST STEP, BEFORE TEARDOWN (STANDING-ORDERS §8)
+--------------------------------------------------------------------------------
+tb277$ tools/tb health tb277 ntp61022 u2 115200 --label after \
+         --before /tmp/ntp61022/health-u2-20261022T120721.out.json
+  raw output saved on the box at /tmp/ntp61022/health-u2-20261022T123358.out
+  (json: /tmp/ntp61022/health-u2-20261022T123358.out.json)
+  TOOL EXIT 4 = its automatic DIRTY verdict. See the adjudication below.
+
+HEALTH u2 12:33:58-12:34:21 after
+  reboots ......... 100 entries, newest 2026-10-21 23:30:18 Expected   CLI(user request)
+  exception log ... None
+  log (filtered) .. 39 lines: 5 echoes of our own commands, 34 other
+      2026 Oct 21 23:30:49 kern.notice awplus kernel: Linux version 6.12.110 (maker@maker33-build) (aarch64-unknown-linux-gnu-gcc (crosstool-NG 1.26.0_dirty) 13.2.0, GNU ld (crosstool-NG 1.26.0_dirty) 2.40) #1 SMP PREEMPT Sun Oct 18 22:07:48 UTC 2026
+      2026 Oct 21 23:30:49 kern.warning awplus kernel: KASLR disabled due to lack of seed
+      2026 Oct 21 23:30:49 kern.warning awplus kernel: Malformed early option 'loglevel'
+      2026 Oct 21 23:30:49 kern.notice awplus kernel: Kernel command line: console=ttyS0,115200 root=/dev/ram0 loglevel= releasefile=x960-tb277.rel crashkernel=32M
+      2026 Oct 21 23:30:49 kern.notice awplus kernel: Unknown kernel command line parameters "releasefile=x960-tb277.rel", will be passed to user space.
+      2026 Oct 21 23:30:49 kern.warning awplus kernel: GIC: Adjusting CPU interface base to 0x00000000f022f000
+      2026 Oct 21 23:30:49 kern.notice awplus kernel: SCSI subsystem initialized
+      2026 Oct 21 23:30:49 kern.notice awplus kernel: mv_xor_v2 f0400000.xor: Marvell Version 2 XOR driver
+  cpu ............. 0% / 0% / 0%  (show cpu prints BUSY averages 1 s / 20 s / 60 s, NOT an
+                                   idle percentage, on this platform); load 0.14
+  memory .......... free 7455284 of 8092132 kB (buffers 1368)
+
+HEALTH-DIFF u2, after vs before
+  reboots ......... !! 1 NEW: 2026-10-21 23:30:18 Expected   CLI(user request)
+  exception log ... None -> None
+  log (filtered) .. 34 new non-echo lines, ALL stamped 2026 Oct 21 23:30:49
+  log tail 150 .... 150 lines, 58 echoes of our own commands; other lines by signature:
+        3 x  2026 Oct 21 23:31:14 syslog.notice awplus syslog-ng[541]: Configuration reload request received, reloading configuration;
+        3 x  2026 Oct 21 23:31:14 syslog.notice awplus syslog-ng[541]: Configuration reload finished;
+        2 x  2026 Oct 21 23:31:10 user.notice awplus NSM[950]: port1.0.48 port mode access updated VLAN
+        2 x  2026 Oct 21 23:31:13 user.notice awplus NSM[950]: VLAN: added VID 10
+        2 x  2026 Oct 21 23:31:13 user.notice awplus NSM[950]: VLAN: added VID 48
+        2 x  2026 Oct 21 23:31:13 user.notice awplus NSM[950]: VLAN: added VID 60
+  !! flagged ...... 35 line(s) matching kernel|exception|crash|restart|Unexpected
+  cpu ............. 0% -> 0%  (1 s busy average)
+  memory .......... free 7454792 -> 7455284 kB (+492; one case cannot show a leak)
+  VERDICT ......... !! DIRTY
+
+ADJUDICATION OF THE DIRTY VERDICT -- the run is graded CLEAN, and here is why.
+The tool's DIRTY verdict is automatic and deliberately conservative. Both of the things
+it flagged are accounted for in full by this case's OWN permitted action, and neither is
+unexplained:
+
+ 1. THE NEW REBOOT ENTRY IS THIS CASE'S OWN RELOAD. `2026-10-21 23:30:18 Expected
+    CLI(user request)`. Step 6 issued `reload` at 23:30:15 UTC. The entry is 3 s later,
+    it is classified **Expected**, and its cause is recorded as **CLI(user request)** --
+    not `Unexpected System reboot`, which is what the framework's post-failure power
+    cycle writes. logged-output.md §2 point 1 says exactly this case: "A new entry is
+    expected when the case itself reloaded the unit; say which, and give the time."
+    Said, and given. The reload was explicitly permitted by the Test Engineer on
+    2026-10-22 for this campaign.
+ 2. THE 35 FLAGGED LINES ARE THE BOOT THAT FOLLOWED IT. Every one carries the timestamp
+    2026 Oct 21 23:30:49, which is 34 s after the reload, i.e. the kernel coming up. They
+    are the ordinary boot banner: the Linux version string, the kernel command line,
+    `SCSI subsystem initialized`, three Marvell XOR driver lines, `KASLR disabled due to
+    lack of seed`. They match the filter only because the filter contains the word
+    `kernel` and these lines are printed BY the kernel. The identical set, differing only
+    in timestamp, is in the BEFORE sample from yesterday's boot. There is NO crash, NO
+    `Unexpected`, NO daemon restart, and NO line naming NTP, chronyd failure or IPv6.
+    Severity alone is not a fault: `kern.warning` here is a routine boot notice.
+ 3. The exception log is `None` in both samples.
+ 4. The `log tail 150` non-echo lines are the normal post-boot startup chatter: syslog-ng
+    reloading its configuration and NSM re-creating VLANs 10, 48 and 60 from the
+    configuration file. Expected on any boot.
+ 5. CPU 0% busy in both samples, after a case that sent a few NTP packets per minute.
+    Memory free went from 7454792 kB to 7455284 kB, i.e. 492 kB MORE free afterwards.
+    No step change, and in any event ONE CASE CANNOT PROVE A MEMORY LEAK and this log
+    does not claim one.
+
+  => The run is labelled CLEAN, not confounded. The DIRTY exit code is recorded above in
+     full, with the raw sample paths, so the Test Engineer can disagree -- that call is
+     the Test Engineer's, not the tester's. It is also surfaced on the RESULT line.
