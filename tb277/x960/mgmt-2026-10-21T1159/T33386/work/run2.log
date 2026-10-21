@@ -1,0 +1,313 @@
+# T33386 (235) Management ACLs -- working log, RUN 2
+
+**Run 2 exists for ONE limb.** Run 1 (group B, 2026-10-21 14:0x) measured everything else and
+graded the case PASS, but its STEP 8 recorded **reboot persistence as NOT MEASURED**: proving an
+`access-group` survives a reboot requires a `write`, and at that time a `write` would have saved
+**vlan 60**, which the sentinel had directed be kept out of startup-config. Run 1 said so
+explicitly and reported it to the sentinel rather than skipping it silently.
+
+**That bind is gone.** The Test Engineer ruled at 14:0x that testers may `write` freely, and
+vlan 60 has been in startup-config since group C. Run 1's own words were that *"the campaign-end
+teardown ... is the cheap place to run it"*. This is that run, executed by the **group D** tester
+(`ntp-2026-10-21T1159`) after group D's own three cases were complete.
+
+Run label: **clean**.
+
+## Scope of run 2
+
+| limb | status |
+| --- | --- |
+| **a management `access-group` survives a reload, proven on the wire, BOTH the permit and the deny** | **run 2 measures it** |
+| everything else in T33386 -- the numbered-vs-named A/B, the one-rule-per-numbered-list defect, the `access-class`/`ip access-list` absences, the counters, the TPS 6.1.1 grading | measured in **run 1**; not repeated here |
+
+Run 1's findings are NOT re-stated as new.
+
+## Session facts
+
+Testbox **tb277**, console **u2 ONLY**, PDU 10.36.230.212 outlet u2=1, u2 = **swi_d** (DUT).
+Sentinel: the parent `/test-mode` session.
+
+🔴 **swi_b (u3) and swi_a (u5) both have a locked `manager` account** and were never opened by
+this run. **There is no `swi_b.cfg` and no `swi_a.cfg`** -- a console-lockout limitation, not a
+bench gap, and it costs this limb nothing: both ends of every leg are the testbox's own NICs and
+the DUT's own SVIs.
+
+## Device
+
+swi_d, AT-x960-56YSQ, S/N A2WQS700B, `sin_x96056-20261019-27` (build Sun Oct 18 23:18:21 UTC
+2026), `/dev/u2` @115200. `show system` verbatim and the host NIC / RSTP details are in
+`../../../ntp-2026-10-21T1159/T33399/work/run1.log`, captured the same afternoon on the same
+unit with no intervening change.
+
+Boot pointers before and after: `flash:/x960-tb277.rel`, `flash:/default.cfg`, Autoboot
+disabled.
+
+## Pre-run gate
+
+Group D's gate still held and is recorded in
+`../../../ntp-2026-10-21T1159/T33399/work/run1.log` (occupancy CLEAR with only the adjudicated
+`ser2net`; no deployed `tb277.setup` on the box; probe **exit 0 MATCH** against the swi_d-only
+run `.setup`, `--read-only`, `--baud 115200`; sentinel = parent). This limb began with
+running-config verified byte-for-byte at the **112-line campaign baseline** and
+`show access-list` printing **nothing** -- no list of any kind on the DUT.
+
+## Health check 1 of 2 -- before the limb (2026-10-21 17:44 NZDT)
+
+```
+show access-list      -> (nothing: no access-list of any kind exists)
+show reboot history   -> newest 2026-10-21 04:37:54 Expected CLI(user request)
+                         (T33380 run 2's own reload; nothing newer)
+show exception log    -> None
+show cpu              -> 1 second: 0%, 20 seconds: 0%, 60 seconds: 0%
+show memory           -> RAM total: 8092132 kB; free: 7460020 kB; buffers: 1364 kB
+```
+
+## Method
+
+Graded on the wire with **`tools/arpleg.py --tcp`**, the tool run 1 extended for this case. A
+management filter has three possible answers and only the wire separates them: `SA` = open,
+`R`/`RA` = the service refused, and **no reply row at all** = the frame was silently dropped by
+the filter. `show access-list`, `show access-list counters` and `show ssh server` can
+distinguish none of them.
+
+The filter is the **named** hardware form, because run 1 proved the numbered form silently
+collapses to one rule:
+```
+awplus(config)#access-list hardware ckmgmt
+awplus(config-ip-hw-acl)#permit tcp 10.38.22.33/32 any eq 22
+awplus(config-ip-hw-acl)#deny tcp any any eq 22
+awplus(config)#interface port1.0.10
+awplus(config-if)#access-group ckmgmt
+awplus(config)#interface port1.0.48
+awplus(config-if)#access-group ckmgmt
+```
+That is TPS 6.1.1's statement in two lines: the **user-specified host** `10.38.22.33` reaches
+management SSH, every other host does not.
+
+Every leg carries two controls:
+- an **ICMP echo to the same management address**, which must be answered -- so "the filter
+  dropped it" is never confused with "the interface is down";
+- on the eth3 leg, **TCP/23**, a service that is off, which must answer `RA` -- so a *refused*
+  frame and a *filtered* frame are visibly different in the same capture.
+
+```
+sudo arpleg.py --tag <tag> --out /tmp/ntp1021/T33386 --iface eth4 \
+     --tcp 10.38.22.66:22 --icmp 10.38.22.66 \
+     --sender-ip 10.38.22.65 --sender-mac 00:0d:b9:55:77:0f \
+     --gw-mac e0:1a:ea:d4:70:43 --count 4 --wait 4
+sudo arpleg.py --tag <tag> --out /tmp/ntp1021/T33386 --iface eth3 \
+     --tcp 10.38.22.34:22,10.38.22.34:23 --icmp 10.38.22.34 \
+     --sender-ip 10.38.22.33 --sender-mac 00:0d:b9:55:77:0e \
+     --gw-mac e0:1a:ea:d4:70:43 --count 4 --wait 4
+```
+
+## The limb
+
+### LEG A -- baseline, no filter (tag `t386-base-eth4`)
+
+```
+  cap t386-base-eth4-eth4.pcap: 24 frame(s)
+    x4   TCP  10.38.22.65:40000 -> 10.38.22.66:22   S   [ours]
+    x4   TCP  10.38.22.66:22    -> 10.38.22.65:40000 SA
+    x4   TCP  10.38.22.65:40000 -> 10.38.22.66:22   R
+    x4   ICMP t8/c0 10.38.22.65 -> 10.38.22.66      [ours]
+    x4   ICMP t0/c0 10.38.22.66 -> 10.38.22.65      [ours]
+```
+**4 of 4 `SA`** -- the non-specified host reaches management SSH with no filter in place. The
+instrument and the leg are proved before any silence is read.
+
+### LEG B -- filter applied (tags `t386-acl-eth4`, `t386-acl-eth3`)
+
+```
+awplus#show access-list
+Hardware IP access list ckmgmt
+    4 permit tcp 10.38.22.33/32 any eq 22
+    8 deny tcp any any eq 22
+```
+```
+  cap t386-acl-eth4-eth4.pcap: 12 frame(s)                <- the DENIED host
+    x4   TCP  10.38.22.65:40000 -> 10.38.22.66:22   S   [ours]
+    x4   ICMP t8/c0 10.38.22.65 -> 10.38.22.66      [ours]
+    x4   ICMP t0/c0 10.38.22.66 -> 10.38.22.65      [ours]
+
+  cap t386-acl-eth3-eth3.pcap: 30 frame(s)                <- the PERMITTED host
+    x4   TCP  10.38.22.33:40000 -> 10.38.22.34:22   S   [ours]
+    x4   TCP  10.38.22.34:22    -> 10.38.22.33:40000 SA
+    x4   TCP  10.38.22.33:40000 -> 10.38.22.34:23   S   [ours]
+    x4   TCP  10.38.22.34:23    -> 10.38.22.33:40000 RA
+    x4   ICMP t8/c0 10.38.22.33 -> 10.38.22.34      [ours]
+    x4   ICMP t0/c0 10.38.22.34 -> 10.38.22.33      [ours]
+```
+Denied host: **4 SYNs, no reply of any kind**, ICMP 4 of 4. Permitted host: **4 `SA`**, with
+`:23` answering `RA`. Both halves of the filter are working before the reboot.
+
+### LEG C -- the limb: after a cold boot, nothing typed
+
+```
+awplus#write
+Building configuration...
+[OK]
+awplus#show startup-config | include access-list|access-group|permit|deny
+access-list hardware ckmgmt
+ permit tcp 10.38.22.33/32 any eq 22
+ deny tcp any any eq 22
+ access-group ckmgmt
+ access-group ckmgmt
+
+tools/tb ckreload tb277 ntp1021 u2 115200 240
+17:46:05 >>> reload   (04:46:05 UTC)
+reboot question: 'reboot system? (y/n):' -> y
+17:47:05 login seen after 60 s
+```
+
+🔬 **The legs were settled before they were read**, applying T33380 run 2's lesson from 20
+minutes earlier. The first `ping` on **eth3 after the boot returned 0 of 4, 100% packet loss**;
+a second, seconds later, returned **4 of 4** and the box's neighbour table read
+`10.38.22.34 dev eth3 lladdr e0:1a:ea:d4:70:43 REACHABLE`. eth4 was 4 of 4 immediately. Had the
+leg been taken at the first attempt, eth3's "no TCP reply rows" would have read as **the filter
+blocking the permitted host** -- the exact opposite of the truth.
+
+The real legs, 36 s after the login prompt, **nothing typed into the DUT**:
+```
+  cap t386-afterboot-eth4-eth4.pcap: 14 frame(s)          <- the DENIED host
+    x4   TCP  10.38.22.65:40000 -> 10.38.22.66:22   S   [ours]
+    x4   ICMP t8/c0 10.38.22.65 -> 10.38.22.66      [ours]
+    x4   ICMP t0/c0 10.38.22.66 -> 10.38.22.65      [ours]
+    x1   ARP-REQ who-has 10.38.22.65 tell 10.38.22.66
+    x1   ARP-REPLY 10.38.22.65 is-at 00:0d:b9:55:77:0f
+
+  cap t386-afterboot-eth3-eth3.pcap: 30 frame(s)          <- the PERMITTED host
+    x4   TCP  10.38.22.33:40000 -> 10.38.22.34:22   S   [ours]
+    x4   TCP  10.38.22.34:22    -> 10.38.22.33:40000 SA
+    x4   TCP  10.38.22.33:40000 -> 10.38.22.34:23   S   [ours]
+    x4   TCP  10.38.22.34:23    -> 10.38.22.33:40000 RA
+    x4   ICMP t8/c0 10.38.22.33 -> 10.38.22.34      [ours]
+    x4   ICMP t0/c0 10.38.22.34 -> 10.38.22.33      [ours]
+```
+
+**Both halves survived.** The deny still drops the non-specified host silently in hardware while
+its ICMP is answered 4 of 4, and the permit still lets the specified host complete a handshake,
+with the `RA` control still telling a refused service from a filtered frame.
+
+Only then was the console opened:
+```
+awplus#show access-list
+Hardware IP access list ckmgmt
+    4 permit tcp 10.38.22.33/32 any eq 22
+    8 deny tcp any any eq 22
+awplus#show running-config | include access-group
+access-group ckmgmt
+ access-group ckmgmt
+awplus#show access-list counters
+Hardware ACL Packet Counters
+Name: ckmgmt
+	Rule: permit tcp 10.38.22.33/32 any eq 22
+	Packet Hits: 8
+	Rule: deny tcp any any eq 22
+	Packet Hits: 4
+```
+🔬 **The counters were reset by the reboot and account for the post-boot legs exactly**:
+`deny = 4` is eth4's four SYNs; `permit = 8` is eth3's four SYNs plus its four RSTs, both
+matching `tcp 10.38.22.33/32 any eq 22`. The device's own counter and the wire agree with no
+residue from before the reload -- which also makes the counters a usable second witness here,
+unlike `show ssh server` in T33380.
+
+### LEG D -- removal (tag `t386-removed-eth4`)
+
+```
+awplus(config-if)#no access-group ckmgmt          [port1.0.10]
+awplus(config-if)#no access-group ckmgmt          [port1.0.48]
+awplus(config)#no access-list hardware ckmgmt
+awplus#show access-list
+   (nothing)
+```
+```
+  cap t386-removed-eth4-eth4.pcap: 22 frame(s)
+    x4   TCP  10.38.22.65:40000 -> 10.38.22.66:22   S   [ours]
+    x4   TCP  10.38.22.66:22    -> 10.38.22.65:40000 SA
+    x4   TCP  10.38.22.65:40000 -> 10.38.22.66:22   R
+    x4   ICMP t8/c0 ... [ours] ; x4 ICMP t0/c0 ... [ours]
+```
+The denied host is served again. **The arc on the wire: `SA` -> dropped -> (cold boot) dropped
+-> `SA`.**
+
+## Health check 2 of 2 -- after the limb (2026-10-21 17:49 NZDT)
+
+```
+show reboot history   -> ONE new entry vs the before sample:
+                         2026-10-21 04:46:05 Expected CLI(user request)
+                         = this run's own leg-C reload. Matched and expected.
+show exception log    -> None
+show log | include kernel|exception|crash|restart|Unexpected
+                      -> only the boot sequence of that reload. **No `local7.err EXFX[...]
+                         DBG:exfx_cExt_dxch_rules_pclIdActionUpdate` line** -- the hardware-ACL
+                         driver error run 1 saw when the NUMBERED form dropped its second rule.
+                         Its absence here is a positive result: the named form installed both
+                         rules cleanly, across a reboot, with a silent driver.
+show cpu              -> 1 second: 0%, 20 seconds: 0%, 60 seconds: 0%
+show memory           -> RAM total: 8092132 kB; free: 7453532 kB; buffers: 1380 kB
+```
+Memory moved by 6.5 MB across a run containing a full reboot. No step change; **no leak is
+claimed**.
+
+**Health: clean. The run is clean, not confounded.**
+
+## Teardown and verification
+
+```
+awplus#write
+```
+- **running-config: 112 lines, byte-for-byte IDENTICAL to the campaign baseline.**
+- **startup-config differs from the campaign baseline by exactly its saved-on comment**
+  (`... 04:49:26 ...` against `... 03:01:22 ...`). No `access-list`, no `access-group`;
+  **nothing of this limb survives in either config.**
+- The inherited underlay, **vlan 60** and `lldp run` are all still present in both. vlan 60
+  remains the Test Engineer's to remove at wrap.
+- Boot pointers unchanged.
+- **swi_b and swi_a were never opened.**
+- Nothing left running on the box: `arpleg.py` starts and stops its own `tcpdump`; all five legs
+  exited 0.
+
+## What run 2 adds
+
+1. 🔴 **A management `access-group` IS persistent across a reload, and BOTH halves of the filter
+   are.** After a 60 s cold boot, with nothing typed, the non-specified host's SYNs to
+   management SSH were still dropped silently in hardware (4 sent, 0 replies, ICMP 4 of 4) and
+   the user-specified host still completed its handshake (4 `SA`). **T33386's reboot-persistence
+   limb is no longer NOT MEASURED**, and TPS 6.1.1 is satisfied across a restart as well as
+   within a session.
+2. 🔬 **Hardware ACL counters are zeroed by a reboot**, and after it they accounted for the
+   post-boot legs exactly (permit 8 = 4 SYN + 4 RST, deny 4 = 4 SYN). A counter read after a
+   reload is therefore a clean second witness, with no residue to subtract.
+3. 🔬 **The named form's driver stayed silent across the reboot** -- no
+   `exfx_cExt_dxch_rules_pclIdActionUpdate` error of the kind run 1 captured when the numbered
+   form lost its second rule. Run 1 narrowed that defect to the numbered form; this narrows it
+   further by showing the named form surviving a save-and-restore cycle with both rules intact.
+4. 🔬 **A post-reload leg must be settled before it is read, and here it would have inverted the
+   verdict.** eth3's first post-boot ping was 0 of 4; the second was 4 of 4. Taken at the first
+   attempt, the permitted host's leg would have shown no TCP replies and read as *the filter
+   blocking the host it is supposed to permit*. Second independent hit of this trap in half an
+   hour (T33380 run 2 is the first).
+
+## Tools used, with exact arguments
+
+- `tools/tb sudotool tb277 ntp1021 arpleg --tag <t386-base-eth4|t386-acl-eth4|t386-acl-eth3|
+  t386-afterboot-eth4|t386-afterboot-eth3|t386-removed-eth4> --out /tmp/ntp1021/T33386
+  --iface eth4|eth3 --tcp <...> --icmp <...> --sender-ip <...> --sender-mac <...>
+  --gw-mac e0:1a:ea:d4:70:43 --count 4 --wait 4|5`
+- `tools/tb cfg tb277 ntp1021 u2 115200 "configure terminal" "access-list hardware ckmgmt" ... "end" ...`
+- `tools/tb ckcon tb277 ntp1021 u2 115200 "write" "show ..."` (`CKTO` 180-300)
+- `tools/tb ckreload tb277 ntp1021 u2 115200 240`
+- `tools/tb ping tb277 eth3|eth4 <ip> 4` · `tools/tb nics tb277` (to read the neighbour state)
+- `python3 tools/rc2cfg.py <ckcon stdout> tb277/x960/mgmt-2026-10-21T1159/T33386/swi_d.cfg "<3 headers>"`
+
+## Files saved
+
+- `tb277/x960/mgmt-2026-10-21T1159/T33386/swi_d.cfg` (**overwritten by run 2**, per
+  logged-output.md §2; run 1's is in git history)
+- `tb277/x960/mgmt-2026-10-21T1159/T33386/work/run2.log` (this file; run1.log untouched beside it)
+- On the box, not committed: `/tmp/ntp1021/T33386/t386-*.pcap`, `/tmp/ntp1021/console-u2.log`
+
+**No `swi_b.cfg` and no `swi_a.cfg`**: both partner consoles are locked out.
+
+VERDICT: PASS -- the limb run 1 could not reach is measured. A named hardware management ACL bound with `access-group` to both management ingress ports survives a 60 s cold boot with both halves enforced: the non-specified host's SYNs to management SSH are still dropped silently in hardware (4 sent, 0 replies, ICMP 4 of 4 to the same address) and the user-specified host still completes its handshake (4 `SA`), before anything is typed into the device. Taken with run 1, T33386 is PASS with its reboot-persistence limb MEASURED.
