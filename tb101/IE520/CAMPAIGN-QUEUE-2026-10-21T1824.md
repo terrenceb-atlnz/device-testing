@@ -264,3 +264,8 @@ config-mode qmark check accepts and the post-restore `show running-config` must 
   reconnects or reapplies its config to card 10 ports 5/6 during the run it can take them back and stop the
   traffic** — the sentinel's IXIA rx-rate check catches it; record it as a run event, re-take (`take --force`,
   Terrence's ruling) and resume, and report the gap.
+- 2026-10-22 07:13 (sentinel, from the Phase C tester): **NEEDS TEST ENGINEER** — health 2 (`tools/health.py`) exits 4
+  DIRTY only because `show exception log` is not None; its content is byte-identical before and after the run (the
+  2026-10-20 01:58-02:02 UTC duplicate-master debug snapshots on members 1-4, from the stack merge, older than this
+  run); no new reboot entry, no new log line. The tester labels the run clean. Terrence to (a) confirm that reading,
+  (b) decide whether to `clear exception log` after the campaign. Unanswered.
