@@ -29,7 +29,7 @@ What it does, in order:
   8. confirms the console is back at the LOCAL prompt and leaves it at exec.
 
 Output: labelled blocks for each phase, then one line
-    CLIENT RESULT: PRIV|USER|FAIL|REFUSED|TIMEOUT  proto=  target=  user=  seconds=  prompt=
+    CLIENT RESULT: PRIV|USER|FAIL|REFUSED|EXEC|TIMEOUT  proto=  target=  user=  seconds=  prompt=
 then one block per --cmd.
 
 Exit: 0 remote privileged `#`, 1 remote unprivileged `>`, 2 the far end refused the
@@ -109,6 +109,10 @@ def client_command(a):
         if a.user:
             cmd += ' user %s' % a.user
         cmd += ' %s' % a.target
+        if a.exec_line:
+            # AW+ `ssh ... <HOSTNAME> LINE`: run ONE command on the far end and come
+            # straight back.  There is no interactive session, so no prompt to leave.
+            cmd += ' %s' % a.exec_line
     return cmd
 
 
@@ -124,11 +128,19 @@ def main(argv):
     p.add_argument('--password')
     p.add_argument('--password-stdin', action='store_true',
                    help='read the password from stdin instead of argv (it is not in `ps`)')
+    p.add_argument('--password-env', metavar='NAME',
+                   help='read the password from this environment variable instead of argv. '
+                        '`tools/tb` forwards any CK_PASSWORD* / CK_USER* variable to the box '
+                        'over stdin and exports it there, so this is the safe way to pass a '
+                        'far-end password through the wrapper.')
     p.add_argument('--cmd', action='append', default=[])
+    p.add_argument('--exec', dest='exec_line',
+                   help='ssh only: the AW+ `ssh ... <host> LINE` form -- run ONE command on the\n'
+                        'far end non-interactively and return. Graded EXEC.')
     p.add_argument('--hold', type=float, default=0.0)
     p.add_argument('--timeout', type=float, default=45.0)
     p.add_argument('--login-timeout', type=float, default=30.0)
-    p.add_argument('--expect', choices=('priv', 'user', 'fail', 'refused'))
+    p.add_argument('--expect', choices=('priv', 'user', 'fail', 'refused', 'exec'))
     p.add_argument('--no-logout', action='store_true')
     p.add_argument('--accept-hostkey', action='store_true')
     p.add_argument('-h', '--help', action='store_true')
@@ -136,8 +148,22 @@ def main(argv):
     if a.help:
         print(__doc__)
         return 0
-    if a.password_stdin:
+    if a.password_env:
+        if a.password_env not in os.environ:
+            print('devclient: $%s is not set on the box -- refusing to send an empty password'
+                  % a.password_env)
+            return 6
+        a.password = os.environ[a.password_env]
+    elif a.password_stdin:
         a.password = sys.stdin.readline().rstrip('\n')
+    if (a.password_env or a.password_stdin) and not a.password:
+        # An empty password here is never a test: it means the value did not arrive, and
+        # sending it costs the far-end account a failed login that re-arms its lockout timer.
+        # That is exactly what happened on tb277 2026-10-21 when `tools/tb` forwarded a
+        # secret over stdin and so swallowed the password piped in behind it.
+        print('devclient: the password arrived EMPTY (%s) -- refusing to send it'
+              % ('--password-env ' + a.password_env if a.password_env else '--password-stdin'))
+        return 6
 
     c = console.Console(a.tty, a.transcript, baud=a.baud)
     rc, result, remote_prompt, t0 = 4, 'TIMEOUT', '', time.time()
@@ -173,9 +199,14 @@ def main(argv):
             c.s.write(((a.password or '') + '\r').encode())
             nm, buf = expect(c, [('denied', DENIED_RE), ('login', LOGIN_RE),
                                  ('password', PASSWORD_RE), ('refused', REFUSED_RE),
-                                 ('prompt', PROMPT_RE)], a.login_timeout)
-            block('after the password was sent (the far end login banner)', buf)
-            if nm in ('denied', 'login', 'password'):
+                                 ('prompt', PROMPT_RE)], a.timeout if a.exec_line else a.login_timeout)
+            block('after the password was sent (the far end login banner)'
+                  if not a.exec_line else 'the remote command output, then the LOCAL prompt', buf)
+            if a.exec_line and nm == 'prompt':
+                # The far end ran the command and exited, so the prompt we see is our own.
+                outputs.append((a.exec_line, buf))
+                result, rc = 'EXEC', 0
+            elif nm in ('denied', 'login', 'password'):
                 result, rc = 'FAIL', 2
             elif nm == 'refused':
                 result, rc = 'REFUSED', 3
@@ -221,14 +252,22 @@ def main(argv):
         print('CLIENT RESULT: the console did NOT come back to its local prompt')
         return 7
     if a.expect:
-        want = {'priv': 'PRIV', 'user': 'USER', 'fail': 'FAIL', 'refused': 'REFUSED'}[a.expect]
+        want = {'priv': 'PRIV', 'user': 'USER', 'fail': 'FAIL', 'refused': 'REFUSED',
+                'exec': 'EXEC'}[a.expect]
         print('expected %s, got %s' % (want, result))
         return 0 if result == want else 5
     return rc
 
 
 def recover(c, a, local):
-    """Get the console back to its own exec prompt, whatever the session did."""
+    """Get the console back to its own exec prompt, whatever the session did.
+
+    🔴 It must NEVER type a word into a login or password prompt. `exit` typed at
+    `user@host's password:` is a password GUESS, and each one re-arms the far end's
+    account lockout -- measured on tb277 2026-10-21, where a recovery loop turned one
+    empty-password bug into three failed logins. When the tail is a credential prompt the
+    only safe keystrokes are the application's escape.
+    """
     for attempt in range(3):
         raw = c.send_until_prompt('', timeout=12.0)
         if c.last_prompt_seen:
@@ -237,7 +276,9 @@ def recover(c, a, local):
                 c.to_exec(); c.monitor_off()
                 print('console returned to %s' % p)
                 return True
-        if attempt == 0:
+        at_credential = bool(LOGIN_RE.search(raw.rstrip('\r\n ')) or
+                             PASSWORD_RE.search(raw.rstrip('\r\n ')))
+        if attempt == 0 and not at_credential:
             # still inside the far-end session: leave it the application's own way
             c._t.write('\n>>> exit (recovery)\n'); c.s.write(b'exit\r'); time.sleep(2)
         else:
@@ -248,7 +289,15 @@ def recover(c, a, local):
             else:
                 c._t.write('\n>>> <Enter>~. (recovery)\n')
                 c.s.write(b'\r'); time.sleep(0.5); c.s.write(b'~.')
-            time.sleep(2)
+            time.sleep(4)
+    # One last look: the escape often lands just after the final check above.
+    raw = c.send_until_prompt('', timeout=12.0)
+    if c.last_prompt_seen:
+        p = console.Console._last_prompt(raw)
+        if p and (local is None or p == local or p.endswith('#')):
+            c.to_exec(); c.monitor_off()
+            print('console returned to %s (after the escape)' % p)
+            return True
     return False
 
 

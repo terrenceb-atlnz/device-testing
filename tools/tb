@@ -74,7 +74,7 @@ SUDO_TOOLS = {'linerate', 'l2flows', 'vsend', 'igmp', 'nsresp', 'dhc6', 'rs', 'l
 NOT_ON_BOX = {'case_tokens'}                         # dev-host only
 BOX_PY = {'tb105': 'python3.8', 'tb277': 'python3.8', 'tb101': 'python3.8'}  # orient-dt §1: their python3 is 3.6
 READ_ROOTS = ('/tmp/', '/home/st-art/pytest-create/')
-SECRET_RE = re.compile(r'^CK_(USER|PASSWORD)(_U[0-9]+)?$')   # forwarded over stdin, never argv
+SECRET_RE = re.compile(r'^CK_(USER|PASSWORD)(_[A-Z0-9]+)?$')  # forwarded over stdin, never argv
 q = shlex.quote
 
 
@@ -135,6 +135,23 @@ def with_secrets(remote):
     return reader + remote, ''.join(l + '\n' for l in sec)
 
 
+def caller_stdin():
+    """Whatever the caller piped in, so forwarding secrets does not SWALLOW it.
+
+    `subprocess.run(input=...)` REPLACES stdin, so a tool that reads its own password from
+    stdin got an empty string as soon as any CK_* secret was being forwarded -- which on
+    tb277 2026-10-21 sent an empty password to a far end and cost that account three failed
+    logins before the tool gave up. The secret lines now come FIRST and the caller's own
+    stdin follows them, which is exactly what the remote reader expects.
+    """
+    try:
+        if sys.stdin is None or sys.stdin.isatty():
+            return ''
+        return sys.stdin.read()
+    except Exception:
+        return ''
+
+
 def run(box, remote, local_files=None, dest=None):
     env = dict(os.environ)
     sock = '/run/user/%d/keyring/ssh' % os.getuid()
@@ -155,7 +172,7 @@ def run(box, remote, local_files=None, dest=None):
     if stdin_data is None:
         return subprocess.call(['ssh', '-o', 'BatchMode=yes', box, cmd], env=env)
     return subprocess.run(['ssh', '-o', 'BatchMode=yes', box, cmd], env=env,
-                          input=stdin_data, universal_newlines=True).returncode
+                          input=stdin_data + caller_stdin(), universal_newlines=True).returncode
 
 
 def capture_out(box, remote):
@@ -168,6 +185,8 @@ def capture_out(box, remote):
     else:
         r, stdin_data = with_secrets(remote)
         cmd = ['ssh', '-o', 'BatchMode=yes', box, r]
+        if stdin_data is not None:
+            stdin_data += caller_stdin()
     p = subprocess.run(cmd, env=env, stdout=subprocess.PIPE, universal_newlines=True,
                        input=stdin_data)
     return p.returncode, p.stdout

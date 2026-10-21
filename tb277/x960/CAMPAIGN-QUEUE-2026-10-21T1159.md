@@ -308,6 +308,37 @@ to that file and changes nothing else.
 
 ## Issues
 
+### 🔬 TOOLING TRAP, measured 2026-10-21 — a recovery loop at a password prompt IS a password guess
+
+Self-reported by the group-A tester after it put **4 failed logins** on swi_b's throwaway
+account `cktmp`. **AW+ locks at 5**, so this missed a lockout by one attempt. Zero failures on
+`manager` on any unit, zero on swi_d; the next attempt was `Accepted`.
+
+**Root cause, and it is not AW+:** `subprocess.run(input=...)` **REPLACES** stdin, it does not
+prepend to it. When `tools/tb` began forwarding a `CK_PASSWORD*` secret over stdin, the far-end
+password piped in behind it was swallowed, so the client sent an **empty** password. The driver
+then re-prompted and its recovery loop typed `exit` at the password prompt — **which the device
+reads as another password guess.** One bug produced four attempts.
+
+**The durable rule: a console driver's error recovery must never type a WORD while the device is
+at a login or password prompt.** At a credential prompt the only safe keystrokes are the
+protocol escape. Any recovery loop that sends text there is silently generating authentication
+attempts, and on a platform that locks accounts it is a lockout generator.
+
+**Fixes, committed with T33381:**
+1. `tools/tb` appends the caller's own stdin **after** the secret lines instead of discarding it.
+2. `devclient.py` gained `--password-env NAME` — the password rides the same stdin channel as
+   the other secrets and arrives as an environment variable, so there is no collision to get
+   wrong. `tools/tb`'s secret pattern now carries any `CK_PASSWORD*` / `CK_USER*` name.
+3. `devclient.py` **refuses to send an empty password** when one was requested, never types a
+   word at a credential prompt, and re-checks once after the escape (the tool had reported the
+   console stuck when it was already back at `awplus#`).
+
+**For the wrap:** this belongs in a memory and in `tools/README.md`, not only in a case commit.
+The stdin-replacement half is a generic Python trap; the recovery-loop half is a generic
+console-driver trap.
+
+
 ### 🟠 NEEDS TEST ENGINEER (recorded 2026-10-21 13:2x) — T33380's reboot-persistence limb
 
 **Nothing is blocked by this; the tester moved on.** Everything else in T33380 is measured.
