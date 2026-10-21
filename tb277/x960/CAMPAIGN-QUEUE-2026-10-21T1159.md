@@ -307,3 +307,42 @@ to that file and changes nothing else.
 
 ## Issues
 
+### 🟠 NEEDS TEST ENGINEER (recorded 2026-10-21 13:2x) — T33380's reboot-persistence limb
+
+**Nothing is blocked by this; the tester moved on.** Everything else in T33380 is measured.
+
+**The bind.** Proving `no service ssh ip` survives a reboot needs a `write`. `write` saves the
+whole running-config, which includes **vlan 60**, the swi_d<->swi_b management VLAN the sentinel
+directed be kept **unsaved** as campaign infrastructure.
+
+**A mechanical block sits in the way.** Removing vlan 60 first is the clean route, and
+`no interface vlan60` / `no vlan 60` were **refused twice by the permission system**
+("Modify Shared Resources"). STANDING-ORDERS/`test-mode` §7: a mechanical block is not a consent
+question and a relay cannot lift it — it routes to the Test Engineer to run themselves.
+`tools/tb cfg` is otherwise working; adds and `service ssh ip` went through straight after.
+
+**Bench state is sound.** The half-applied batch had taken port1.0.2 out of trunk mode, leaving
+vlan 60 `admin up / protocol down`. The tester re-added it; swi_d pings swi_b 3/3. **Nothing
+reached startup-config beyond the underlay the Test Engineer approved.**
+
+**Sentinel's recommendation: defer, do not spend a reload now.** The last group removes vlan 60
+at campaign end anyway, so that tester runs the sequence for free — write, reload, verify,
+restore, write — as a short **T33380 run 2**, giving the case its own second working log instead
+of burying the evidence in another group's teardown. T33380 is then re-graded from PASS to
+PASS-with-the-limb-measured. The alternative costs a ~3 min DUT reload now AND still needs the
+permission block cleared.
+
+### 🔬 Product findings (T33380, measured 2026-10-21) — for `platforms/x960.md`
+
+1. 🔴 **`no service ssh ip` REPLACES the running-config line.** `service ssh` becomes
+   `service ssh ipv6`, and `show ssh server` reads `Enabled / Protocol : IPv6`. This is **NOT**
+   the telnet rule recorded in §7F.1, where `service telnet` stays and a negation
+   (`no service telnet ipv6`) is added. **A grep for a negation finds nothing on a unit with
+   IPv4 SSH switched off**, so the obvious check reports the opposite of the truth.
+2. **`no service ssh ip` makes the DUT log `IMI: SSH server enabled`** — misleading wording; the
+   server was reconfigured, not enabled.
+3. **A TCP-level refusal reaches no authentication**: the DUT logged no sshd entry for the
+   refused connection, so that leg cost zero failed logins. Useful when designing negative legs
+   against a platform that locks accounts.
+
+
