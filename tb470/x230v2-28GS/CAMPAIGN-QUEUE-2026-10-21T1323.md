@@ -54,7 +54,7 @@ Test Engineer's rulings carried into this campaign (2026-10-21):
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | platform + ports: T47226 (sh version), T47227 (sh license), T47215 (sh sys environment), T46421 (link flap), T47208 (copper pluggable speeds), T47210 (MAC/PHY TLV vs speed/duplex) | tb470/x230v2-28GS/platform-ports-2026-10-21T1323/ | RUNNING (from 2026-10-21 13:4x, bench-runner) | manual CLI on u1 (DUT) with u0 as the link partner / LLDP decoder; the three show cases first (read-only), then the three port cases on the one link port1.0.1 <-> 4050 port1.0.2; no PDU, no reload expected; restore the link to auto/1000-full and LLDP after each port case |
+| 1 | platform + ports: T47226 (sh version), T47227 (sh license), T47215 (sh sys environment), T46421 (link flap), T47208 (copper pluggable speeds), T47210 (MAC/PHY TLV vs speed/duplex) | tb470/x230v2-28GS/platform-ports-2026-10-21T1323/ | DONE 2026-10-21 14:31 (bench-runner): 6 PASS; restore proven -- final probe 2026-10-21T013029Z MATCH, both running-configs identical to the pre-run capture 2026-10-21T002632Z, show boot flash:/tb470-bench.cfg both, terminal no monitor + exec on u0/u1 | manual CLI on u1 (DUT) with u0 as the link partner / LLDP decoder; the three show cases first (read-only), then the three port cases on the one link port1.0.1 <-> 4050 port1.0.2; no PDU, no reload expected; restore the link to auto/1000-full and LLDP after each port case |
 
 ### Group setup and exact restore recipe (written at triage 2026-10-21 13:3x by bench-runner, before any device change)
 
