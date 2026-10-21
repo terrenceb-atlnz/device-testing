@@ -123,6 +123,82 @@ command exists"* in exactly those words, then ask whether the platform exposes i
 MEASURABLE to PASS. This is live for **T33402** (where syslog is actually stored is a filesystem
 question) and **T33403** (what a "script" is on this platform).
 
+## Group A bench setup and RESTORE RECIPE — written 2026-10-22 ~11:05 UTC, BEFORE the first case
+
+Written by the tester before touching the DUT, so a fresh tester can restore the bench if this
+session dies mid-case. Group A is `ntp6-2026-10-22T1122`, one case, **AWPTCM-T44299**.
+
+**Run `.setup`:** `tb277/x960/ntp6-2026-10-22T1122/tb277-u2.setup` — declares **swi_d and
+nothing else**, so the framework's post-failure power cycle can never reach u3 or u5.
+Probe `--consoles u2` against it: **exit 0 MATCH**.
+
+**Gate record, 2026-10-22 ~11:00–11:05 UTC**
+- `tools/tb precheck tb277 u2` → `/dev/u2` **free**, no holder. One FOUND item, `ser2net`
+  pid 744 (root, up 41 d) — the box's own console daemon, the standing adjudication already
+  given for the 2026-10-20, 2026-10-21 and today's triage. Nothing displaced. **u3/u5 untouched.**
+- `tools/tb peek tb277 ntp61022 u2 115200` → `'awplus login:'`. **The console was NOT parked
+  mid-state** — no `[root@… ~]#` shell, no `(config…)#` prompt.
+- `tools/tb template tb277` → **no deployed `/home/st-art/configs/tb277.setup`**, as expected on
+  this box. Never bind one.
+- Probe capture: `bench-setup/tb277/captures/2026-10-21T230452Z`.
+- 🔴 The probe regenerated `bench-setup/tb277/bench-state.md` as a **swi_d-only** record,
+  dropping swi_a and swi_b (7 insertions, 25 deletions) because only u2 was opened. The
+  tracked file was **reverted** to the committed three-unit version, whose
+  `Generated 2026-10-21T201917Z` stamp honestly says when three units were last measured. The
+  swi_d-only regeneration is kept in the tester's scratchpad. Nothing on the bench changed.
+  (Same handling the sentinel applied at triage.)
+
+**What the case ADDS to swi_d, and nothing else**
+
+| what | where | why |
+| --- | --- | --- |
+| `ipv6 address fd32:b1f0:dff8:1603::34/64` | `interface vlan10` | the leg SVI has no IPv6 at all today; this is the DUT end of the box's eth3 ULA `/64` |
+| `ntp server fd32:b1f0:dff8:1603::1` | global | tb277's own ntpd, the server under test |
+| `ntp server fd32:b1f0:dff8:1603::99` | global | the **control** — an unused address on the same `/64` that must never be answered |
+| a deliberately wrong `clock set` | runtime only | to produce a real correction to measure; the client puts it back |
+| `write` + `reload` | startup-config | the reboot-persistence limb, explicitly permitted by the Test Engineer 2026-10-22 |
+
+**Nothing else is touched.** In particular: `vlan 60` is the Test Engineer's and is left alone;
+the vlan10 / vlan48 IPv4 L3 underlay is campaign infrastructure in startup-config and stays.
+
+**RESTORE RECIPE — run this on u2 (115200) if the session dies mid-case**
+
+```
+configure terminal
+ no ntp server fd32:b1f0:dff8:1603::1
+ no ntp server fd32:b1f0:dff8:1603::99
+ interface vlan10
+  no ipv6 address fd32:b1f0:dff8:1603::34/64
+ exit
+exit
+write
+```
+Then prove it, do not assume it:
+```
+show running-config | include ntp
+show running-config interface vlan10
+show startup-config | include ntp
+show ipv6 interface brief
+show ntp status            <- must be COMPLETELY EMPTY again (that is the unconfigured state)
+show boot
+show clock
+```
+Expected after restore: **no `ntp` line** in either running- or startup-config, **no IPv6
+address on vlan10**, and `show boot` back at the baseline
+
+```
+Current boot image : flash:/x960-tb277.rel (file exists)
+Current boot config: flash:/default.cfg (file exists)
+Autoboot status    : disabled
+```
+build `sin_x96056-20261019-27`, standalone, Active Master.
+
+If the clock was left wrong by an interrupted step 4, the IPv6 client itself corrects it once
+`ntp server fd32:b1f0:dff8:1603::1` is re-applied; otherwise `clock set <hh:mm:ss> <d mon yyyy>`
+in UTC, against the box's `date -u`. The DUT runs **UTC**; the box displays **NZDT (UTC+13)**.
+Last: `end`, `terminal no monitor`, `exit` (shared box — log out of u2).
+
+
 ## Queue
 
 | # | case(s) | group dir | state | note |
