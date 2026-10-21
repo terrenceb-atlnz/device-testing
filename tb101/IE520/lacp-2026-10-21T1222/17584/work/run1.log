@@ -349,3 +349,176 @@ E2 verdict: the other leg down under ~600 Mbps bidirectional: LAG carries on ove
 Post-E2 heavy windows (--rate top --secs 30, one direction at a time): A 13:09:55-13:10:26 sent 1551364 (618.9 Mbps,
   51712 pps) rx eth2 1551364 **100.0%**; B 13:10:39-13:11:10 sent 1658811 (661.8 Mbps, 55294 pps) rx bond0 1658714
   (100.0%, 97 short: host FIFO class), kernel drops 0.
+
+### E3: `reload stack-member 1` -- the Active Master, which carries LAG leg port1.0.1 -- under traffic
+`show stack` before (13:11:5x, u0): 1 Active Master prio 1, 2/3/4 Backup prio 128, Normal, VMAC 0000.cd37.0d6f.
+Prediction (TESTBOX-ACCESS §2 election rule): new master = lowest MAC among the prio-128 survivors = member 4
+  (84e3.2787.0740 < 0780 < 09c0); member 1 rejoins as Backup (no pre-emption).
+Counters before (13:11:5x): port1.0.1 in 6723867 out 7514088; port2.0.1 in 5485520 out 5320575; port3.0.1 in
+  12831473 out 12207817. (Member 1's own counters reset with its reboot.)
+Traffic: l2flows 360 s 100 pps /tmp/lacp-1222/flows-e3 bond0 eth2 + linerate A/B --rate 300 --secs 300 (started 13:12:1x).
+Consoles: listen.py on u0 (passive, 330 s, member 1's boot); reloadc.py on u1 (member 2, relayed to the master):
+  `reload stack-member 1`, answers y+CR, then records u1 for 240 s (its session drops when the master goes,
+  IE520.md §3); reads during/after E3 go through u2 (member 3's console, re-login by cfg.py).
+  reloadc.py on u1: `reload stack-member 1` -> prompt "reboot stack master? (y/n):" -> y+CR, **EVENT epoch
+  1792541568.326 = 13:12:48.3 box time**; u1 fell to its login banner 5 s later (the relayed session dropped, as
+  IE520.md §3 says).
+u0 transcript (listen.py, work/e3-u0-boot.txt): +3.0 s `... Rebooting due to User Request ...` / `reboot: Restarting
+  system`; +6.2 s `Bootloader 9.2.0 loaded`; (silent kernel, memory ie520-console-prints-no-kernel-log); +83 s systemd
+  units; +110 s `VCS: Member 4 (84e3.2787.0740) has joined the stack` / `Member 4 ... has become the Active Master`
+  / `Stack Virtual MAC is 0000.cd37.0d6f`; +113 s members 3 and 2 joined; +166 s `IE520-1 login:`.
+During (1792541632, +64 s): bond Number of ports 1, Partner Mac 00:00:cd:37:0d:6f, eth3 up alone, **eth4 MII down**
+  (member 1 is rebooting). DUT via u2 (+126 s, cfg.py re-logged in on the relayed console): `show stack` 4 = Active
+  Master (as predicted), 1 = Init Backup, "Not all stack ports are up"; po1 Receive/Transmit link count 1/1, only
+  port2.0.1 listed, synchronized; Partner LAG unchanged; **`show lacp sys-id` 0000.cd37.0d6f on the NEW master**.
+After (ckcon @poll on u2 matched "1 ... Ready" after 125.7 s at ~13:17:33 = +285 s; reads 13:17:5x): `show stack`
+  1 Ready Backup (prio 1, no pre-emption), 2/3 Backup, **4 Active Master**, Normal operation, VMAC; `show etherchannel
+  detail` link count 2/2, port1.0.1 + port2.0.1 synchronized, Partner LAG 00-0d-b9-51-4d-a2; `show lacp-counter`
+  port1.0.1 Sent 145 Recv 8 (restarted with the member), port2.0.1 Sent 1645 Recv 58, Pckt err 0; sys-id
+  0000.cd37.0d6f; MAC table from the new master: bond 000d.b951.4da2 + 02cc.0a00.* on po1, eth2 000d.b951.4da1 +
+  02cc.0b00.* on port3.0.1 (correct). bond (1792542043): Number of ports 2, Partner Mac 00:00:cd:37:0d:6f, eth3 +
+  eth4 up, Link Failure Count 0.
+  `show reboot history`: member 1 NEW `2026-10-21 00:14:14 Expected User Request` (= 13:12:48 box + the 85-s clock
+  offset; matched to E3); members 2/3/4 unchanged at 2026-10-20 20:30:19. DUT log 00:14:15: `VCS: Contact with the
+  Active Master has been lost`, `Member 4 (84e3.2787.0740) has become the Active Master`, then 29 `licensing: Stack
+  member 1, the source of entitlements for '...', has left the stack` (local6.warning; expected when the licensed
+  member leaves). No error or crash line.
+Traffic (flowstat-e3.txt; epoch = y-sent):
+  B02 (bond0->eth2 bcast) sent 36000 rx 35560 lost 440 **dups 4**; U02 sent 36000 rx 35546 lost 454 dups 0: both
+    **one outage of 77 frames = 770 ms starting ev0+0.97 s** (the master going down: these flows hash onto eth4 =
+    port1.0.1 on the rebooting member; the host bond kept using eth4 until it saw the link drop), nothing else >= 5.
+  B20 (eth2->bond0 bcast) sent 36000 rx 35304 lost 696 dups 0: 7 frames = 70 ms at ev0+162.3 s and 8 = 80 ms at
+    ev0+168.3 s (member 1 rejoining: the stack re-forming the ring / port1.0.1 re-entering po1); LONGEST 80 ms.
+  U20 (eth2->bond0 unicast) sent 36000 rx 35893 lost 107 dups 0, LONGEST 20 ms: no event outage.
+  loopwin: 1 window (max copies of one seq 2) = the 4 B02 duplicates; see the detail line below.
+  linerate A (bond0->eth2, 300 Mbps, 13:12:32-13:17:32): sent 7520053, rx eth2 7488161 (99.6%): 31892 short = the
+    770-ms outage (~19.3 k at 25067 pps) + eth2 rx_fifo_errors 15189 -> 37773 (host). linerate B: sent 7520053, rx
+    bond0 7511838 (99.9%): 8215 short = the two ~75-ms rejoin blips (~1.9 k each at the eth3-hashed share) + eth3
+    rx_fifo 2080 -> 8822 (+6742) + eth4 +335 (host).
+  (The DUT in=out accounting is not available for E3: port1.0.1's counters restarted with member 1, so its
+  pre-reload output is gone.)
+  **Duplicate detail (O-1):** loopwin window 1792541692.596..692.626 (30 ms) = ev0+124.3 s = 13:14:52.6 box time, B02
+    seqs 15588-15591 (4 consecutive broadcast frames from bond0) each received TWICE on eth2. Timing: member 1 had
+    re-joined the stack 14 s earlier (VCS "joined" at +110 s) and port1.0.1 (the leg B02 hashes onto) was coming up
+    and re-entering po1. Reading: a ~30-ms transient while the rejoined member's port was added back to the
+    aggregator, during which 4 broadcast frames were flooded on two paths. Inside the event window; no duplicate
+    at any other time in E0-E3 (loopwin 0 windows elsewhere); unicast never duplicated. Reported as an observation,
+    not graded as a FAIL on its own: the case's expected result is "flowing without a problem" after the events,
+    which holds; the Test Engineer may re-grade (logged-output.md §1).
+Post-E3 heavy windows (--rate top --secs 30): A 13:22:37-13:23:07 sent 1588188 (633.6 Mbps, 52940 pps) rx eth2
+  1588188 **100.0%**; B 13:23:20-13:23:51 sent 1683228 (671.5 Mbps) rx bond0 1683228 **100.0%**.
+E3 verdict: master reload with a LAG leg on it: failover to member 4 in <1 s of traffic outage toward the DUT (770
+  ms, host-side detection of the dead leg), none toward the host; member 1 back as Backup in 285 s; po1 2/2 again;
+  **VMAC stays the LACP sys-id on the new master and the bond's partner MAC**; MAC table correct from the new
+  master; one 30-ms duplicate transient during the leg rejoin (O-1). PASS.
+
+### E4: `reload stack-member 2` -- the other LAG leg (port2.0.1); master stays member 4
+`show stack` before (13:24:4x, u3 = the master's own console): 4 Active Master, 1/2/3 Backup, Normal, VMAC.
+Traffic: l2flows 360 s 100 pps /tmp/lacp-1222/flows-e4 bond0 eth2 + linerate A/B --rate 300 --secs 300 (13:25:09).
+  reloadc.py on u2: `reload stack-member 2` -> "reboot stack-member 2? (y/n):" -> y+CR, **EVENT epoch 1792542338.797
+  = 13:25:38.8 box time**; u2's session stayed (the master did not reboot). listen.py on u1 (member 2's boot,
+  work/e4-u1-boot.txt): +4.5 s `reboot: Restarting system`; +7 s `Bootloader 9.2.0 loaded`; +112 s VCS: members 3,
+  4 (Active Master), 1 joined; +169 s `IE520-2 login:`.
+During (1792542440, +101 s): bond Number of ports 1, Partner Mac 00:00:cd:37:0d:6f, eth4 up alone, **eth3 MII down**.
+  u3 (+191 s): `show stack` 2 = Syncing Backup, 4 Active Master; po1 already 2/2 synchronized (port2.0.1 re-entered
+  before member 2 finished syncing); sys-id 0000.cd37.0d6f.
+After (ckcon @poll on u3 matched "2 ... Ready" after 72.8 s at ~13:30:26 = +288 s): `show stack` all Ready, 4 Active
+  Master, Normal; po1 link count 2/2, both synchronized, Partner LAG 00-0d-b9-51-4d-a2; `show lacp-counter`
+  port2.0.1 Sent 139 Recv 7 (restarted with the member), port1.0.1 Sent 906 Recv 33, Pckt err 0; sys-id
+  0000.cd37.0d6f; MAC table correct (bond + 02cc.0a00.* on po1; eth2 + 02cc.0b00.* on port3.0.1). bond
+  (1792542718): 2 ports, Partner Mac VMAC, both slaves up.
+  `show reboot history`: member 2 NEW `2026-10-21 00:27:05 Expected User Request` (= 13:25:39 box + 85 s; matched
+  to E4); 1 unchanged at 00:14:14 (E3); 3/4 at 2026-10-20 20:30:19. DUT log: `00:27:06 VCS: Member 2 has left the
+  stack`; `Link down event on stack link port3.0.27` (member 3) and `port1.0.28` (member 1) = the ring opened on
+  both sides of member 2; `00:27:07 Port down notification received for port2.0.1`; `00:28:55/00:29:06 Link up`
+  on both stack links; `00:28:57 Member 2 has joined the stack`; `00:29:09 port2.0.1 ... VLAN mode set to access`.
+  No error or crash line.
+Traffic (flowstat-e4.txt; epoch = y-sent): B02 sent 36000 rx 35713 lost 287 dups 1; B20 sent 36000 rx 34362 lost 1638
+  dups 3; U02 lost 355 dups 0; U20 lost 1432 dups 0; **LONGEST outage 40 ms on every flow, no outage of 5 frames or
+  more** (the bond0->eth2 flows hash onto eth4 = port1.0.1, which stayed up; the eth2->bond0 losses are the host
+  FIFO: eth4 rx_fifo_errors 3725 -> 10523). linerate A (300 Mbps, 13:25:09-13:30:09): sent 7520053, rx eth2 7496998
+  (99.7%): 23055 short = eth2 rx_fifo 37773 -> 54938 (+17165, host) + ~5.9 k the host bond pushed onto eth3 after
+  member 2 went down (~0.5 s at the eth3-hashed 12.5 kpps). linerate B: sent 7520052, rx bond0 7512940 (99.9%):
+  7112 short = eth4 +6798 + eth3 +0 (host FIFO) + ~300.
+  **Duplicates (O-1 again):** loopwin window 1792542460.793..460.823 (30 ms) = ev0+122 s = 13:27:40.8 box = 8 s after
+  `Member 2 has joined` (00:28:57 DUT = 13:27:32 box), as port2.0.1 re-entered po1: B02 seq 16727 and **B20 seqs
+  16728-16730** (eth2->bond0 broadcast, received twice on bond0) -- 4 broadcast frames, both directions, one 30-ms
+  window, unicast untouched. Same signature as E3 (4 broadcast frames, 30 ms, at the rejoining leg's
+  re-aggregation). Reproducible at a member rejoin; inside the event window.
+Post-E4 heavy windows: see the next lines.
+Post-E4 heavy windows (--rate top --secs 30): A 13:33:13-13:33:44 sent 1585478 (632.5 Mbps) rx eth2 1585478 **100.0%**;
+  B 13:33:57-13:34:28 sent 1701439 (678.8 Mbps) rx bond0 1701439 **100.0%**.
+E4 verdict: the second LAG leg's member reloaded (ring opened on both its stack links) under ~600 Mbps bidirectional:
+  no outage >= 50 ms measured by the flows, LAG on the master's leg throughout, member 2 back in 288 s, po1 2/2,
+  VMAC sys-id and partner MAC unchanged, MAC table correct; the 30-ms broadcast-duplicate transient at the leg
+  rejoin recurred (O-1). PASS.
+
+### E5: `reload stack-member 4` -- the Active Master now; member 4 carries no edge, so this is a master failover with
+### the ring opened at member 4 (chain 1-2-3) while traffic crosses the stack links
+Prediction: member 1 (prio 1, back since E3) wins the election over 2/3 (prio 128): new master = member 1, on u0.
+  (The triage's "member 2" prediction assumed member 1 absent; it is present, so the priority rule decides.)
+`show stack` before (13:34:5x, u0): 4 Active Master, 1/2/3 Backup. Counters before: port1.0.1 in 9044685 out 9731730;
+  port2.0.1 in 2037525 out 1841605; port3.0.1 in 31400245 out 30549938 (all three ports survive E5).
+Traffic: l2flows 360 s 100 pps /tmp/lacp-1222/flows-e5 bond0 eth2 + linerate A/B --rate 300 --secs 300 (13:35:49).
+  reloadc.py on u2: `reload stack-member 4` -> "reboot stack master? (y/n):" -> y+CR, **EVENT epoch 1792542971.193 =
+  13:36:11.2 box time**; u2 fell to its login banner 5 s later (relayed session dropped). listen.py on u3 (member 4's
+  boot, work/e5-u3-boot.txt): +3.6 s `Rebooting due to User Request`; +7 s `Bootloader 9.2.0 loaded`; +112 s VCS:
+  Member 1 joined (Master), Member 2 joined; +171 s `IE520-4 login:`.
+During (1792543087, +116 s): bond **Number of ports 2, both slaves up, Link Failure Count 0** (no LAG leg is on member
+  4), Partner Mac 00:00:cd:37:0d:6f. u0 (+248 s, cfg.py re-logged in): `show stack` **1 = Active Master** (as
+  predicted: prio 1 wins), 4 = Syncing Backup, 2/3 Backup, Normal; po1 2/2 synchronized; sys-id 0000.cd37.0d6f.
+After (ckcon @poll on u0 matched "4 ... Ready" after 14.4 s at ~13:41:00 = +289 s): all Ready, 1 Active Master; po1 link
+  count 2/2, Partner LAG 00-0d-b9-51-4d-a2; `show lacp-counter` port2.0.1 Sent 766 Recv 27, port1.0.1 Sent 1531 Recv
+  53 **Pckt err Sent 2** (O-2: this column was 0 through E4; it first read 2 after the master moved onto member 1,
+  port1.0.1's own member; no LACP state effect seen); sys-id 0000.cd37.0d6f; MAC table correct from the new master
+  (bond + 02cc.0a00.* on po1, eth2 + 02cc.0b00.* on port3.0.1). bond (1792543383): 2 ports, Partner Mac VMAC.
+  `show reboot history`: member 4 NEW `2026-10-21 00:37:37 Expected User Request` (= 13:36:11 box + 85 s; matched to
+  E5); 1 at 00:14:14 (E3), 2 at 00:27:05 (E4), 3 unchanged (2026-10-20 20:30:19). DUT log: `00:37:38 VCS: Contact
+  with the Active Master has been lost` / `Member 1 (84e3.2787.0ac0) has become the Active Master` / `Member 4 has
+  left the stack`; `Link down event on stack link port3.0.28` (member 3) and `port1.0.27` (member 1) = the ring
+  opened at member 4 (chain 1-2-3); `00:39:28 Link up` on both; `00:39:29 Member 4 has joined the stack`. No error.
+  Counters after (13:41:0x): port1.0.1 in 12874232 out 14008087; port2.0.1 in 5797563 out 5155588; port3.0.1 in
+  38990265 out 38139976. Deltas: po1 IN +7589585, port3.0.1 OUT +7590038 (>= IN: everything from po1 was forwarded);
+  port3.0.1 IN +7590020, po1 OUT +7590340 (>= IN: everything from eth2 was forwarded). Both IN figures sit ~2.0-2.5 k
+  below the host's sent + l2flows (7592053): the same shortfall on BOTH ingress ports, one of them (port3.0.1) not
+  a LAG port, with every flow delivered (next lines) -> a statistics-collection gap across the master failover,
+  not a forwarding loss.
+Traffic (flowstat-e5.txt; epoch = y-sent): B02 sent 36000 rx 35659 lost 341 dups 4; B20 lost 1158 dups 0; U02 lost 325
+  dups 0; U20 lost 874 dups 0; **LONGEST outage 20-30 ms on every flow, no outage of 5 frames or more at the master
+  failover or at the rejoin** (both LAG legs stayed up; traffic crossed the opened ring without a measurable gap).
+  linerate A (300 Mbps, 13:35:49-13:40:49): sent 7520054, rx eth2 7497011 (99.7%): 23043 short = eth2 rx_fifo_errors
+  54938 -> 78179 (+23241, all host). linerate B: sent 7520052, rx bond0 **7519304 (100.0%)**: 748 short = eth4 rx_fifo
+  +652 + eth3 +23 (host). Zero DUT loss across a master failover plus ring reclosure.
+  **Duplicates (O-1, third time):** loopwin window 1792543137.608..137.638 (31 ms) = ev0+166.4 s = 13:38:57.6 box =
+  00:40:22 DUT, B02 seqs 20458-20461 (4 consecutive bond0->eth2 broadcast frames, each received twice on eth2).
+  Member 4 carries NO LAG leg, so this is not a leg re-aggregation. The E4 window (13:27:40.8 box = 00:29:05 DUT)
+  coincides to the second with `Link up event on stack link port1.0.28`, the moment the ring closed again. The
+  reading across E3/E4/E5: **when a rejoining member's second stack link comes up and the ring closes, a broadcast
+  is flooded to the far member over both ring directions for ~30 ms (4 frames at 100 pps)**. Unicast is never
+  duplicated. A stack-flooding transient inside the event window; reported for the Test Engineer, not graded as a
+  FAIL of the LACP objective.
+  CORRECTION to the O-1 reading above (checked against the DUT log): the duplicate window is NOT always at the ring
+  closure. E4: at `Link up event on stack link port1.0.28` to the second (00:29:05). E3: 13 s after `Member 1 has
+  joined` (links up 00:16:03, window 00:16:17). E5: 53 s after `Member 4 has joined` (links up 00:39:28, window
+  00:40:22), while member 4 read Syncing. Common factor: **inside the rejoining member's integration window (join
+  -> Ready), 4 consecutive broadcast frames (a 30-ms slice at 100 pps) reach the far side twice**; unicast never
+  does; it happens whether or not the rejoining member carries a LAG leg. Reported as O-1 for the Test Engineer.
+Post-E5 heavy windows (--rate top --secs 30): A 13:44:54-13:45:24 sent 1612734 (643.4 Mbps) rx eth2 1612734 **100.0%**;
+  B 13:45:39-13:46:09 sent 1727072 (689.0 Mbps) rx bond0 1727072 **100.0%**.
+E5 verdict: master reload with no LAG leg on it, ring opened to a chain under ~600 Mbps bidirectional: no measurable
+  outage (<= 30 ms), both legs stayed Collecting/Distributing, member 1 (prio 1) took mastership, VMAC sys-id and
+  partner MAC unchanged, MAC table correct; O-1 recurred, O-2 (2 LACPDU "Pckt err Sent" on port1.0.1) noted. PASS.
+
+## STEP 4 -- reboot stack (E6: whole-stack `reload`, boots flash:/t17584.cfg = the LAG config)
+Pre-E6 reads (u0, 13:47 box; work/e6-pre-u0.out): `show clock` UTC 00:48:24 (box 13:47:0x -> still ~85 s ahead);
+  `show boot` Current boot config **flash:/t17584.cfg (file exists)** (the LAG config will boot); `show stack` all
+  Ready, 1 Active Master. Interim health (so the buffered log of the E1-E5 period is checked before the reboot
+  clears it; the master's buffer is member 1's, which starts at its E3 boot 00:15:35): `show exception log` = the same
+  seven 2026-10-20 01:58-02:02 duplicate-master snapshot entries as sample 1, nothing new; `show log | include
+  kernel|exception|crash|restart|Unexpected` = only the 00:15:35 kernel boot lines (RAMDISK, ubi0/UBIFS mount,
+  "boardinfo: loading out-of-tree module taints kernel" = normal AW+ boot), no crash/restart/Unexpected;
+  `show cpu` current load m1 user 7% kernel 22% (just after the top windows), m2 2%/6%, m3 1%/4%, m4 3%/5%;
+  `show memory` free kB m1 271600 (fresh since its E3 reboot), m2 280608, m3 277444, m4 280644.
+Traffic across the reboot: l2flows 540 s 100 pps /tmp/lacp-1222/flows-e6 bond0 eth2 + linerate A/B --rate 300 --secs 480.
+Consoles: ckreload.py on u0 (the master; `reload`, y to the reboot question, n to any save-config question, waits
+  for login:, 720 s); listen.py on u2 and u3 (members 3 and 4), 480 s.
