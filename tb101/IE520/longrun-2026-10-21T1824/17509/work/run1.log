@@ -74,3 +74,117 @@ Note: step 1 spells `no spannig-tree rstp enable`; the parser would reject it, s
       filter --port 10/5 --uds1-sa ::02 --uds1-da ::01 --uds2-sa ::03   -> read back SA1=::02 DA1=::01 SA2=::03 uds1=1/1/1 uds2=1/3/0
       stream --port 10/5 --sa ::01 --da ::02 --sip 192.168.1.1 --dip 192.168.1.2 --sport 5000 --dport 5000 --size 512 --percent 1 --count 100
       stream --port 10/6 --sa ::02 --da ::01 --sip 192.168.1.2 --dip 192.168.1.1 --sport 5000 --dport 5000 --size 512 --percent 1 --count 100
+- Reboot result (work/reboot.txt, u0 transcript of the listen): `Are you sure you want to reboot the whole stack? (y/n):` -> `y` at 18:40:36 (EVENT y-sent 1792561236.023); `reboot: Restarting system` 18:40:40; `05:44:05 awplus-1 VCS[615]: Member 3 (84e3.2787.09c0) has become the Active Master` (DUT UTC); u0 `IE520-1 login:` at 18:43:49 (193 s after y). Listen ended 18:47:36.
+- 18:47:56 Stack after the reboot, member 3's own console u2: `tools/tb ckcon tb101 lr-1824 u2 115200 --stop-on-error '@poll 600 Normal\soperation show stack' 'show stack'` -> work/post-reboot-stack.txt:
+      1    -           84e3.2787.0ac0     128       Ready   Backup Member
+      2    -           84e3.2787.0780     128       Ready   Backup Member
+      3    -           84e3.2787.09c0     1         Ready   Active Master
+      4    -           84e3.2787.0740     128       Ready   Backup Member
+      Operational Status                 Normal operation
+  So the case's topology holds: IXIA 10/5 -> port3.0.25 on the MASTER (member 3) -> stack -> port4.0.25 on member 4 -> IXIA 10/6. u2 reaches the master unrelayed; the sampler uses u2.
+- 18:48:11 BEFORE-READS (case step 1's reads + plan + R3/R4), master u2: `CKTO=180 tools/tb ckcon tb101 lr-1824 u2 115200 'show clock' 'show system' 'show log' 'show cpu history' 'show stack detail' 'show stack' 'show memory' 'show memory 1'..'show memory 4' 'show cpu' 'show cpu 1'..'show cpu 4' 'show memory history' 'show log permanent' 'show reboot history' 'show boot' 'show interface port3.0.25,port4.0.25' 'show mac address-table' 'show running-config'` -> work/before-reads.txt (5023 lines, 0 `% ` lines). show log extracted to work/before-showlog.txt (471 lines).
+  - R3 settled: bare `show memory` and bare `show cpu` both print all four members (member 1-4 blocks); the per-member forms agree (memory free m1 280592 / m2 282084 / m3 272892 / m4 280064 kB of 506724; cpu 1s/20s/60s m1 3/3/3, m2 3/3/3, m3 3/5/4, m4 5/4/4 %). The sampler keeps the per-member forms (one value per command, unambiguous).
+  - show log severities (before): 393 user.notice, 26 syslog.notice, 23 kern.notice, 7 local6.crit, 5 user.crit, 5 daemon.notice, 4 local6.notice, 2 kern.warning, 1 user.err, 1 authpriv.notice. Every crit/err line is from this boot (05:43-05:45 UTC) and pre-dates traffic:
+      2026 Oct 21 05:43:23 local6.crit awplus Pluggable[433]: port3.0.3 - 10Gb SFP+ in 1Gb SFP port not supported. Please remove.
+      2026 Oct 21 05:43:23 local6.crit awplus plugcheck: port3.0.3 doesn't support this module type.
+      2026 Oct 21 05:43:23 local6.crit awplus Pluggable[433]: Pluggable AT-SP10SR inserted into port3.0.25   (+ port3.0.1, 3.0.3, 3.0.27, 3.0.28 inserted lines)
+      2026 Oct 21 05:43:53-55 user.crit awplus-3 VCS[658]: Member 2 / 4 / 1 has joined the stack
+      2026 Oct 21 05:44:05 user.crit awplus-3 VCS[658]: Member 3 (84e3.2787.09c0) has become the Active Master; Stack Virtual MAC is 0000.cd37.0d6f
+      2026 Oct 21 05:45:01 user.err IE520 apteryxd: No response from provider for path "/gui/next-filename"
+      2026 Oct 21 05:43:25 kern.warning awplus kernel: boardinfo: loading out-of-tree module taints kernel.
+      2026 Oct 21 05:44:07 kern.warning awplus-2 kernel: IPv4: martian destination 0.0.0.0 from 127.0.0.1, dev lo
+    (port3.0.3's 10G SFP+ in a 1G port is a standing bench condition, not part of this case.)
+  - show interface (before): port3.0.25 and port4.0.25 `Link is UP`, input packets 0, dropped 0; output packets 11, bytes 748, multicast 11 each (the switch's own 68-byte multicasts: the frames R1 excludes). No 0000.0000.000x MAC learned yet.
+- DUT `show system` (before), verbatim and in full:
+```
+System Status                                           Wed Oct 21 05:49:36 2026
+
+Stack member 1
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       717  Base    AT-IE520-28GSX                    X1-0  264A23061       
+--------------------------------------------------------------------------------
+RAM: Total: 506724 kB Free: 279520 kB
+Flash: 106.3MB Used: 41.4MB Available: 64.9MB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 00:06:51
+Bootloader version : 9.2.0
+
+
+Stack member 2
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       717  Base    AT-IE520-28GSX                    X1-0  264A23068       
+--------------------------------------------------------------------------------
+RAM: Total: 506724 kB Free: 280716 kB
+Flash: 106.3MB Used: 41.6MB Available: 64.7MB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 00:06:50
+Bootloader version : 9.2.0
+
+
+Stack member 3
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       717  Base    AT-IE520-28GSX                    X1-0  264A23052       
+--------------------------------------------------------------------------------
+RAM: Total: 506724 kB Free: 273532 kB
+Flash: 106.3MB Used: 41.8MB Available: 64.6MB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 00:06:50
+Bootloader version : 9.2.0
+
+
+Stack member 4
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       717  Base    AT-IE520-28GSX                    X1-0  264A23066       
+--------------------------------------------------------------------------------
+RAM: Total: 506724 kB Free: 280676 kB
+Flash: 106.3MB Used: 47.2MB Available: 59.2MB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 00:06:50
+Bootloader version : 9.2.0
+
+
+Current software   : IE520-awplus_main-20261019-75.rel
+Software version   : awplus_main-20261019-75
+Build date         : Mon Oct 19 08:37:01 UTC 2026
+
+Current boot config: flash:/tb101-bench.cfg (file exists)
+
+System Name
+ IE520
+System Contact
+
+System Location
+```
+- 18:49:55 HEALTH 1 (before), master u2: `tools/tb health tb101 lr-1824 u2 115200 --label before` -> exit 0; raw /tmp/lr-1824/health-u2-20261021T184955.out (copied to work/health1-raw.txt, json work/health1.json); summary work/health1.txt:
+      reboots: 289 entries, newest 2026-10-21 05:42:02 Expected User Request (this run's reboot, UTC)
+      exception log: NOT None, but every entry is dated 2026-10-20 01:58-02:02 UTC: `duplicate-master debug snapshot saved to /flash/debug-duplicate-master-...tgz` on members 1-4 (the 10-20 stack merge; baseline, pre-dates this run)
+      log filtered: 31 lines (5 echoes, 26 boot kern.notice/warning lines of this boot)
+      cpu 3% / 3% / 3% (busy 1 s / 20 s / 60 s), load 2.73; memory free 281456 of 506724 kB
+- IE520.cfg written (tools/rc2cfg.py from work/before-reads.txt): 3 header + 125 config lines.
+- 18:51:16 MAC-learn pair: `ixtcl burst --ports 10/5,10/6` (streams of 18:4x, 100 frames each at 1 %) -> work/ixia-learn.txt: 10/5 sent 100 rcvd 100 UDS1 100; 10/6 sent 100 rcvd 100 UDS1 100; every RC 0. Switch (u2, work/learn-switch.txt): `100  port3.0.25   0000.0000.0001   forward       dynamic`, `100  port4.0.25   0000.0000.0002   forward       dynamic`; port3.0.25 and port4.0.25 input packets 100, dropped 0.
+- 18:51:52 CONTROL at start (R2), port 5 -> port 6, work/ixia-control-start.txt + work/control-start-switch.txt:
+      ixtcl stream --port 10/5 --sa 00:00:00:00:00:03 --da 00:00:00:00:00:02 --sip 192.168.1.3 --dip 192.168.1.2 --sport 5000 --dport 5000 --size 512 --percent 50 --count 1000 --vlan 3   (read back: VLAN 10/5 id=3, num=1000)
+      ixtcl clear --ports 10/5,10/6 ; ixtcl burst --ports 10/5 ; ixtcl counters --ports 10/5,10/6
+      10/5 sent 1000; 10/6 sent 0, rcvd 1, UDS1 0, **UDS2 (SA ::03) 0**   -> control 0 of 1000 (the 1 raw frame is a switch multicast)
+      switch: port3.0.25 input packets 100 -> 1100 (the 1000 tagged frames arrived), dropped 0; port4.0.25 output packets 115 -> 117 (multicast 15 -> 17 only)
+- 18:52:36 POSITIVE at start, beside the control: streams ::01->::02 (10/5) and ::02->::01 (10/6), untagged, 512 B, 50 %, --count 1000; `ixtcl burst --ports 10/5,10/6` -> work/ixia-positive-start.txt: 10/5 sent 1000 rcvd 1000 **UDS1 1000**; 10/6 sent 1000 rcvd 1000 **UDS1 1000**. Switch (work/positive-start-switch.txt): port3.0.25 input 2100 (+1000, bytes +512000: untagged 512 B), output 1118 (+1001); port4.0.25 input 1100 (+1000), output 1118; dropped 0 both. CONTROL 0 BESIDE 1000/1000 -- as expected.
+- 18:52:57 Sampler test (one sample, foreground): `tools/tb tool tb101 lr-1824 longrun --hours 0 --every 3600 --console /dev/u2 --baud 115200 --transcript /tmp/lr-1824/console-u2.log --members 1,2,3,4 --dut-ports port3.0.25,port4.0.25 --ixia 10.36.10.82 --ixia-login terrenceb-claude --ports 10/5,10/6 --out <work>/sampletest` -> 48 s, exit 0; progress line: console ok, stack `Normal operation`, ready 4/4, master 3, memfree m1-m4 279304/281292/273556/279484 kB, cpu m1-m4 3/2/3, 4/4/4, 3/5/4, 5/4/4, log lines 523, `% ` lines 0, ixia ok; sample file has all 12 console reads + IXIA counters; u2 transcript ends `IE520#` / closed. Files work/sampletest/.
+- 18:53-18:55 First continuous attempt: `ixtcl stream ... --percent 50 --continuous` -> `RC stream_set 1` (exit 1); the `&&` chain stopped before clear/start, so no traffic ran; hardware kept the 1000-frame stream. Cause: the tool sent `-numFrames 0` for a continuous stream; fixed in tools/ixtcl.py (continuous leaves numFrames at default). Re-run: every RC 0, read back `dma=0` (contPacket), pct 50.0, size 512.
+- **T0 = 2026-10-21 18:55:00 NZDT (epoch 1792562100)**: `ixtcl clear --ports 10/5,10/6 && ixtcl start --ports 10/5,10/6` -> RC clear 0, RC start 0 (work/ixia-start2.txt). Continuous both ways: 10/5 ::01->::02 192.168.1.1->192.168.1.2 UDP 5000->5000, 10/6 the mirror; 512 B, 50 % line rate.
+- 18:55:10 T0+10 s (work/ixia-t0plus.txt): 10/5 transmitState 1, rate sent 1174765 fps, rate rcvd 1174765, rate UDS1 1174767; 10/6 transmitState 1, 1174764 / 1174764 / 1174764 fps (= 50 % of 10G at 512 B). FCS 0. Switch (work/t0-switch.txt): port3.0.25 input 18234444 dropped 0; port4.0.25 input 18232188 dropped 0; both MACs in vlan 100 on the right ports; `Operational Status Normal operation`.
+- 18:55:31 SAMPLER LAUNCHED (detached): `tools/tb tool tb101 lr-1824 longrun --detach --hours 12 --every 3600 --start-epoch 1792562100 --console /dev/u2 --baud 115200 --transcript /tmp/lr-1824/console-u2.log --members 1,2,3,4 --dut-ports port3.0.25,port4.0.25 --ixia 10.36.10.82 --ixia-login terrenceb-claude --ports 10/5,10/6 --out /home/terrenceb/claude/device-testing/tb101/IE520/longrun-2026-10-21T1824/17509/work` -> `DETACHED pid=25173`; `tools/tb ps tb101 longrun` shows 25173 python3.8 longrun.py (started 18:55:31). 13 samples: T0 (due at once), T0+1h ... T0+12h = 2026-10-22 06:55:00 NZDT; DONE expected ~06:56.
+- 18:55:31-18:56:13 Sample 0 (T0) by the sampler: progress.tsv k=0: console ok, stack `Normal operation`, ready 4/4, master 3, memfree m1-m4 280112/279844/271976/280364 kB, cpu m1-m4 (1s/20s/60s) 2/3/2, 4/5/4, 1/5/4, 4/4/4 %, log lines 544, `% ` lines 0; IXIA ok: 10/5 sent 91926630 rcvd 91926628 UDS1 91926622 FCS 0 tx 1174765 fps; 10/6 sent 92512501 rcvd 92512499 UDS1 92512493 FCS 0 tx 1174766 fps. u2 transcript ends `IE520#`, closed 18:56:13.
+- PHASE A COMPLETE 18:56. Row state RUNNING-DETACHED until 2026-10-22 06:55 NZDT. Still to come (Phase C): ixtcl stop + final counters, control + positive at end, after-reads (same list as before-reads), health 2 (`--before /tmp/lr-1824/health-u2-20261021T184955.out.json`), grading, restore recipe, probe MATCH, RESULT.
+  Run label so far: clean (no unexplained event; the exception-log entries are the 10-20 baseline).

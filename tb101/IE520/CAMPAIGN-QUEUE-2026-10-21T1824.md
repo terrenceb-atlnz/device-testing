@@ -83,7 +83,7 @@ allowed to reconfigure whatever you need to on the ixia and the devices in order
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | T17509 Longrun test: Normal operation with IXIA traffic | tb101/IE520/longrun-2026-10-21T1824/ | RUNNING Phase A (18:33) | 3 phases (below): A = TRIAGE + setup + before-reads + start traffic and the detached sampler (bench-runner); B = 12 h unattended, sentinel watches the sampler's files; C = stop, after-reads, grade, restore (a fresh bench-runner dispatched by a one-shot cron at T0+12h) |
+| 1 | T17509 Longrun test: Normal operation with IXIA traffic | tb101/IE520/longrun-2026-10-21T1824/ | RUNNING-DETACHED until 2026-10-22 06:55 NZDT (T0+12h; DONE ~06:56) | 3 phases (below): A = TRIAGE + setup + before-reads + start traffic and the detached sampler (bench-runner); B = 12 h unattended, sentinel watches the sampler's files; C = stop, after-reads, grade, restore (a fresh bench-runner dispatched by a one-shot cron at T0+12h) |
 
 ## The plan (agreed with Terrence 2026-10-21 ~18:00; the tester may refine mechanics, never weaken a check)
 
@@ -224,6 +224,34 @@ config-mode qmark check accepts and the post-restore `show running-config` must 
 6. `remote-diff all show running-config`; `tools/rcdiff.py` post vs pre running-config = no diff.
 7. Consoles u0-u3: `end`, `terminal no monitor`, exec prompt. `/tmp/lr-1824/` may stay (tmpfs).
 8. `tools/tb probe tb101 --consoles 0-3 --baud 115200 --no-prompt` = MATCH.
+
+## Phase A record (tester, 2026-10-21 18:56 NZDT) -- the facts Phase B and Phase C need
+
+- **T0 = 2026-10-21 18:55:00 NZDT (epoch 1792562100)**: IXIA continuous traffic started (`ixtcl clear` + `start`
+  on 10/5,10/6, RC 0). 512 B, 50 % each way = 1,174,765 fps each way, read at T0+10 s; streams 10/5 ::01->::02
+  192.168.1.1->192.168.1.2 UDP 5000, 10/6 the mirror, untagged, `dma=0` contPacket.
+- **Sampler: tb101 pid 25173** (`python3.8 longrun.py --detach ...`, cwd /tmp/lr-1824/tools, started 18:55:31).
+  13 samples at T0 + k h, k = 0..12; the last at **2026-10-22 06:55:00 NZDT**; then `DONE`.
+  Stop early: `tools/tb killmine tb101 25173`, or create `<work>/STOP`. Check: `tools/tb ps tb101 longrun`.
+- **Sampler files** (repo path; the box writes them over its /home NFS mount):
+  `tb101/IE520/longrun-2026-10-21T1824/17509/work/` -> `progress.tsv` (one line per sample), `hourly/sample-<kk>-<stamp>.txt`
+  (every read in full), `ixia.tsv`, `sampler.out` (its log), `sampler.pid`, `DONE` (after the last sample).
+  Console transcript: tb101 `/tmp/lr-1824/console-u2.log`. Each sample holds u2 for ~50 s at about hh:55-hh:56;
+  a rescue read during that minute gets `tools/tb` exit 5 (held) -- retry a minute later. Do NOT refresh or delete
+  `/tmp/lr-1824/tools` while it runs.
+- **Health sample 1** `/tmp/lr-1824/health-u2-20261021T184955.out.json` (copy work/health1.json): Phase C's
+  `tools/tb health tb101 lr-1824 u2 115200 --before /tmp/lr-1824/health-u2-20261021T184955.out.json --label after`
+  (if /tmp was lost, write the json back from work/health1.json first). The exception log already holds the
+  10-20 duplicate-master snapshots on all members: baseline, not new.
+- **Master = member 3, console u2** (stack 3 priority 1). Before-reads: work/before-reads.txt; boot cfg copy for
+  restore step 4: work/tb101-bench.cfg.pre (taken BEFORE the setup change; the restored file must equal it).
+- **IXIA state for Phase C:** UDS filters set on both ports (R1), so grade `UDS1(10/6) == framesSent(10/5)` and
+  `UDS1(10/5) == framesSent(10/6)` after `ixtcl stop`. Control at end (R2) = the start recipe: `ixtcl stream
+  --port 10/5 --sa 00:00:00:00:00:03 --da 00:00:00:00:00:02 --sip 192.168.1.3 --dip 192.168.1.2 --size 512
+  --percent 50 --count 1000 --vlan 3`, clear both, `burst --ports 10/5`, counters (expect 10/6 UDS2 0); then
+  positive: both streams `--count 1000 --percent 50`, `burst --ports 10/5,10/6` (expect UDS1 1000 each).
+  Control/positive at start: 0 beside 1000/1000 (18:51-18:52). Restore step 1: `ixtcl stop`, `counters`,
+  `reset --ports 10/5,10/6`, `release --ports 10/5,10/6` (all with `--chassis 10.36.10.82 --login terrenceb-claude`).
 
 ## Results
 

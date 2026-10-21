@@ -204,8 +204,11 @@ def main():
                  'udp setDefault', 'udp config -sourcePort %d -destPort %d' % (a.sport, a.dport),
                  'rc udp_set udp set $ch %d %d' % (c, p),
                  'stream config -enable true -sa %s -da %s -framesize %d -frameSizeType sizeFixed '
-                 '-rateMode usePercentRate -percentPacketRate %s -dma %s -numFrames %d'
-                 % (a.sa, a.da, a.size, a.percent, 'contPacket' if a.continuous else 'stopStream', a.count or 0),
+                 '-rateMode usePercentRate -percentPacketRate %s -dma %s%s'
+                 % (a.sa, a.da, a.size, a.percent, 'contPacket' if a.continuous else 'stopStream',
+                    # -numFrames 0 makes `stream set` return 1 (2026-10-21, chassis 82): a continuous
+                    # stream leaves numFrames at its default
+                    '' if a.continuous else ' -numFrames %d' % a.count),
                  'rc stream_set stream set $ch %d %d %d' % (c, p, a.stream_id),
                  'rc write ixWriteConfigToHardware pl',
                  'if {[stream get $ch %d %d %d] == 0} {puts "STREAM %d/%d#%d sa=[stream cget -sa] da=[stream cget -da] '
