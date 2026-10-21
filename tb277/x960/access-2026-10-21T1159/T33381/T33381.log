@@ -1,0 +1,500 @@
+================================================================================
+TEST T33381 -- (232) Management - SSH Client (IPv4)
+================================================================================
+Run:      2026-10-21 13:24-13:36 NZDT.  The DUT's SSH client was driven from its own console
+          and measured at the far end.
+          Times written in this log are New Zealand local time.  Times inside device
+          output are UTC, which is what the switch records.
+Bench:    tb277, consoles u2 = swi_d (DUT), u3 = swi_b; Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     T33381.  The test-case database holds NO authored objective, NO step text, NO test
+          data and NO expected result for this case.  Its single step is empty.  No authored
+          authority exists beyond the title.
+          The tester designed the objective and all 6 steps below from three sources: the
+          title; the X960 TPS row 230 "SSH Client(IPv4) = Yes"; and the DUT's own CLI
+          surface, read with the `?` help before anything was sent (STEP 1).
+          Objective (designed by the tester), in four parts.
+          1. The AT-x960-56YSQ has an SSH client command with an explicit IPv4 form.
+          2. That command opens a real SSH session from the DUT to another device, checks
+             the far end's host key, authenticates, and runs commands there.
+          3. It also offers a one-shot form that runs a single command on the far end.
+          4. It reports a failure when the far end refuses, and when the TCP port is wrong.
+Build:    swi_d  sin_x96056-20261019-27  (x960-tb277.rel, build date Sun Oct 18 23:18:21 UTC
+          2026), AT-x960-56YSQ, S/N A2WQS700B
+          swi_b  awplus_main-20261020-78  (x960-tb277.rel, boot image flash:/backup.rel,
+          build date Tue Oct 20 08:40:57 UTC 2026), AT-x960-28YSQ, S/N A10737A261700021
+
+awplus# show system
+    System Status                                           Wed Oct 21 00:24:28 2026
+
+    Board      ID   Bay     Board Name                        Rev   Serial number
+    --------------------------------------------------------------------------------
+    Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B       
+    PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU 
+    PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S 
+    Fan module 730  FAN1    AT-FAN19                          -     -               
+    Fan module 730  FAN2    AT-FAN19                          -     -               
+    --------------------------------------------------------------------------------
+    RAM: Total: 8092132 kB Free: 7462008 kB
+    Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+    --------------------------------------------------------------------------------
+    Environment Status : Normal
+    Uptime             : 0 days 02:27:51
+    Bootloader version : Unknown
+
+    Current software   : x960-tb277.rel
+    Software version   : sin_x96056-20261019-27
+    Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+    Current boot config: flash:/default.cfg (file exists)
+
+    System Name
+     awplus
+    System Contact
+
+    System Location
+
+Configs:  swi_d.cfg, swi_b.cfg (running-config after setup; saved to startup: no)
+
+VERDICT: PASS -- the DUT opens IPv4 SSH sessions as a client.  It was proven at the far end
+on the wire and proven end to end, and both controls failed as they should.
+      client command exists ........... yes         (`ssh ip [port N] [user U] <host> [LINE]` in privileged exec)
+      the control, port 2222 .......... refused     (1 SYN, 1 RST, no session, in the same capture as the leg)
+      IPv4 TCP to port 22 ............. yes         (SYN from 10.38.22.97, answered SYN.ACK, then key exchange)
+      SSH, not plain TCP .............. yes         (the DUT sends `SSH-2.0-OpenSSH_10.5` first)
+      host key checked ................ yes         (ED25519 fingerprint SHA256:0fFTyaQszFtMFRJM74JQfBopyr+KpUyaHdtfx8keFk8)
+      authenticated on the far end .... yes         (`(cktmp@10.38.22.98) Password:` then the far end banner)
+      commands run on the far end ..... yes         (`show system` returns AT-x960-28YSQ, S/N A10737A261700021)
+      the one-shot LINE form .......... yes         (the far end runs the command and lists the user as `scr 0`)
+      far-end server off .............. refused     (same command: "connect to host 10.38.22.98 port 22: Connection refused")
+      host-key trust left behind ...... yes         (STEP 4: no CLI command can show it or remove it)
+CAVEAT:  This run proves the IPv4 form only.  The command also offers an IPv6 form and a VRF
+         form (STEP 1).  Neither was used.  Authentication was by password; public-key
+         authentication from the DUT was not tested.  The SSH client is a privileged-exec
+         command with no configuration of its own.  There is therefore nothing to remove, and
+         nothing that a reboot could lose.  The DUT's running-config is byte-identical before
+         and after the case.  One thing IS left on the DUT, and it cannot be taken off: the
+         host key the DUT learned for 10.38.22.98.  STEP 4 measures that.  A configuration
+         difference can never see it.
+HEALTH:  read on the DUT before step 1 and again after the last step (13:36 NZDT)
+         reboots ......... no new entry; the newest is 2026-10-20 21:56:17 Expected CLI(user request) in both samples
+         exception log ... None in both samples
+         log ............. no crash, no daemon restart, no kernel line and no line newer than the before sample apart from the tester's own command echoes
+         CPU ............. `show cpu` on this platform prints LOAD, not idle.  The measured load was 0% in both samples (1 second 0%, 20 seconds 0%, 60 seconds 0%)
+         memory .......... free 7461504 kB before -> 7459184 kB after; 2320 kB LESS free, which is 0.03% of the 8 GB total, across six SSH client sessions.  No step change, and no leak is claimed: one case cannot show one
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  The DUT is the SSH CLIENT.  All traffic in this case runs between the two switches, so no
+  testbox NIC can see it.  The instrument is therefore the far end's own tcpdump.
+
+    +---------------------------------------------------------+
+    |  swi_d   AT-x960-56YSQ                            DUT    |
+    |  the SSH CLIENT under test                               |
+    |  interface vlan60 10.38.22.97/27                         |
+    +---------------------------------------------------------+
+        port1.0.2  (trunk, vlan 60 tagged, native vlan 1)
+             |
+             |  STEPS 2, 3, 5 and 6: the DUT opens an SSH session to the far end,
+             v  logs in, and runs commands there
+        port1.0.2
+    +---------------------------------------------------------+
+    |  swi_b   AT-x960-28YSQ                                   |
+    |  the SSH SERVER the client connects to                   |
+    |  interface vlan60 10.38.22.98/27                         |
+    |  runs `tcpdump -i vlan60` on its own console: the        |
+    |  measuring instrument for STEP 2                         |
+    +---------------------------------------------------------+
+
+  DUT     : swi_d (AT-x960-56YSQ) console u2 @ 115200, S/N A2WQS700B
+  far end : swi_b (AT-x960-28YSQ) console u3 @ 9600, S/N A10737A261700021.  It runs a
+            different build train from the DUT, so a working session cannot be an artefact
+            of two identical images.
+  link    : swi_d port1.0.2 <-> swi_b port1.0.2  (copper, trunk, vlan 60 tagged).  Rapid
+            Spanning Tree leaves this the one FORWARDING link between the two switches.
+  user    : the DUT logs in to swi_b as `cktmp`, a privilege 1 account.  swi_b carries
+            `ssh server allow-users manager`, so that account is also named there.  Only
+            its password hash is kept, in swi_b.cfg; the password itself is nowhere in this
+            output.
+  tools   : tools/tb qmark (read the CLI help without executing it), tools/tb devclient
+            (drive the DUT's outbound client from its console), tools/tb ckcon (console
+            reads, and swi_b's own tcpdump), tools/tb cfg (configuration), tools/tb peek,
+            tools/rc2cfg.py, tools/rcdiff.py
+  note    : no testbox NIC carried traffic for this case, and there is no pcap.  The far
+            end's tcpdump printed its decode to its own console, and that is the record.
+
+STEP 1 -- the DUT has an SSH client, and this is its command surface      PASS
+--------------------------------------------------------------------------------
+  Method: `tools/tb qmark` types `<prefix> ?`, prints the completions, and then clears the
+  line with Ctrl-U.  It never sends a carriage return, so nothing is executed.  Its own
+  self-test ran first and passed: "self-test OK: 'show clock ?' then Ctrl-U then CR executed
+  nothing".
+  The client's own configuration was read first:
+
+awplus# show ssh client
+    Secure Shell Client Configuration
+    ------------------------------------------------------------
+    Port                               : 22
+    Version                            : 2
+    Connect Timeout                    : 30 seconds
+    Session Timeout                    : 0 (Off)
+    VRF                                : NONE
+    Debug                              : NONE
+
+  The client defaults are port 22, version 2, connect timeout 30 seconds, session timeout
+  off, no VRF.  Note that this is a SEPARATE command from `show ssh server`.  The two halves
+  of SSH are configured and displayed independently on this platform.
+
+awplus# ssh ?
+      HOSTNAME  IP/IPv6 address or hostname of a remote server
+      client    Configure global SSH client parameters
+      ip        IP SSH
+      ipv6      IPv6 SSH
+      port      SSH server port
+      user      Login user
+      vrf       VRF instance
+
+awplus# ssh ip ?
+      HOSTNAME  IP/IPv6 address or hostname of a remote server
+      port      SSH server port
+      user      Login user
+
+awplus# ssh ip user cktmp 10.38.22.98 ?
+      LINE  Command to execute on the remote server
+      <cr>
+
+awplus# ssh client ?
+      connect-timeout  Client connect timeout
+      port             Remote SSH server port
+      session-timeout  Client session timeout
+      vrf              VRF instance
+
+  => STEP 1 PASS: the client has an explicit IPv4 form, `ssh ip ...`, an IPv6 form, a VRF
+     form, a non-default port, a user name, and an optional LINE.  LINE is a command to run
+     on the far end without an interactive session.  All four of the IPv4 form, the port,
+     the user and the LINE are used in the steps below.
+
+STEP 2 -- the control and the real session, in one capture                PASS
+--------------------------------------------------------------------------------
+  Method: the DUT-to-swi_b path does not cross any host NIC, so the testbox cannot see it.
+  The instrument is the far end's own tcpdump, run from swi_b's console while the DUT's
+  console drove the client.  One driver per console; never two on one.
+
+    tools/tb ckcon tb277 ckA1159 u3 9600 "tcpdump -i vlan60 -nn -c 40 tcp port 22 or tcp port 2222"
+
+  The filter covers BOTH ports on purpose, so the control flow and the real flow land in the
+  same capture and are counted together:
+    - the control, which must NOT produce a session: `ssh ip port 2222 user cktmp
+      10.38.22.98`.  Nothing listens on port 2222.
+    - the leg, which must: `ssh ip user cktmp 10.38.22.98`.
+
+    13:26:42 >>> tcpdump -i vlan60 -nn -c 40 tcp port 22 or tcp port 2222
+    tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+    listening on vlan60, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+    00:26:13.277240 IP 10.38.22.97.50710 > 10.38.22.98.2222: Flags [S], seq 3119310588, win 64240, options [mss 1460,sackOK,TS val 2805925252 ecr 0,nop,wscale 8], length 0
+    00:26:13.277293 IP 10.38.22.98.2222 > 10.38.22.97.50710: Flags [R.], seq 0, ack 3119310589, win 0, length 0
+    00:26:29.256668 IP 10.38.22.97.60358 > 10.38.22.98.22: Flags [S], seq 1278561558, win 64240, options [mss 1460,sackOK,TS val 981939501 ecr 0,nop,wscale 8], length 0
+    00:26:29.256746 IP 10.38.22.98.22 > 10.38.22.97.60358: Flags [S.], seq 2145276601, ack 1278561559, win 65160, options [mss 1460,sackOK,TS val 1923518824 ecr 981939501,nop,wscale 8], length 0
+    00:26:29.257096 IP 10.38.22.97.60358 > 10.38.22.98.22: Flags [.], ack 1, win 251, options [nop,nop,TS val 981939502 ecr 1923518824], length 0
+    00:26:29.257157 IP 10.38.22.97.60358 > 10.38.22.98.22: Flags [P.], seq 1:23, ack 1, win 251, options [nop,nop,TS val 981939502 ecr 1923518824], length 22: SSH: SSH-2.0-OpenSSH_10.5
+    00:26:29.257191 IP 10.38.22.98.22 > 10.38.22.97.60358: Flags [.], ack 23, win 255, options [nop,nop,TS val 1923518824 ecr 981939502], length 0
+    00:26:29.337328 IP 10.38.22.98.22 > 10.38.22.97.60358: Flags [P.], seq 1:23, ack 23, win 255, options [nop,nop,TS val 1923518905 ecr 981939502], length 22: SSH: SSH-2.0-OpenSSH_10.5
+    00:26:29.337488 IP 10.38.22.98.22 > 10.38.22.97.60358: Flags [P.], seq 23:863, ack 23, win 255, options [nop,nop,TS val 1923518905 ecr 981939502], length 840
+    00:26:29.337750 IP 10.38.22.97.60358 > 10.38.22.98.22: Flags [.], ack 23, win 251, options [nop,nop,TS val 981939583 ecr 1923518905], length 0
+    00:26:29.337800 IP 10.38.22.97.60358 > 10.38.22.98.22: Flags [.], ack 863, win 262, options [nop,nop,TS val 981939583 ecr 1923518905], length 0
+    00:26:29.338221 IP 10.38.22.97.60358 > 10.38.22.98.22: Flags [P.], seq 23:1127, ack 863, win 262, options [nop,nop,TS val 981939583 ecr 1923518905], length 1104
+    00:26:29.338247 IP 10.38.22.98.22 > 10.38.22.97.60358: Flags [.], ack 1127, win 262, options [nop,nop,TS val 1923518906 ecr 981939583], length 0
+    00:26:29.342861 IP 10.38.22.97.60358 > 10.38.22.98.22: Flags [P.], seq 1127:2359, ack 863, win 262, options [nop,nop,TS val 981939588 ecr 1923518906], length 1232
+    00:26:29.342886 IP 10.38.22.98.22 > 10.38.22.97.60358: Flags [.], ack 2359, win 273, options [nop,nop,TS val 1923518910 ecr 981939588], length 0
+    00:26:29.353052 IP 10.38.22.98.22 > 10.38.22.97.60358: Flags [.], seq 863:2311, ack 2359, win 273, options [nop,nop,TS val 1923518920 ecr 981939588], length 1448
+    00:26:29.353066 IP 10.38.22.98.22 > 10.38.22.97.60358: Flags [P.], seq 2311:2403, ack 2359, win 273, options [nop,nop,TS val 1923518920 ecr 981939588], length 92
+    00:26:29.353681 IP 10.38.22.97.60358 > 10.38.22.98.22: Flags [.], ack 2403, win 273, options [nop,nop,TS val 981939598 ecr 1923518920], length 0
+    00:26:29.844501 IP 10.38.22.97.60358 > 10.38.22.98.22: Flags [P.], seq 2359:2443, ack 2403, win 273, options [nop,nop,TS val 981940089 ecr 1923518920], length 84
+    00:26:29.885207 IP 10.38.22.98.22 > 10.38.22.97.60358: Flags [.], ack 2443, win 273, options [nop,nop,TS val 1923519453 ecr 981940089], length 0
+    00:26:29.885575 IP 10.38.22.97.60358 > 10.38.22.98.22: Flags [P.], seq 2443:2487, ack 2403, win 273, options [nop,nop,TS val 981940130 ecr 1923519453], length 44
+    00:26:29.885623 IP 10.38.22.98.22 > 10.38.22.97.60358: Flags [.], ack 2487, win 273, options [nop,nop,TS val 1923519453 ecr 981940130], length 0
+    00:26:29.885689 IP 10.38.22.98.22 > 10.38.22.97.60358: Flags [P.], seq 2403:2447, ack 2487, win 273, options [nop,nop,TS val 1923519453 ecr 981940130], length 44
+    00:26:29.885929 IP 10.38.22.97.60358 > 10.38.22.98.22: Flags [P.], seq 2487:2555, ack 2447, win 273, options [nop,nop,TS val 981940131 ecr 1923519453], length 68
+    00:26:29.889401 IP 10.38.22.98.22 > 10.38.22.97.60358: Flags [P.], seq 2447:2679, ack 2555, win 273, options [nop,nop,TS val 1923519457 ecr 981940131], length 232
+    00:26:29.889849 IP 10.38.22.97.60358 > 10.38.22.98.22: Flags [P.], seq 2555:2647, ack 2679, win 285, options [nop,nop,TS val 981940135 ecr 1923519457], length 92
+    00:26:29.890865 IP 10.38.22.98.22 > 10.38.22.97.60358: Flags [P.], seq 2679:2739, ack 2647, win 273, options [nop,nop,TS val 1923519458 ecr 981940135], length 60
+    00:26:29.933707 IP 10.38.22.97.60358 > 10.38.22.98.22: Flags [.], ack 2739, win 285, options [nop,nop,TS val 981940179 ecr 1923519458], length 0
+    00:26:30.445750 IP 10.38.22.97.60358 > 10.38.22.98.22: Flags [P.], seq 2647:2731, ack 2739, win 285, options [nop,nop,TS val 981940691 ecr 1923519458], length 84
+    00:26:30.455699 IP 10.38.22.98.22 > 10.38.22.97.60358: Flags [P.], seq 2739:2783, ack 2731, win 273, options [nop,nop,TS val 1923520023 ecr 981940691], length 44
+    00:26:30.456082 IP 10.38.22.97.60358 > 10.38.22.98.22: Flags [.], ack 2783, win 285, options [nop,nop,TS val 981940701 ecr 1923520023], length 0
+    00:26:30.456111 IP 10.38.22.97.60358 > 10.38.22.98.22: Flags [P.], seq 2731:2815, ack 2783, win 285, options [nop,nop,TS val 981940701 ecr 1923520023], length 84
+    00:26:30.456516 IP 10.38.22.98.22 > 10.38.22.97.60358: Flags [P.], seq 2783:2811, ack 2815, win 273, options [nop,nop,TS val 1923520024 ecr 981940701], length 28
+    00:26:30.458204 IP 10.38.22.97.60358 > 10.38.22.98.22: Flags [P.], seq 2815:2927, ack 2811, win 285, options [nop,nop,TS val 981940703 ecr 1923520024], length 112
+    00:26:30.460576 IP 10.38.22.98.22 > 10.38.22.97.60358: Flags [P.], seq 2811:3471, ack 2927, win 273, options [nop,nop,TS val 1923520028 ecr 981940703], length 660
+    00:26:30.460734 IP 10.38.22.98.22 > 10.38.22.97.60358: Flags [P.], seq 3471:3515, ack 2927, win 273, options [nop,nop,TS val 1923520028 ecr 981940703], length 44
+    00:26:30.461632 IP 10.38.22.97.60358 > 10.38.22.98.22: Flags [.], ack 3515, win 296, options [nop,nop,TS val 981940706 ecr 1923520028], length 0
+    00:26:30.461690 IP 10.38.22.97.60358 > 10.38.22.98.22: Flags [P.], seq 2927:3303, ack 3515, win 296, options [nop,nop,TS val 981940706 ecr 1923520028], length 376
+    00:26:30.462910 IP 10.38.22.98.22 > 10.38.22.97.60358: Flags [P.], seq 3515:3623, ack 3303, win 283, options [nop,nop,TS val 1923520030 ecr 981940706], length 108
+    00:26:30.463177 IP 10.38.22.98.22 > 10.38.22.97.60358: Flags [P.], seq 3623:3723, ack 3303, win 283, options [nop,nop,TS val 1923520030 ecr 981940706], length 100
+    40 packets captured
+    287 packets received by filter
+    181 packets dropped by kernel
+
+  Reading it:
+    - 00:26:13, the control.  "10.38.22.97.50710 > 10.38.22.98.2222: Flags [S]" answered
+      "10.38.22.98.2222 > ...: Flags [R.]".  One SYN, one reset, no session.  The DUT
+      reported "ssh: connect to host 10.38.22.98 port 2222: Connection refused".
+    - 00:26:29, the leg.  "10.38.22.97.60358 > 10.38.22.98.22: Flags [S]", answered [S.],
+      completed [.].  The DUT then sends "SSH: SSH-2.0-OpenSSH_10.5", its own protocol
+      version string, 22 bytes, BEFORE the far end sends its own.  The 840-byte and
+      1104-byte packets that follow are the key exchange.
+    - the DUT's source address is 10.38.22.97, its own vlan60 address, throughout.
+  => STEP 2 PASS: the `port` argument is really used, because the refusal was specific to
+     port 2222 at the same moment that port 22 on the same host was accepting.  The DUT is
+     an SSH client and not only a TCP client, because it sends the SSH version string first.
+     A client that sent nothing, a client whose packet was lost, and a client that reached a
+     closed port are three different pictures here, and the capture holds two of them side
+     by side.
+
+STEP 3 -- host key, authentication, and commands on the far end           PASS
+--------------------------------------------------------------------------------
+    local console prompt: awplus#
+    client command: ssh ip user cktmp 10.38.22.98
+    --- connect ---
+    ssh ip user cktmp 10.38.22.98
+
+
+    The authenticity of host '10.38.22.98 (10.38.22.98)' can't be established.
+    ED25519 key fingerprint is: SHA256:0fFTyaQszFtMFRJM74JQfBopyr+KpUyaHdtfx8keFk8
+    This key is not known by any other names.
+    Are you sure you want to continue connecting (yes/no/[fingerprint])? 
+    --- end connect ---
+    --- before the password prompt ---
+    yes
+    Warning: Permanently added '10.38.22.98' (ED25519) to the list of known hosts.
+
+    Keys successfully set
+
+    Keys successfully set
+
+
+    (cktmp@10.38.22.98) Password: 
+    --- end before the password prompt ---
+    --- after the password was sent (the far end login banner) ---
+
+    Last login: Wed Oct 21 00:02:20 UTC 2026 from 10.38.22.97
+    AlliedWare Plus (TM) 0.0.0 10/20/26 08:40:57
+
+    awplus>
+    --- end after the password was sent (the far end login banner) ---
+    CLIENT RESULT: USER  proto=ssh  target=10.38.22.98  user=cktmp  seconds=6.9  prompt=awplus>
+    --- far end: show system ---
+    System Status                                           Wed Oct 21 00:26:31 2026
+
+    Stack member 1
+
+    Board      ID   Bay     Board Name                        Rev   Serial number
+    --------------------------------------------------------------------------------
+    Base       704  Base    AT-x960-28YSQ                     X1-0  A10737A261700021
+    PSU        685  PSU1    AT-PWR500                         X4-0  A10730G255100016
+    Fan module 707  FAN1    AT-FAN05 v2                       -     -               
+    --------------------------------------------------------------------------------
+    RAM: Total: 1984824 kB Free: 1444468 kB
+    Flash: 452.5MB Used: 53.6MB Available: 398.9MB
+    --------------------------------------------------------------------------------
+    Environment Status : Normal
+    Uptime             : 0 days 01:42:36
+    Bootloader version : 8.24.0
+
+
+    Current software   : x960-tb277.rel
+    Software version   : awplus_main-20261020-78
+    Build date         : Tue Oct 20 08:40:57 UTC 2026
+
+    Current boot config: flash:/default.cfg (file exists)
+    [7m--More--[27m
+
+    [K
+    System Name
+     awplus
+    System Contact
+
+    System Location
+
+    awplus>
+    --- end far end: show system ---
+    --- far end: show users ---
+    Line    User            Host(s)  Idle      Location        Priv Idletime Timeout
+    con 0   manager         idle     00:00:40  ttyS0           15   10       N/A
+    vty 0   cktmp           idle     00:00:00  10.38.22.97     1    10       N/A
+    awplus>
+    --- end far end: show users ---
+    --- logout ---
+    exit
+
+    Connection to 10.38.22.98 closed.
+
+    awplus#
+    --- end logout ---
+    console returned to awplus#
+    expected USER, got USER
+
+  => STEP 3 PASS: the DUT opened the session and checked the far end's host key.  It printed
+     the ED25519 fingerprint "SHA256:0fFTyaQszFtMFRJM74JQfBopyr+KpUyaHdtfx8keFk8" and asked
+     whether to continue, which a plain TCP client would never do.  It then authenticated and
+     reached the far end's prompt.  "USER", not "PRIV", is the correct success: an AW+ login
+     lands at privilege 1, and `cktmp` is a privilege 1 account.  The session is really
+     remote, because `show system` through it returns AT-x960-28YSQ, S/N A10737A261700021,
+     awplus_main-20261020-78 -- a different model, serial number and build train from the
+     DUT.  Both units print the host name "awplus", so the serial number is what settles it.
+     The far end records the client's address as `vty 0 cktmp ... 10.38.22.97`, and the
+     session closed cleanly back to the DUT's own prompt.
+
+STEP 4 -- host-key trust the DUT cannot show or remove                    PASS
+--------------------------------------------------------------------------------
+  The first connection printed:
+
+    Warning: Permanently added '10.38.22.98' (ED25519) to the list of known hosts.
+
+  The second and every later connection asked nothing, so the entry is real and is used.
+  It is invisible to configuration management.  The DUT's running-config is byte-identical
+  before and after the whole case, so the learned host key is not in the running-config at
+  all.  And there is no command to see it or remove it:
+
+awplus# clear ssh ?
+      <1-65535>  SSH session ID
+      all        All SSH sessions
+awplus# show ssh ?
+      client  Display SSH client configuration
+      server  Display SSH server configuration
+awplus# crypto key ?
+      generate  Generate public/private key
+      install   Install certificate
+      remove    Remove certificate
+      zeroize   Zeroize public/private key
+
+  `clear ssh` clears SESSIONS, not known hosts.  `show ssh` offers only `client` and
+  `server` configuration.  `crypto key` manages the device's OWN keys and certificates, not
+  the hosts it has learned to trust.
+  => STEP 4 PASS: the client behaves correctly, and this is a product observation worth
+     recording.  An SSH client case necessarily leaves state on the DUT that the DUT cannot
+     clean up and that no `show` command will reveal.  Three things follow.  A configuration
+     difference will never detect it.  A later test that gives the far end a new host key
+     will meet a host-key mismatch with no documented way to clear it.  And the teardown of
+     any such case is incomplete by exactly this one item, through no fault of the procedure.
+
+STEP 5 -- the LINE form: one command on the far end, without a session    PASS
+--------------------------------------------------------------------------------
+    local console prompt: awplus#
+    client command: ssh ip user cktmp 10.38.22.98 show system
+    --- before the password prompt ---
+    ssh ip user cktmp 10.38.22.98 show system
+
+    Keys successfully set
+
+    Keys successfully set
+
+
+    (cktmp@10.38.22.98) Password: 
+    --- end before the password prompt ---
+    --- the remote command output, then the LOCAL prompt ---
+
+    System Status                                           Wed Oct 21 00:29:02 2026
+
+    Stack member 1
+
+    Board      ID   Bay     Board Name                        Rev   Serial number
+    --------------------------------------------------------------------------------
+    Base       704  Base    AT-x960-28YSQ                     X1-0  A10737A261700021
+    PSU        685  PSU1    AT-PWR500                         X4-0  A10730G255100016
+    Fan module 707  FAN1    AT-FAN05 v2                       -     -               
+    --------------------------------------------------------------------------------
+    RAM: Total: 1984824 kB Free: 1441572 kB
+    Flash: 452.5MB Used: 53.6MB Available: 398.9MB
+    --------------------------------------------------------------------------------
+    Environment Status : Normal
+    Uptime             : 0 days 01:45:07
+    Bootloader version : 8.24.0
+
+
+    Current software   : x960-tb277.rel
+    Software version   : awplus_main-20261020-78
+    Build date         : Tue Oct 20 08:40:57 UTC 2026
+
+    Current boot config: flash:/default.cfg (file exists)
+
+    System Name
+     awplus
+    System Contact
+
+    System Location
+
+    awplus#
+    --- end the remote command output, then the LOCAL prompt ---
+    CLIENT
+
+  The far end ran the command and the session ended by itself.  The prompt that comes back is
+  the DUT's own "awplus#", not a remote one.  There was no host-key question this time,
+  because STEP 3's entry is already in place.
+
+  One useful difference.  In this one-shot form the far end lists the session as `scr 0`,
+  not `vty 0`, and with no Location:
+
+    Line    User            Host(s)  Idle      Location        Priv Idletime Timeout
+    con 0   manager         idle     00:02:56  ttyS0           15   10       N/A
+    scr 0   cktmp           idle     00:00:00                  1    10       N/A
+
+  => STEP 5 PASS: `ssh ip user <U> <host> <LINE>` runs one command on the far end and then
+     ends.  `show users` on a far end therefore tells an interactive SSH login apart from a
+     one-shot remote command, which is the cheapest way to see which form a device used.
+
+STEP 6 -- the client fails when the far end's SSH server is off           PASS
+--------------------------------------------------------------------------------
+  Method: nothing on the DUT changes between the two halves of this step.  Only
+  `service ssh` on swi_b changes.
+
+  (a) The far end's SSH server switched off.  `show ssh server` on swi_b reads
+  "Disabled / None".
+
+    local console prompt: awplus#
+    client command: ssh ip user cktmp 10.38.22.98
+    --- connect ---
+    ssh ip user cktmp 10.38.22.98
+
+    ssh: connect to host 10.38.22.98 port 22: Connection refused
+
+    awplus#
+    --- end connect ---
+    CLIENT RESULT: REFUSED  proto=ssh  target=10.38.22.98  user=cktmp  seconds=5.7  prompt=-
+    console returned to awplus#
+    expected REFUSED, got REFUSED
+
+  (b) The far end's SSH server switched back on.  `show ssh server` on swi_b reads
+  "Enabled / IPv4,IPv6 / 22", and the client works again:
+
+    local console prompt: awplus#
+    client command: ssh ip user cktmp 10.38.22.98 show users
+    --- before the password prompt ---
+    ssh ip user cktmp 10.38.22.98 show users
+
+    Keys successfully set
+
+    Keys successfully set
+
+
+    (cktmp@10.38.22.98) Password: 
+    --- end before the password prompt ---
+    --- the remote command output, then the LOCAL prompt ---
+
+    Line    User            Host(s)  Idle      Location        Priv Idletime Timeout
+    con 0   manager         idle     00:02:56  ttyS0           15   10       N/A
+    scr 0   cktmp           idle     00:00:00                  1    10       N/A
+    awplus#
+    --- end the remote command output, then the LOCAL prompt ---
+    CLIENT RESULT: EXEC  proto=ssh  target=10.38.22.98  user=cktmp  seconds=6.3  prompt=-
+    console returned to awplus#
+    expected EXEC, got EXEC
+
+  => STEP 6 PASS: the client's result follows the far end's server state.  With the server
+     off the DUT printed "connect to host 10.38.22.98 port 22: Connection refused".  With the
+     server on, the same command ran a command on the far end and returned its output.  This
+     shows that the earlier successes came from the far end's SSH server and not from
+     something on the bench.
+================================================================================

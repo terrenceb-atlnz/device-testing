@@ -1,0 +1,559 @@
+================================================================================
+TEST T33379 -- (230) Management - Telnet Client (IPv4)
+================================================================================
+Run:      2026-10-21 12:40-13:04 NZDT.  The DUT's telnet client was driven from its own
+          console and measured on the wire and at the far end.
+          Times written in this log are New Zealand local time.  Times inside device
+          output are UTC, which is what the switch records.
+Bench:    tb277, consoles u2 = swi_d (DUT), u3 = swi_b; Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     T33379.  The test-case database holds NO authored objective, NO step text, NO test
+          data and NO expected result for this case.  Its single step is empty.  No authored
+          authority exists beyond the title.
+          The tester designed the objective and all 7 steps below from three sources: the
+          title; the X960 TPS row 228 "Telnet Client(IPv4) = Yes"; and the DUT's own CLI
+          surface, read with the `?` help before anything was sent (STEP 1).
+          Objective (designed by the tester), in four parts.
+          1. The AT-x960-56YSQ has a telnet client command with an explicit IPv4 form.
+          2. That command sends real IPv4 TCP to port 23 from the DUT itself.
+          3. It completes a telnet login to a real telnet server and runs commands there.
+          4. It reports a failure when the far end refuses, when the user name is wrong, and
+             when the TCP port is wrong.
+Build:    swi_d  sin_x96056-20261019-27  (x960-tb277.rel, build date Sun Oct 18 23:18:21 UTC
+          2026), AT-x960-56YSQ, S/N A2WQS700B
+          swi_b  awplus_main-20261020-78  (x960-tb277.rel, boot image flash:/backup.rel,
+          build date Tue Oct 20 08:40:57 UTC 2026), AT-x960-28YSQ, S/N A10737A261700021
+
+awplus# show system
+    System Status                                           Tue Oct 20 23:42:06 2026
+
+    Board      ID   Bay     Board Name                        Rev   Serial number
+    --------------------------------------------------------------------------------
+    Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B       
+    PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU 
+    PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S 
+    Fan module 730  FAN1    AT-FAN19                          -     -               
+    Fan module 730  FAN2    AT-FAN19                          -     -               
+    --------------------------------------------------------------------------------
+    RAM: Total: 8092132 kB Free: 7458368 kB
+    Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+    --------------------------------------------------------------------------------
+    Environment Status : Normal
+    Uptime             : 0 days 01:45:29
+    Bootloader version : Unknown
+
+    Current software   : x960-tb277.rel
+    Software version   : sin_x96056-20261019-27
+    Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+    Current boot config: flash:/default.cfg (file exists)
+
+    System Name
+     awplus
+    System Contact
+
+    System Location
+
+Configs:  swi_d.cfg, swi_b.cfg (running-config after setup; saved to startup: no)
+
+VERDICT: PASS -- the DUT opens IPv4 telnet sessions as a client.  It was proven on the wire
+and proven end to end, with three controls that all failed as they should.
+      client command exists ........... yes         (`telnet ip <host> [PORT]` in privileged exec)
+      the control capture ............. 0 packets   (same instrument, nothing sent)
+      IPv4 TCP to port 23 ............. yes         (1 SYN from 10.38.22.34, answered RST.ACK by the testbox)
+      full telnet session ............. yes         (logged in to swi_b and ran commands there)
+      telnet, not plain TCP ........... yes         (RFC 854 options: WILL TERMINAL TYPE, WILL NAWS, DO ECHO)
+      the far end knows the client .... yes         (`vty 0 cktmp ... 10.38.22.97`, and "Connection from 10.38.22.97 received.")
+      far-end server off .............. refused     (the same command prints "Connection refused")
+      wrong user name ................. refused     (the far end asks for the login again; no session)
+      wrong TCP port .................. refused     (port 2323 refused while port 23 on the same host accepted)
+      the DUT's own telnet server ..... stayed off  (`no service telnet` before and after)
+CAVEAT:  This run proves the IPv4 form only.  The command also offers an IPv6 form and a VRF
+         form (STEP 1).  Neither was used.  The telnet client is a privileged-exec command
+         with no configuration of its own.  There is therefore nothing to remove, and nothing
+         that a reboot could lose.  The DUT's running-config is byte-identical before and
+         after the case.  The run uses an IPv4 address as the target, never a host name.
+HEALTH:  read on the DUT before step 1 and again after step 7 (13:04 NZDT)
+         reboots ......... no new entry; the newest is 2026-10-20 21:56:17 Expected CLI(user request) in both samples
+         exception log ... None in both samples
+         log ............. no crash, no daemon restart and no new kernel line.  Two kern.err lines exist on the unit, and both are already in the BEFORE sample, so this case did not cause them:
+                           "2026 Oct 20 21:56:49 kern.err awplus kernel: tpm tpm0: A TPM error (256) occurred attempting the self test"
+                           "2026 Oct 20 21:56:49 kern.err awplus kernel: boardinfo-eeprom-i2c 1-0050: Failed to read eeprom data for board_index 0"
+         CPU ............. `show cpu` on this platform prints LOAD, not idle.  The measured load was 0% in both samples (1 second 0%, 20 seconds 0%, 60 seconds 0%; load averages 0.00 / 0.00 / 0.0)
+         memory .......... free 7456720 kB before -> 7457448 kB after; 728 kB MORE free at the end.  No step change, and no leak is claimed: one case cannot show one
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  The DUT is the telnet CLIENT.  It sent to two different places, for two different reasons.
+
+        tb277 eth3  00:0d:b9:55:77:0e  10.38.22.33/27
+        (capture point for STEP 2.  It runs no telnet server, so it must refuse.)
+             ^
+             |  STEP 2: the DUT sends a telnet SYN to TCP port 23 and is reset
+             |
+        port1.0.10  (vlan10, access)
+    +---------------------------------------------------------+
+    |  swi_d   AT-x960-56YSQ                            DUT    |
+    |  the telnet CLIENT under test                            |
+    |  interface vlan10 10.38.22.34/27                         |
+    |  interface vlan60 10.38.22.97/27                         |
+    |  its own telnet SERVER is OFF for the whole case         |
+    +---------------------------------------------------------+
+        port1.0.2  (trunk, vlan 60 tagged, native vlan 1)
+             |
+             |  STEPS 3, 4, 5 and 6: the DUT opens a telnet session to the far
+             v  end, logs in, and runs commands there
+        port1.0.2
+    +---------------------------------------------------------+
+    |  swi_b   AT-x960-28YSQ                                   |
+    |  the telnet SERVER the client connects to                |
+    |  interface vlan60 10.38.22.98/27                         |
+    +---------------------------------------------------------+
+
+  DUT     : swi_d (AT-x960-56YSQ) console u2 @ 115200, S/N A2WQS700B
+  far end : swi_b (AT-x960-28YSQ) console u3 @ 9600, S/N A10737A261700021.  It runs a
+            different build train from the DUT, so a working session cannot be an artefact
+            of two identical images.
+  link    : swi_d port1.0.2 <-> swi_b port1.0.2  (copper, trunk, vlan 60 tagged).  Rapid
+            Spanning Tree leaves this the one FORWARDING link between the two switches.
+            swi_d port1.0.4, port1.0.14 and port1.0.16 are Alternate / Discarding.
+  host    : tb277 eth3 00:0d:b9:55:77:0e 10.38.22.33/27 -> swi_d port1.0.10 (vlan10)
+  tools   : tools/tb qmark (read the CLI help without executing it), tools/tb devclient
+            (drive the DUT's outbound client from its console), tools/tb capture +
+            tools/tb tool tcpflow (capture and count on eth3), tools/tb ckcon (console
+            reads, and swi_b's own tcpdump), tools/tb cfg (configuration), tools/rc2cfg.py,
+            tools/rcdiff.py
+
+STEP 0 -- baseline, before anything was sent                              done
+--------------------------------------------------------------------------------
+  The DUT's own telnet SERVER, which is NOT what this case tests.  It is off, and it stays
+  off for the whole case.
+
+awplus# show telnet
+    Telnet Server Configuration
+    ------------------------------------------------------------
+    Telnet server                      : Disabled
+    Protocol                           : None
+    Port                               : 23
+
+  The DUT's IPv4 addresses.
+
+awplus# show ip interface brief
+    Interface             IP-Address         Status          Protocol
+    eth0                  unassigned         admin up        running
+    lo                    unassigned         admin up        running
+    vlan1                 unassigned         admin up        running
+    vlan10                10.38.22.34/27     admin up        running
+    vlan48                10.38.22.66/27     admin up        running
+    vlan60                10.38.22.97/27     admin up        running
+
+  A path to the far end exists.  This is reachability only.  The counted frame-level proof
+  is STEP 2 and STEP 3.
+
+awplus# ping 10.38.22.98 repeat 3
+    3 packets transmitted, 3 received, 0% packet loss, time 2055ms
+    rtt min/avg/max/mdev = 0.394/0.548/0.843/0.208 ms
+tb277$ ping -c 2 -I eth3 10.38.22.34   -> 2 received, 0% packet loss
+
+STEP 1 -- the DUT has a telnet client, and this is its command surface    PASS
+--------------------------------------------------------------------------------
+  Method: `tools/tb qmark` types `<prefix> ?`, prints the completions, and then clears the
+  line with Ctrl-U.  It never sends a carriage return, so nothing is executed.  Its own
+  self-test ran first and passed: "self-test OK: 'show clock ?' then Ctrl-U then CR executed
+  nothing".
+
+awplus# telnet ?
+      WORD  IPv4/IPv6 address or hostname of a remote system
+      ip    IP telnet
+      ipv6  IPv6 telnet
+      vrf   VRF instance
+
+awplus# telnet 10.38.22.98 ?
+      PORT  TCP Port number
+      <cr>
+
+awplus# telnet ip ?
+      WORD  IPv4/IPv6 address or hostname of a remote system
+
+awplus# telnet ip 10.38.22.98 ?
+      PORT  TCP Port number
+      <cr>
+
+  The client exists at privileged exec.  It has an explicit IPv4 form, `telnet ip <WORD>`,
+  an IPv6 form, a VRF form and an optional TCP port.  This is the surface that TPS row 228
+  "Telnet Client(IPv4)" names.
+
+  One documentation point.  Under `telnet ip`, the help for the address still reads
+  "IPv4/IPv6 address or hostname of a remote system", although the `ip` keyword has just
+  limited it to IPv4.  This is cosmetic only.  The command itself behaves correctly in
+  STEP 4 and STEP 6.
+  => STEP 1 PASS: the DUT has a telnet client, and that client has an explicit IPv4 form.
+
+STEP 2 -- the client sends real IPv4 TCP to port 23                       PASS
+--------------------------------------------------------------------------------
+  Method: this step is graded on the frames, not on a `show` command.  The capture point is
+  the testbox NIC eth3 (10.38.22.33), which sits in the DUT's vlan10 and therefore sees
+  everything the DUT sends to that subnet.  The testbox runs no telnet server, so it must
+  refuse.
+  The control runs first, on the same instrument, with nothing sent:
+
+    0 packets captured / 0 packets received by filter / 0 packets dropped by kernel
+    file /tmp/ckA1159/t33379-ctrl.pcap: 0 packet(s) total, 0 TCP flow(s) on port 23
+
+  Then the DUT was told to telnet to the testbox, while a 35 s capture ran with the same
+  filter:
+
+    tcpdump: listening on eth3, link-type EN10MB (Ethernet), capture size 262144 bytes
+    2 packets captured
+    2 packets received by filter
+    0 packets dropped by kernel
+
+    file /tmp/ckA1159/t33379-refused.pcap: 2 packet(s) total, 1 TCP flow(s) on port 23
+
+    flow 10.38.22.33:23 <-> 10.38.22.34:33506  packets=2  duration=0.000s  => REFUSED (SYN answered by RST)
+       10.38.22.34:33506 -> 10.38.22.33:23  pkts=1  payload=0 B  flags={SYN}
+       10.38.22.33:23 -> 10.38.22.34:33506  pkts=1  payload=0 B  flags={RST.ACK}
+
+  The control gave 0 packets and the leg gave 2 packets on the same instrument.  The zero is
+  therefore a real measurement and not a dead capture.  The capture process had already
+  exited before the file was read.
+  => STEP 2 PASS: the DUT's telnet client sends a real IPv4 TCP SYN to port 23.  The source
+     address is 10.38.22.34, which is the DUT's own vlan10 address.  The testbox answered
+     RST.ACK, which is a refusal, not silence.  A client that sent nothing, and a client
+     whose packet was lost, would both look different from this.
+
+STEP 3 -- a full telnet login to a real telnet server                     PASS
+--------------------------------------------------------------------------------
+  Method: the DUT's console ran the client.  At the same time, and on its own console, the
+  far end captured the session with its own tcpdump.  Two instruments, one event.
+
+  (a) The DUT side.
+
+    local console prompt: awplus#
+    client command: telnet 10.38.22.98
+    --- before the username prompt ---
+    telnet 10.38.22.98
+
+    % Warning: Telnet is insecure and deprecated. Please use SSH.
+    Remote host [10.38.22.98]:23.
+    Connected to 10.38.22.98
+
+
+    Entering character mode
+
+    Escape character is '^]'.
+
+
+    �awplus login: 
+    --- end before the username prompt ---
+    --- before the password prompt ---
+    cktmp
+    Password: 
+    --- end before the password prompt ---
+    --- after the password was sent (the far end login banner) ---
+
+    AlliedWare Plus (TM) 0.0.0 10/20/26 08:40:57
+
+    awplus>
+    --- end after the password was sent (the far end login banner) ---
+    CLIENT RESULT: USER  proto=telnet  target=10.38.22.98  user=cktmp  seconds=6.9  prompt=awplus>
+    --- far end: show system ---
+    System Status                                           Tue Oct 20 23:56:57 2026
+
+    Stack member 1
+
+    Board      ID   Bay     Board Name                        Rev   Serial number
+    --------------------------------------------------------------------------------
+    Base       704  Base    AT-x960-28YSQ                     X1-0  A10737A261700021
+    PSU        685  PSU1    AT-PWR500                         X4-0  A10730G255100016
+    Fan module 707  FAN1    AT-FAN05 v2                       -     -               
+    --------------------------------------------------------------------------------
+    RAM: Total: 1984824 kB Free: 1438212 kB
+    Flash: 452.5MB Used: 53.6MB Available: 398.9MB
+    --------------------------------------------------------------------------------
+    Environment Status : Normal
+    Uptime             : 0 days 01:13:03
+    Bootloader version : 8.24.0
+
+
+    Current software   : x960-tb277.rel
+    Software version   : awplus_main-20261020-78
+    Build date         : Tue Oct 20 08:40:57 UTC 2026
+
+    Current boot config: flash:/default.cfg (file exists)
+    [7m--More--[27m
+
+    [K
+    System Name
+     awplus
+    System Contact
+
+    System Location
+
+    awplus>
+    --- end far end: show system ---
+    --- far end: show users ---
+    Line    User            Host(s)  Idle      Location        Priv Idletime Timeout
+    con 0   manager         idle     00:00:42  ttyS0           15   10       N/A
+    vty 0   cktmp           idle     00:00:00  10.38.22.97     1    10       N/A
+    awplus>
+    --- end far end: show users ---
+    --- far end: show telnet ---
+    Telnet Server Configuration
+    ------------------------------------------------------------
+    Telnet server                      : Enabled
+    Protocol                           : IPv4,IPv6
+    Port                               : 23
+    awplus>
+    --- end far end: show telnet ---
+    --- logout ---
+    exit
+
+    Connection closed by foreign host
+    awplus#
+    --- end logout ---
+    console returned to awplus#
+    expected USER, got USER
+
+  (b) The same session on the wire, from swi_b's own tcpdump, first 20 packets.
+
+    12:57:06 >>> tcpdump -i vlan60 -nn -c 20 tcp port 23
+    tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+    listening on vlan60, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+    23:56:55.936102 IP 10.38.22.97.37982 > 10.38.22.98.23: Flags [S], seq 1994681133, win 64240, options [mss 1460,sackOK,TS val 1612798569 ecr 0,nop,wscale 8], length 0
+    23:56:55.936181 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [S.], seq 1166921358, ack 1994681134, win 65160, options [mss 1460,sackOK,TS val 111820977 ecr 1612798569,nop,wscale 8], length 0
+    23:56:55.936590 IP 10.38.22.97.37982 > 10.38.22.98.23: Flags [.], ack 1, win 251, options [nop,nop,TS val 1612798570 ecr 111820977], length 0
+    23:56:55.984614 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [P.], seq 1:13, ack 1, win 255, options [nop,nop,TS val 111821026 ecr 1612798570], length 12 [telnet DO TERMINAL TYPE, DO TSPEED, DO XDISPLOC, DO NEW-ENVIRON]
+    23:56:55.985065 IP 10.38.22.97.37982 > 10.38.22.98.23: Flags [.], ack 13, win 251, options [nop,nop,TS val 1612798618 ecr 111821026], length 0
+    23:56:55.985122 IP 10.38.22.97.37982 > 10.38.22.98.23: Flags [P.], seq 1:13, ack 13, win 251, options [nop,nop,TS val 1612798618 ecr 111821026], length 12 [telnet WILL TERMINAL TYPE, WONT TSPEED, WONT XDISPLOC, WONT NEW-ENVIRON]
+    23:56:55.985145 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [.], ack 13, win 255, options [nop,nop,TS val 111821026 ecr 1612798618], length 0
+    23:56:55.985278 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [P.], seq 13:19, ack 13, win 255, options [nop,nop,TS val 111821027 ecr 1612798618], length 6 [telnet SB TERMINAL TYPE SEND SE]
+    23:56:55.985534 IP 10.38.22.97.37982 > 10.38.22.98.23: Flags [P.], seq 13:24, ack 19, win 251, options [nop,nop,TS val 1612798619 ecr 111821027], length 11 [telnet SB TERMINAL TYPE IS 0x76 0x74 0x32 0x32 0x30 SE]
+    23:56:55.985906 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [P.], seq 19:34, ack 24, win 255, options [nop,nop,TS val 111821027 ecr 1612798619], length 15 [telnet WILL SUPPRESS GO AHEAD, DO ECHO, DO NAWS, WILL STATUS, DO LFLOW]
+    23:56:55.986214 IP 10.38.22.97.37982 > 10.38.22.98.23: Flags [P.], seq 24:48, ack 34, win 251, options [nop,nop,TS val 1612798620 ecr 111821027], length 24 [telnet DO SUPPRESS GO AHEAD, WONT ECHO, WILL NAWS, SB NAWS IS 0x50 0 0x18 SE, DONT STATUS, WONT LFLOW]
+    23:56:55.986431 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [P.], seq 34:37, ack 48, win 255, options [nop,nop,TS val 111821028 ecr 1612798620], length 3 [telnet WILL ECHO]
+    23:56:55.987434 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [P.U], seq 37:38, ack 48, win 255, urg 1, options [nop,nop,TS val 111821029 ecr 1612798620], length 1
+    23:56:55.987455 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [P.], seq 38:39, ack 48, win 255, options [nop,nop,TS val 111821029 ecr 1612798620], length 1
+    23:56:55.988693 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [P.], seq 39:53, ack 48, win 255, options [nop,nop,TS val 111821030 ecr 1612798620], length 14
+    23:56:55.995206 IP 10.38.22.97.37982 > 10.38.22.98.23: Flags [P.], seq 48:51, ack 53, win 251, options [nop,nop,TS val 1612798629 ecr 111821028], length 3 [telnet DO ECHO]
+    23:56:56.037197 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [.], ack 51, win 255, options [nop,nop,TS val 111821079 ecr 1612798629], length 0
+    23:56:56.521835 IP 10.38.22.97.37982 > 10.38.22.98.23: Flags [P.], seq 51:58, ack 53, win 251, options [nop,nop,TS val 1612799155 ecr 111821079], length 7
+    23:56:56.521902 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [.], ack 58, win 255, options [nop,nop,TS val 111821563 ecr 1612799155], length 0
+    23:56:56.522030 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [P.], seq 53:60, ack 58, win 255, options [nop,nop,TS val 111821563 ecr 1612799155], length 7
+    20 packets captured
+    23 packets received by filter
+    0 packets dropped by kernel
+
+  (c) The far end's own console, read while a session was open.
+
+    13:02:48 >>> show users
+    Line    User            Host(s)  Idle      Location        Priv Idletime Timeout
+    con 0   manager         idle     00:00:00  ttyS0           15   10       N/A
+    vty 0   cktmp           idle     00:00:23  10.38.22.97     1    10       N/A
+    13:02:54 >>> show log tail 12
+    7[r[999;999H[6n
+    <date> <time> <facility>.<severity> <program[<pid>]>: <message>
+    -------------------------------------------------------------------------
+    2026 Oct 21 00:02:18 daemon.notice awplus telnetd[31382]: Connection from 10.38.22.97 received.
+    2026 Oct 21 00:02:20 user.notice awplus IMISH[31396]: [SCRIPT]privilege 1
+    2026 Oct 21 00:02:20 user.notice awplus IMISH[31396]: [SCRIPT]exec-timeout 10 0
+    2026 Oct 21 00:02:20 user.notice awplus IMISH[31396]: [SCRIPT]no length
+    2026 Oct 21 00:02:20 user.notice awplus IMISH[31396]: [SCRIPT]aaa-configure cktmp enable-mode 0 cmd-acct-priv 0 update-intval 0
+    2026 Oct 21 00:02:20 user.notice awplus IMISH[31396]: [cktmp@10.38.22.97]fib-id 0
+    2026 Oct 21 00:02:20 user.notice awplus IMISH[31396]: [cktmp@10.38.22.97]banner exec AlliedWare Plus (TM) 0.0.0 10/20/26 08:40:57
+    2026 Oct 21 00:02:20 user.notice awplus IMISH[31396]: [cktmp@10.38.22.97]show users
+    2026 Oct 21 00:02:21 user.notice awplus IMISH[14582]: [manager@ttyS0]terminal length 0
+    2026 Oct 21 00:02:23 user.notice awplus IMISH[14582]: [manager@ttyS0]terminal no monitor
+    2026 Oct 21 00:02:41 user.notice awplus IMISH[14582]: [manager@ttyS0]show users
+    2026 Oct 21 00:02:46 user.notice awplus IMISH[14582]: [manager@ttyS0]show log tail 12
+
+  => STEP 3 PASS: the DUT opened the connection itself.  swi_b's capture shows
+     "10.38.22.97.37982 > 10.38.22.98.23: Flags [S]", a SYN from the DUT, answered [S.] and
+     completed with [.].  It is a telnet client and not only a TCP client: it negotiates
+     RFC 854 options -- WILL TERMINAL TYPE, "SB TERMINAL TYPE IS 0x76 0x74 0x32 0x32 0x30"
+     (vt220), DO SUPPRESS GO AHEAD, WILL NAWS with "SB NAWS IS 0x50 0 0x18" (80 x 24), then
+     DO ECHO.  The session is really remote: `show system` run through it returns
+     AT-x960-28YSQ, S/N A10737A261700021, awplus_main-20261020-78.  That is a different
+     model, a different serial number and a different build train from the DUT.  Both units
+     print the host name "awplus", so the serial number is what settles it.  The far end
+     authenticated the user and recorded the client's address twice, in `show users`
+     ("vty 0 cktmp ... 10.38.22.97") and in its own log ("telnetd[31382]: Connection from
+     10.38.22.97 received.").  The session then closed cleanly back to the DUT's own prompt.
+
+STEP 4 -- the same command fails when the far end's server is off         PASS
+--------------------------------------------------------------------------------
+  Method: nothing on the DUT changes between the two halves of this step.  Only
+  `service telnet` on swi_b changes.  This shows that STEP 3 succeeded because of the far
+  end's telnet server, and not because of something on the bench.
+
+  (a) The far end's telnet server switched off.
+
+awplus# show telnet
+    Telnet Server Configuration
+    ------------------------------------------------------------
+    Telnet server                      : Disabled
+    Protocol                           : None
+    Port                               : 23
+
+  Then, on the DUT, the same client command that STEP 6 later runs successfully:
+
+    local console prompt: awplus#
+    client command: telnet ip 10.38.22.98
+    --- connect ---
+    telnet ip 10.38.22.98
+
+    % Warning: Telnet is insecure and deprecated. Please use SSH.
+    Remote host [10.38.22.98]:23.
+    telnet: Unable to connect to remote host (10.38.22.98): Connection refused
+    awplus#
+    --- end connect ---
+    CLIENT RESULT: REFUSED  proto=telnet  target=10.38.22.98  user=-  seconds=5.7  prompt=-
+    console returned to awplus#
+    expected REFUSED, got REFUSED
+
+  (b) The far end's telnet server switched back on.
+
+awplus# show telnet
+    Telnet Server Configuration
+    ------------------------------------------------------------
+    Telnet server                      : Enabled
+    Protocol                           : IPv4,IPv6
+    Port                               : 23
+
+  => STEP 4 PASS: the client's result follows the far end's server state.  With the server
+     off the DUT printed "Connection refused".  With the server on the same command gives a
+     session (STEP 6).  Both halves used the explicit IPv4 form `telnet ip <host>`.
+
+STEP 5 -- a user name the far end rejects is reported as a failure        PASS
+--------------------------------------------------------------------------------
+  Method: exactly ONE attempt, with a user name that does not exist (`cknosuchuser`).  A
+  wrong password on a real account was deliberately not used.  AW+ locks an account after 5
+  failed logins, and every further attempt restarts the timer.  An account that is still
+  needed must therefore never pay for a negative test.  No retry loop was run.
+
+    local console prompt: awplus#
+    client command: telnet ip 10.38.22.98
+    --- before the username prompt ---
+    telnet ip 10.38.22.98
+
+    % Warning: Telnet is insecure and deprecated. Please use SSH.
+    Remote host [10.38.22.98]:23.
+    Connected to 10.38.22.98
+
+
+    Entering character mode
+
+    Escape character is '^]'.
+
+
+    �awplus login: 
+    --- end before the username prompt ---
+    --- before the password prompt ---
+    cknosuchuser
+    Password: 
+    --- end before the password prompt ---
+    --- after the password was sent (the far end login banner) ---
+
+    Login incorrect
+
+    awplus login: 
+    --- end after the password was sent (the far end login banner) ---
+    CLIENT RESULT: FAIL  proto=telnet  target=10.38.22.98  user=cknosuchuser  seconds=8.9  prompt=-
+    console returned to awplus#
+    expected FAIL, got FAIL
+
+  => STEP 5 PASS: the far end printed "Login incorrect" and asked for the login again, and
+     the client reported FAIL instead of a session.  A rejected user name therefore looks
+     different from a successful login.  The console recovered by itself to "awplus#".
+
+STEP 6 -- the TCP PORT argument, and the explicit IPv4 form               PASS
+--------------------------------------------------------------------------------
+  (a) A port with nothing listening, while port 23 on the SAME host is accepting.
+
+    local console prompt: awplus#
+    client command: telnet ip 10.38.22.98 2323
+    --- connect ---
+    telnet ip 10.38.22.98 2323
+
+    % Warning: Telnet is insecure and deprecated. Please use SSH.
+    Remote host [10.38.22.98]:2323.
+    telnet: Unable to connect to remote host (10.38.22.98): Connection refused
+    awplus#
+    --- end connect ---
+    CLIENT RESULT: REFUSED  proto=telnet  target=10.38.22.98  user=-  seconds=5.7  prompt=-
+    console returned to awplus#
+    expected REFUSED, got REFUSED
+
+  (b) The explicit IPv4 form, a full session, held open for 35 s so the far end could be
+  read from its own console at the same time.
+
+    local console prompt: awplus#
+    client command: telnet ip 10.38.22.98
+    --- before the username prompt ---
+    telnet ip 10.38.22.98
+
+    % Warning: Telnet is insecure and deprecated. Please use SSH.
+    Remote host [10.38.22.98]:23.
+    Connected to 10.38.22.98
+
+
+    Entering character mode
+
+    Escape character is '^]'.
+
+
+    �awplus login: 
+    --- end before the username prompt ---
+    --- before the password prompt ---
+    cktmp
+    Password: 
+    --- end before the password prompt ---
+    --- after the password was sent (the far end login banner) ---
+
+    Last login: Tue Oct 20 23:56:57 UTC 2026 from 10.38.22.97
+    AlliedWare Plus (TM) 0.0.0 10/20/26 08:40:57
+
+    awplus>
+    --- end after the password was sent (the far end login banner) ---
+    CLIENT RESULT: USER  proto=telnet  target=10.38.22.98  user=cktmp  seconds=6.9  prompt=awplus>
+    --- far end: show users ---
+    Line    User            Host(s)  Idle      Location        Priv Idletime Timeout
+    con 0   manager         idle     00:00:00  ttyS0           15   10       N/A
+    vty 0   cktmp           idle     00:00:02  10.38.22.97     1    10       N/A
+    awplus>
+    --- end far end: show users ---
+    holding the session open for 35 s
+    --- logout ---
+    exit
+
+    Connection closed by foreign host
+    awplus#
+    --- end logout ---
+    console returned to awplus#
+    expected USER, got USER
+
+  => STEP 6 PASS: the PORT argument really chooses the destination port.  Port 2323 was
+     refused at the same moment that port 23 on 10.38.22.98 was accepting, so the refusal is
+     specific to the port and not to the host.  The explicit IPv4 form `telnet ip <host>`
+     then completed a full session.  The far end's "Last login: Tue Oct 20 23:56:57 UTC 2026
+     from 10.38.22.97" line shows that it remembers the earlier session and attributes it to
+     the DUT.
+
+STEP 7 -- the DUT's own telnet server stayed off for the whole case       PASS
+--------------------------------------------------------------------------------
+  The DUT carried `no service telnet` before the case, from its own flash:/default.cfg, and
+  still carried it at the end:
+
+awplus# show telnet
+    Telnet Server Configuration
+    ------------------------------------------------------------
+    Telnet server                      : Disabled
+    Protocol                           : None
+    Port                               : 23
+
+  => STEP 7 PASS: `service telnet` controls only the inbound server.  The telnet CLIENT of
+     TPS row 228 works on a unit whose telnet server is switched off, so the two are
+     independent.
+================================================================================

@@ -1,0 +1,477 @@
+================================================================================
+TEST T33380 -- (231) Management - SSH Server (IPv4)
+================================================================================
+Run:      2026-10-21, 13:09-13:19 NZDT for the server on, off and on again measured on the
+          wire, and 17:36-17:41 NZDT for the reboot step.
+          Times written in this log are New Zealand local time.  Times inside device
+          output are UTC, which is what the switch records.
+Bench:    tb277, console u2 = swi_d (DUT); Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     T33380.  The test-case database holds NO authored objective, NO step text, NO test
+          data and NO expected result for this case.  Its single step is empty.  No authored
+          authority exists beyond the title.
+          The tester designed the objective and all 8 steps below from three sources: the
+          title; the X960 TPS row 229 "SSH Server(IPv4) = Yes"; and the DUT's own CLI
+          surface and wire behaviour.
+          Objective (designed by the tester), in four parts.
+          1. The AT-x960-56YSQ accepts real SSH connections on IPv4 TCP port 22.
+          2. It authenticates a valid user and serves a session, and it refuses an invalid
+             one.
+          3. `no service ssh ip` closes the IPv4 half, and `no service ssh` closes the whole
+             server.  Both can be undone.
+          4. The IPv4 restriction is saved and is still in force after the unit reboots.
+Build:    swi_d  sin_x96056-20261019-27  (x960-tb277.rel, build date Sun Oct 18 23:18:21 UTC
+          2026), AT-x960-56YSQ, S/N A2WQS700B
+
+awplus# show system
+    System Status                                           Wed Oct 21 00:09:29 2026
+
+    Board      ID   Bay     Board Name                        Rev   Serial number
+    --------------------------------------------------------------------------------
+    Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B       
+    PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU 
+    PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S 
+    Fan module 730  FAN1    AT-FAN19                          -     -               
+    Fan module 730  FAN2    AT-FAN19                          -     -               
+    --------------------------------------------------------------------------------
+    RAM: Total: 8092132 kB Free: 7461096 kB
+    Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+    --------------------------------------------------------------------------------
+    Environment Status : Normal
+    Uptime             : 0 days 02:12:52
+    Bootloader version : Unknown
+
+    Current software   : x960-tb277.rel
+    Software version   : sin_x96056-20261019-27
+    Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+    Current boot config: flash:/default.cfg (file exists)
+
+    System Name
+     awplus
+    System Contact
+
+    System Location
+
+Configs:  swi_d.cfg (running-config after setup; saved to startup: yes)
+
+VERDICT: PASS -- the DUT serves SSH over IPv4.  Every result below was measured on the wire
+from the testbox, because on this platform `show ssh server` can read "Enabled" while IPv4
+is in fact refused (STEP 5).
+      IPv4 TCP/22 serves a session .... yes         (83 packets, ESTABLISHED+DATA, 8638 B back from the DUT)
+      the control capture ............. 0 packets   (same instrument, nothing sent)
+      valid user authenticated ........ yes         ("Accepted keyboard-interactive/pam for manager from 10.38.22.33")
+      the DUT lists the session ....... yes         (`vty 0 manager ... 10.38.22.33`)
+      invalid user refused ............ yes         (TCP completes, then the login is rejected: 1706 B back, not 8638 B)
+      `no service ssh ip` ............. closes IPv4 (2 packets: SYN answered by RST.ACK)
+      `no service ssh` ................ closes all  (2 packets: SYN answered by RST.ACK)
+      both can be undone .............. yes         (IPv4 TCP/22 serves a session again, 65 packets)
+      survives a reboot ............... yes         (after a cold boot, 4 of 4 SYNs to port 22 answered RA)
+CAVEAT:  This run proves the IPv4 half only.  The IPv6 half of the SSH server was not
+         tested.  Authentication was by password; public-key authentication was not tested.
+         The client was always the testbox, over vlan10; no other path was used.  The
+         account lockout rule of this platform was respected: exactly one failed login was
+         sent, and it used a user name that does not exist.
+HEALTH:  read on the DUT before step 1 and again after step 8
+         reboots ......... 1 new entry: "2026-10-21 04:37:54 Expected CLI(user request)".  STEP 8 asked the DUT for that reload, and STEP 8 quotes it.  There is no other new entry
+         exception log ... None in every sample
+         log ............. no crash, no kernel line and no daemon restart that this case did not cause.  There is exactly one error-severity line, and STEP 4 created it on purpose:
+                           "2026 Oct 21 00:11:21 auth.err awplus sshd-session[11741]: error: PAM: User not known to the underlying authentication module for illegal user cknosuchuser from 10.38.22.33"
+                           Everything else is the sshd-session accept / open / close trail of STEP 3 and STEP 6, the four "IMI[897]: SSH server enabled|disabled" lines of STEP 5 and STEP 7, and the normal start-up sequence of the STEP 8 reboot
+         CPU ............. `show cpu` on this platform prints LOAD, not idle.  The measured load was 0% in every sample (1 second 0%, 20 seconds 0%, 60 seconds 0%)
+         memory .......... free 7460340 kB before -> 7462060 kB after; 1720 kB MORE free at the end.  No step change, and no leak is claimed: one case cannot show one
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  The DUT is the SSH SERVER.  The client is the testbox itself.  One path, used by every
+  step.
+
+        tb277 eth3  00:0d:b9:55:77:0e  10.38.22.33/27
+        (the SSH client: OpenSSH.  Also the capture point: tcpdump, and the crafted-SYN
+         sender in STEP 8.)
+             |
+             |  SSH over IPv4 TCP port 22
+             v
+        port1.0.10  (vlan10, access)
+    +---------------------------------------------------------+
+    |  swi_d   AT-x960-56YSQ                            DUT    |
+    |  the SSH SERVER under test                               |
+    |  interface vlan10 10.38.22.34/27                         |
+    +---------------------------------------------------------+
+             |
+             |  the DUT's answer: SYN.ACK and session data, or RST.ACK
+             v
+        tb277 eth3  10.38.22.33/27
+
+  DUT   : swi_d (AT-x960-56YSQ) console u2 @ 115200, S/N A2WQS700B
+  host  : tb277 eth3 00:0d:b9:55:77:0e 10.38.22.33/27 -> swi_d port1.0.10 (vlan10).  The
+          DUT's MAC on this path is e0:1a:ea:d4:70:43.
+  tools : tools/tb tool netlogin (the SSH client), tools/tb capture + tools/tb tool tcpflow
+          (capture and count flows on eth3), tools/tb sudotool arpleg --tcp (crafted SYN
+          plus an ICMP control, STEP 8), tools/tb cfg (configuration), tools/tb ckcon
+          (console reads), tools/tb ckreload (the reload in STEP 8), tools/tb ping,
+          tools/rc2cfg.py, tools/rcdiff.py
+  note  : no other switch took part in this case.
+
+STEP 1 -- what the DUT says about its own SSH server                      PASS
+--------------------------------------------------------------------------------
+  Method: this is a baseline reading, not evidence.  On this platform `show ssh server` can
+  print "Enabled" for a service that is in fact refusing connections, and STEP 5 shows that
+  happening.  The reading is recorded so the later readings can be compared against a known
+  starting point.
+
+awplus# show ssh server
+    Secure Shell Server Configuration                                               
+    --------------------------------------------------------------------------------
+    SSH Server                         : Enabled                                    
+    Protocol                           : IPv4,IPv6                                  
+    Port                               : 22                                         
+    Version                            : 2                                          
+    VRF                                : NONE                                       
+    Services                           : scp, sftp                                  
+    User Authentication                : publickey, password                        
+    Resolve Hosts                      : Disabled                                   
+    Session Timeout                    : 0 (Off)                                    
+    Login Timeout                      : 60 seconds                                 
+    Maximum Authentication Tries       : 6                                          
+    Maximum Startups                   : 10                                         
+    TCP Forwarding                     : no                                         
+    Legacy ssh-rsa                     : no                                         
+    Debug                              : NONE                                       
+    Ciphers                            : chacha20-poly1305@openssh.com,             
+                                           aes128-gcm@openssh.com,                  
+                                           aes256-gcm@openssh.com,aes128-ctr,       
+                                           aes192-ctr,aes256-ctr                    
+    KEX                                : mlkem768x25519-sha256,                     
+                                           sntrup761x25519-sha512,                  
+                                           sntrup761x25519-sha512@openssh.com,      
+                                           curve25519-sha256,                       
+                                           curve25519-sha256@libssh.org,            
+                                           ecdh-sha2-nistp256,ecdh-sha2-nistp384,   
+                                           ecdh-sha2-nistp521                       
+    MAC                                : umac-128-etm@openssh.com,                  
+                                           hmac-sha2-256-etm@openssh.com,           
+                                           hmac-sha2-512-etm@openssh.com,           
+                                           hmac-sha2-256,hmac-sha2-512              
+    hostkeys                           : ssh-ed25519-cert-v01@openssh.com,          
+                                           ecdsa-sha2-nistp256-cert-v01@openssh.com,
+                                           ecdsa-sha2-nistp384-cert-v01@openssh.com,
+                                           ecdsa-sha2-nistp521-cert-v01@openssh.com,
+                                           rsa-sha2-512-cert-v01@openssh.com,       
+                                           rsa-sha2-256-cert-v01@openssh.com,       
+                                           ssh-ed25519,ecdsa-sha2-nistp256,         
+                                           ecdsa-sha2-nistp384,ecdsa-sha2-nistp521, 
+                                           rsa-sha2-512,rsa-sha2-256
+
+  This is the state the case must return to: Enabled, Protocol IPv4,IPv6, port 22, version
+  2, scp and sftp, publickey and password, login timeout 60 seconds, maximum authentication
+  tries 6, maximum startups 10.
+  The running-config carries `service ssh` and `ssh server allow-users manager`.  Both were
+  already in the unit's flash:/default.cfg before this case.  `ssh server allow-users
+  manager` matters for every step below: only `manager` may authenticate over SSH on this
+  unit.
+  => STEP 1 PASS: the starting state is recorded.  Protocol reads IPv4,IPv6 and the port
+     reads 22.
+
+STEP 2 -- the wire control, with nothing sent                             PASS
+--------------------------------------------------------------------------------
+  Method: a 10 s capture on eth3 with the filter `tcp port 22`, with nothing sent.
+
+    0 packets captured / 0 packets received by filter / 0 packets dropped by kernel
+    file /tmp/ckA1159/t33380-ctrl.pcap: 0 packet(s) total, 0 TCP flow(s) on port 22
+
+  => STEP 2 PASS: the same instrument returns non-zero in STEP 3, so a zero here is a real
+     measurement and not a dead capture.  Every later zero in this case is read against this
+     one.
+
+STEP 3 -- a real IPv4 SSH login, measured on the wire and at the DUT      PASS
+--------------------------------------------------------------------------------
+  Method: the testbox logged in to the DUT over SSH as `manager`, with a 45 s capture
+  running on eth3 throughout.  Three instruments read the same event: the client's own
+  result, the DUT's log and `show users`, and the capture.
+
+  (a) The client's result.
+
+    LOGIN RESULT: USER  proto=ssh  user=manager  seconds=0.4
+
+  "USER", not "PRIV", is the correct success on AW+: a login lands at privilege 1 even for a
+  `privilege 15` user name.
+
+  (b) What the session returned from the DUT.
+
+    Board      ID   Bay     Board Name                        Rev   Serial number
+    Software version   : sin_x96056-20261019-27
+    con 0   manager         idle     00:01:21  ttyS0           15   10       N/A
+    vty 0   manager         idle     00:00:00  10.38.22.33     1    10       N/A
+    SSH Server                         : Enabled
+    Protocol                           : IPv4,IPv6
+
+  The DUT lists the session itself as `vty 0 manager ... 10.38.22.33`, which is the
+  testbox's eth3 address.
+
+  (c) The DUT's own log, read from the console afterwards.
+
+    2026 Oct 21 00:11:05 auth.notice awplus sshd-session[11678]: Accepted keyboard-interactive/pam for manager from 10.38.22.33 port 55484 ssh2
+    2026 Oct 21 00:11:05 auth.notice awplus sshd-session[11681]: Session open for user manager from 10.38.22.33 port 55484
+    2026 Oct 21 00:11:05 auth.notice awplus sshd-session[11678]: Session close for user manager from 10.38.22.33 port 55484
+
+  (d) The wire.
+
+    flow 10.38.22.33:55484 <-> 10.38.22.34:22  packets=83  duration=0.539s  => ESTABLISHED+DATA
+       10.38.22.33:55484 -> 10.38.22.34:22  pkts=39  payload=2741 B  flags={ACK, FIN.ACK, PSH.ACK, SYN}
+       10.38.22.34:22 -> 10.38.22.33:55484  pkts=44  payload=8638 B  flags={ACK, FIN.ACK, PSH.ACK, SYN.ACK}
+
+  => STEP 3 PASS: IPv4 TCP port 22 on the DUT accepts a connection, authenticates the user
+     and serves a session.  The flow holds 83 packets, a completed handshake, 8638 bytes of
+     encrypted session data back from the DUT, and a clean FIN.ACK close in both directions.
+
+STEP 4 -- a user name the server rejects, exactly one attempt             PASS
+--------------------------------------------------------------------------------
+  Method: the far end here is the DUT itself, so a failed login counts against the unit
+  under test.  AW+ locks an account after 5 failures, and every further attempt restarts the
+  5-minute timer.  The refusal step therefore uses `cknosuchuser`, a user name that does not
+  exist, exactly once, with no retry loop.  Zero failed `manager` logins were sent to the
+  DUT at any point.
+
+    cknosuchuser@10.38.22.34's password:
+    LOGIN RESULT: FAIL  proto=ssh  user=cknosuchuser  seconds=3.0
+
+  A refused AW+ ssh login re-presents "<user>@<host>'s password:", because the client retries
+  up to three times.  That is what the tool grades as FAIL.
+
+  The DUT's log names the user and the client:
+
+    2026 Oct 21 00:11:18 auth.notice awplus sshd-session[11741]: Connection from 10.38.22.33 port 55486 on 10.38.22.34 port 22 rdomain ""
+    2026 Oct 21 00:11:19 authpriv.notice awplus sshd-session[11752]: pam_unix(vty0:auth): check pass; user unknown
+    2026 Oct 21 00:11:19 authpriv.notice awplus sshd-session[11752]: pam_unix(vty0:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=10.38.22.33
+    2026 Oct 21 00:11:21 auth.err awplus sshd-session[11741]: error: PAM: User not known to the underlying authentication module for illegal user cknosuchuser from 10.38.22.33
+
+  On the wire, in the same capture as STEP 3:
+
+    flow 10.38.22.33:55486 <-> 10.38.22.34:22  packets=31  duration=2.993s  => ESTABLISHED+DATA
+       10.38.22.33:55486 -> 10.38.22.34:22  pkts=14  payload=1753 B  flags={ACK, FIN.ACK, PSH.ACK, SYN}
+       10.38.22.34:22 -> 10.38.22.33:55486  pkts=17  payload=1706 B  flags={ACK, FIN.ACK, PSH.ACK, SYN.ACK}
+
+  => STEP 4 PASS: a rejected user name looks different from a served session, but NOT at the
+     TCP level.  A rejected credential still reaches ESTABLISHED+DATA, because TCP, the SSH
+     transport and the key exchange all complete and only the authentication fails.  The two
+     flows are told apart by volume -- 8638 bytes back from the DUT in STEP 3 against 1706
+     bytes here -- and by the DUT's log.  A refused service never gets past SYN, which is
+     STEP 5.  Grading "did SSH work?" on ESTABLISHED alone would pass a wrong password.
+
+STEP 5 -- `no service ssh ip`: how it is stored, and what it does         PASS
+--------------------------------------------------------------------------------
+  This is the IPv4-off half of the case.  It asks two separate questions: how the DUT stores
+  the restriction, and what the restriction does to real traffic.
+
+awplus(config)# no service ssh ip
+awplus# show ssh server
+    SSH Server                         : Enabled
+    Protocol                           : IPv6
+    Port                               : 22
+awplus# show running-config | include ssh
+    ssh server allow-users manager
+    service ssh ipv6
+
+  Finding 1: SSH REPLACES the configuration line, it does not add a negation.  `service ssh`
+  becomes `service ssh ipv6`, and there is no negation anywhere in the running-config.  Two
+  consequences follow.  Searching a configuration for `no service ssh ip` finds NOTHING on a
+  unit whose IPv4 SSH is switched off.  The state can only be read from the suffix on the
+  positive line, or from the Protocol field of `show ssh server`.
+
+  Finding 2: the log message is misleading.  Applying `no service ssh ip` makes the DUT log
+
+    2026 Oct 21 00:12:16 user.notice awplus IMI[897]: SSH server enabled
+
+  The word is "enabled", for a command that RESTRICTED the server.  The same line appears
+  again when `service ssh ip` is restored.  Only the whole-server commands log honestly:
+  "SSH server disabled" for `no service ssh`, and "SSH server enabled" for `service ssh`
+  (STEP 7).  Anyone grading an SSH on/off arc from the device log alone would read it
+  backwards.
+
+  And on the wire, which is what the verdict rests on.  A fresh 30 s capture on eth3, and one
+  connection attempt:
+
+    ssh: connect to host 10.38.22.34 port 22: Connection refused
+
+    file /tmp/ckA1159/t33380-noip.pcap: 2 packet(s) total, 1 TCP flow(s) on port 22
+    flow 10.38.22.33:55488 <-> 10.38.22.34:22  packets=2  duration=0.000s  => REFUSED (SYN answered by RST)
+       10.38.22.33:55488 -> 10.38.22.34:22  pkts=1  payload=0 B  flags={SYN}
+       10.38.22.34:22 -> 10.38.22.33:55488  pkts=1  payload=0 B  flags={RST.ACK}
+
+  Note on the account lockout rule: this attempt used `manager`, but it never reached
+  authentication.  The TCP connection was refused and the DUT logged no sshd-session entry
+  for it at all, so it cost zero failed logins.
+  => STEP 5 PASS: `no service ssh ip` really closes the IPv4 half.  The DUT answered the SYN
+     with RST.ACK, 2 packets in total, while `show ssh server` still read "SSH Server :
+     Enabled".  That is correct behaviour -- the server is up, IPv4 is not -- and it is also
+     the proof that grading this case from `show ssh server` would have passed a unit with
+     the IPv4 half switched off.
+
+STEP 6 -- restore IPv4, and the arc closes                                PASS
+--------------------------------------------------------------------------------
+awplus(config)# service ssh ip
+awplus# show ssh server
+    SSH Server                         : Enabled
+    Protocol                           : IPv4,IPv6
+    Port                               : 22
+
+  A fresh 25 s capture with a fresh login:
+
+    LOGIN RESULT: USER  proto=ssh  user=manager  seconds=0.3
+    vty 0   manager         idle     00:00:00  10.38.22.33     1    10       N/A
+
+    file /tmp/ckA1159/t33380-onagain.pcap: 65 packet(s) total, 1 TCP flow(s) on port 22
+    flow 10.38.22.33:55494 <-> 10.38.22.34:22  packets=65  duration=0.339s  => ESTABLISHED+DATA
+       10.38.22.33:55494 -> 10.38.22.34:22  pkts=30  payload=2637 B  flags={ACK, FIN.ACK, PSH.ACK, SYN}
+       10.38.22.34:22 -> 10.38.22.33:55494  pkts=35  payload=3642 B  flags={ACK, FIN.ACK, PSH.ACK, SYN.ACK}
+
+  => STEP 6 PASS: IPv4 TCP port 22 serves a session again, 65 packets with a completed
+     handshake.  On, off and on again, each state measured on the wire.
+
+STEP 7 -- the whole server off, and back                                  PASS
+--------------------------------------------------------------------------------
+awplus(config)# no service ssh
+awplus# show ssh server
+    SSH Server                         : Disabled
+    Protocol                           : None
+awplus# show running-config | include service ssh
+    no service ssh
+
+  Here the negation IS stored as `no service ssh`, unlike the IPv4-only case of STEP 5.  So
+  this command family has two different storage shapes, depending on which half you switch
+  off.  The DUT logs this one correctly: "IMI[897]: SSH server disabled".
+
+  On the wire:
+
+    ssh: connect to host 10.38.22.34 port 22: Connection refused
+    file /tmp/ckA1159/t33380-off.pcap: 2 packet(s) total, 1 TCP flow(s) on port 22
+    flow 10.38.22.33:55496 <-> 10.38.22.34:22  packets=2  duration=0.000s  => REFUSED (SYN answered by RST)
+
+  Restored with `service ssh`: Enabled / IPv4,IPv6 / 22, and "IMI[897]: SSH server enabled".
+  => STEP 7 PASS: `no service ssh` closes the whole server, the DUT answers a SYN with
+     RST.ACK, and `service ssh` opens it again.
+
+STEP 8 -- the IPv4 restriction survives a reboot                          PASS
+--------------------------------------------------------------------------------
+  Method: this step must not be graded from `show ssh server` or from a configuration
+  search, for the two reasons STEP 5 proved.  It is graded on IPv4 TCP port 22 on the wire.
+  The instrument sends a crafted SYN and reports the reply flags, where SA means the port is
+  open, RA means the service refused it, and no reply row at all means the frame was
+  dropped.  Every leg also carries an ICMP control to the same address, so "the DUT refused
+  TCP/22" is always told apart from "the DUT was not reachable".  A port 23 control rides in
+  every leg as well: telnet is off on this DUT, so port 23 must answer RA every time.  That
+  control is the instrument's own witness that it decodes an RA correctly.  No credential is
+  ever offered, so no leg can cost a failed login.
+
+    sudo arpleg.py --tag <tag> --out /tmp/ntp1021/T33380 --iface eth3 \
+         --tcp 10.38.22.34:22,10.38.22.34:23 --icmp 10.38.22.34 \
+         --sender-ip 10.38.22.33 --sender-mac 00:0d:b9:55:77:0e \
+         --gw-mac e0:1a:ea:d4:70:43 --count 4 --wait 4
+
+  (a) Baseline, SSH on both families.
+
+      cap t380-base-eth3.pcap: 30 frame(s)
+        x4   TCP  10.38.22.33:40000 -> 10.38.22.34:22   S   [ours]
+        x4   TCP  10.38.22.34:22    -> 10.38.22.33:40000 SA
+        x4   TCP  10.38.22.33:40000 -> 10.38.22.34:22   R
+        x4   TCP  10.38.22.33:40000 -> 10.38.22.34:23   S   [ours]
+        x4   TCP  10.38.22.34:23    -> 10.38.22.33:40000 RA
+        x4   ICMP t8/c0 10.38.22.33 -> 10.38.22.34      [ours]
+        x4   ICMP t0/c0 10.38.22.34 -> 10.38.22.33      [ours]
+        x1   ARP-REQ who-has 10.38.22.34 tell 10.38.22.33
+        x1   ARP-REPLY 10.38.22.34 is-at e0:1a:ea:d4:70:43
+
+  4 of 4 SYNs to port 22 answered SA, so IPv4 SSH is open.  Port 23 answered RA and ICMP was
+  4 of 4.
+
+  (b) `no service ssh ip` applied.
+
+    awplus(config)#no service ssh ip
+    awplus#show running-config | include service ssh
+    service ssh ipv6                       <- the line was REPLACED, not negated (§7F.10)
+    awplus#show ssh server
+    SSH Server : Enabled                   <- still "Enabled" (§7F.2)
+    Protocol   : IPv6
+
+      cap t380-v6only-eth3.pcap: 24 frame(s)
+        x4   TCP  10.38.22.33:40000 -> 10.38.22.34:22   S   [ours]
+        x4   TCP  10.38.22.34:22    -> 10.38.22.33:40000 RA        <- REFUSED
+        x4   TCP  10.38.22.33:40000 -> 10.38.22.34:23   S   [ours]
+        x4   TCP  10.38.22.34:23    -> 10.38.22.33:40000 RA
+        x4   ICMP t8/c0 10.38.22.33 -> 10.38.22.34      [ours]
+        x4   ICMP t0/c0 10.38.22.34 -> 10.38.22.33      [ours]
+
+  Port 22 changed from SA to RA while ICMP stayed at 4 of 4.  The host is up and reachable,
+  and the service is refusing.  That is the discrimination this whole step rests on.
+
+  (c) Saved, then a cold boot, with nothing typed afterwards.
+
+    awplus#write
+    Building configuration...
+    [OK]
+    awplus#show startup-config | include service ssh
+    service ssh ipv6                       <- saved
+
+    tools/tb ckreload tb277 ntp1021 u2 115200 240
+    17:37:54 >>> reload   (04:37:54 UTC)
+    reboot question: 'reboot system? (y/n):' -> y
+    17:38:54 login seen after 60 s
+
+  The first measurement after the boot was DISCARDED, not graded.  It ran 9 seconds after the
+  login prompt and returned:
+
+      cap t380-afterboot-eth3.pcap: 16 frame(s)
+        x4   TCP  ...:22  S [ours]      (no reply row at all)
+        x4   TCP  ...:23  S [ours]      (no reply row at all)
+        x4   ICMP t8/c0 ... [ours]
+        x1   ICMP t0/c0 10.38.22.34 -> 10.38.22.33     <- only 1 of 4 answered
+        x1   ARP-REQ who-has 10.38.22.33 tell 10.38.22.34
+
+  The ICMP control answered only 1 of 4, and the DUT was still sending ARP requests for the
+  box, so the unit had not finished starting.  With this instrument "no reply row at all"
+  means the frame was dropped, which is exactly the wrong conclusion to draw from a unit that
+  is still booting.  The measurement was thrown away, the link was proved first
+  (`ping -c 4` -> 4 of 4, 0% loss, average 0.442 ms), and then it was taken again.
+
+  The graded measurement, 41 seconds after the login prompt, with NOTHING typed into the DUT:
+
+      cap t380-afterboot2-eth3.pcap: 24 frame(s)
+        x4   TCP  10.38.22.33:40000 -> 10.38.22.34:22   S   [ours]
+        x4   TCP  10.38.22.34:22    -> 10.38.22.33:40000 RA        <- STILL REFUSED
+        x4   TCP  10.38.22.33:40000 -> 10.38.22.34:23   S   [ours]
+        x4   TCP  10.38.22.34:23    -> 10.38.22.33:40000 RA
+        x4   ICMP t8/c0 10.38.22.33 -> 10.38.22.34      [ours]
+        x4   ICMP t0/c0 10.38.22.34 -> 10.38.22.33      [ours]
+
+  Only after that was the console opened, to read the configuration:
+
+    awplus#show running-config | include service ssh
+    service ssh ipv6
+    awplus#show ssh server
+    SSH Server : Enabled
+    Protocol   : IPv6
+
+  (d) Restore, and the arc closes.
+
+    awplus(config)#service ssh ip
+    awplus#show running-config | include service ssh
+    service ssh                            <- the suffix is dropped again
+    awplus#show ssh server
+    Protocol   : IPv4,IPv6
+
+      cap t380-restored-eth3.pcap: 30 frame(s)
+        x4   TCP  10.38.22.34:22 -> 10.38.22.33:40000 SA           <- open again
+        x4   TCP  10.38.22.34:23 -> 10.38.22.33:40000 RA
+        x4   ICMP t0/c0 10.38.22.34 -> 10.38.22.33    [ours]
+
+  => STEP 8 PASS: the IPv4 restriction survives a reboot, and it survives it on the wire.
+     The DUT saved it as `service ssh ipv6`.  After a 60 second cold boot, with nothing typed
+     into the device, IPv4 TCP port 22 refused 4 of 4 SYNs while ICMP answered 4 of 4 to the
+     same address.  The port 23 control answered RA in all four legs, so the instrument was
+     reading RA correctly throughout.  The full arc on the wire is SA -> RA -> (cold boot)
+     RA -> SA.  The restriction was then removed.  `service ssh` is back to its plain form
+     in running-config and in startup-config, so nothing of this step is left on the unit.
+================================================================================
