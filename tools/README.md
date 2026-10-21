@@ -847,6 +847,17 @@ campaign's single largest avoidable cost.
   forwarded frame to ONE of them -- the Ethernet and IP headers are identical either way. It is
   equally the check for a TTL-rewriting or extra-hop defect. Off by default, so existing legs
   read exactly as before. Added 2026-10-16 for tb277 T47873.
+- **`--tcp DST[:PORT][@SRC][%L2DST]` sends a crafted TCP SYN and reports the reply FLAGS.**
+  Added 2026-10-21 for the management-ACL case T33386. A management filter has **three**
+  possible answers and only the wire tells them apart: `SA` = the port is open, `R`/`RA` = the
+  service refused it, and **no reply row at all** = the frame was silently dropped by a filter.
+  `show access-list counters`, `show ssh server` and `show telnet` can distinguish none of them
+  (`platforms/x960.md` §5 and §7F.2). The default port is 22; `@SRC` and `%L2DST` parse exactly
+  as they do for `--udp`, so one leg carries the denied source and the permitted control
+  together. The SYN carries the usual `CKARPLEG-<tag>` payload so `[ours]` and the two-counter
+  guard apply to it — data on a SYN is legal and a Linux-based target answers it normally, but
+  **always run the filter-OFF baseline leg first**: a `SA` there proves the instrument before
+  any later silence is read as a filter.
 - **🔴 scapy marker trap (measured on tb277 2026-10-16):** the tool marks its own frames with
   `CKARPLEG-<tag>` in the payload. scapy dissects well-known UDP ports into their OWN layer --
   69 becomes TFTP, 67/68 BOOTP, 53 DNS -- so for those ports there is **no `Raw` layer at all**
@@ -862,7 +873,8 @@ campaign's single largest avoidable cost.
   - It does not answer anything. For a leg that must respond, pair it with a responder
     (`nsresp.py`, `dhcp4.py`, `dnsresp.py`).
   - scapy on tb277 (2.4.4) imports matplotlib, which prints a `SyntaxWarning` on stderr. Harmless.
-- **Status:** verified 2026-10-15 on tb277, host `eth3`/`eth4` → x960-56YSQ `port1.0.10`/`port1.0.48`.
+- **Status:** `--tcp` verified 2026-10-21 on tb277, x960-56YSQ (T33386) — see that case's log.
+  Otherwise verified 2026-10-15 on tb277, host `eth3`/`eth4` → x960-56YSQ `port1.0.10`/`port1.0.48`.
   Self-test: 3 ARP requests sent, 3 in the capture, both MACs decoded. In use: T33248 proved a
   static ARP entry rewrites 5/5 routed frames to the configured MAC while a control address with
   no entry forwards 0/5 in the same leg; T33247 drove `--answer` to populate and re-populate the

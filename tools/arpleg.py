@@ -18,7 +18,8 @@ Must run as root (raw sockets + tcpdump). Outputs are chowned back to SUDO_UID.
 Run:
   sudo python3 arpleg.py --tag NAME --out DIR --iface eth3 [--watch eth4 ...]
        [--arp TARGET[,TARGET...]] [--probe DST[,DST...]] [--icmp DST[,DST...]]
-       [--udp DST[:PORT][@SRC][%L2DST][,...]] [--l2-dst MAC|broadcast]
+       [--udp DST[:PORT][@SRC][%L2DST][,...]] [--tcp DST[:PORT][@SRC][%L2DST][,...]]
+       [--l2-dst MAC|broadcast]
        [--show-ttl] [--sport N] [--ttl N]
        [--sender-ip IP] [--sender-mac MAC] [--gw-mac MAC]
        [--count N] [--settle S] [--wait S] [--filter BPF] [--vlan V]
@@ -42,6 +43,13 @@ Examples:
        --sender-ip 10.38.22.40 --sender-mac 00:11:22:33:44:01 --count 5
 
   # passive: watch a NIC for 60 s (ARP polling, gratuitous ARP, a deauth)
+  # TCP SYN leg: is a management port open, refused, or silently FILTERED?  The
+  # three answers are SYN-ACK, RST, and nothing back -- and only the wire tells
+  # them apart.  Send the subject and a control that must NOT be filtered in one leg.
+  sudo arpleg.py --tag acl-on --out /tmp/ck/T33386 --iface eth3 --watch eth4 \
+       --tcp 10.38.22.34:22,10.38.22.34:23 --sender-ip 10.38.22.33 \
+       --sender-mac <eth3 mac> --gw-mac <DUT SVI mac> --count 4
+
   sudo arpleg.py --tag poll --out /tmp/ck/T33246 --iface eth3 --sniff-only --wait 60
 """
 import argparse
@@ -65,6 +73,7 @@ from scapy.all import (  # noqa: E402
     UDP,
     PcapReader,
     Raw,
+    TCP,
     sendp,
 )
 
@@ -251,6 +260,35 @@ def build(args):
         f = eth / Dot1Q(vlan=args.vlan) / ip if args.vlan else eth / ip
         out.append(("udp %s -> %s:%d (eth dst %s, ttl %d)"
                     % (ssrc, d, port, l2d, args.ttl), f))
+    for spec in args.tcp:
+        # DST[:PORT][@SRC][%L2DST], parsed exactly like --udp.  A TCP SYN is the
+        # only probe that can tell an OPEN management port (SYN-ACK), a REFUSED one
+        # (RST) and a SILENTLY FILTERED one (nothing back) apart -- a management-ACL
+        # or port-filter verdict is precisely that three-way discrimination, and no
+        # `show` command on the device can give it (platforms/x960.md s.5).
+        spec, _, l2_over = spec.partition("%")
+        body, _, src_over = spec.partition("@")
+        ssrc = src_over or sip
+        d, _, p = body.partition(":")
+        port = int(p) if p else 22
+        l2d = l2
+        if l2_over:
+            l2d = BCAST if l2_over == "broadcast" else l2_over
+        if not l2d:
+            sys.exit("--tcp needs --gw-mac or --l2-dst (the L2 next hop, i.e. the "
+                     "DUT SVI MAC for a management address on a connected subnet)")
+        eth = Ether(src=smac, dst=l2d)
+        # The SYN carries the leg marker as payload, like every other frame this tool
+        # sends, so the [ours] marking and the two-counter guard work for TCP too.
+        # Data on a SYN is legal and a Linux-based target answers it normally -- but
+        # that is exactly why the ACL-OFF baseline leg is run FIRST: a SYN-ACK there
+        # proves the instrument before any silence is read as a filter.
+        ip = IP(src=ssrc, dst=d, ttl=args.ttl) / TCP(
+            sport=args.sport, dport=port, flags="S") / Raw(
+            load=b"CKARPLEG-" + args.tag.encode() + b"-t%d" % port)
+        f = eth / Dot1Q(vlan=args.vlan) / ip if args.vlan else eth / ip
+        out.append(("tcp SYN %s:%d -> %s:%d (eth dst %s, ttl %d)"
+                    % (ssrc, args.sport, d, port, l2d, args.ttl), f))
     for d in args.icmp:
         if not args.gw_mac:
             sys.exit("--icmp needs --gw-mac")
@@ -299,6 +337,13 @@ def classify(pkt):
             ic = pkt[ICMP]
             k = "ICMP t%d/c%d %-15s -> %-15s%s" % (ic.type, ic.code, ip.src,
                                                    ip.dst, mark)
+        elif pkt.haslayer(TCP):
+            t = pkt[TCP]
+            # The FLAG COMBINATION is the whole measurement for a TCP leg: S is the
+            # probe, SA an open port, R/RA a refused one, and the absence of any
+            # reply row at all is a silent drop.
+            k = "TCP  %-15s:%-5d -> %-15s:%-5d %-4s%s" % (
+                ip.src, t.sport, ip.dst, t.dport, t.sprintf("%TCP.flags%"), mark)
         elif pkt.haslayer(UDP):
             u = pkt[UDP]
             k = "UDP  %-15s -> %-15s :%d%s" % (ip.src, ip.dst, u.dport, mark)
@@ -350,6 +395,11 @@ def main():
                          "matched port or source with an unmatched one in the SAME leg "
                          "as the control (an ACL-filtered forwarding case needs two "
                          "sources in one capture)")
+    ap.add_argument("--tcp", default="",
+                    help="comma list of DST[:PORT][@SRC][%L2DST] TCP SYN probes "
+                         "(default port 22). SYN-ACK = open, RST = refused, nothing "
+                         "back = silently filtered -- the three-way answer a "
+                         "management-ACL or port-filter case is graded on")
     ap.add_argument("--l2-dst", default="",
                     help="Ethernet destination for --udp ONLY (--probe and --icmp keep "
                          "--gw-mac, so one leg can carry a broadcast flow and a unicast "
@@ -358,7 +408,8 @@ def main():
                     help="append the received IPv4 TTL to each flow in the report; "
                          "the hop count is what tells two routers sharing one "
                          "virtual MAC apart (VRRP and other first-hop redundancy)")
-    ap.add_argument("--sport", type=int, default=40000, help="UDP source port")
+    ap.add_argument("--sport", type=int, default=40000,
+                    help="UDP/TCP source port")
     ap.add_argument("--ttl", type=int, default=64, help="IPv4 TTL of --udp frames")
     ap.add_argument("--icmp", default="", help="comma list of IPv4 dsts for ICMP echo")
     ap.add_argument("--sender-ip", default="192.168.10.2")
@@ -396,6 +447,7 @@ def main():
     args.arp = [x for x in args.arp.split(",") if x]
     args.probe = [x for x in args.probe.split(",") if x]
     args.udp = [x for x in args.udp.split(",") if x]
+    args.tcp = [x for x in args.tcp.split(",") if x]
     if args.l2_dst.lower() in ("broadcast", "bcast"):
         args.l2_dst = "ff:ff:ff:ff:ff:ff"
     args.icmp = [x for x in args.icmp.split(",") if x]
@@ -459,7 +511,7 @@ def main():
     print("  pcaps: %s" % " ".join(paths))
 
     # two independent counters: our own marked frames must appear on the sending NIC
-    marked = len([1 for d, _ in frames if d.startswith(("udp", "icmp"))]) * args.count
+    marked = len([1 for d, _ in frames if d.startswith(("udp", "icmp", "tcp"))]) * args.count
     if marked and tx_seen < marked:
         print("  !! COUNTER DISAGREEMENT: sent %d marked frame(s), capture on %s holds %d"
               % (marked, args.iface, tx_seen))
