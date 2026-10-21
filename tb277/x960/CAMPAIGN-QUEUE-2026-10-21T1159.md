@@ -191,6 +191,7 @@ inherit it.** Reboot-persistence limbs are now measurable for the first time in 
 | T44296 | (259) Management_LLDP - LLDP | lldp-2026-10-21T1159 | PASS | twelve designed steps (the case has **zero** authored steps), all graded on frames and never on `show lldp`: transmit/receive proven independent across all four on/off combinations; ageing timed against a TTL the SENDER chose, with a longer-TTL neighbour on the same port as control; `lldpRemTablesChange` traps caught on the wire against a zero-trap control; neighbours confirmed on the RSTP **Alternate/Discarding** ports 1.0.4, 1.0.14 and 1.0.16 as well as the forwarding 1.0.2. 🔴 **REBOOT PERSISTENCE MEASURED — the first time in three campaigns**: a 15 s timer, 45 s TTL and a System Name TLV all survived a cold boot and were proven on the wire (15 s inter-frame gaps), then defaults restored and re-proven at 30.03 s. Bench returned byte-for-byte, closing probe exit 0 MATCH | T44296/work/run1.log | tester |
 | T33398 | (260) Management_LLDP - LLDP-Med | lldp-2026-10-21T1159 | PASS | graded on frames: **the §5 read-back trap caught in the honest direction** — a fully configured voice policy that `show lldp local-info med` reports in full while 40 s of capture carries **zero** MED TLVs, because no MED endpoint is on the port yet; a real Class III endpoint then drew a 7-TLV reply carrying exactly the configured Voice/vlan 70/tagged/priority/dscp policy; Class III classified against a plain Station-only neighbour **on the same port at the same instant**; Fast Start measured at exactly 3 frames 1.00 s apart with its trigger pinned to a NEW endpoint; both removal paths proven independently. 🔴 **REBOOT PERSISTENCE MEASURED** — a non-default priority 6 survived a cold boot | T33398/work/run1.log | tester |
 | T33399 | (262) Management_NTP - IPv4 NTP Server | ntp-2026-10-21T1159 | PASS | IPv4 NTP server proven on the wire — mode-4 replies at the configured stratum, **nothing before configuration and nothing after removal**, and per-client `ntp restrict` denial discriminating two clients of the same server in the same run (0 replies vs 2). 🔴 **REBOOT PERSISTENCE MEASURED**: serving 13 s after the login prompt with nothing typed, at the non-default stratum 10 | T33399/work/run1.log | tester |
+| T33400 | (263) Management_NTP - IPv4 NTP Client | ntp-2026-10-21T1159 | PASS | IPv4 NTP client proven on the wire — 7 polls / 7 replies / 7 paired, **zero packets to an unreachable control server**, silence after removal — and a real clock error of **14.836 s removed**. 🔴 **REBOOT PERSISTENCE MEASURED**: polling resumed 9 s after the login prompt with nothing typed. A manual `clock set` under a running chronyd is separately graded and its recovery explicitly **NOT MEASURED** | T33400/work/run1.log | tester |
 | T33388 | (239) EnhancedOperationManagement - Hardware Watchdog | — | NOT TESTED | Dropped by the Test Engineer 2026-10-21. No user-facing watchdog CLI exists on this platform and **TPS 5.3.6 says so deliberately** (*"can be enabled or disabled by user command"* = No): no `show watchdog`, nothing in config mode. The only trigger available was deliberate crash injection via `start-shell`, which was not authorised | — | Test Engineer |
 | T33389 | (240) EnhancedOperationManagement - Software Watchdog | — | NOT TESTED | Dropped by the Test Engineer 2026-10-21, same reason as T33388 | — | Test Engineer |
 
@@ -435,6 +436,44 @@ above was never needed.
 
 
 ## Issues
+
+### 🔥 THE SENTINEL'S 180-SECOND CALL WAS RIGHT, AND THE CAUSE IS OUR BENCH, NOT THE DUT
+
+T33400's post-reload re-sync poll timed out at 180 s with the DUT unsynchronised. The obvious
+write-up — *"NTP does not resume after a reboot"* — would have been a **false finding against the
+product**. The sentinel asked for a longer window on the grounds that the same DUT had synced in
+~45 s from configuration, so 180 s of silence was not self-consistent.
+
+Extended, it **converged at 10 min 55 s** from the login prompt, and the reason is measured
+rather than guessed:
+
+> `ntpwire` flagged a **kiss-o'-death, refid RATE**, in the post-boot capture. The DUT's
+> boot-time burst — **two polls in the same millisecond from two source ports** — tripped
+> **tb277's own ntpd `limited kod` restriction**, and the DUT correctly backed off for about
+> nine minutes. The DUT's own log agrees: `Received KoD RATE from 10.38.22.33`.
+
+**That is a property of our bench's NTP server, not a DUT defect.** For contrast, the same DUT
+syncs in **~75 s from configuration** and **~24 s on a daemon restart**.
+
+**The lesson, which generalises past NTP:** a timeout is not a measurement. When a wait ends
+without the thing you were waiting for, the window itself is a variable — and if an earlier leg
+of the same case did it faster, the inconsistency is the finding, not the silence.
+
+### 🔬 FINDINGS (T33400) — two that would mislead anyone grading NTP from a capture
+
+1. **The client randomises its UDP source port on every poll** — seven consecutive polls, seven
+   different ports. **A capture filter written for `udp port 123` as the source misses every
+   packet.** Filter on the destination, or on the host pair.
+2. **The client randomises the transmit timestamp in its requests.** Reading that field as "the
+   DUT's clock" gives a wildly wrong answer. It is an anti-spoofing measure, not a clock.
+
+### 🔬 BEST CROSS-CHECK OF THE CAMPAIGN (T33399 + T33400)
+
+The DUT's own chronyd logged `System clock was stepped by 14.836050 seconds`. T33399 had
+measured that same clock **from the box, in the opposite direction**, as **-14.835 s**. Two
+independent instruments, agreeing to about **1 ms**. That is what an instrument control looks
+like when it works.
+
 
 ### 🔥 CROSS-CASE PATTERN — this platform has at least TWO CLI surfaces that silently keep only the LAST value
 
