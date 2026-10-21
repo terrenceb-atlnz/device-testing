@@ -344,6 +344,54 @@ console, this one drives the network management paths.
   `UNKNOWN`), and against the three TACACS+-served ssh logins in the same case that still
   grade `USER`.
 
+### `devclient.py`
+Drives a device's **own telnet / SSH CLIENT outward** from its console, and grades what
+happened. The outbound twin of `netlogin.py`.
+- **Why it exists:** a "Telnet Client" or "SSH Client" case is about the device **originating**
+  a session. No `show` command can grade that, `netlogin.py` drives the testbox's client INTO a
+  device (the wrong direction) and `conlogin.py` drives a serial console. This one types the
+  client command on the device's console, answers the far end's prompts, runs commands ON THE
+  FAR END and reports the outcome.
+- **Run:** `devclient.py <tty> <baud> <transcript> --proto telnet|ssh --target HOST [--port N]
+  [--family ip|ipv6] [--user U] [--password P | --password-stdin] [--cmd CMD]... [--hold S]
+  [--expect priv|user|fail|refused] [--no-logout] [--accept-hostkey] [--timeout S]
+  [--login-timeout S]`, or `tools/tb devclient <TB> <scratch> <uN> <baud> ...`
+- **Where:** testbox; **needs:** pyserial
+- **Imports:** console
+- **Output:** labelled blocks for the bytes before the username prompt, between username and
+  password, and after the password (the far end's login banner), then
+  `CLIENT RESULT: PRIV|USER|FAIL|REFUSED|TIMEOUT  proto=  target=  user=  seconds=  prompt=`,
+  then one block per `--cmd`
+- **Exit:** 0 remote `#`, 1 remote `>`, 2 the credential was refused, 3 the connection was
+  refused or unreachable (a first-class result -- it is the control leg of an on/off arc),
+  4 nothing recognisable, 5 `--expect` did not match, 6 usage, 7 **the console could not be
+  returned to its local prompt** (the serious one).
+- **`--family` builds the AW+ address-family keyword** (`telnet ip <host>`,
+  `ssh ipv6 user U <host>`), which is what an "(IPv4)" case should exercise rather than letting
+  the client choose.
+- **It always recovers the console.** After `exit` it re-checks the prompt and, if the session
+  is still up, uses the application's own escape -- telnet `Ctrl-]` then `quit`, ssh `~.` --
+  before giving up with exit 7. Verified on a deliberately refused login that left the console
+  sitting at the far end's `awplus login:`.
+- **Limits and traps:**
+  - **Both ends of a bench are often called `awplus`**, so the prompt text cannot say which
+    device you are on. The privilege character can: the console is at `#` and a fresh remote
+    login at `>`. For proof rather than a heuristic, pass `--cmd "show system"` and compare
+    serial numbers.
+  - **An AW+ login lands at privilege 1 (`>`)** even for a `privilege 15` username, so a client
+    session's success is `USER`, not `PRIV` (`platforms/x960.md` §7E.6).
+  - `--password` is an argv value and is visible in `ps` on the box; use `--password-stdin`, or
+    a worthless credential, as the standing orders require.
+  - A failed login counts against the FAR END's lockout. AW+ locks an account at 5 failures and
+    every further attempt re-arms the timer: prefer a non-existent username for a refusal
+    control, and never retry in a loop.
+- **Status:** verified 2026-10-21 on tb277, x960-56YSQ swi_d (u2) driving x960-28YSQ swi_b
+  (T33379): a telnet session that authenticated and ran `show system` / `show users` /
+  `show telnet` on the far end (which logged it as `vty 0 cktmp ... 10.38.22.97`), a refused
+  connection with the far end's server off, a refused connection to a port with no listener, a
+  refused credential for a non-existent user (with automatic console recovery), the
+  `--family ip` form, `--port`, `--hold`, `--password-stdin` and all four `--expect` values
+
 ### `poll.py`
 Runs commands every `interval_s` for `duration_s`, stamped with epoch times. It logs in again
 when the session drops, for example when the master reloads, and touches `donefile` at the end.

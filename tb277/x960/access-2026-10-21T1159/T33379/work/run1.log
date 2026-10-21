@@ -1,0 +1,1036 @@
+# T33379 -- (230) Management - Telnet Client (IPv4) -- working log, run 1
+
+Tester: `bench-runner` subagent, dispatched by the /test-mode sentinel (this session's parent).
+Written as the run went, per logged-output.md section 2.
+
+## Session facts (from the dispatch; given, not measured)
+
+| fact | value |
+| --- | --- |
+| Test Engineer | bidhanc@bidhanc-dl |
+| testbox | tb277 |
+| consoles | u2 = swi_d (DUT), u3 = swi_b, u5 = swi_a |
+| PDU | 10.36.230.212 outlets u2=1, u3=7; swi_a on 10.36.230.35 outlet 3 |
+| constraints | None beyond standing orders. Window partly attended. **swi_a must NOT be rebooted or power-cycled** |
+| group | A, `access-2026-10-21T1159` |
+| stamp | 2026-10-21T1159 |
+| sentinel | parent (`/test-mode` one-session shape) |
+| run `.setup` | `tb277/x960/access-2026-10-21T1159/tb277-u2u3.setup` -- swi_d and swi_b ONLY; swi_a deliberately absent so the framework post-failure power cycle can never reach it |
+
+## The case's authored text -- there is NONE
+
+Measured at triage from `ck.db` `zephyr_cases`: `has_objective = 0`, `num_steps = 1`, and that
+one step is an **empty placeholder** (`[{"description": "", "testData": "", "expected": ""}]`).
+**No authored procedure, test data or expected result exists for this case beyond its title.**
+Every step below was designed by this tester from:
+- the title, "(230) Management - Telnet Client (IPv4)";
+- the **X960 TPS row 228 "Telnet Client(IPv4) = Yes"** (fetched at triage from
+  `wiki.atlnz.lc/awpwiki/index.php?title=X960_platform_support_TPS&action=raw`, last modified
+  2026-10-19);
+- the DUT's own CLI surface, read read-only with `qmark.py` before anything was sent (STEP 1).
+
+**What is under test is the DUT ORIGINATING a telnet session outward** (the client). The DUT's
+own telnet *server* is a different case (T33378, run 2026-10-20) and was left exactly as found:
+`no service telnet` on swi_d was never changed.
+
+## Devices
+
+| role | name | console | model | serial | software | build |
+| --- | --- | --- | --- | --- | --- | --- |
+| DUT (telnet client) | swi_d | u2 @ 115200 | AT-x960-56YSQ | A2WQS700B | sin_x96056-20261019-27 | Sun Oct 18 23:18:21 UTC 2026 |
+| far end (telnet server) | swi_b | u3 @ 9600 | AT-x960-28YSQ | A10737A261700021 | awplus_main-20261020-78 | Tue Oct 20 08:40:57 UTC 2026 |
+
+swi_a (u5) is **not used by this case** and was never opened.
+
+Note, carried from the campaign queue: swi_b now runs the `awplus_main-*` build train while the
+DUT runs `sin_x96056-*`. For this case that is a strength, not a risk -- the far end is a
+deliberately different build, so a successful client session is not an artefact of two
+identical images.
+
+### Host NICs and bench addressing (recorded once for group A; T33380 and T33381 point here)
+
+```
+eth2 carrier=1 mac=00:0d:b9:55:77:0d   10.38.22.1/27    (not used by group A)
+eth3 carrier=1 mac=00:0d:b9:55:77:0e   10.38.22.33/27   -> swi_d port1.0.10 (vlan10)
+eth4 carrier=1 mac=00:0d:b9:55:77:0f   10.38.22.65/27   -> swi_d port1.0.48 (vlan48)
+```
+
+### DUT clock against the box's (recorded once for group A)
+
+```
+box / dev host:  2026-10-21 12:42:14 NZDT
+DUT `show clock`: UTC Time:   Tue, 20 Oct 2026 23:42:04 +0000
+                  Timezone: UTC / Timezone Offset: +00:00 / Summer time zone: None
+```
+The DUT runs **UTC, 13 h behind the box's NZDT**, and `no clock timezone` is in its
+running-config. Every DUT log timestamp below is UTC. The box's own clock was derived
+independently of this read, from `ser2net` (pid 744, started Fri Sep 11 10:14:04, elapsed
+40-01:27:56 => 2026-10-21 12:42:00 NZDT), and agrees with the dev host.
+
+### RSTP, recorded so a later flap is visible (campaign queue, re-measured here)
+
+Single-instance RSTP, root is **swi_b** `8000:0000cd423029`; the DUT's bridge id is
+`8000:e01aead47043`, root path cost 20000. Only the non-`Disabled` ports:
+
+```
+Default: Bridge up - Spanning Tree Enabled
+Default: Root Path Cost 20000 - Root Port 5002 -  Bridge Priority 32768
+Default: Root Id 8000:0000cd423029
+Default: Bridge Id 8000:e01aead47043
+
+Port            Designated Bridge    Port Id    Role             State
+port1.0.2       8000:0000cd423029    838a       Rootport         Forwarding
+port1.0.4       8000:889d98df2602    838c       Alternate        Discarding
+port1.0.8       8000:e01aead47043    8390       Designated       Forwarding
+port1.0.10      8000:e01aead47043    8392       Designated       Forwarding
+port1.0.14      8000:889d98df2602    8396       Alternate        Discarding
+port1.0.16      8000:0000cd423029    8398       Alternate        Discarding
+port1.0.48      8000:e01aead47043    83b8       Designated       Forwarding
+```
+This is the queue's triage table exactly: `port1.0.2` to swi_b is the one **Forwarding** link
+between the two switches, and `port1.0.4`/`port1.0.14` (to swi_a) and `port1.0.16` (to swi_b)
+are all **Alternate / Discarding**. There is no forwarding loop.
+
+## Pre-run gate (STANDING-ORDERS / bench-runner gate, all ten items)
+
+1. **Occupancy, no console opened** -- `tools/tb precheck tb277 u2,u3,u5` at 12:40 NZDT:
+   `/dev/u2`, `/dev/u3`, `/dev/u5` all **free**. One FOUND item, `ser2net` pid 744 (root, up
+   40 days) -- the box's own console daemon, the identical item the Test Engineer adjudicated
+   "Proceed" for the 2026-10-20 campaign and which the 11:59 triage recorded as still standing.
+   Nothing was displaced. The Test Engineer's own logins on pts/0 and pts/1 are information only.
+2. **No console parked mid-state** -- `tools/tb peek`: `/dev/u2 TAIL: 'awplus login:'`,
+   `/dev/u3 TAIL: 'awplus login:'`. Both at a clean login prompt; neither was in a root shell
+   or a `(config)#` mode. u5 was deliberately **not** peeked: this case does not use it.
+3. **Template path** -- `tools/tb template tb277`: there is **no deployed
+   `/home/st-art/st-art/configs/tb277.setup`** on this box, and no `/nfsHome` (that is a tb470
+   fact). Recorded as required: the box has no deployed template, so the generated
+   `bench-setup/tb277/bench-state.md` is the only description of it.
+4. **Probe against the run `.setup`** -- 
+   `tools/tb probe tb277 --consoles u2,u3 --no-prompt --pdu 10.36.230.212 --outlet u2=1,u3=7
+   --name u2=swi_d,u3=swi_b --template <the run .setup> --out /tmp/ckA1159/bench-state-u2u3.md`
+   => **exit 0, MATCH -- the bench equals the template.** Advisories: four `neighbour
+   889d.98df.2602 is not a device on any console read` lines (that is swi_a, which this probe
+   deliberately did not open) and the two known transit-learning lines for eth3/eth4, both
+   explained by the RSTP tree above. The box's own `bench-setup/tb277/bench-state.md` was NOT
+   overwritten -- `--out` sent the generated file to the box's `/tmp`.
+5. **Run `.setup` declares only the units this run uses** -- swi_d and swi_b. Written to
+   `tb277/x960/access-2026-10-21T1159/tb277-u2u3.setup`; the deployed box `.setup` was never
+   bound (it does not exist here anyway).
+6. **Offline preflight** -- **not applicable**: this case is driven from the consoles with the
+   `tools/` drivers, not by a framework script bound to the `.setup`, so there is no
+   `pt_preflight.py` target. No framework run was launched, so the framework's post-failure
+   power cycle never armed.
+7. **Boot configs are the declared baseline** -- read before anything was changed:
+   swi_d `Current boot image : flash:/x960-tb277.rel (file exists)`,
+   `Current boot config: flash:/default.cfg (file exists)`;
+   swi_b `Current boot image : flash:/backup.rel (file exists)`,
+   `Current boot config: flash:/default.cfg (file exists)`.
+   Both re-read after the case (see the teardown section).
+8. **Ask-CK server run path** -- not used.
+9. **Sentinel** -- `sentinel: parent`; this tester was dispatched by the `/test-mode` session,
+   which is the sentinel. Nothing to arm.
+10. **The CLI will not fail at a defaulting step** -- every command this case sends was checked
+    first. The client surface was read read-only with `qmark.py` (STEP 1 below), and every
+    configuration command went through `cfg.py`, which stops on a `%` line. No framework script
+    and therefore no port-defaulting path exists in this case.
+
+## Group A bench setup applied before this case
+
+The full recipe and its restore steps are in the campaign queue under
+"Group A bench setup and its EXACT restore recipe". In short:
+
+**(a) The layer-3 underlay on swi_d, and it WAS SAVED with `write`.** This is a deliberate
+override of STANDING-ORDERS section 1 ("nothing is written unless the case requires it"), on the
+Test Engineer's explicit 2026-10-21 decision recorded in the campaign queue: *"The tester
+rebuilds vlan10/vlan48 and saves it. Survives the reboots in group E, stops every group paying
+setup cost again, and unblocks reboot-persistence limbs that have been NOT MEASURED for two
+campaigns."* It closes handover OPEN 2. Groups B, C and D inherit it and group A does not tear
+it down.
+
+```
+awplus(config)# vlan database
+awplus(config-vlan)# vlan 10 name ckUNDERLAY-eth3
+awplus(config-vlan)# vlan 48 name ckUNDERLAY-eth4
+awplus(config-vlan)# vlan 10,48 state enable
+awplus(config)# interface port1.0.10
+awplus(config-if)# switchport mode access
+awplus(config-if)# switchport access vlan 10
+awplus(config)# interface port1.0.48
+awplus(config-if)# switchport mode access
+awplus(config-if)# switchport access vlan 48
+awplus(config)# interface vlan10
+awplus(config-if)# ip address 10.38.22.34/27
+awplus(config)# interface vlan48
+awplus(config-if)# ip address 10.38.22.66/27
+awplus# write
+Building configuration...
+[OK]
+```
+Sent with `tools/tb cfg tb277 ckA1159 u2 115200 ...` (exit 0, no `%` line).
+
+**(b) A swi_d<->swi_b management VLAN, group A's own, NOT saved.** The case needs a far end the
+DUT can reach over IPv4, and swi_b had **no IPv4 address on any SVI** -- only
+`eth0 169.254.42.42/16`, which is not cabled to swi_d. `port1.0.2` is the one inter-switch link
+RSTP leaves Forwarding, so vlan 60 is carried **tagged** on it with vlan1 left as the native
+VLAN; the flat vlan1 domain, LLDP and the RSTP tree are untouched.
+
+```
+awplus(config)# vlan database / vlan 60 name ckMGMT-A / vlan 60 state enable
+awplus(config)# interface port1.0.2
+awplus(config-if)# switchport mode trunk
+awplus(config-if)# switchport trunk allowed vlan add 60
+awplus(config-if)# switchport trunk native vlan 1
+awplus(config)# interface vlan60
+awplus(config-if)# ip address 10.38.22.97/27        (swi_d)
+awplus(config-if)# ip address 10.38.22.98/27        (swi_b)
+```
+
+**(c) The far end's telnet server, on swi_b only, NOT saved.**
+```
+awplus(config)# service telnet
+% Warning: Telnet is insecure and deprecated. Please use SSH.
+```
+That `%` line is the known advisory of `platforms/x960.md` section 7F.3 and is already in
+`console.ADVISORY`; the command succeeded. A throwaway account `cktmp` (privilege 1) and
+`ssh server allow-users cktmp` were added on swi_b at the same time for T33381 -- swi_b carries
+`ssh server allow-users manager`, so a new account is refused without that line. The throwaway
+password is worthless, is held only in this session's scratchpad and is **deliberately not
+recorded in this repo**; any string of 8 or more characters works (swi_b has
+`security-password minimum-length 8`).
+
+🔴 **swi_d's own `no service telnet` was NOT touched.** The DUT's telnet server stays disabled
+throughout, which also makes the result cleaner: nothing the DUT does in this case can be
+confused with its server.
+
+**Reachability proven before step 1** (ping used only to prove a path exists, per
+STANDING-ORDERS section 7 -- the counted frame-level evidence is in STEP 3):
+```
+awplus# ping 10.38.22.98 repeat 3
+3 packets transmitted, 3 received, 0% packet loss, time 2055ms
+rtt min/avg/max/mdev = 0.394/0.548/0.843/0.208 ms
+tb277$ ping -c 2 -I eth3 10.38.22.34   -> 2 received, 0% packet loss
+tb277$ ping -c 2 -I eth4 10.38.22.66   -> 2 received, 0% packet loss
+```
+```
+awplus# show ip interface brief
+Interface             IP-Address         Status          Protocol
+eth0                  unassigned         admin up        running
+lo                    unassigned         admin up        running
+vlan1                 unassigned         admin up        running
+vlan10                10.38.22.34/27     admin up        running
+vlan48                10.38.22.66/27     admin up        running
+vlan60                10.38.22.97/27     admin up        running
+```
+
+## Setup reads, before step 1
+
+### `show system` on the DUT, verbatim and in full (the final log's header quotes this)
+
+```
+System Status                                           Tue Oct 20 23:42:06 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B       
+PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU 
+PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S 
+Fan module 730  FAN1    AT-FAN19                          -     -               
+Fan module 730  FAN2    AT-FAN19                          -     -               
+--------------------------------------------------------------------------------
+RAM: Total: 8092132 kB Free: 7458368 kB
+Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 01:45:29
+Bootloader version : Unknown
+
+Current software   : x960-tb277.rel
+Software version   : sin_x96056-20261019-27
+Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+Current boot config: flash:/default.cfg (file exists)
+
+System Name
+ awplus
+System Contact
+
+System Location
+```
+
+### `show boot` on the DUT
+
+```
+Boot configuration
+--------------------------------------------------------------------------------
+Current software   : x960-tb277.rel 
+Current boot image : flash:/x960-tb277.rel (file exists)
+Backup  boot image : Not set 
+Default boot config: flash:/default.cfg
+Current boot config: flash:/default.cfg (file exists)
+Backup  boot config: Not set 
+Autoboot status    : disabled
+```
+
+### `show telnet` on the DUT, before anything (its SERVER, not under test, left as found)
+
+```
+Telnet Server Configuration
+------------------------------------------------------------
+Telnet server                      : Disabled
+Protocol                           : None
+Port                               : 23
+```
+
+### `show users` on the DUT
+
+```
+Line    User            Host(s)  Idle      Location        Priv Idletime Timeout
+con 0   manager         idle     00:00:04  ttyS0           15   10       N/A
+```
+
+### The far end, swi_b -- `show system` and `show boot`
+
+```
+System Status                                           Tue Oct 20 23:43:16 2026
+
+Stack member 1
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       704  Base    AT-x960-28YSQ                     X1-0  A10737A261700021
+PSU        685  PSU1    AT-PWR500                         X4-0  A10730G255100016
+Fan module 707  FAN1    AT-FAN05 v2                       -     -               
+--------------------------------------------------------------------------------
+RAM: Total: 1984824 kB Free: 1448516 kB
+Flash: 452.5MB Used: 53.6MB Available: 398.9MB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 00:59:22
+Bootloader version : 8.24.0
+
+
+Current software   : x960-tb277.rel
+Software version   : awplus_main-20261020-78
+Build date         : Tue Oct 20 08:40:57 UTC 2026
+
+Current boot config: flash:/default.cfg (file exists)
+
+System Name
+ awplus
+System Contact
+
+System Location
+```
+```
+Boot configuration
+--------------------------------------------------------------------------------
+Current software   : x960-tb277.rel 
+Current boot image : flash:/backup.rel (file exists)
+Backup  boot image : Not set 
+Default boot config: flash:/default.cfg
+Current boot config: flash:/default.cfg (file exists)
+Backup  boot config: Not set 
+Autoboot status    : disabled
+Boot Security Level: none
+```
+
+## HEALTH sample 1 -- before step 1 (STANDING-ORDERS section 8)
+
+Read on the console; the full output stayed on the box and only the filtered lines are here.
+
+**`show reboot history`** (newest 6 of a long list; the full list is in the console transcript
+`/tmp/ckA1159/console-u2.log`):
+```
+<date> <time> <type> <description>
+-------------------------------------------------------------------------
+2026-10-20 21:56:17 Expected   CLI(user request)
+2026-10-20 21:40:39 Expected   CLI(user request)
+2026-10-20 21:37:05 Expected   CLI(user request)
+2026-10-16 06:22:04 Expected   CLI(user request)
+```
+Newest entry **2026-10-20 21:56:17 Expected CLI(user request)** -- that is the Test Engineer's
+own reboot after the image update this morning (21:56 UTC = 10:56 NZDT), and it is the newest
+entry in both samples. Nothing in this case reboots anything.
+
+**`show exception log`**:
+```
+<date> <time> <facility>.<severity> <program[<pid>]>: <message>
+-------------------------------------------------------------------------
+None
+-------------------------------------------------------------------------
+```
+
+**`show log | include kernel|exception|crash|restart|Unexpected`** -- see the "log sweep"
+subsection below; the filter was NOT chained with `| exclude` (x960 section 7G: AW+ silently
+swallows a chained exclusion).
+
+**`show cpu`** (head):
+```
+CPU averages:
+ 1 second: 0%, 20 seconds: 0%, 60 seconds: 0%
+System load averages:
+ 1 minute: 0.00, 5 minutes: 0.00, 15 minutes: 0.0
+Current CPU load:
+ userspace: 0%, kernel: 0%, interrupts: 0% iowaits: 0%
+
+```
+**`show memory`** (head):
+```
+RAM total: 8092132 kB; free: 7456720 kB; buffers: 1512 kB
+
+```
+Note, carried from the 2026-10-20 handover OPEN 5: **`show cpu` on the x960 prints no idle
+percentage.** It prints CPU averages and load averages instead, and those are recorded here.
+
+## Log sweep for HEALTH sample 1
+
+`show log | include kernel|exception|crash|restart|Unexpected` -- **not** chained with
+`| exclude` (x960 section 7G). Every matching line is from the **2026-10-20 21:56:49 UTC boot**,
+which is the Test Engineer's own post-image-update reboot this morning and is the newest entry
+in `show reboot history`. Nothing matched after `2026 Oct 20 21:57:13`, except the IMISH echoes
+of this tester's own `show exception log` commands. The boot block contains two `kern.err`
+lines, quoted here because they are the only error-severity lines on the unit and they are
+**present in the BEFORE sample**, so they are pre-existing and not caused by this case:
+
+```
+2026 Oct 20 21:56:49 kern.err awplus kernel: tpm tpm0: A TPM error (256) occurred attempting the self test
+2026 Oct 20 21:56:49 kern.err awplus kernel: boardinfo-eeprom-i2c 1-0050: Failed to read eeprom data for board_index 0
+2026 Oct 20 21:56:49 kern.err awplus kernel: boardinfo-eeprom-i2c 1-0052: Failed to read eeprom data for board_index 0
+2026 Oct 20 21:57:12 daemon.notice awplus HTTP: HTTP server restarted
+2026 Oct 20 21:57:13 user.notice awplus IMISH[1772]: [SCRIPT]snmp restart isis
+```
+No crash, no exception, no unexpected reboot, no daemon restart inside this case's window.
+
+## Configs saved after setup, before step 1
+
+- `T33379/swi_d.cfg` -- 3 header lines + 112 config lines, from the DUT's `show running-config`
+  at 12:54 NZDT. It carries the underlay (`vlan 10 name ckUNDERLAY-eth3`,
+  `vlan 48 name ckUNDERLAY-eth4`, `vlan 60 name ckMGMT-A`, `interface vlan10/vlan48/vlan60`)
+  and, at line 13, **`no service telnet`** -- the DUT's telnet SERVER, untouched and off for the
+  whole case.
+- `T33379/swi_b.cfg` -- 3 header lines + 90 config lines, from swi_b at 12:55 NZDT. It carries
+  `service telnet`, `username cktmp privilege 1 password 8 $5$...` (the hash only; the
+  plaintext is not in this repo) and `ssh server allow-users cktmp`.
+
+Both written with `tools/rc2cfg.py <saved ckcon stdout> <out.cfg> <3 header lines>`.
+
+## The steps
+
+Designed by this tester (there is no authored step text -- see above). Each step says what was
+sent, what came back verbatim, and its verdict.
+
+### STEP 1 -- the DUT has a telnet CLIENT, and what its surface is
+
+**Tool:** `tools/tb qmark tb277 ckA1159 u2 115200 "telnet" "telnet 10.38.22.98" "telnet ip"
+"telnet ip 10.38.22.98"`. `qmark.py` types `<prefix> ?`, prints the completions and clears the
+line with Ctrl-U **without ever sending a CR**, so nothing is executed (memory
+`never-send-cli-help-through-a-cr-driver`). Its own self-test ran first and passed:
+`self-test OK: 'show clock ?' then Ctrl-U then CR executed nothing`.
+
+```
+awplus# telnet ?
+  WORD  IPv4/IPv6 address or hostname of a remote system
+  ip    IP telnet
+  ipv6  IPv6 telnet
+  vrf   VRF instance
+
+awplus# telnet 10.38.22.98 ?
+  PORT  TCP Port number
+  <cr>
+
+awplus# telnet ip ?
+  WORD  IPv4/IPv6 address or hostname of a remote system
+
+awplus# telnet ip 10.38.22.98 ?
+  PORT  TCP Port number
+  <cr>
+```
+
+So the client exists at privileged exec, it has an explicit **IPv4** form (`telnet ip <WORD>`),
+an IPv6 form, a VRF form and an optional **TCP port**. This is the surface TPS row 228
+"Telnet Client(IPv4)" names.
+
+⚠️ **Documentation nit worth one line:** under `telnet ip`, the help for the address argument
+still reads *"IPv4/IPv6 address or hostname of a remote system"* although the `ip` keyword has
+just restricted it to IPv4. Cosmetic; the command itself behaves correctly (STEP 4 and STEP 6).
+
+**STEP 1 verdict: PASS** -- the client surface exists and includes an explicit IPv4 form.
+
+### STEP 2 -- on the wire: the client really originates IPv4 TCP to port 23
+
+This step is graded on frame-level evidence, not on a `show` (STANDING-ORDERS section 7, and
+`platforms/x960.md` section 7F.2, where `show telnet` read Enabled while IPv4 TCP/23 was
+refused). The observation point is the testbox NIC **eth3** (10.38.22.33), which is in the
+DUT's `vlan10` and so sees anything the DUT sends to that subnet.
+
+**The control first, same instrument, nothing sent** -- `tools/tb capture tb277 ckA1159 eth3 10
+t33379-ctrl.pcap tcp port 23`:
+```
+0 packets captured / 0 packets received by filter / 0 packets dropped by kernel
+file /tmp/ckA1159/t33379-ctrl.pcap: 0 packet(s) total, 0 TCP flow(s) on port 23
+```
+**Then the leg** -- a 35 s capture on eth3 with the same filter, during which the DUT was told
+to telnet to the testbox, which runs no telnet server:
+
+```
+tcpdump: listening on eth3, link-type EN10MB (Ethernet), capture size 262144 bytes
+2 packets captured
+2 packets received by filter
+0 packets dropped by kernel
+```
+
+`tools/tb tool tb277 ckA1159 tcpflow /tmp/ckA1159/t33379-refused.pcap --port 23`:
+```
+file /tmp/ckA1159/t33379-refused.pcap: 2 packet(s) total, 1 TCP flow(s) on port 23
+
+flow 10.38.22.33:23 <-> 10.38.22.34:33506  packets=2  duration=0.000s  => REFUSED (SYN answered by RST)
+   10.38.22.34:33506 -> 10.38.22.33:23  pkts=1  payload=0 B  flags={SYN}
+   10.38.22.33:23 -> 10.38.22.34:33506  pkts=1  payload=0 B  flags={RST.ACK}
+```
+
+The control gave 0 and the leg gave 2 on the same instrument, so the zero is a measurement and
+not a dead capture (memory `tcpdump-nfs-root-squash-capture`). The capture process had exited
+before the file was read -- `tools/tb capture` wraps tcpdump in `timeout`, and the background
+job reported its expiry (exit 124) first.
+
+**What this proves:** the DUT's telnet client emits a real **IPv4 TCP SYN to port 23**, sourced
+from `10.38.22.34`, the address of the egress SVI `vlan10`; and the testbox answered `RST.ACK`,
+which is a refusal, not silence. A client that never emitted anything, and a client whose
+packet was lost, both look different from this.
+
+**STEP 2 verdict: PASS.**
+
+### STEP 3 -- end to end: a real telnet login to a real telnet server, and what the far end saw
+
+**Tool:** `tools/tb devclient tb277 ckA1159 u2 115200 --proto telnet --target 10.38.22.98
+--user cktmp --password-stdin --cmd "show system" --cmd "show users" --cmd "show telnet"
+--expect user --login-timeout 25`, with the throwaway password piped in on **stdin** (it is
+therefore not in `ps`; confirmed by reading the DUT-side `ps` line during the next leg, which
+shows `--password-stdin` and no value).
+
+**At the same time**, and on a different console, the far end captured the session with its own
+`tcpdump` (`platforms/x960.md` section 7B.2): `tools/tb ckcon tb277 ckA1159 u3 9600
+"tcpdump -i vlan60 -nn -c 20 tcp port 23"`.
+
+**(a) The DUT side, verbatim:**
+
+```
+local console prompt: awplus#
+client command: telnet 10.38.22.98
+--- before the username prompt ---
+telnet 10.38.22.98
+
+% Warning: Telnet is insecure and deprecated. Please use SSH.
+Remote host [10.38.22.98]:23.
+Connected to 10.38.22.98
+
+
+Entering character mode
+
+Escape character is '^]'.
+
+
+�awplus login: 
+--- end before the username prompt ---
+--- before the password prompt ---
+cktmp
+Password: 
+--- end before the password prompt ---
+--- after the password was sent (the far end login banner) ---
+
+AlliedWare Plus (TM) 0.0.0 10/20/26 08:40:57
+
+awplus>
+--- end after the password was sent (the far end login banner) ---
+CLIENT RESULT: USER  proto=telnet  target=10.38.22.98  user=cktmp  seconds=6.9  prompt=awplus>
+--- far end: show system ---
+System Status                                           Tue Oct 20 23:56:57 2026
+
+Stack member 1
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       704  Base    AT-x960-28YSQ                     X1-0  A10737A261700021
+PSU        685  PSU1    AT-PWR500                         X4-0  A10730G255100016
+Fan module 707  FAN1    AT-FAN05 v2                       -     -               
+--------------------------------------------------------------------------------
+RAM: Total: 1984824 kB Free: 1438212 kB
+Flash: 452.5MB Used: 53.6MB Available: 398.9MB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 01:13:03
+Bootloader version : 8.24.0
+
+
+Current software   : x960-tb277.rel
+Software version   : awplus_main-20261020-78
+Build date         : Tue Oct 20 08:40:57 UTC 2026
+
+Current boot config: flash:/default.cfg (file exists)
+[7m--More--[27m
+
+[K
+System Name
+ awplus
+System Contact
+
+System Location
+
+awplus>
+--- end far end: show system ---
+--- far end: show users ---
+Line    User            Host(s)  Idle      Location        Priv Idletime Timeout
+con 0   manager         idle     00:00:42  ttyS0           15   10       N/A
+vty 0   cktmp           idle     00:00:00  10.38.22.97     1    10       N/A
+awplus>
+--- end far end: show users ---
+--- far end: show telnet ---
+Telnet Server Configuration
+------------------------------------------------------------
+Telnet server                      : Enabled
+Protocol                           : IPv4,IPv6
+Port                               : 23
+awplus>
+--- end far end: show telnet ---
+--- logout ---
+exit
+
+Connection closed by foreign host
+awplus#
+--- end logout ---
+console returned to awplus#
+expected USER, got USER
+```
+
+**(b) The far end on the wire, from swi_b's own `tcpdump`, first 20 packets:**
+
+```
+12:57:06 >>> tcpdump -i vlan60 -nn -c 20 tcp port 23
+tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+listening on vlan60, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+23:56:55.936102 IP 10.38.22.97.37982 > 10.38.22.98.23: Flags [S], seq 1994681133, win 64240, options [mss 1460,sackOK,TS val 1612798569 ecr 0,nop,wscale 8], length 0
+23:56:55.936181 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [S.], seq 1166921358, ack 1994681134, win 65160, options [mss 1460,sackOK,TS val 111820977 ecr 1612798569,nop,wscale 8], length 0
+23:56:55.936590 IP 10.38.22.97.37982 > 10.38.22.98.23: Flags [.], ack 1, win 251, options [nop,nop,TS val 1612798570 ecr 111820977], length 0
+23:56:55.984614 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [P.], seq 1:13, ack 1, win 255, options [nop,nop,TS val 111821026 ecr 1612798570], length 12 [telnet DO TERMINAL TYPE, DO TSPEED, DO XDISPLOC, DO NEW-ENVIRON]
+23:56:55.985065 IP 10.38.22.97.37982 > 10.38.22.98.23: Flags [.], ack 13, win 251, options [nop,nop,TS val 1612798618 ecr 111821026], length 0
+23:56:55.985122 IP 10.38.22.97.37982 > 10.38.22.98.23: Flags [P.], seq 1:13, ack 13, win 251, options [nop,nop,TS val 1612798618 ecr 111821026], length 12 [telnet WILL TERMINAL TYPE, WONT TSPEED, WONT XDISPLOC, WONT NEW-ENVIRON]
+23:56:55.985145 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [.], ack 13, win 255, options [nop,nop,TS val 111821026 ecr 1612798618], length 0
+23:56:55.985278 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [P.], seq 13:19, ack 13, win 255, options [nop,nop,TS val 111821027 ecr 1612798618], length 6 [telnet SB TERMINAL TYPE SEND SE]
+23:56:55.985534 IP 10.38.22.97.37982 > 10.38.22.98.23: Flags [P.], seq 13:24, ack 19, win 251, options [nop,nop,TS val 1612798619 ecr 111821027], length 11 [telnet SB TERMINAL TYPE IS 0x76 0x74 0x32 0x32 0x30 SE]
+23:56:55.985906 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [P.], seq 19:34, ack 24, win 255, options [nop,nop,TS val 111821027 ecr 1612798619], length 15 [telnet WILL SUPPRESS GO AHEAD, DO ECHO, DO NAWS, WILL STATUS, DO LFLOW]
+23:56:55.986214 IP 10.38.22.97.37982 > 10.38.22.98.23: Flags [P.], seq 24:48, ack 34, win 251, options [nop,nop,TS val 1612798620 ecr 111821027], length 24 [telnet DO SUPPRESS GO AHEAD, WONT ECHO, WILL NAWS, SB NAWS IS 0x50 0 0x18 SE, DONT STATUS, WONT LFLOW]
+23:56:55.986431 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [P.], seq 34:37, ack 48, win 255, options [nop,nop,TS val 111821028 ecr 1612798620], length 3 [telnet WILL ECHO]
+23:56:55.987434 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [P.U], seq 37:38, ack 48, win 255, urg 1, options [nop,nop,TS val 111821029 ecr 1612798620], length 1
+23:56:55.987455 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [P.], seq 38:39, ack 48, win 255, options [nop,nop,TS val 111821029 ecr 1612798620], length 1
+23:56:55.988693 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [P.], seq 39:53, ack 48, win 255, options [nop,nop,TS val 111821030 ecr 1612798620], length 14
+23:56:55.995206 IP 10.38.22.97.37982 > 10.38.22.98.23: Flags [P.], seq 48:51, ack 53, win 251, options [nop,nop,TS val 1612798629 ecr 111821028], length 3 [telnet DO ECHO]
+23:56:56.037197 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [.], ack 51, win 255, options [nop,nop,TS val 111821079 ecr 1612798629], length 0
+23:56:56.521835 IP 10.38.22.97.37982 > 10.38.22.98.23: Flags [P.], seq 51:58, ack 53, win 251, options [nop,nop,TS val 1612799155 ecr 111821079], length 7
+23:56:56.521902 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [.], ack 58, win 255, options [nop,nop,TS val 111821563 ecr 1612799155], length 0
+23:56:56.522030 IP 10.38.22.98.23 > 10.38.22.97.37982: Flags [P.], seq 53:60, ack 58, win 255, options [nop,nop,TS val 111821563 ecr 1612799155], length 7
+20 packets captured
+23 packets received by filter
+0 packets dropped by kernel
+```
+
+**(c) The far end's own console, read independently while the session was still open**
+(STEP 6 held a second session open for 35 s for exactly this):
+```
+13:02:48 >>> show users
+Line    User            Host(s)  Idle      Location        Priv Idletime Timeout
+con 0   manager         idle     00:00:00  ttyS0           15   10       N/A
+vty 0   cktmp           idle     00:00:23  10.38.22.97     1    10       N/A
+13:02:54 >>> show log tail 12
+7[r[999;999H[6n
+<date> <time> <facility>.<severity> <program[<pid>]>: <message>
+-------------------------------------------------------------------------
+2026 Oct 21 00:02:18 daemon.notice awplus telnetd[31382]: Connection from 10.38.22.97 received.
+2026 Oct 21 00:02:20 user.notice awplus IMISH[31396]: [SCRIPT]privilege 1
+2026 Oct 21 00:02:20 user.notice awplus IMISH[31396]: [SCRIPT]exec-timeout 10 0
+2026 Oct 21 00:02:20 user.notice awplus IMISH[31396]: [SCRIPT]no length
+2026 Oct 21 00:02:20 user.notice awplus IMISH[31396]: [SCRIPT]aaa-configure cktmp enable-mode 0 cmd-acct-priv 0 update-intval 0
+2026 Oct 21 00:02:20 user.notice awplus IMISH[31396]: [cktmp@10.38.22.97]fib-id 0
+2026 Oct 21 00:02:20 user.notice awplus IMISH[31396]: [cktmp@10.38.22.97]banner exec AlliedWare Plus (TM) 0.0.0 10/20/26 08:40:57
+2026 Oct 21 00:02:20 user.notice awplus IMISH[31396]: [cktmp@10.38.22.97]show users
+2026 Oct 21 00:02:21 user.notice awplus IMISH[14582]: [manager@ttyS0]terminal length 0
+2026 Oct 21 00:02:23 user.notice awplus IMISH[14582]: [manager@ttyS0]terminal no monitor
+2026 Oct 21 00:02:41 user.notice awplus IMISH[14582]: [manager@ttyS0]show users
+2026 Oct 21 00:02:46 user.notice awplus IMISH[14582]: [manager@ttyS0]show log tail 12
+```
+
+**What this proves, and why each piece is needed:**
+- The DUT **originated** the connection: swi_b's capture shows `10.38.22.97.37982 >
+  10.38.22.98.23: Flags [S]`, a SYN from the DUT, answered `[S.]` and completed with `[.]`.
+- It is a **telnet** client, not merely a TCP client: the DUT negotiates RFC 854 options --
+  `WILL TERMINAL TYPE`, `SB TERMINAL TYPE IS 0x76 0x74 0x32 0x32 0x30` (`vt220`),
+  `DO SUPPRESS GO AHEAD`, `WILL NAWS` with `SB NAWS IS 0x50 0 0x18` (80 x 24),
+  `DONT STATUS`, `WONT LFLOW`, then `DO ECHO`.
+- The session is really **remote**: `show system` run through it returns
+  **AT-x960-28YSQ, S/N A10737A261700021, awplus_main-20261020-78** -- a different model, serial
+  and build train from the DUT (AT-x960-56YSQ, A2WQS700B, sin_x96056-20261019-27). The two
+  consoles both show the hostname `awplus`, so the serial number is what settles it.
+- The far end **authenticated** the user and recorded the client's address, in two independent
+  places: `vty 0 cktmp ... 10.38.22.97 Priv 1` in `show users`, and
+  `daemon.notice awplus telnetd[31382]: Connection from 10.38.22.97 received.` in its log.
+- The session **closed cleanly**: `exit` -> `Connection closed by foreign host` -> `awplus#`,
+  the DUT's own privileged prompt.
+- The login landed at **`awplus>`, privilege 1**, which is the documented AW+ behaviour for any
+  login (`platforms/x960.md` section 7E.6) and not a defect.
+
+**STEP 3 verdict: PASS.**
+
+### STEP 4 -- the on/off arc: the same command FAILS when the far end's server is off
+
+The point of this step is that STEP 3's success is a property of the far end's **telnet
+server**, not an artefact of the bench. Nothing on the DUT changes between the two halves; only
+`service telnet` on swi_b does.
+
+**(a) Far end OFF** -- `tools/tb cfg tb277 ckA1159 u3 9600 "configure terminal"
+"no service telnet" "end" "show telnet"`:
+```
+awplus# show telnet
+Telnet Server Configuration
+------------------------------------------------------------
+Telnet server                      : Disabled
+Protocol                           : None
+Port                               : 23
+```
+Then, on the DUT, the **identical** client command that STEP 6 later runs successfully:
+```
+local console prompt: awplus#
+client command: telnet ip 10.38.22.98
+--- connect ---
+telnet ip 10.38.22.98
+
+% Warning: Telnet is insecure and deprecated. Please use SSH.
+Remote host [10.38.22.98]:23.
+telnet: Unable to connect to remote host (10.38.22.98): Connection refused
+awplus#
+--- end connect ---
+CLIENT RESULT: REFUSED  proto=telnet  target=10.38.22.98  user=-  seconds=5.7  prompt=-
+console returned to awplus#
+expected REFUSED, got REFUSED
+```
+
+**(b) Far end back ON** -- `service telnet` on swi_b:
+```
+awplus# show telnet
+Telnet Server Configuration
+------------------------------------------------------------
+Telnet server                      : Enabled
+Protocol                           : IPv4,IPv6
+Port                               : 23
+```
+
+**STEP 4 verdict: PASS** -- the client's outcome tracks the far end's server state, and the
+explicit IPv4 form `telnet ip <host>` was used for both halves.
+
+### STEP 5 -- a credential the far end rejects is reported as a refusal, not as success
+
+Deliberately **one** attempt, with a **non-existent** username (`cknosuchuser`) rather than a
+wrong password for an account that is still needed: AW+ locks an account at 5 failed logins and
+every further attempt re-arms the timer, so a real account must never pay for a negative leg
+(`tools/README.md`, `netlogin.py`). No retry loop was run.
+
+```
+local console prompt: awplus#
+client command: telnet ip 10.38.22.98
+--- before the username prompt ---
+telnet ip 10.38.22.98
+
+% Warning: Telnet is insecure and deprecated. Please use SSH.
+Remote host [10.38.22.98]:23.
+Connected to 10.38.22.98
+
+
+Entering character mode
+
+Escape character is '^]'.
+
+
+�awplus login: 
+--- end before the username prompt ---
+--- before the password prompt ---
+cknosuchuser
+Password: 
+--- end before the password prompt ---
+--- after the password was sent (the far end login banner) ---
+
+Login incorrect
+
+awplus login: 
+--- end after the password was sent (the far end login banner) ---
+CLIENT RESULT: FAIL  proto=telnet  target=10.38.22.98  user=cknosuchuser  seconds=8.9  prompt=-
+console returned to awplus#
+expected FAIL, got FAIL
+```
+
+The far end re-presented `awplus login:` after the password, which is how a refused AW+ telnet
+login looks, and `devclient.py` graded it **FAIL** rather than reporting a session. The console
+was then recovered automatically and returned to `awplus#`.
+
+**STEP 5 verdict: PASS** -- a rejected credential is distinguishable from a successful session.
+
+### STEP 6 -- the optional TCP PORT argument is honoured, and the IPv4 form completes the arc
+
+**(a) A port with nothing listening, while port 23 on the SAME host is up:**
+```
+local console prompt: awplus#
+client command: telnet ip 10.38.22.98 2323
+--- connect ---
+telnet ip 10.38.22.98 2323
+
+% Warning: Telnet is insecure and deprecated. Please use SSH.
+Remote host [10.38.22.98]:2323.
+telnet: Unable to connect to remote host (10.38.22.98): Connection refused
+awplus#
+--- end connect ---
+CLIENT RESULT: REFUSED  proto=telnet  target=10.38.22.98  user=-  seconds=5.7  prompt=-
+console returned to awplus#
+expected REFUSED, got REFUSED
+```
+`Remote host [10.38.22.98]:2323.` and a refusal, at the same moment that TCP/23 on
+`10.38.22.98` was accepting connections (STEP 4b and STEP 6b). So the `PORT` argument really
+selects the destination port; the refusal is port-specific, not host-specific.
+
+**(b) The explicit IPv4 form, a full session, held open for 35 s so the far end could be read
+independently from its own console:**
+```
+local console prompt: awplus#
+client command: telnet ip 10.38.22.98
+--- before the username prompt ---
+telnet ip 10.38.22.98
+
+% Warning: Telnet is insecure and deprecated. Please use SSH.
+Remote host [10.38.22.98]:23.
+Connected to 10.38.22.98
+
+
+Entering character mode
+
+Escape character is '^]'.
+
+
+�awplus login: 
+--- end before the username prompt ---
+--- before the password prompt ---
+cktmp
+Password: 
+--- end before the password prompt ---
+--- after the password was sent (the far end login banner) ---
+
+Last login: Tue Oct 20 23:56:57 UTC 2026 from 10.38.22.97
+AlliedWare Plus (TM) 0.0.0 10/20/26 08:40:57
+
+awplus>
+--- end after the password was sent (the far end login banner) ---
+CLIENT RESULT: USER  proto=telnet  target=10.38.22.98  user=cktmp  seconds=6.9  prompt=awplus>
+--- far end: show users ---
+Line    User            Host(s)  Idle      Location        Priv Idletime Timeout
+con 0   manager         idle     00:00:00  ttyS0           15   10       N/A
+vty 0   cktmp           idle     00:00:02  10.38.22.97     1    10       N/A
+awplus>
+--- end far end: show users ---
+holding the session open for 35 s
+--- logout ---
+exit
+
+Connection closed by foreign host
+awplus#
+--- end logout ---
+console returned to awplus#
+expected USER, got USER
+```
+Note `Last login: Tue Oct 20 23:56:57 UTC 2026 from 10.38.22.97` -- the far end remembers
+STEP 3's session and attributes it to the DUT.
+
+**STEP 6 verdict: PASS.**
+
+### STEP 7 -- the DUT's own telnet SERVER stayed disabled for the whole case
+
+This is both a check that the case respected its scope and a product observation: the
+**client works with the server off**. The DUT carried `no service telnet` from before the case
+(it is in `flash:/default.cfg`) and still did at the end:
+
+```
+awplus# show telnet
+Telnet Server Configuration
+------------------------------------------------------------
+Telnet server                      : Disabled
+Protocol                           : None
+Port                               : 23
+```
+
+So `service telnet` gates **only** the inbound server. TPS row 228 (Telnet Client) is satisfied
+on a unit whose telnet server is switched off, and the two are independent.
+
+**STEP 7 verdict: PASS.**
+
+## HEALTH sample 2 -- after the last step, before teardown
+
+Box time at the read: 2026-10-21 13:04 NZDT.
+
+**`show reboot history`** -- newest entries:
+```
+2026-10-20 21:56:17 Expected   CLI(user request)
+2026-10-20 21:40:39 Expected   CLI(user request)
+2026-10-20 21:37:05 Expected   CLI(user request)
+```
+**Identical to sample 1. No new reboot** -- nothing in this case reloaded or power-cycled
+anything, and no framework run was launched, so the framework's post-failure power cycle never
+armed.
+
+**`show exception log`**:
+```
+<date> <time> <facility>.<severity> <program[<pid>]>: <message>
+-------------------------------------------------------------------------
+None
+-------------------------------------------------------------------------
+```
+
+**`show log | include kernel|exception|crash|restart|Unexpected`** -- the only lines newer than
+sample 1 are this tester's own IMISH echoes of the sweep command itself:
+```
+2026 Oct 20 23:53:31 user.notice awplus IMISH[9729]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+2026 Oct 21 00:04:08 user.notice awplus IMISH[9729]: [manager@ttyS0]show exception log
+2026 Oct 21 00:04:12 user.notice awplus IMISH[9729]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+```
+**No new kernel line, no crash, no daemon restart.** The filter was run alone; it was never
+chained with `| exclude` (x960 section 7G).
+
+**`show log tail 150`** -- the only non-IMISH entries in the case's window are the expected
+record of the group setup itself, which is also the written evidence of the deliberate `write`:
+```
+2026 Oct 20 23:45:33 user.notice awplus NSM[913]: VLAN: added VID 10
+2026 Oct 20 23:45:34 user.notice awplus NSM[913]: VLAN: added VID 48
+2026 Oct 20 23:45:38 user.notice awplus NSM[913]: port1.0.10 port mode access updated VLAN
+2026 Oct 20 23:45:41 user.notice awplus NSM[913]: port1.0.48 port mode access updated VLAN
+2026 Oct 20 23:45:43 user.notice awplus NSM[913]: vlan10 installed address 10.38.22.34/27
+2026 Oct 20 23:45:46 user.notice awplus NSM[913]: vlan48 installed address 10.38.22.66/27
+2026 Oct 20 23:45:48 user.notice awplus IMI[897]: Startup-config saved on Tue Oct 20 23:45:48 2026 +0000 by manager via con0 (ttyS0)
+2026 Oct 20 23:46:18 user.notice awplus NSM[913]: VLAN: added VID 60
+2026 Oct 20 23:46:21 user.notice awplus NSM[913]: port1.0.2 VLAN mode set to trunk
+2026 Oct 20 23:46:25 user.notice awplus NSM[913]: vlan60 installed address 10.38.22.97/27
+```
+
+**`show cpu`**:
+```
+CPU averages:
+ 1 second: 0%, 20 seconds: 0%, 60 seconds: 0%
+System load averages:
+ 1 minute: 0.00, 5 minutes: 0.00, 15 minutes: 0.0
+Current CPU load:
+ userspace: 0%, kernel: 0%, interrupts: 0% iowaits: 0%
+```
+Unchanged from sample 1 (this case moves a handful of packets; there is no traffic load).
+`show cpu` on the x960 prints **no idle percentage** -- the averages above are what it gives
+(2026-10-20 handover OPEN 5).
+
+**`show memory`**:
+```
+RAM total: 8092132 kB; free: 7456720 kB; buffers: 1512 kB      <- sample 1
+RAM total: 8092132 kB; free: 7457448 kB; buffers: 1544 kB      <- sample 2
+```
+Free memory **rose** by 728 kB across the case. There is no step change and **no leak is
+claimed**: two samples cannot show one, and a leak test is its own case
+(logged-output.md section 2).
+
+**HEALTH verdict: clean.** No new reboot, exception log `None`, no new kernel/crash/restart
+line, CPU flat, memory not reduced. The run is **clean**, not confounded.
+
+## Teardown and verification
+
+**What this case changed, and what was put back:**
+
+| change | on | restored? |
+| --- | --- | --- |
+| `no service telnet` then `service telnet` (STEP 4's arc) | swi_b | **yes** -- back to the group-setup state, `Enabled / IPv4,IPv6 / 23`, confirmed by `show telnet` |
+| nothing at all | swi_d (the DUT) | n/a |
+
+**The DUT's running-config is byte-identical before and after the steps.** Proven with
+`python3 tools/rcdiff.py <pre-step show running-config> <post-step show running-config>`:
+**no output, exit 0**. That is the expected result and is itself worth recording -- the telnet
+client is a privileged-exec command with **no configuration surface at all**, so there is
+nothing to add, nothing to remove and nothing that could survive a reboot. The "also prove
+removal and persistence" floor of the standing testing-depth rule is met here by showing that
+no configuration exists to remove, rather than by removing one.
+
+**Group A's shared setup was deliberately left in place** for T33380 and T33381 (the vlan60
+management link, and swi_b's `cktmp` account and telnet server). The group-end restore recipe
+is in the campaign queue. The layer-3 underlay stays, saved, by the Test Engineer's decision.
+
+**After-run probe**, same session facts and the same run `.setup`:
+```
+opening /dev/u2, /dev/u3 ...
+  /dev/u2: ok baud=115200 banner=awplus hostname=awplus
+  /dev/u3: ok baud=9600 banner=awplus hostname=awplus
+MATCH -- the bench equals the template.
+```
+**exit 0, MATCH.**
+
+**Boot config re-read on the DUT after the case** (gate 7):
+```
+Current software   : x960-tb277.rel
+Current boot image : flash:/x960-tb277.rel (file exists)
+Default boot config: flash:/default.cfg
+Current boot config: flash:/default.cfg (file exists)
+Autoboot status    : disabled
+```
+Unchanged from the pre-run read. The `write` added the underlay to that same
+`flash:/default.cfg`; it did not change which file the unit boots.
+
+**Nothing was left running.** Every capture was a `timeout`-wrapped `tcpdump` that had already
+exited (the background jobs reported exit 124, which is `timeout` expiring), and swi_b's own
+`tcpdump -c 20` exited on its count. `tools/tb ps tb277 'devclient|tcpdump'` returned nothing
+afterwards.
+
+## Tools used, with their exact arguments
+
+| tool | arguments |
+| --- | --- |
+| `tools/tb precheck` | `tb277 u2,u3,u5` |
+| `tools/tb scratch` | `tb277 ckA1159` |
+| `tools/tb peek` | `tb277 ckA1159 u2 115200` and `... u3 9600` |
+| `tools/tb template` | `tb277` |
+| `tools/tb probe` | `tb277 --consoles u2,u3 --no-prompt --pdu 10.36.230.212 --outlet u2=1,u3=7 --name u2=swi_d,u3=swi_b --template <run .setup> --out /tmp/ckA1159/bench-state-*.md` |
+| `tools/tb ckcon` | u2 and u3, every `show` read, and swi_b's `tcpdump -i vlan60 -nn -c 20 tcp port 23` |
+| `tools/tb cfg` | u2 (group setup a and b), u3 (group setup b and c, and STEP 4's arc) |
+| `tools/tb qmark` | `tb277 ckA1159 u2 115200 "telnet" "telnet 10.38.22.98" "telnet ip" "telnet ip 10.38.22.98" "ssh" "ssh user cktmp" "ssh user cktmp 10.38.22.98" "ssh ip" "ssh ip user cktmp 10.38.22.98"` |
+| `tools/tb capture` | `tb277 ckA1159 eth3 10 t33379-ctrl.pcap tcp port 23` and `... 35 t33379-refused.pcap tcp port 23` |
+| `tools/tb tool ... tcpflow` | `/tmp/ckA1159/t33379-ctrl.pcap --port 23` and `/tmp/ckA1159/t33379-refused.pcap --port 23` |
+| `tools/tb devclient` (**new**) | the exact arguments are quoted in each step above |
+| `tools/rc2cfg.py` | the pre-step `show running-config` -> `swi_d.cfg` and `swi_b.cfg` |
+| `tools/rcdiff.py` | pre-step vs post-step `show running-config` on the DUT |
+
+### New tool added by this case: `tools/devclient.py`
+
+A device's **outbound** telnet/SSH client had no driver in `tools/`. `netlogin.py` drives the
+testbox's client INTO a device, which is the wrong direction for a "Telnet Client" or
+"SSH Client" case, and `conlogin.py` drives a serial console. `devclient.py` is the outbound
+twin: it logs in on the console, sends `telnet [ip|ipv6] <host> [PORT]` or
+`ssh [ip|ipv6] [port N] [user U] <host>`, answers the far end's login and password prompts,
+runs commands ON THE FAR END, can hold the session open, logs out, and **always recovers the
+console** -- with the telnet `Ctrl-]`/`quit` and the ssh `~.` escapes as the fallback. It
+grades the outcome `PRIV|USER|FAIL|REFUSED|TIMEOUT`, with an exit code per outcome and an
+`--expect` check. The password can be passed on **stdin** (`--password-stdin`) so it never
+appears in `ps`. Catalogued in `tools/README.md`, and registered with `tools/tb` so it runs as
+`tools/tb devclient <TB> <scratch> <uN> <baud> ...`.
+
+Also changed, in the same commit as the group setup: `tools/tb` now forwards
+`CK_USER` / `CK_PASSWORD` / `CK_USER_U<N>` / `CK_PASSWORD_U<N>` to the box **over stdin**,
+because ssh forwards no environment and a password on the remote command line is readable by
+every other user on this shared box. That is what let swi_b (u3), which is on a non-default
+password, be driven at all.
+
+## Transcripts
+
+Raw console transcripts stayed on the box and are not committed, as logged-output.md section 2
+requires: `/tmp/ckA1159/console-u2.log` and `/tmp/ckA1159/console-u3.log`. The pcaps are
+`/tmp/ckA1159/t33379-ctrl.pcap` and `/tmp/ckA1159/t33379-refused.pcap`.
+
+## Run label
+
+**clean** -- both health samples are clean, the before and after probes both exit 0 MATCH, the
+DUT's running-config is byte-identical across the steps, and no step was skipped.
+
+VERDICT: PASS -- the DUT originates IPv4 telnet sessions as a client: proven on the wire (a SYN to TCP/23 from its own SVI address, with full RFC 854 option negotiation captured at the far end) and end to end (an authenticated login to swi_b, commands run there, and the far end logging the session as coming from 10.38.22.97), with a server-off control, a refused-credential control and a wrong-port control that all failed as they should.
