@@ -156,7 +156,24 @@ quiet gap, and refuses the forced password-change dialog.
 - **Where:** testbox; **needs:** pyserial
 - **Imports:** console
 - **Limits:** AW+ `login:` / `Password:` / `#` / `>` prompts only
-- **Status:** verified 2026-10-02 on tb470, IE520 standalone (u3), read-only (through cfg, poll)
+- 🔴 **A credential is submitted ONCE** (`cred_attempts=1`). `tries` bounds prompt navigation
+  only -- bare CRs, `enable`, an already-open session -- none of which costs an authentication
+  attempt. **AW+ locks an account at five failed logins and every further failure re-arms the
+  five-minute timer**, so a lock cannot expire while anything retries. Until 2026-10-22 this
+  function looped `tries=5` re-sending a full credential on every rejection -- a retry count
+  exactly equal to the lockout threshold -- and it locked a partner switch mid-campaign
+  (tb277 swi_b, five attempts in forty seconds). `Login incorrect` now returns False at once:
+  a rejection is an answer, not a reason to try again. Raise `cred_attempts` only with a reason.
+- **It types the username slowly below 19200 baud.** At 9600 a single fast write truncates on
+  the wire -- the device echoed `ma`, then `manag`, and went straight to `Password:`, so a
+  CORRECT credential was evaluated against a mangled username and failed. If the echo still
+  comes back truncated, it returns False rather than submit a password that would fail and
+  count. A console with echo switched off is not mistaken for a truncation.
+- **Status:** verified 2026-10-02 on tb470, IE520 standalone (u3), read-only (through cfg, poll).
+  Re-verified 2026-10-22 on tb277, x960-56YSQ (u2) after the single-attempt fix: a good
+  credential logs in in 4.3 s; a bad one returns False after **exactly one** `Login incorrect`
+  (the old loop produced five); an already-privileged console returns True having submitted
+  nothing.
 
 ### `ckcon.py`
 Runs a list of CLI commands on one console and prints each with its output. With
