@@ -1092,3 +1092,233 @@ unexplained:
   => The run is labelled CLEAN, not confounded. The DIRTY exit code is recorded above in
      full, with the raw sample paths, so the Test Engineer can disagree -- that call is
      the Test Engineer's, not the tester's. It is also surfaced on the RESULT line.
+
+6b. THE PERSISTENCE LIMB COUNTED ON THE WIRE -- and the kiss-o'-death mechanism PINNED
+tb277$ tools/tb tool tb277 ntp61022 ntpwire /tmp/ntp61022/t44299-s6-persist.pcap
+   (780 s capture, started 23:30:11 UTC -- 4 s BEFORE the reload -- writer confirmed
+    exited at 12:43:11 local before the file was read)
+
+23:31:26.742242 v6 fd32:b1f0:dff8:1603::34 :51968 -> fd32:b1f0:dff8:1603::1 :123  client v4 LI=ok st=0 refid=---- xmit=18:06:43.446070
+23:31:26.742682 v6 fd32:b1f0:dff8:1603::1  :123   -> fd32:b1f0:dff8:1603::34 :51968 server v4 LI=ok st=5 refid=10.32.16.2 xmit=23:31:26.742587
+23:31:28.764335 v6 fd32:b1f0:dff8:1603::34 :36860 -> fd32:b1f0:dff8:1603::1 :123  client v4 LI=ok st=0 refid=---- xmit=08:53:57.958659
+23:31:28.764794 v6 fd32:b1f0:dff8:1603::1  :123   -> fd32:b1f0:dff8:1603::34 :36860 server v4 LI=ok st=5 refid=10.32.16.2 xmit=23:31:28.764705
+23:31:30.796049 v6 fd32:b1f0:dff8:1603::34 :48943 -> fd32:b1f0:dff8:1603::1 :123  client v4 LI=ok st=0 refid=---- xmit=20:47:18.081836
+23:31:30.796506 v6 fd32:b1f0:dff8:1603::1  :123   -> fd32:b1f0:dff8:1603::34 :48943 server v4 LI=ok st=5 refid=10.32.16.2 xmit=23:31:30.796417
+23:32:37.299820 v6 ... :59765 -> ... client   / reply paired
+23:33:42.612822 v6 ... :45615 -> ... client   / reply paired
+23:34:47.866674 v6 ... :43043 -> ... client   / reply paired
+23:35:52.453798 v6 ... :39720 -> ... client   / reply paired
+   ... continuing at the same cadence ...
+23:40:11.023149 v6 fd32:b1f0:dff8:1603::1  :123   -> fd32:b1f0:dff8:1603::34 :48430 server v4 LI=ok st=5 refid=10.32.16.2
+23:41:15.149689 v6 fd32:b1f0:dff8:1603::34 :47818 -> fd32:b1f0:dff8:1603::1 :123  client v4 LI=ok st=0 refid=----
+23:41:15.150187 v6 fd32:b1f0:dff8:1603::1  :123   -> fd32:b1f0:dff8:1603::34 :47818 server v4 LI=ok st=5 refid=10.32.16.2
+23:42:19.233744 v6 fd32:b1f0:dff8:1603::34 :44315 -> fd32:b1f0:dff8:1603::1 :123  client v4 LI=ok st=0 refid=----
+23:42:19.234144 v6 fd32:b1f0:dff8:1603::1  :123   -> fd32:b1f0:dff8:1603::34 :44315 server v4 LI=ok st=5 refid=10.32.16.2
+
+ntpwire: 26 frames in the capture, 26 NTP packets on port(s) 123
+  by family: IPv6=26
+  by mode:   client(3)=13  server(4)=13
+  fd32:b1f0:dff8:1603::1  -> fd32:b1f0:dff8:1603::34   13
+  fd32:b1f0:dff8:1603::34 -> fd32:b1f0:dff8:1603::1    13
+  pairing:   requests=13 replies=13  paired=13 unpaired=0 unanswered=0
+
+  READING IT:
+   - PERSISTENCE IS PROVED BY PACKETS, not by a `show`. The first frame in the whole
+     780 s capture is at 23:31:26 -- AFTER the boot. The capture was already running 4 s
+     before the `reload`, so the absence of anything earlier also records the DUT going
+     down. The first post-boot poll is 8 s after the login prompt (23:31:18) and 71 s
+     after the reload was issued, with NOTHING typed into the device.
+   - 13 requests, 13 replies, 13 paired, 0 unanswered, over 11 minutes. The client did
+     not merely start; it kept running.
+   - all 26 packets IPv6. Still no IPv4 NTP anywhere in this case.
+   - NO kiss-o'-death, NO `refid=RATE`, NO LI=3 reply, in any of the 13 exchanges.
+
+🔴 THE KISS-O'-DEATH MECHANISM IS NOW PINNED BY DATA, not inferred.
+   The hypothesis from step 7 was that tb277's `limited kod` restriction reacts to the
+   SHAPE of the boot burst rather than to the address family. The capture settles it:
+       this run, post-boot burst : 23:31:26.742  /  23:31:28.764  /  23:31:30.796
+                                   -- THREE polls, about 2 s apart, three source ports
+       2026-10-21 IPv4 cold boot : two polls IN THE SAME MILLISECOND (04:08:51.165018
+                                   and 04:08:51.165147) from two source ports
+                                   -> one normal reply, one stratum-0 KoD `refid RATE`
+   A burst spaced 2 s apart does not exceed the server's rate limit; two packets in the
+   same millisecond does. THE DIFFERENCE IS THE BURST SHAPE, NOT IPv4 VERSUS IPv6, and
+   the 10 m 55 s convergence recorded yesterday remains a property of THIS BENCH'S ntpd,
+   not of the DUT. Nothing in this case supports any statement that IPv6 NTP recovers
+   faster than IPv4 NTP on this product.
+   After the settled cadence begins, the interval is a clean 64-65 s throughout.
+
+--------------------------------------------------------------------------------
+TEARDOWN -- and the proof that it worked
+--------------------------------------------------------------------------------
+awplus#configure terminal
+awplus(config)#no ntp server fd32:b1f0:dff8:1603::1
+awplus(config)#interface vlan10
+awplus(config-if)#no ipv6 address fd32:b1f0:dff8:1603::34/64
+awplus(config-if)#end
+awplus#write
+Building configuration...
+[OK]
+
+RE-READ TO PROVE IT -- never the absence of an error:
+awplus#show running-config | include ntp
+                                           <-- NOTHING
+awplus#show startup-config | include ntp
+                                           <-- NOTHING: removed from BOTH, as required
+awplus#show running-config interface vlan10
+!
+interface vlan10
+ ip address 10.38.22.34/27
+!
+                                           <-- the IPv4 underlay intact, the case's IPv6
+                                               address gone
+awplus#show startup-config | include ipv6 address fd32
+                                           <-- NOTHING
+awplus#show ipv6 interface brief
+Interface             IP-Address         Status          Protocol
+eth0          fe80::d0d2:a5ff:fe6c:ffaf/64    preferred    admin up    running
+lo            unassigned                      N/A          admin up    running
+vlan1         fe80::e21a:eaff:fed4:7043/64    preferred    admin up    running
+vlan10        unassigned                      N/A          admin up    running
+vlan48        unassigned                      N/A          admin up    running
+vlan60        unassigned                      N/A          admin up    running
+                                           <-- vlan10 back to `unassigned`, exactly the
+                                               pre-case state
+awplus#show ntp status
+                                           <-- COMPLETELY EMPTY
+awplus#show ntp associations
+                                           <-- COMPLETELY EMPTY
+awplus#show boot
+Current software   : x960-tb277.rel 
+Current boot image : flash:/x960-tb277.rel (file exists)
+Default boot config: flash:/default.cfg
+Current boot config: flash:/default.cfg (file exists)
+Autoboot status    : disabled
+                                           <-- BOOT BASELINE RESTORED AND UNCHANGED
+awplus#show clock
+UTC Time:   Wed, 21 Oct 2026 23:44:16 +0000     <- box UTC 23:44:18: the DUT still agrees
+                                                   with the box to within the console's
+                                                   own read latency
+
+RUNNING-CONFIG DIFF, post-setup capture vs post-teardown capture:
+$ diff rc-after-setup rc-after-teardown
+102d101
+<  ipv6 address fd32:b1f0:dff8:1603::34/64
+  ONE LINE, and it is exactly the one line this case added. Nothing else in the
+  configuration moved. In particular `vlan 60` (the Test Engineer's, on port1.0.2, the
+  RSTP root port) and the vlan10 / vlan48 IPv4 L3 underlay are untouched.
+
+POST-RUN PROBE
+tb277$ tools/tb probe tb277 --consoles u2 --no-prompt --pdu 10.36.230.212 \
+         --outlet u2=1 --name u2=swi_d --baud 115200
+$ bench_probe.py --box tb277 diff tb277/bench-state.md <this group's run .setup>
+MATCH -- the bench equals the template.                            <-- exit 0
+  The probe's own exit was 1, for ONE NEEDS-CHECK line:
+      [portlink] tb-swi_a eth2   CHECK_CABLE
+      NIC has link but its MAC was not learned on any switch port
+      bench = (absent)   template = eth2-port1.0.1
+  That is the known STALE TEMPLATE LINE triage already adjudicated today: the box's eth2
+  is cabled to swi_d's OUT-OF-BAND eth0 management port, not to a switchport, so its MAC
+  is correctly learned on no switch port. It is not a mis-cable, it concerns swi_a which
+  this session never opened, and this run did not cause it. Against THIS GROUP'S run
+  .setup the bench is an exact MATCH.
+  As at the pre-run gate, the probe regenerated bench-setup/tb277/bench-state.md as a
+  swi_d-only record and the tracked file was reverted to the committed three-unit
+  version; the regeneration is kept in the tester's scratchpad.
+
+CONSOLE LEFT CLEAN AND LOGGED OUT (shared box)
+awplus#end
+^
+% Invalid input detected at '^' marker.
+   -> expected and harmless: the console was ALREADY at the exec prompt, where `end` is
+      not a valid command. It is recorded rather than hidden, because a `% ` line is
+      never passed over silently.
+awplus#terminal no monitor
+awplus#exit
+
+awplus login:
+tb277$ tools/tb peek tb277 ntp61022 u2 115200
+  /dev/u2 TAIL: 'awplus login:'
+TRANSCRIPT TAIL (the authoritative record of the final state, not the tool's stdout):
+  /tmp/ntp61022/console-u2.log
+    exit
+    awplus login: 
+    ===== closed /dev/u2 at 2026-10-22 12:47:09 =====
+  -> u2 is logged out and back at the login prompt: EXACTLY the state found at the
+     pre-run gate. u3 and u5 were never opened at any point in this case.
+
+NOTHING LEFT RUNNING
+tb277$ tools/tb ps tb277 'tcpdump|ntpc|ntpwire'   -> no processes. All four captures were
+  time-bounded (`timeout <secs> tcpdump`) and every one was confirmed exited before its
+  file was read. No watcher, sender or capture is still running.
+
+FILES SAVED
+  tb277/x960/ntp6-2026-10-22T1122/tb277-u2.setup        the run .setup (swi_d only)
+  .../T44299/swi_d.cfg                                   post-setup running-config
+  .../T44299/work/run1.log                               this log
+  .../T44299/work/health-u2-before.out                   raw §8 health sample, before
+  .../T44299/work/health-u2-after.out                    raw §8 health sample, after
+  on the box, in /tmp/ntp61022/ (all small, all bounded):
+    t44299-s0-baseline.pcap    28 frames   step 0, the baseline-off control
+    t44299-s1-sync.pcap        88 frames   steps 1-3, the deciding capture
+    t44299-s4-clockfix.pcap    22 frames   step 4, the clock-correction window
+    t44299-s5-removed.pcap      0 frames   step 5, the removal control
+    t44299-s6-persist.pcap     26 frames   steps 6-7, the cold-boot persistence
+    console-u2.log                         the full console transcript
+    health-u2-20261022T120721.out(.json)   health before
+    health-u2-20261022T123358.out(.json)   health after
+
+--------------------------------------------------------------------------------
+OBSERVATIONS FOR THE TEST ENGINEER (not part of the verdict)
+--------------------------------------------------------------------------------
+1. 🔴 SWI_D'S OUT-OF-BAND eth0 LINK-LOCAL CHANGED ACROSS THE REBOOT, so a bench note
+   written today is already stale.
+       before this case's reload : eth0  fe80::9c31:61ff:fef7:77e7/64
+       after it                  : eth0  fe80::d0d2:a5ff:fe6c:ffaf/64
+   Those derive from two completely different MACs (9c:31:61:f7:77:e7 ->
+   d2:d2:a5:6c:ff:af), so eth0's MAC is not stable across a boot on this unit. It matters
+   because TODAY'S TRIAGE recorded, as a bench fact, that "box eth2 is cabled to swi_d's
+   eth0, proven: fe80::9c31:61ff:fef7:77e7 is swi_d eth0 and the box holds it on dev
+   eth2". That proof is still sound but its ADDRESS is now wrong, and the box's `ip -6
+   neigh` will hold a stale entry. Anyone re-checking that cabling after any swi_d reboot
+   must re-read eth0's link-local rather than look for the old one.
+   Not caused by configuration: this case never touched eth0. eth0 carries
+   `ipv6 enable` + `ipv6 address dhcp` in running-config, both pre-existing.
+2. The campaign's own vlan1 link-local (fe80::e21a:eaff:fed4:7043) and the vlan10 MAC
+   (e0:1a:ea:d4:70:43) are UNCHANGED across the same reboot, so this is specific to the
+   out-of-band management port, not to the switch's MACs generally.
+3. `show cpu` on this platform prints BUSY averages over 1 s / 20 s / 60 s and never an
+   idle percentage, which is what the HEALTH template asks for. Recorded in both samples
+   as the busy figure, per the campaign queue's standing note.
+
+--------------------------------------------------------------------------------
+SUMMARY OF STEPS
+--------------------------------------------------------------------------------
+  STEP 0  baseline OFF on the wire: 28 frames, 0 NTP                          PASS
+  STEP 1  configure an IPv6 client: reachable + unreachable control           PASS
+  STEP 2  polls, is answered, SYNCHRONISES; control unused                    PASS
+  STEP 3  8 requests / 8 replies / 8 paired, 0 to the control                 PASS
+  STEP 4  a real 50.914095 s clock correction made over IPv6                  PASS
+  STEP 5  removal: 0 NTP packets in 170 s with the leg pinging 4/4            PASS
+  STEP 6  survives a cold boot, proved by packets with nothing typed          PASS
+  STEP 7  re-acquisition from cold measured: 20 s from the login prompt       PASS
+  No step was skipped. No step was graded from a `show` command alone.
+
+RUN LABEL: CLEAN.
+  The health tool's automatic verdict was DIRTY (exit 4). It is adjudicated in full in
+  the health section above: the single new reboot entry is this case's OWN permitted
+  reload, recorded by the device as "Expected CLI(user request)" 3 s after it was issued,
+  and all 35 flagged lines are that boot's ordinary kernel banner. The exception log is
+  None in both samples. Nothing is unexplained, so the run is not confounded. The raw
+  samples are saved in work/ so the Test Engineer can reach a different conclusion.
+
+VERDICT: PASS -- the AT-x960-56YSQ works as an IPv6 NTP client. It originates NTPv4
+mode-3 requests to a configured IPv6 server on the wire (8, 11, 13 and 13 requests in
+four separate captures, every one answered and paired on the origin timestamp), it
+reaches Stratum 6 from a stratum-5 IPv6 source and reports itself synchronised, it uses
+the time it receives to correct the clock (a real 2.241471 s step from configuration and
+a real 50.914095 s step after an injected error, both matched by the DUT's own log), it
+never once polled an unreachable IPv6 server configured identically at the same moment,
+it stops completely when the configuration is removed, and the configuration survives a
+cold boot and resumes polling with nothing typed into the device. TPS row 263 says
+Supported = Yes, and the DUT supports it.
