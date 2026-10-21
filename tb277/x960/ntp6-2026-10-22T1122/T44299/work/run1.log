@@ -442,9 +442,19 @@ Leap status     : Normal
    `Ref time (UTC) Wed Oct 21 23:11:44` is 4 SECONDS after the configuration was applied
    at 23:11:40 UTC. So this DUT synchronised to an IPv6 server in about 4 s.
    (Contrast, same DUT, same server, IPv4, yesterday: about 75 s. The difference is the
-   size of the error to be corrected -- yesterday the DUT's clock was 14.8 s out and had
-   to be stepped; today it was already within microseconds. It is NOT an IPv6-vs-IPv4
-   difference and must not be reported as one.)
+   SIZE of the error to be corrected, not the address family -- yesterday the DUT's clock
+   was 14.836 s out; today it was 2.241 s out. It is NOT an IPv6-vs-IPv4 difference and
+   must not be reported as one.)
+
+   CORRECTED LATER IN THIS RUN, and the correction is recorded rather than quietly
+   rewritten: when step 4 read `show log | include chronyd`, it showed that this step did
+   NOT merely agree with a clock that was already right. The DUT measured and removed a
+   real 2.241471 s error through the IPv6 association, 3 s after the configuration:
+2026 Oct 21 23:11:41 daemon.warning awplus chronyd[22637]: System clock wrong by 2.241471 seconds
+2026 Oct 21 23:11:43 daemon.warning awplus chronyd[22637]: System clock was stepped by 2.241471 seconds
+   The microsecond-level `Last offset` read above is what was LEFT after that step, not
+   the error the DUT started with. So step 2 already contains a real clock correction
+   made over IPv6; step 4 then repeats it with an error of a size chosen in advance.
 
 awplus#show ntp associations
 remote          refid           st t when poll reach    delay   offset    disp
@@ -658,3 +668,136 @@ The injected error, computed from the BOX's clock at the moment of injection, so
 is known exactly and is not an estimate:
   box UTC at injection : 23:18:09  21 Oct 2026
   injected             : clock set 23:17:24 21 Oct 2026   -- 45 SECONDS BEHIND
+
+4a. THE ERROR GOES IN, AND THE RUNNING CLIENT WILL NOT TAKE IT OUT
+awplus#clock set 23:17:24 21 Oct 2026
+systemd-journald[140]: Time jumped backwards, rotating.
+awplus#show clock
+UTC Time:   Wed, 21 Oct 2026 23:17:25 +0000     <- console wall clock 23:18:17 UTC
+awplus#show ntp status
+Reference ID    : 00000000 ()
+Stratum         : 0
+Ref time (UTC)  : Thu Jan 01 00:00:00 1970
+System time     : 0.000000000 seconds slow of NTP time
+Last offset     : +0.000028195 seconds
+RMS offset      : 0.000064264 seconds
+Frequency       : 1.838 ppm slow
+Residual freq   : +0.000 ppm
+Skew            : 0.000 ppm
+Precision       : 0 (1.000000000 seconds)
+Root delay      : 1.000000000 seconds
+Root dispersion : 1.000000000 seconds
+Update interval : 64.2 seconds
+Leap status     : Not synchronised
+
+  The manual set took effect instantly and knocked the client out of synchronisation:
+  Stratum 0, Reference ID 00000000 with an EMPTY parenthesis, reference time back at the
+  1970 epoch, Leap status "Not synchronised".
+
+awplus#@sleep 100
+awplus#show clock
+UTC Time:   Wed, 21 Oct 2026 23:19:07 +0000     <- console wall clock 23:19:59 UTC
+awplus#show ntp status
+   ... identical: Stratum 0, Reference ID 00000000 (), Ref time 1970,
+       Leap status : Not synchronised
+awplus#show ntp associations
+remote          refid           st t when poll reach    delay   offset    disp
+--------------------------------------------------------------------------------
+  fd32:b1f0:dff8:1603::99 
+                  -                0 u    -   64     0        -        -       -
+  fd32:b1f0:dff8:1603::1 
+                  10.32.16.2       5 u   43   64   377    0.511 50914.20   0.002
+* system peer, # backup, + candidate, - outlier, x false ticker, @ dynamic
+
+  100 SECONDS LATER THE CLOCK IS STILL WRONG BY THE SAME AMOUNT, although the IPv6
+  association is in perfect health: `reach 377` -- eight consecutive answered polls, the
+  maximum -- from fd32:b1f0:dff8:1603::1 at stratum 5 with 0.511 ms delay. The DUT is
+  receiving good IPv6 time and REPORTING the error exactly: `offset 50914.20` ms.
+  It has also dropped the `*` system-peer marker from that server.
+  Note the actual injected error is 50.914 s, not the 45 s aimed for: the 45 s was
+  computed from the box's clock a few seconds before the command was typed and logged in.
+  The size that matters is the one the DUT itself measures, and it is used below.
+
+  This is yesterday's IPv4 finding, now confirmed on IPv6 (platforms/x960.md §7H.5):
+  A RUNNING chronyd will not step a clock that `clock set` moved under it. It keeps
+  polling, keeps being answered, and keeps reporting the true offset, but it leaves the
+  clock wrong. Anyone who sets a clock by hand on a synchronised AW+ device and then
+  waits for NTP to put it back will wait indefinitely.
+
+4b. THE CORRECTION: RESTART THE CLIENT, AND IT STEPS THE CLOCK OVER IPv6
+awplus#configure terminal
+awplus(config)#no ntp server fd32:b1f0:dff8:1603::1
+awplus(config)#ntp server fd32:b1f0:dff8:1603::1
+awplus(config)#end
+   (issued at box UTC 23:20:34 - 23:20:36)
+
+awplus#show ntp status                       <- first read, box UTC 23:20:48
+Reference ID    : 09D7146F (fd32:b1f0:dff8:1603::1)
+Stratum         : 6
+Ref time (UTC)  : Wed Oct 21 23:20:41 2026
+System time     : 0.000005238 seconds slow of NTP time
+Last offset     : -0.000008565 seconds
+RMS offset      : 0.000008565 seconds
+Frequency       : 1.838 ppm slow
+Residual freq   : +7.372 ppm
+Skew            : 0.616 ppm
+Precision       : -22 (0.000000238 seconds)
+Root delay      : 0.045314442 seconds
+Root dispersion : 0.010160509 seconds
+Update interval : 2.0 seconds
+Leap status     : Normal
+
+awplus#show clock
+UTC Time:   Wed, 21 Oct 2026 23:20:49 +0000     <- console wall clock 23:20:51 UTC:
+                                                   the DUT agrees with the box again
+awplus#show ntp associations
+remote          refid           st t when poll reach    delay   offset    disp
+--------------------------------------------------------------------------------
+  fd32:b1f0:dff8:1603::99 
+                  -                0 u    -  128     0        -        -       -
+* fd32:b1f0:dff8:1603::1 
+                  10.32.16.2       5 u   10   64    17    0.591    0.114   0.001
+* system peer, # backup, + candidate, - outlier, x false ticker, @ dynamic
+
+THE DUT'S OWN LOG, which is the primary evidence for this step:
+awplus#show log | include chronyd
+2026 Oct 21 23:11:41 daemon.warning awplus chronyd[22637]: System clock wrong by 2.241471 seconds
+2026 Oct 21 23:11:43 daemon.warning awplus chronyd[22637]: System clock was stepped by 2.241471 seconds
+2026 Oct 21 23:17:26 daemon.warning awplus chronyd[22637]: Backward time jump detected!
+2026 Oct 21 23:19:48 daemon.warning awplus chronyd[23156]: System clock wrong by 50.914095 seconds
+2026 Oct 21 23:20:39 daemon.warning awplus chronyd[23156]: System clock was stepped by 50.914095 seconds
+   (a single `| include` was used. `| include` is NEVER chained with `| exclude` on AW+:
+    the whole string after `include` is taken as one alternation pattern, so the second
+    filter silently becomes another alternative and the output LOOKS filtered and is not.
+    platforms/x960.md §7G.)
+
+  Reading the log, line by line:
+   - 23:11:41 / 23:11:43, pid 22637: the step-2 correction. A real 2.241471 s error,
+     measured and removed 3 s after `ntp server fd32:b1f0:dff8:1603::1` was applied,
+     entirely over IPv6.
+   - 23:17:26, pid 22637: "Backward time jump detected!" -- the daemon SAW our
+     `clock set`, and still did not undo it.
+   - 23:19:48 / 23:20:39, pid 23156: THE PID HAS CHANGED. The
+     `no ntp server ...` / `ntp server ...` pair restarted the time daemon; it is not the
+     same process that was running before. The fresh daemon measured the error as
+     50.914095 s and STEPPED THE CLOCK BY 50.914095 s.
+   - The two timestamps on that last pair look 51 s apart and are not: the "wrong by"
+     line was written while the clock was still 51 s slow and the "stepped by" line
+     immediately afterwards on the corrected clock. They are the same real instant.
+
+  THE CROSS-CHECK THAT MAKES THIS A MEASUREMENT RATHER THAN A STORY. Two completely
+  independent readings of the same error agree to about a tenth of a millisecond:
+      `show ntp associations` offset ... 50914.20 ms   (the DUT's NTP view, before)
+      `chronyd ... stepped by  50.914095 seconds`      (the DUT's system log, after)
+
+  TIMING. Client restarted at 23:20:36; chronyd stepped the clock at 23:20:39 (3 s) and
+  the DUT read `Leap status : Normal`, Stratum 6, on the first poll at 23:20:48 (12 s).
+  For comparison on this same bench: from configuration with a 2.2 s error, about 4 s
+  (step 2); from configuration with a 14.8 s error over IPv4, about 75 s (yesterday);
+  on a daemon restart over IPv4, about 24 s (yesterday).
+
+  => STEP 4 PASS: the DUT removed a real, independently measured 50.914095 s clock error
+     using time obtained over IPv6, and it had already removed a real 2.241471 s error the
+     same way at step 2. Being an "IPv6 NTP client" is therefore not just a matter of
+     emitting packets: the time carried in those IPv6 packets actually steers this
+     device's clock.
