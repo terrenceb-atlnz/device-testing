@@ -821,3 +821,54 @@ ntpwire: 22 frames in the capture, 22 NTP packets on port(s) 123
    - ZERO packets to or from the control address fd32:b1f0:dff8:1603::99 in this window
      too, 480 s long. The control has now held across three separate captures.
    - no kiss-o'-death and no LI=3 reply in this window either.
+
+--------------------------------------------------------------------------------
+STEP 5 -- THE REMOVAL LIMB: SILENCE ON THE WIRE, WITH THE LEG STILL UP      PASS
+--------------------------------------------------------------------------------
+Method: remove BOTH `ntp server` lines, then prove on the wire that the DUT stops
+completely. A silent capture only means something if the leg is demonstrably alive at the
+same time, so the leg is pinged inside the capture window, not before it or after it.
+The capture was started FIRST and the removal applied into it.
+
+tb277$ tools/tb capture tb277 ntp61022 eth3 170 t44299-s5-removed.pcap udp port 123
+   (started 12:26:06 local; removal applied at box UTC 23:26:11)
+
+awplus#configure terminal
+awplus(config)#no ntp server fd32:b1f0:dff8:1603::1
+awplus(config)#no ntp server fd32:b1f0:dff8:1603::99
+awplus(config)#end
+awplus#show running-config | include ntp
+                                           <-- NOTHING: both lines gone
+awplus#show ntp status
+                                           <-- COMPLETELY EMPTY again
+awplus#show ntp associations
+                                           <-- COMPLETELY EMPTY again
+awplus#show ntp counters
+                                           <-- COMPLETELY EMPTY again
+
+  The three NTP show commands have returned EXACTLY to the state recorded in the setup
+  reads before step 1. That round trip is what makes the empty read meaningful: empty ->
+  populated -> empty, driven only by configuration. It also re-confirms
+  platforms/x960.md §7H.5 in both directions on this build.
+  The removal is proved by RE-READING the configuration, never by the absence of an error.
+
+INSIDE THE SAME WINDOW, the leg was pinged to prove it was still up:
+tb277$ tools/tb ping tb277 eth3 fd32:b1f0:dff8:1603::34 4      (at 12:27:37 local)
+4 packets transmitted, 4 received, 0% packet loss, time 3024ms
+rtt min/avg/max/mdev = 0.409/0.505/0.655/0.094 ms
+
+AND THE CAPTURE:
+tb277$ tools/tb tool tb277 ntp61022 ntpwire /tmp/ntp61022/t44299-s5-removed.pcap
+ntpwire: 0 frames in the capture, 0 NTP packets on port(s) 123
+  NO NTP PACKETS. For a control leg that is the measurement, not an error.
+                                           <-- ntpwire exit 2, the control exit code
+   (writer confirmed exited at 12:28:56 before the file was read)
+
+  => STEP 5 PASS: 170 s of capture, ZERO NTP packets. The DUT's poll interval immediately
+     before the removal was 64 s, so this window covers about 2.6 polls that would have
+     happened and did not. The leg carried 4/4 ICMPv6 at 0.5 ms in the middle of that same
+     window, so the silence is the DUT's, not a dead link. The client stops completely
+     when the configuration is removed; there is no leftover polling.
+     (This capture's filter was `udp port 123` alone, which is why the frame count is 0
+     rather than "some ICMPv6 and no NTP". The independent liveness evidence is the ping,
+     taken on the same leg at the same time.)
