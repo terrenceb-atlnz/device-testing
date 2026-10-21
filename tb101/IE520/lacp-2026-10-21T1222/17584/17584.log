@@ -1,0 +1,466 @@
+================================================================================
+TEST 17584 -- LACP - Startup stable with heavy traffic
+================================================================================
+Run:      2026-10-21 12:45-14:11 NZDT.  One LACP aggregator on a 4-member stack, under traffic, through 6 events.
+          The DUT clock reads UTC and is about 85 s ahead of the box. DUT log times below are DUT UTC.
+Bench:    tb101, consoles u0,u1,u2,u3 (stack members 1,2,3,4); Test Engineer terrenceb@terrenceb-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T17584, objective "Conduct several topology changes and check that port interfaces
+          configured of LACP handles heavy traffic and still uses the virtual-mac of the stack.", 5 steps
+Build:    IE520 (DUT, 4-member VCStack) awplus_main-20261019-75 (IE520-awplus_main-20261019-75.rel,
+          build date Mon Oct 19 08:37:01 UTC 2026), bootloader 9.2.0 on all 4 members
+          tb101 host (LACP partner) Linux bonding, mode 802.3ad, on eth3 + eth4 (Intel igb, 1000 Mb/s)
+
+IE520# show system
+System Status                                           Tue Oct 20 23:47:05 2026
+
+Stack member 1
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       717  Base    AT-IE520-28GSX                    X1-0  264A23061
+--------------------------------------------------------------------------------
+RAM: Total: 506724 kB Free: 255740 kB
+Flash: 106.3MB Used: 41.4MB Available: 64.9MB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 03:16:01
+Bootloader version : 9.2.0
+
+
+Stack member 2
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       717  Base    AT-IE520-28GSX                    X1-0  264A23068
+--------------------------------------------------------------------------------
+RAM: Total: 506724 kB Free: 278636 kB
+Flash: 106.3MB Used: 41.6MB Available: 64.7MB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 03:16:01
+Bootloader version : 9.2.0
+
+
+Stack member 3
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       717  Base    AT-IE520-28GSX                    X1-0  264A23052
+--------------------------------------------------------------------------------
+RAM: Total: 506724 kB Free: 279084 kB
+Flash: 106.3MB Used: 41.7MB Available: 64.6MB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 03:16:02
+Bootloader version : 9.2.0
+
+
+Stack member 4
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       717  Base    AT-IE520-28GSX                    X1-0  264A23066
+--------------------------------------------------------------------------------
+RAM: Total: 506724 kB Free: 279100 kB
+Flash: 106.3MB Used: 47.2MB Available: 59.2MB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 03:16:02
+Bootloader version : 9.2.0
+
+
+Current software   : IE520-awplus_main-20261019-75.rel
+Software version   : awplus_main-20261019-75
+Build date         : Mon Oct 19 08:37:01 UTC 2026
+
+Current boot config: flash:/tb101-bench.cfg (file exists)
+
+System Name
+ IE520
+System Contact
+
+System Location
+Configs:  IE520.cfg (running-config after setup; saved to startup: no `write`. The setup was copied to
+          flash:/t17584.cfg and set as the boot config, so that STEP 4's reboot starts with the LAG.)
+
+VERDICT: PASS -- the LACP aggregator po1 kept heavy traffic flowing through 6 topology events, and it used
+         the stack's virtual MAC (VMAC) 0000.cd37.0d6f the whole time.
+      LAG forms with the host bond ..................... PASS  (po1 = port1.0.1 + port2.0.1, both synchronized)
+      LACP system ID is the VMAC ....................... PASS  (show lacp sys-id, the LACPDUs on the wire, and
+                                                                the host's partner MAC: all 0000.cd37.0d6f)
+      VMAC kept after every event, on every master ..... PASS  (masters 1 -> 4 -> 1, and after a full reboot)
+      Heavy traffic, both directions ................... PASS  (about 300 Mbps each way during events; 100% of
+                                                                600-690 Mbps one way after every event)
+      Loss only inside the event windows ............... PASS  (DUT port counters: in = out outside them)
+      Port-down events (2) ............................. PASS  (other LAG leg carried the traffic)
+      Member reloads (3, two of them the master) ....... PASS  (no outage above 770 ms)
+      Whole-stack reboot ............................... PASS  (LAG formed again from flash; traffic back)
+      MAC tables of the stack .......................... PASS  (each MAC on the correct port, from each master)
+      Frames the DUT must not forward .................. PASS  (0 of 500, 3 tests, beside 500 of 500 positives)
+CAVEAT:  The case asks for traffic between 4 devices in opposite pairs. tb101 has one switch (the stack) and
+         3 host links, so that part is NOT MEASURABLE here. This run used 2 routes in both directions instead:
+         host bond0 <-> po1 <-> stack links <-> port3.0.1 <-> host eth2. The LACP partner is a Linux bond, not
+         an AW+ switch. The port-down events used `shutdown` on the CLI, not a cable pull.
+         Two observations are not graded as a FAIL, because the case's expected result held:
+         O-1  At each member reload (E3, E4, E5), while the member joined again, 4 broadcast frames in one
+              30 ms window reached the far side twice. Unicast frames were never duplicated.
+         O-2  `show lacp-counter` shows "Pckt err Sent 2" on port1.0.1 after member 1 became master. The
+              LACP state did not change, and port2.0.1 shows 0.
+HEALTH:  reboots ......... 4 new entries, each caused by this case: member 1 00:14:14 (E3), member 2
+                           00:27:05 (E4), member 4 00:37:37 (E5), all members 00:50:12-13 (E6, STEP 4).
+                           All read "Expected User Request". No unexpected reboot.
+         exception log ... nothing new. The same 7 entries from 2026-10-20 01:58-02:02 UTC were there
+                           before and after (duplicate-master debug snapshots, before this run).
+         log ............. no crash, no daemon restart and no kernel error. The kernel lines are the boot
+                           (ubi0/UBIFS mount, "boardinfo: loading out-of-tree module taints kernel").
+                           Two lines from the E6 boot, both before startup completed:
+                           00:53:08 user.err IE520 apteryxd: No response from provider for path "/gui/next-filename"
+                           00:53:11 user.warning LOOPPROT[724]: Can't read AgentX packet: Connection reset by
+                           peer, connection closed: 27
+                           No daemon restarted after startup.
+         CPU ............. member 1 load 4% (1 s) / 5% (60 s) before -> 3% / 4% after
+         memory .......... member 1 free 253540 kB -> 274000 kB of 506724 kB. Every member rebooted
+                           during the case, so these two numbers do not measure a leak.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+     tb101 bond0 (802.3ad, LACP partner)                      tb101 eth2
+     = eth4 + eth3, MAC 00:0d:b9:51:4d:a2                      MAC 00:0d:b9:51:4d:a1
+        eth4 |         | eth3                                   ^      |
+             | ^       | ^         traffic flows in              |      |
+             v |       v |         both directions               |      v
+    +--------------------------------------------------------------------------+
+    |  IE520 stack, 4 x AT-IE520-28GSX                     DUT                 |
+    |  po1 (LACP, channel-group 1 mode active)              port3.0.1          |
+    |    = port1.0.1 (member 1) + port2.0.1 (member 2)      (member 3)         |
+    |  members 1-2-3-4 in a ring of stack links; member 4 is transit only     |
+    |  Stack MAC 0000.cd37.0d6f (Virtual MAC)                                  |
+    +--------------------------------------------------------------------------+
+
+  DUT     : IE520 stack, hostname IE520, virtual chassis ID 3439, `stack virtual-mac`
+            member 1 console u0, S/N 264A23061, MAC 84e3.2787.0ac0, priority 1 (master at start)
+            member 2 console u1, S/N 264A23068, MAC 84e3.2787.0780, priority 128
+            member 3 console u2, S/N 264A23052, MAC 84e3.2787.09c0, priority 128
+            member 4 console u3, S/N 264A23066, MAC 84e3.2787.0740, priority 128
+  link    : IE520 port1.0.1 <-> tb101 eth4   (1000BASE-T, member of po1)
+  link    : IE520 port2.0.1 <-> tb101 eth3   (1000BASE-T, member of po1)
+  link    : IE520 port3.0.1 <-> tb101 eth2   (1000BASE-T, access vlan 1, the far side)
+  host    : tb101 bond0 = eth3 + eth4, mode 802.3ad, miimon 100, lacp_rate fast, xmit_hash_policy layer2.
+            eth3 and eth4 also keep 10.37.101.33/27 and 10.37.101.65/27 (not used by the test).
+  host    : tb101 eth2 00:0d:b9:51:4d:a1 10.37.101.1/27
+  STP     : `no spanning-tree rstp enable` (off). `no lacp global-passive-mode enable`.
+  tools   : on tb101 (repo tools/): bondctl.py (bond build and restore), linerate.py (UDP at a set rate,
+            counted at the receiver), l2flows.py + flowstat.py + loopwin.py (4 numbered flows at 100 pps:
+            loss, outage length, duplicates), lacpdu.py (decode LACPDUs from a capture), vsend.py + vcount.py
+            (marked frames for the control tests), hostinfo.py (host NIC counters). DUT driven with
+            cfg.py, ckcon.py, ckyn.py, reloadc.py, ckreload.py, listen.py.
+  flows   : linerate A = bond0 -> eth2 (16 rotating source MACs 02:cc:0a:00:00:xx, UDP sport 5010)
+            linerate B = eth2 -> bond0 (16 rotating source MACs 02:cc:0b:00:00:xx, UDP sport 5011)
+            l2flows B02/U02 = bond0 -> eth2 broadcast/unicast; B20/U20 = eth2 -> bond0 broadcast/unicast
+
+STEP 0 -- baseline (LAG OFF)                                                done
+--------------------------------------------------------------------------------
+IE520# show stack
+Virtual Chassis Stacking summary information
+
+ID   Pending ID  MAC address        Priority  Status  Role
+1    -           84e3.2787.0ac0     1         Ready   Active Master
+2    -           84e3.2787.0780     128       Ready   Backup Member
+3    -           84e3.2787.09c0     128       Ready   Backup Member
+4    -           84e3.2787.0740     128       Ready   Backup Member
+
+Operational Status                 Normal operation
+Stack MAC address                  0000.cd37.0d6f (Virtual MAC)   <-- the VMAC the case must see later
+IE520# show lacp sys-id
+System Priority: 0x8000 (32768)
+MAC Address: 0000.cd37.0d6f
+IE520# show etherchannel
+LAG Maximum        : 124
+LAG Static  Count  : 0
+LAG Dynamic Count  : 0                                             <-- no LAG yet
+LAG Total   Count  : 0
+IE520# show running-config | include lacp|spanning|stack|hostname|boot
+hostname IE520
+stack virtual-mac
+stack virtual-chassis-id 3439
+stack 1 priority 1
+spanning-tree mode rstp
+no lacp global-passive-mode enable
+no spanning-tree rstp enable
+ stackport
+ stackport
+ stackport
+ stackport
+IE520# show interface port1.0.1 status
+Port        Name               Status      Vlan      Duplex Speed   Type
+--------------------------------------------------------------------------------
+port1.0.1   -                  connected           1 a-full a-1000  1000BASE-T
+IE520# show interface port2.0.1 status
+Port        Name               Status      Vlan      Duplex Speed   Type
+--------------------------------------------------------------------------------
+port2.0.1   -                  connected           1 a-full a-1000  1000BASE-T
+IE520# show interface port3.0.1 status
+Port        Name               Status      Vlan      Duplex Speed   Type
+--------------------------------------------------------------------------------
+port3.0.1   -                  connected           1 a-full a-1000  1000BASE-T
+IE520# show mac address-table | include port
+VLAN port             mac            fwd
+1    port3.0.1    000d.b951.4da1   forward       dynamic           <-- eth2
+1    port2.0.1    000d.b951.4da2   forward       dynamic           <-- eth3
+1    port1.0.1    000d.b951.4da3   forward       dynamic           <-- eth4
+
+  Control traffic with no LAG: one link, eth4 <-> port1.0.1, through the stack to port3.0.1 <-> eth2.
+host# linerate --tx eth4 --dst-mac 00:0d:b9:51:4d:a1 --rx eth2 --src-macs 16 --mac-prefix 02:cc:0a:00 --rate top --secs 20
+  -> sent 1171552 frames of 1500 bytes, 712.3 Mbps on the wire; received on eth2 1171552 (100.0%)
+host# linerate --tx eth2 --dst-mac 00:0d:b9:51:4d:a3 --rx eth4 --src-macs 16 --mac-prefix 02:cc:0b:00 --rate top --secs 20
+  -> sent 1165493, 708.6 Mbps on the wire; received on eth4 1165493 (100.0%)
+  This host sends at most about 700 Mbps in one direction. That is the "heavy" rate for this run.
+
+STEP 1 -- "1. Configure as shown in the Setup/Configs"                      done
+--------------------------------------------------------------------------------
+  Method: The Setup/Configs of the case are not in the test-case database. The tester built one LACP
+  aggregator from 2 stack members, with the host as the partner.
+host# bondctl up bond0 /tmp/lacp-1222/bond-state.json eth3 eth4
+  -> ip link add bond0 type bond mode 802.3ad miimon 100 lacp_rate fast xmit_hash_policy layer2
+     ip addr flush dev eth3 ; ip link set eth3 down ; ip link set eth3 master bond0
+     ip addr flush dev eth4 ; ip link set eth4 down ; ip link set eth4 master bond0
+     ip link set bond0 up ; ip link set eth3 up ; ip link set eth4 up
+IE520(config)# interface port1.0.1
+IE520(config-if)# channel-group 1 mode active
+IE520(config-if)# interface port2.0.1
+IE520(config-if)# channel-group 1 mode active
+IE520(config-if)# end
+IE520# copy running-config flash:/t17584.cfg
+  Copying... Successful operation
+IE520(config)# boot config-file flash:/t17584.cfg
+  Synchronizing file across the stack, please wait...
+  File synchronization with stack member 2 successfully completed       (then members 3 and 4)
+IE520# show boot
+Boot configuration
+--------------------------------------------------------------------------------
+Current software   : IE520-awplus_main-20261019-75.rel
+Current boot image : flash:/IE520-awplus_main-20261019-75.rel (file exists)
+Backup  boot image : Not set
+Default boot config: flash:/default.cfg
+Current boot config: flash:/t17584.cfg (file exists)               <-- STEP 4 will boot the LAG config
+Backup  boot config: Not set
+Autoboot status    : disabled
+Boot Security Level: none
+IE520# remote-diff all show running-config
+% Comparing "show running-config" on node 1 and node 2
+% Results are identical
+% Comparing "show running-config" on node 1 and node 3
+% Results are identical
+% Comparing "show running-config" on node 1 and node 4
+% Results are identical                                            <-- all 4 members have the same config
+
+  Readings after the LAG formed (12:49:45-12:49:56). Lines that start with "~" are the fields the tester
+  recorded from each command. The full output of these reads was not saved.
+IE520# show etherchannel detail
+  ~ Aggregator po1 (IfIndex 4751), Mac address 00:00:cd:37:0d:6f, Admin Key 0001 Oper Key 0001
+  ~ Receive link count 2 Transmit link count 2, Individual 0 Ready 1
+  ~ Partner LAG 0xffff,00-0d-b9-51-4d-a2,0x0009                     <-- the host bond
+  ~ Link port1.0.1 (Actor Port 5001) synchronized; Link port2.0.1 (Actor Port 6001) synchronized
+IE520# show lacp sys-id
+  ~ 0x8000, 0000.cd37.0d6f                                          <-- the VMAC
+host# bondctl status bond0       (/proc/net/bonding/bond0)
+  ~ MII up; Active Aggregator ID 2, Number of ports 2, Partner Mac Address: 00:00:cd:37:0d:6f
+  ~ eth3 and eth4: MII up 1000 Mbps, Aggregator ID 2, Link Failure Count 0, actor state 63, partner state 61
+  => STEP 1 done: po1 formed with both links synchronized. Its LACP system ID is the VMAC. The host sees the
+     VMAC as its partner. The same config is on all 4 members and is set to boot.
+
+STEP 2 -- "2. Start traffic into all 4 devices destined for opposite pair e.g.
+           Left<->right/top<->bottom."                                      PASS
+--------------------------------------------------------------------------------
+  Method: tb101 has one switch and 3 host links, so traffic between 4 devices is NOT MEASURABLE here.
+  The tester sent 2 routes in both directions through po1, at the same time (window E0, 12:54-12:56):
+host# l2flows 100 100 /tmp/lacp-1222/flows-e0 bond0 eth2
+host# linerate --tx bond0 --dst-mac 00:0d:b9:51:4d:a1 --rx eth2 --src-ip 10.37.101.34 --sport 5010 --src-macs 16 --mac-prefix 02:cc:0a:00 --rate top --secs 60
+host# linerate --tx eth2 --dst-mac 00:0d:b9:51:4d:a2 --rx bond0 --sport 5011 --src-macs 16 --mac-prefix 02:cc:0b:00 --rate top --secs 60
+host# capture eth3 and eth4 for 35 s, filter `ether proto 0x8809` (LACP)
+
+  | direction           | sent      | received by host | DUT counters                        |
+  | A bond0 -> eth2     | 1879545   | 1874531 (99.7%)  | po1 IN 1899557, port3.0.1 OUT 1899551 |
+  | B eth2 -> bond0     | 2208726   | 2207439 (99.9%)  | port3.0.1 IN 2228726, po1 OUT 2229080 |
+  Each DUT count includes the 20000 l2flows frames of that direction.
+  The 6 frames not forwarded in direction A are the host's own LACPDUs, which the DUT does not forward.
+  The host received fewer frames than the DUT sent because of the host's own receive buffer:
+  eth2 rx_fifo_errors 5054; eth3 + eth4 rx_fifo_errors 1291 = bond0 RX dropped 1291. The DUT lost nothing.
+  Direction A arrived 50.5% on port1.0.1 and 49.5% on port2.0.1, so both LAG links carried traffic.
+  l2flows: all 4 flows delivered, 0 duplicates.
+host# lacpdu.py on the eth3 and eth4 captures
+  ~ from the DUT (src 02:00:cd:37:0d:6f, one per second): actor sys 00:00:cd:37:0d:6f prio 32768 key 1,
+  ~   port 6001 on eth3 (= port2.0.1) and 5001 on eth4 (= port1.0.1), state 0x3d (Act,Agg,Sync,Coll,Dist)
+  ~ from the host (every 30 s): actor sys 00:0d:b9:51:4d:a2 key 9, partner sys 00:00:cd:37:0d:6f
+IE520# show lacp-counter
+  ~ port2.0.1 Sent 472 Recv 18, port1.0.1 Sent 473 Recv 18, Pckt err 0
+  => STEP 2 PASS: po1 forwarded every frame in both directions at 375-441 Mbps each way. The LACP actor
+     system ID that the DUT puts on the wire is the VMAC 0000.cd37.0d6f. The 4-device part of the step is
+     NOT MEASURABLE on this bench (CAVEAT).
+
+STEP 3 -- "3. Conducted multiple port down events so that topology had to change totally"   PASS
+--------------------------------------------------------------------------------
+  Method: 5 events, E1 to E5, each under traffic. During each event: l2flows at 100 pps per flow, and
+  linerate A and B at 300 Mbps each way. 300 Mbps is a rate the host can receive without its own losses,
+  so any loss measured is the DUT's or the event's. After each event, one 30 s window per direction at
+  full rate. `show stack` was read before every event. Lines that start with "~" are recorded fields.
+
+  | event | what                                   | master  | longest outage (l2flows)        | after: full rate A / B |
+  | E1    | shutdown port1.0.1 (master's LAG link) | 1       | 380 ms toward DUT, 0 toward host | 100.0% / 100.0%        |
+  | E2    | shutdown port2.0.1                     | 1       | 30 ms (no outage >= 50 ms)       | 100.0% / 100.0%        |
+  | E3    | reload stack-member 1 (master + link)  | 1 -> 4  | 770 ms toward DUT, 80 ms back    | 100.0% / 100.0%        |
+  | E4    | reload stack-member 2 (other link)     | 4       | 40 ms (no outage >= 50 ms)       | 100.0% / 100.0%        |
+  | E5    | reload stack-member 4 (master, no link)| 4 -> 1  | 30 ms (no outage >= 50 ms)       | 100.0% / 100.0%        |
+  After every event: po1 had 2 of 2 links synchronized, `show lacp sys-id` read 0000.cd37.0d6f, the host's
+  partner MAC read 00:00:cd:37:0d:6f, and the MAC table was correct.
+
+  E1 -- shutdown port1.0.1 for 68 s
+IE520(config-if)# shutdown                    12:59:41.7
+  ~ bond: Number of ports: 1, Partner Mac Address 00:00:cd:37:0d:6f; eth4 MII down; eth3 carries alone
+  ~ IE520# show etherchannel detail: Receive link count 1 Transmit link count 1; port1.0.1 disabled;
+  ~   port2.0.1 synchronized; Partner LAG unchanged
+  ~ IE520# show lacp sys-id: 0000.cd37.0d6f
+IE520(config-if)# no shutdown                 13:00:49.7
+  ~ bond: Number of ports 2, Partner Mac 00:00:cd:37:0d:6f, eth3 and eth4 MII up, Aggregator ID 2
+  ~ DUT log: 00:01:07 NSM: Port down notification received for port1.0.1 ... 00:02:19 Port up
+  ~   notification received for port1.0.1. No error.
+  Direction B (eth2 -> bond0): port3.0.1 IN +3038021 = 3008021 linerate + 30000 l2flows exactly;
+  po1 OUT +3038504. The DUT forwarded every frame, also during the shutdown.
+  Direction A (bond0 -> eth2): the host kept sending on eth4 for about 380 ms after the link went down,
+  and again for about 120 ms after it came up before the DUT's port was ready. These frames never reached
+  a working DUT port. This is the host bond's reaction time, not DUT loss.
+  => E1 PASS: one LAG link down on the master. The other link carried the traffic. The VMAC did not change.
+
+  E2 -- shutdown port2.0.1 for 69 s
+IE520(config-if)# shutdown                    13:06:06.9
+  ~ bond: Number of ports 1, Partner Mac 00:00:cd:37:0d:6f, eth3 MII down, eth4 carries alone
+  ~ IE520# show etherchannel detail: link count 1/1, port2.0.1 disabled, port1.0.1 synchronized
+  ~ IE520# show lacp sys-id: 0000.cd37.0d6f
+IE520(config-if)# no shutdown                 13:07:15.8
+  ~ bond: Number of ports 2, Partner Mac 00:00:cd:37:0d:6f, Aggregator ID 2
+  ~ IE520# show lacp-counter: port2.0.1 Sent 1065 Recv 39, port1.0.1 Sent 1067 Recv 39, Pckt err 0
+  Direction B: port3.0.1 IN +4740401 = 1702380 + 3008021 + 30000 exactly; po1 OUT +4740910.
+  The DUT forwarded every frame. Direction A lost about 0.8 s on the host's eth3 side, for the same
+  reason as E1.
+  => E2 PASS: the other LAG link down. The master's link carried the traffic. The VMAC did not change.
+
+  E3 -- reload stack-member 1 (the master, which carries port1.0.1)
+IE520# reload stack-member 1
+reboot stack master? (y/n): y                 13:12:48.3
+  ~ member 1 console: Rebooting due to User Request ... Bootloader 9.2.0 loaded ... (+110 s) VCS:
+  ~   Member 4 (84e3.2787.0740) has become the Active Master / Stack Virtual MAC is 0000.cd37.0d6f
+  ~ IE520# show stack (+126 s): 4 Active Master, 1 Init Backup
+  ~ IE520# show etherchannel detail: link count 1/1, port2.0.1 synchronized, Partner LAG unchanged
+  ~ IE520# show lacp sys-id (on the NEW master): 0000.cd37.0d6f
+  ~ IE520# show stack (+285 s): 1 Ready Backup, 2 and 3 Backup, 4 Active Master, Normal operation
+  ~ IE520# show etherchannel detail: link count 2/2, port1.0.1 and port2.0.1 synchronized
+  ~ IE520# show reboot history: member 1 2026-10-21 00:14:14 Expected User Request
+  Outage: B02 and U02 one gap of 770 ms, starting 0.97 s after the reload. B20 70 ms and 80 ms while
+  member 1 joined again. U20 none above 20 ms.
+  Duplicates: B02 frames 15588-15591 (4 broadcast frames) arrived twice on eth2, in one 30 ms window,
+  124.3 s after the reload, while member 1 was joining again (O-1).
+  => E3 PASS: the master failed over to member 4. The outage was 770 ms. The new master used the same VMAC
+     as LACP system ID, and the host saw no change of partner.
+
+  E4 -- reload stack-member 2 (carries port2.0.1); master stays member 4
+IE520# reload stack-member 2
+reboot stack-member 2? (y/n): y               13:25:38.8
+  ~ bond: Number of ports 1, Partner Mac 00:00:cd:37:0d:6f, eth3 MII down
+  ~ DUT log: 00:27:06 VCS: Member 2 has left the stack; Link down event on stack link port3.0.27 and
+  ~   port1.0.28; 00:28:57 Member 2 has joined the stack
+  ~ IE520# show stack (+288 s): all Ready, 4 Active Master
+  ~ IE520# show etherchannel detail: link count 2/2, both synchronized
+  ~ IE520# show lacp sys-id: 0000.cd37.0d6f
+  ~ IE520# show reboot history: member 2 2026-10-21 00:27:05 Expected User Request
+  Outage: none above 40 ms on any flow.
+  Duplicates: 4 broadcast frames (B02 16727, B20 16728-16730) arrived twice, in one 30 ms window at
+  13:27:40.8. This is the second when stack link port1.0.28 came up again (O-1).
+  => E4 PASS: the member with the second LAG link restarted. The master's link carried the traffic.
+     The VMAC did not change.
+
+  E5 -- reload stack-member 4 (the master now; no LAG link on it; the stack ring opens to a chain)
+IE520# reload stack-member 4
+reboot stack master? (y/n): y                 13:36:11.2
+  ~ bond: Number of ports 2, both slaves up, Link Failure Count 0 (no LAG link is on member 4)
+  ~ IE520# show stack (+248 s): 1 Active Master, 4 Syncing Backup
+  ~ DUT log: 00:37:38 VCS: Member 1 (84e3.2787.0ac0) has become the Active Master; Link down event on
+  ~   stack link port3.0.28 and port1.0.27; 00:39:29 Member 4 has joined the stack
+  ~ IE520# show lacp sys-id: 0000.cd37.0d6f
+  ~ IE520# show lacp-counter: port2.0.1 Sent 766 Recv 27, port1.0.1 Sent 1531 Recv 53 Pckt err Sent 2 (O-2)
+  ~ IE520# show reboot history: member 4 2026-10-21 00:37:37 Expected User Request
+  DUT counters: po1 IN +7589585, port3.0.1 OUT +7590038; port3.0.1 IN +7590020, po1 OUT +7590340.
+  Each output is at least as large as its input, so the DUT forwarded everything it received.
+  Outage: none above 30 ms on any flow. linerate B received 7519304 of 7520052 (100.0%).
+  Duplicates: B02 frames 20458-20461 (4 broadcast frames) arrived twice, in one 31 ms window at
+  13:38:57.6, while member 4 was joining again (O-1).
+  => E5 PASS: a master failover with the ring open gave no outage above 30 ms. Member 1 (priority 1)
+     became master. The VMAC did not change.
+  => STEP 3 PASS: 5 topology changes, 2 of them master failovers. po1 kept forwarding after every one,
+     with loss only inside each event window. The LACP system ID stayed the VMAC on every master.
+
+STEP 4 -- "4. reboot stack"                                                 PASS
+--------------------------------------------------------------------------------
+  Method: E6. A whole-stack `reload`, under l2flows and linerate A and B at 300 Mbps each way. The stack
+  boots flash:/t17584.cfg, so the LAG must form again from the saved config.
+IE520# reload
+Are you sure you want to reboot the whole stack? (y/n): y          13:48:46
+  ~ u0: Rebooting due to User Request ... reboot: Restarting system ... login after 206 s (13:52:12)
+  ~ bond (+138 s): bond bond0 has no active aggregator; eth3 and eth4 MII down
+  ~ DUT log: 00:52:21 Member 1 (84e3.2787.0ac0) has become the Active Master / Stack Virtual MAC is
+  ~   0000.cd37.0d6f; 00:53:24 po1 ... VLAN mode set to access
+  ~ bond (+321 s): MII up, Aggregator ID 2, Number of ports 2, Partner Mac Address 00:00:cd:37:0d:6f
+  ~ IE520# show stack (+350 s): all four Ready, 1 Active Master, Stack MAC 0000.cd37.0d6f (Virtual MAC)
+  ~ IE520# show boot: Current boot config flash:/t17584.cfg (file exists)
+  ~ IE520# show etherchannel detail: link count 2/2, port1.0.1 + port2.0.1 synchronized,
+  ~   Partner LAG 0xffff,00-0d-b9-51-4d-a2,0x0009
+  ~ IE520# show reboot history: all members 2026-10-21 00:50:12 (member 2 00:50:13) Expected User Request
+  About 10 minutes after the reboot:
+IE520# show lacp-counter
+Traffic statistics
+Port          LACPDUs         Marker         Pckt err
+           Sent    Recv    Sent    Recv    Sent    Recv
+Aggregator po1 (IfIndex: 4751)
+port2.0.1   662     24      0       0       0       0
+port1.0.1   661     25      0       0       2       0              <-- O-2
+IE520# show lacp sys-id
+System Priority: 0x8000 (32768)
+MAC Address: 0000.cd37.0d6f                                        <-- the VMAC after a full reboot
+  Outage: each of the 4 flows lost one block of 20250 frames = 202.5 s, from 13:48:48.3 to 13:52:10.8.
+  Nothing else above 5 frames. 0 duplicates. linerate A received 57.5% and B 57.8% over 480 s, and
+  (480 - 202.5) / 480 = 57.8%, so all loss was inside the reboot.
+host# linerate A --rate top --secs 60  -> sent 3031995 (604.8 Mbps), received 3031995 (100.0%)
+host# linerate B --rate top --secs 60  -> sent 3374191 (673.0 Mbps), received 3374191 (100.0%)
+  => STEP 4 PASS: after the full reboot, member 1 was master, po1 formed again from flash with both links,
+     and the LACP system ID was still the VMAC. Traffic came back 202.5 s after the reload and then ran at
+     100% at full rate.
+
+STEP 5 -- "5. Check traffic and MAC tables of Stack"                        PASS
+--------------------------------------------------------------------------------
+  Expected: "Traffic should be flowing without a problem The MAC tables should reflect the correct MAC
+  addresses"
+  MAC table from the master after each event (recorded fields):
+  | read after | master | on po1                                      | on port3.0.1                          |
+  | E0         | 1      | 000d.b951.4da2 (bond) + 16 x 02cc.0a00.*    | 000d.b951.4da1 (eth2) + 16 x 02cc.0b00.* |
+  | E1, E2     | 1      | same                                        | same                                  |
+  | E3, E4     | 4      | same                                        | same                                  |
+  | E5         | 1      | same                                        | same                                  |
+  | E6 (reboot)| 1      | 000d.b951.4da2 + 02cc.0a00.0001..000f       | 000d.b951.4da1 + 02cc.0b00.0001..000f |
+  After E6, po1 also held 000d.b951.4da3. That is eth4's own MAC, and eth4 is a member of the bond.
+  No MAC was learned on the wrong port.
+
+  Control flows (14:01-14:06, after STEP 4): 500 marked frames each, EtherType 0x88b5, sent with vsend.py
+  and counted with vcount.py on a capture of the receiving NIC.
+  | burst      | from        | to                                        | expected | received |
+  | N1samePort | eth2        | 02:cc:0b:00:00:01 (learned on port3.0.1)  | 0        | 0        |
+  | N2samePo1  | bond0       | 02:cc:0a:00:00:01 (learned on po1)        | 0        | 0        |
+  | N3vlan3    | eth2, tag 3 | 00:0d:b9:51:4d:a2 (port3.0.1 is vlan 1)   | 0        | 0        |
+  | P1toBond   | eth2        | 00:0d:b9:51:4d:a2 (the bond)              | 500      | 500      |
+  | P2toEth2   | bond0       | 00:0d:b9:51:4d:a1 (eth2)                  | 500      | 500      |
+  => STEP 5 PASS: every MAC address was on the correct port after every event, from every master. The DUT
+     did not forward a frame back to the port or aggregator it came from, or to another VLAN. In the same
+     capture windows it forwarded 500 of 500 frames that it should.
+================================================================================
