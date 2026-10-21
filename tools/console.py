@@ -71,7 +71,15 @@ ADVISORY = re.compile(
     # awplus_main-20261019-75): printed at `IE520(config-line)#`, and `show running-config`
     # immediately afterwards read ` exec-timeout 0 0` under `line con 0`.  Without it cfg.py
     # abandons the rest of the batch (it stopped T17509's setup at that line).
-    r"|The new exec-timeout settings will apply to new sessions only",
+    r"|The new exec-timeout settings will apply to new sessions only"
+    # `remote-diff all show running-config` (a read, not a config change) reports through
+    # `% ` lines: `% Comparing "show running-config" on node 1 and node 2` then
+    # `% Results are identical` per pair. Measured on tb101 2026-10-22 (T17509 restore, IE520
+    # awplus_main-20261019-75): `ckcon.py --stop-on-error` stopped at the first of them and
+    # skipped the `show running-config` after it. Only these two exact forms pass; a
+    # difference is printed as its own lines and graded by the reader, not by this list.
+    r'|^\s*% Comparing "show [^"]+" on node \d+ and node \d+\s*$'
+    r"|^\s*% Results are identical\s*$",
     re.I)
 
 def is_advisory(line):

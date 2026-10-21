@@ -45,6 +45,11 @@ CASES = [
     ("% port1.0.10 is currently configured as a mirror-port. Use caution when altering its config",
      True,  "ADVISORY  mirror destination port",              "tb277 T44967 2026-10-09"),
 
+    ('% Comparing "show running-config" on node 1 and node 2',
+     True,  "ADVISORY  remote-diff pair header (a read)",     "tb101 T17509 2026-10-22"),
+    ("% Results are identical",
+     True,  "ADVISORY  remote-diff result (a read)",          "tb101 T17509 2026-10-22"),
+
     # Real errors that must always stop a batch.
     ("% Incomplete command.",                                 False, "REJECTION", "tb277 T44973"),
     ("% Invalid input detected at '^' marker.",               False, "REJECTION", "tb277 no mls qos enable"),

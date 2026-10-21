@@ -177,7 +177,7 @@ quiet gap, and refuses the forced password-change dialog.
 
 ### `ckcon.py`
 Runs a list of CLI commands on one console and prints each with its output. With
-`--stop-on-error` it stops at the first `% ` line.
+`--stop-on-error` it stops at the first `% ` line that is not a known advisory (`console.ADVISORY`, the list `cfg.py` uses; since 2026-10-22, when `remote-diff all show running-config` -- whose `% Comparing ...` / `% Results are identical` lines are its report -- stopped the T17509 restore read before its `show running-config`).
 - **Run:** `ckcon.py <tty> <baud> <transcript> [--stop-on-error] CMD [CMD ...]`. Env `CKTO` sets the per-command timeout in seconds (default 90)
 - **Where:** testbox; **needs:** pyserial
 - **Imports:** console

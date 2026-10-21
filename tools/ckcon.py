@@ -106,7 +106,9 @@ try:
         print("{} >>> {}".format(time.strftime("%H:%M:%S"), line))
         if out:
             print(out)
-        if stop and any(l.lstrip().startswith("%") for l in out.splitlines()):
+        # A known advisory (console.ADVISORY, the one home cfg.py also uses) is not a CLI error.
+        if stop and any(l.lstrip().startswith("%") and not console.is_advisory(l)
+                        for l in out.splitlines()):
             print("!!! CLI error on {!r} -- stopping".format(line))
             rc = 2
             break

@@ -83,7 +83,7 @@ allowed to reconfigure whatever you need to on the ixia and the devices in order
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | T17509 Longrun test: Normal operation with IXIA traffic | tb101/IE520/longrun-2026-10-21T1824/ | PHASE C RESTORING (traffic stopped 07:04:47 10-22, graded PASS in run1.log; restore recipe in progress) | 3 phases (below): A = TRIAGE + setup + before-reads + start traffic and the detached sampler (bench-runner); B = 12 h unattended, sentinel watches the sampler's files; C = stop, after-reads, grade, restore (a fresh bench-runner dispatched by a one-shot cron at T0+12h) |
+| 1 | T17509 Longrun test: Normal operation with IXIA traffic | tb101/IE520/longrun-2026-10-21T1824/ | DONE 2026-10-22 07:25 NZDT (Phase C: PASS, restored, probe 2026-10-21T182350Z MATCH) | 3 phases (below): A = TRIAGE + setup + before-reads + start traffic and the detached sampler (bench-runner); B = 12 h unattended, sentinel watches the sampler's files; C = stop, after-reads, grade, restore (a fresh bench-runner dispatched by a one-shot cron at T0+12h) |
 
 ## The plan (agreed with Terrence 2026-10-21 ~18:00; the tester may refine mechanics, never weaken a check)
 
@@ -257,8 +257,12 @@ config-mode qmark check accepts and the post-restore `show running-config` must 
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
+| T17509 | Longrun test: Normal operation with IXIA traffic | longrun-2026-10-21T1824 | PASS | 12 h IXIA 50 % each way: 0 of 51,445,932,572 frames lost each way; VCS Normal at 13/13 samples; no reboot; no new log; memory flat; CPU < 10 %; control 0 beside 1000/1000 | tb101/IE520/longrun-2026-10-21T1824/17509/work/run1.log | bench-runner (tester), 2026-10-22 |
 
 ## Issues
+
+- 2026-10-22 07:09 (Phase C): health 2 `tools/health.py` exit 4 DIRTY only because `show exception log` is not None; its content is byte-identical before and after the run (the 2026-10-20 duplicate-master snapshots, members 1-4). Run labelled clean; sent to the sentinel as NEEDS TEST ENGINEER for confirmation (and whether to `clear exception log` after the campaign).
+- 2026-10-22 07:10 (Phase C): Phase A's work/health1.json was a truncated copy (last 199 of 373 lines, not valid JSON); replaced with the full box copy. The box file was intact, so the `--before` diff used the real baseline.
 
 - 2026-10-21 18:24: the IXIA ports were taken from Terrence's IxNetwork session on ixia-vm18-v10. **If that session
   reconnects or reapplies its config to card 10 ports 5/6 during the run it can take them back and stop the
