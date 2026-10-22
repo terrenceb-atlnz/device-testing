@@ -54,9 +54,9 @@ Peer session `device-testing-c9` (Terrence's orient session, 13:1x): *"tb470 and
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | ports: T47209 (fibre pluggable speeds), T44179 (jumbo frames) | tb470/x230v2-28GS/ports-2026-10-22T1320/ | T47209 RUNNABLE; T44179 BLOCKED | T47209: setup/restore "Group 1" below (u1 only). T44179 BLOCKED (K): see Triage 2026-10-22 13:30 |
-| 2 | mgmt: T47228 (RESTCONF interface enable/disable, VLAN add/delete), T45543 (TPM) | tb470/x230v2-28GS/mgmt-2026-10-22T1320/ | RUNNABLE | setup/restore "Group 2" below. T45543 step 3 MANUAL-ONLY, so the expected verdict is PARTIAL |
-| 3 | secure: T47119 (secure-mode SSH algorithms), T47121 (secure-mode TLS algorithms) | tb470/x230v2-28GS/secure-2026-10-22T1320/ | BLOCKED | (K): 2 reloads each under "no reboots", AND no reference unit with secure mode on the bench. See Triage 2026-10-22 13:30 |
+| 1 | ports: T47209 (fibre pluggable speeds), T44179 (jumbo frames) | tb470/x230v2-28GS/ports-2026-10-22T1320/ | T47209 RUNNABLE (go 13:4x); T44179 BLOCKED (not run, Test Engineer 13:4x) | T47209: setup/restore "Group 1" below (u1 only). T44179 BLOCKED (K): see Triage 2026-10-22 13:30 |
+| 2 | mgmt: T47228 (RESTCONF interface enable/disable, VLAN add/delete), T45543 (TPM) | tb470/x230v2-28GS/mgmt-2026-10-22T1320/ | RUNNABLE (go 13:4x) | setup/restore "Group 2" below. T45543 step 3 MANUAL-ONLY, so the expected verdict is PARTIAL |
+| 3 | secure: T47119 (secure-mode SSH algorithms), T47121 (secure-mode TLS algorithms) | tb470/x230v2-28GS/secure-2026-10-22T1320/ | BLOCKED (Test Engineer 13:4x: "ignore them for this run") | (K): 2 reloads each under "no reboots", AND no reference unit with secure mode on the bench. See Triage 2026-10-22 13:30 |
 
 ## Triage 2026-10-22 13:30 (bench-runner, read-only)
 
@@ -139,6 +139,9 @@ Path: tb470 eth2 → x230 port1.0.10 → **port1.0.25 =SX fibre= port1.0.26** �
 
 | case | verdict | reason | graded by | working log |
 | --- | --- | --- | --- | --- |
+| T44179 Jumbo Frames | NOT TESTED | BLOCKED: `platform jumboframe` needs write + 2 x230 reloads (excluded by "no reboots") and root MTU 9216 on tb470 eth1/eth2 (Test Engineer's); nothing measurable at MTU 1500. Test Engineer 2026-10-22 13:4x: "Proceed with the 3", the other three ignored for this run | sentinel (triage) | — (triage section above) |
+| T47119 secure-mode SSH algorithm sets | NOT TESTED | BLOCKED: secure mode needs write + 2 x230 reloads ("no reboots"), and no reference device with secure mode on the bench (the 4050 rejects `show secure-mode`). Test Engineer 2026-10-22: "ignore them for this run" | sentinel (triage) | — (triage section above) |
+| T47121 secure-mode TLS algorithms | NOT TESTED | BLOCKED: as T47119 (reloads + no secure-mode reference device). Test Engineer 2026-10-22: "ignore them for this run" | sentinel (triage) | — (triage section above) |
 
 ## Issues
 
