@@ -615,7 +615,20 @@ log entry.
 2. 🔴 **The framework's post-failure power cycle would not power-cycle swi_d either** on this
    bench. True for any future campaign here, not just this one.
 
-**NEEDS TEST ENGINEER (open):** the PDU outlet feeding swi_d's **second** PSU, if it is on
-`10.36.230.212` and is theirs to give. The tester deliberately did **not** hunt for it: an outlet
-outside the session facts may belong to another unit, which is STANDING-ORDERS §4.
+**✅ ANSWERED (Test Engineer, 2026-10-22):** swi_d's two supplies are **`10.36.230.212`
+outlets 1 and 8**. Recorded as a dated comment on swi_d's line in `bench-setup/tb277/tb277.static`
+(the file's `serial = name, outlet[, pdu_ip]` format holds one outlet, so the parsed field is
+unchanged and the second outlet is in the comment).
+
+The Test Engineer first gave the address as `10.36.230.121`, which is a digit transposition of
+the recorded `10.36.230.212` and had never appeared anywhere in the repo. That was **asked, not
+assumed**, because the two readings have different consequences: on `.121` today's cycle would
+have gone to **another PDU's outlet 1**, and B-1's explanation would be wrong — the DUT would
+simply never have been cut. Both PSU bays reading `Ok` afterwards is consistent with either
+story, so the evidence could not separate them. They confirmed **`.212`**, so **B-1 stands as
+measured**.
+
+🔧 **Consequence for the next campaign: a true abrupt power cut on swi_d IS now possible** —
+cycle outlets **1 and 8 together**. That is the one thing T33402 could not measure, so its
+unmeasured limb is now unblocked and worth a short re-run rather than a full one.
 
