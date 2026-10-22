@@ -1,0 +1,1146 @@
+================================================================================
+WORKING LOG -- AWPTCM-T33401, run 1
+================================================================================
+
+CASE      : AWPTCM-T33401 -- (266) Management_Operation - Syslog Facility Override
+GROUP     : oper-2026-10-22T1122   (group B, case 1 of 3)
+TESTBOX   : tb277
+CONSOLES  : u2 ONLY (swi_d). u3 and u5 were NOT opened, NOT probed and nothing was
+            typed at their login prompts -- CK_PASSWORD_U3 / CK_PASSWORD_U5 are absent
+            from this session's environment and a default-password fallback is a lockout
+            generator (AW+ locks at five failures; that is what locked swi_b on
+            2026-10-21). The Test Engineer's answer was "DUT only -- don't open u3/u5".
+TEST ENG. : bidhanc@bidhanc-dl
+CONSTRAINT: window partly attended; the Test Engineer is intermittently available, so a
+            NEEDS TEST ENGINEER: may wait and the tester carries on.
+PERMISSION: the Test Engineer granted, 2026-10-22, that swi_d may be written to
+            startup-config and reloaded as often as a case needs, provided the tester
+            removes its own configuration from BOTH running- and startup-config at the
+            end of the case and PROVES the removal by re-reading.
+RUN .setup: tb277/x960/oper-2026-10-22T1122/tb277-u2.setup -- declares swi_d and nothing
+            else, so the framework's post-failure power cycle can never reach u3 or u5.
+            Probe --consoles u2 against it: exit 0 MATCH.
+DATE      : 2026-10-22 (NZDT). The DUT runs UTC; the box displays NZDT (UTC+13).
+
+--------------------------------------------------------------------------------
+1. DEVICE AND BENCH
+--------------------------------------------------------------------------------
+
+ROLE / DEVICE
+  swi_d -- THE DUT -- AT-x960-56YSQ, S/N A2WQS700B, console u2 at 115200 on tb277.
+           Software sin_x96056-20261019-27, standalone, Active Master.
+  tb277 -- the testbox, and the ONLY partner. It plays the syslog collector, and it
+           plays it as a bounded tcpdump CAPTURE, not as a daemon: there is no UDP/514
+           listener on tb277 (rsyslog inactive with imudp commented out; syslog-ng
+           running but binding no syslog UDP port) and starting one would be a root
+           change on the box (STANDING-ORDERS §4). None is needed -- the verdict in this
+           case rests on the PRI byte that arrived, which a capture reads directly and
+           which most syslog daemons throw away.
+
+LINKS AND HOST NICs (measured this group, 2026-10-22 ~12:5x)
+  box eth3  00:0d:b9:55:77:0e  10.38.22.33/27   <-> DUT port1.0.10, vlan10 10.38.22.34/27
+  box eth4  00:0d:b9:55:77:0f  10.38.22.65/27   <-> DUT port1.0.48, vlan48 10.38.22.66/27
+  box eth2  00:0d:b9:55:77:0d  -- cabled to swi_d's OUT-OF-BAND eth0 management port, not
+            to a switchport. Not used by this case.
+  10.38.22.40 -- an UNUSED address inside vlan10's own 10.38.22.32/27. Nothing answers it.
+            It is this case's control destination.
+
+CLOCK PAIR (recorded once for the group)
+  DUT   show clock  ->  UTC Time: Wed, 21 Oct 2026 23:54:25 +0000   (Timezone UTC)
+  box   date        ->  2026-10-22 12:54 NZDT
+  The DUT runs 13 h behind the box's displayed time. Every DUT log timestamp below is
+  UTC; every box/pcap timestamp is NZDT.
+
+--------------------------------------------------------------------------------
+2. THE CASE HAS NO AUTHORED TEXT -- what was designed, and from what
+--------------------------------------------------------------------------------
+
+Read from ck.db on tb277 before dispatch: AWPTCM-T33401 has `has_objective = 0` and ONE
+step whose text is the 53-character empty-JSON placeholder. There is no objective, no
+step text and no expected result in the database. Folder
+"/New Platform Test (MASTER)/New Platform Template/Management", status Draft,
+script_type STEP_BY_STEP, label New_Platform_Management.
+
+So the case was designed, before it was run, from the three sources STANDING-ORDERS
+allows, in this order:
+
+  1. THE TITLE: "Management_Operation - Syslog Facility Override". The subject is the
+     facility field of the syslog messages the DUT sends, and the ability to OVERRIDE it.
+  2. THE X960 TPS ROW. The bracketed "(266)" in the title is NOT the TPS row number --
+     on this suite the title brackets are offset +2. The row for this case is
+     **264, "Operation / Syslog facility override (Log)", Supported = Yes**. Because the
+     TPS says Yes, a feature missing on the DUT would be a FINDING, not a bench limit.
+  3. THE DUT'S OWN CLI SURFACE, read read-only with tools/qmark.py before designing --
+     see section 3 below, which is where the first finding of this case came from.
+
+WHAT "FACILITY" IS, AND WHY THE VERDICT CANNOT REST ON `show log config`
+  A syslog message begins with one number in angle brackets, the PRI:
+
+      PRI = facility * 8 + severity                       (RFC 3164 / RFC 5424)
+
+  so "the facility was overridden" is a claim about ONE NUMBER THAT ARRIVED AT THE
+  COLLECTOR. `show log config` prints the device's own intention; it is the same class of
+  evidence as `show mirror` reading "Enabled" while the dataplane copied nothing
+  (platforms/x960.md §5). This case is therefore graded on the received PRI, decoded from
+  a bounded tcpdump capture by tools/syslogwire.py, and `show log config` is recorded
+  beside it only so the two can be compared.
+
+OBJECTIVE AS DESIGNED
+  Prove that the AT-x960-56YSQ sends syslog messages to a remote collector with the
+  default facility when none is configured; that `log facility <f>` overrides that
+  facility ON THE WIRE for every destination; that the per-destination
+  `log host <ip> facility <f>` overrides the global setting for THAT destination ONLY,
+  measured against a second destination in the SAME capture window; that the severity
+  field is untouched by either override; that a configured but unreachable destination
+  draws nothing; that the override survives a cold boot; and that removing it returns the
+  wire to the default facility and then to silence.
+
+DESIGNED STEPS, WRITTEN DOWN BEFORE THEY WERE RUN
+  STEP 0  Baseline OFF, on the wire. With no `log host` and no `log facility` configured,
+          a bounded capture on the collector leg must contain ZERO syslog packets, while
+          the same capture shows live ICMP so the instrument is proved to be looking at
+          the right wire.
+  STEP 1  Remote logging ON, facility NOT overridden. Configure the real collector and,
+          in the same breath, an unreachable CONTROL destination on the same /27. A
+          marker message must arrive with the DEFAULT facility; the control destination
+          must draw zero packets in the same window.
+  STEP 2  The GLOBAL override. `log facility local4`. The same marker must now arrive
+          with facility local4 at BOTH real destinations, and no message in that window
+          may carry the default facility.
+  STEP 3  The PER-DESTINATION override, measured against the global one in ONE window.
+          `log host 10.38.22.33 facility local5` while the global stays local4, with both
+          legs captured simultaneously: .33 must read local5 and .65 must read local4,
+          for the same messages at the same moment.
+  STEP 4  Severity is NOT collateral. A deliberately failed command emits an error-level
+          message in the same window as the notice-level markers; both must carry the
+          overridden facility and their own, different, severities.
+  STEP 5  Persistence. `write` + `reload`, and with NOTHING typed to reconfigure, the
+          overrides must still be in force on the wire after a cold boot.
+  STEP 6  Removal. `no log facility` returns the wire to the default facility;
+          `no log host ...` returns it to silence; and both running- and startup-config
+          must be clean afterwards, proved by re-reading, not by the absence of an error.
+
+--------------------------------------------------------------------------------
+3. THE CLI SURFACE, READ READ-ONLY BEFORE ANYTHING WAS CONFIGURED
+--------------------------------------------------------------------------------
+
+Tool: tools/qmark.py through the wrapper. Exact command:
+
+  CKTO=120 tools/tb qmark tb277 oper1022 u2 115200 --mode 'configure terminal' -- \
+      'log facility' 'log facility local5' 'log host' 'log host 10.38.22.33' \
+      'log host 10.38.22.33 facility' 'log host 10.38.22.33 facility local1' \
+      'no log facility' 'no log host 10.38.22.33'
+
+qmark types `<prefix> ?` with NO carriage return and then clears the line with Ctrl-U, so
+nothing is executed (its own self-test proved that first: "self-test OK: 'show clock ?'
+then Ctrl-U then CR executed nothing"). This is the only safe way to read AW+ help --
+`<cmd> ?` sent through a CR driver EXECUTES the command when `<cr>` is a valid completion
+(memory never-send-cli-help-through-a-cr-driver).
+
+  awplus(config)# log facility ?
+    auth      security/authorization messages
+    authpriv  security/authorization messages
+    cron      clock daemon
+    daemon    system daemons
+    ftp       FTP daemon
+    kern      kernel messages
+    local0    local use 0
+    local1    local use 1
+    local2    local use 2
+    local3    local use 3
+    local4    local use 4
+    local5    local use 5
+    local6    local use 6
+    local7    local use 7
+    lpr       line printer subsystem
+    mail      mail system
+    news      network news subsystem
+    syslog    messages generated internally by syslogd
+    user      user-level messages
+    uucp      UUCP subsystem
+  awplus(config)# log facility local5 ?
+    <cr>
+  awplus(config)# log host ?
+    A.B.C.D        The IP address of a remote syslog server
+    HOSTNAME       The hostname of a remote syslog server
+    X:X::X:X       The IPv6 address of a remote syslog server
+    source         Specify source interface or source address
+    startup-delay  Configure startup-delay parameters
+  awplus(config)# log host 10.38.22.33 ?
+    exclude   Eliminate matched messages
+    facility  Specify a syslog facility
+    level     Set the minimum severity of message to accept in the log (0 -
+              highest, 7 - lowest)
+    msgtext   Select messages containing a certain text string
+    program   Include messages from a specified program in the buffered log
+    secure    Enable secure logging over TLS
+    time      Specify the time offset of the remote syslog server from this device
+    vrf       VRF instance
+    <cr>
+  awplus(config)# log host 10.38.22.33 facility ?
+    auth      Security/authorization messages
+    authpriv  Security/authorization messages (private)
+    cron      Clock daemon
+    daemon    System daemons
+    ftp       FTP daemon
+    kern      Kernel messages
+    local5    UTM feature messages
+    lpr       Line printer subsystem
+    mail      Mail system
+    news      Network news subsystem
+    syslog    Messages generated internally by syslogd
+    user      Random user-level messages
+    uucp      UUCP subsystem
+  awplus(config)# log host 10.38.22.33 facility local1 ?
+  % Unrecognized command
+  awplus(config)# no log facility ?
+    <cr>
+  awplus(config)# no log host 10.38.22.33 ?
+    exclude facility level msgtext program vrf <cr>
+
+>>> READING R-1, taken from the help text BEFORE anything was configured -- and then
+>>> CORRECTED BY MEASUREMENT in step 3. It is left here with its correction because the
+>>> first reading is the one a person would naturally take from this help output.
+>>>
+>>> WHAT THE HELP SHOWS. The two commands that both contain the word `facility` do NOT
+>>> offer the same facilities:
+>>>   global          `log facility ?`                 -> 20 facilities
+>>>   per-destination `log host <ip> facility ?`       -> 13 facilities
+>>> The seven the second does NOT offer are local0, local1, local2, local3, local4,
+>>> local6 and local7, and the one local facility it does offer is described differently
+>>> by the two commands:
+>>>   global          local5  "local use 5"
+>>>   per-destination local5  "UTM feature messages"
+>>> `log host 10.38.22.33 facility local1` is rejected outright: "% Unrecognized command".
+>>>
+>>> THE READING TAKEN AT DESIGN TIME (and it was WRONG): that both commands override the
+>>> facility, and that the per-destination one can only override to thirteen of the
+>>> twenty values -- an asymmetry worth reporting. The case was designed to use local4
+>>> globally and local5 per-destination precisely because that pair is distinguishable on
+>>> the wire.
+>>>
+>>> WHAT STEP 3 MEASURED, AND WHAT IT MEANS: see FINDING F-1 in section 8. The two
+>>> commands are not two forms of one feature at all. `log host <ip> facility <f>` adds a
+>>> message-SELECTION FILTER, not an override, and the thirteen-item list is therefore
+>>> not a restricted set of override targets -- it is the set of facilities an AW+
+>>> subsystem can actually RAISE a message under. Read that way the two lists are both
+>>> correct and the "asymmetry" dissolves. The design above still stands, because it is
+>>> exactly the configuration that exposed the difference.
+
+THE STIMULUS THIS CASE USES, AND WHY IT NEEDS NO TRAFFIC AND NO PORT FLAP
+  Reading `show log tail 30` before any configuration showed that the DUT logs EVERY CLI
+  command that is typed:
+
+    2026 Oct 21 23:54:25 user.notice awplus IMISH[4271]: [manager@ttyS0]show clock
+    2026 Oct 21 23:54:26 user.notice awplus IMISH[4271]: [manager@ttyS0]show system
+    ...
+    2026 Oct 21 23:53:10 user.err    awplus IMISH[4271]: Command [end] failed
+
+  so typing a harmless command that carries a unique marker string produces, on demand,
+  a syslog message with KNOWN TEXT, KNOWN FACILITY (`user`, 1) and KNOWN SEVERITY
+  (`notice`, 5) -- PRI 13 -- and a command that is valid but fails in the current mode
+  (`end` at the exec prompt) produces one at `user.err`, severity 3, in the same window.
+  That is the whole stimulus. No traffic generator, no port flap and no second switch.
+
+--------------------------------------------------------------------------------
+4. SETUP READS AND HEALTH (BEFORE), 2026-10-22 12:54-12:55 NZDT
+--------------------------------------------------------------------------------
+
+`show system` -- VERBATIM AND IN FULL (the final log's header quotes this):
+
+  System Status                                           Wed Oct 21 23:54:26 2026
+
+  Board      ID   Bay     Board Name                        Rev   Serial number
+  --------------------------------------------------------------------------------
+  Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+  PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+  PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+  Fan module 730  FAN1    AT-FAN19                          -     -
+  Fan module 730  FAN2    AT-FAN19                          -     -
+  --------------------------------------------------------------------------------
+  RAM: Total: 8092132 kB Free: 7461244 kB
+  Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+  --------------------------------------------------------------------------------
+  Environment Status : Normal
+  Uptime             : 0 days 00:23:48
+  Bootloader version : Unknown
+
+  Current software   : x960-tb277.rel
+  Software version   : sin_x96056-20261019-27
+  Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+  Current boot config: flash:/default.cfg (file exists)
+
+  System Name
+   awplus
+  System Contact
+
+  System Location
+
+`show boot` -- the baseline this case must return to:
+
+  Boot configuration
+  --------------------------------------------------------------------------------
+  Current software   : x960-tb277.rel
+  Current boot image : flash:/x960-tb277.rel (file exists)
+  Backup  boot image : Not set
+  Default boot config: flash:/default.cfg
+  Current boot config: flash:/default.cfg (file exists)
+  Backup  boot config: Not set
+  Autoboot status    : disabled
+
+`show log config` -- THE BASELINE THIS CASE MEASURES FROM (abridged to the fields that
+matter; the full output is in the run transcript):
+
+  Facility: default                <- the clean OFF state for this case
+  Buffered log:  enabled, 50kb, Filters *1 Level notices,  1833 received /  441 accepted
+  Console log:   enabled,        Filters *1 Level critical, 1833 received /   8 accepted
+  Permanent log: enabled, 50kb,  Filters *1 Level warnings, 1833 received /  33 accepted
+  Monitor log:                   Filters *1 Level debugging, 1833 received /  0 accepted
+  External log:  DISABLED
+
+  There is NO "Host ... log:" section at all: no remote destination is configured.
+
+`show running-config | include log`   ->  aaa authentication login default local
+`show startup-config | include log`   ->  aaa authentication login default local
+  i.e. NOT ONE line of `log` configuration exists on the device before this case.
+
+HEALTH BEFORE (STANDING-ORDERS §8) -- tools/tb health tb277 oper1022 u2 115200 --label
+before --save /tmp/oper1022/health-u2-T33401-before.out ; raw sample saved beside this
+log as work/health-u2-before.out. Exit 0.
+
+  HEALTH u2 12:55:11-12:55:28 before
+    reboots ......... 100 entries, newest 2026-10-21 23:30:18 Expected   CLI(user request)
+    exception log ... None
+    log (filtered) .. 41 lines: 7 echoes of our own commands, 34 other
+        2026 Oct 21 23:30:49 kern.notice  awplus kernel: Linux version 6.12.110 ...
+        2026 Oct 21 23:30:49 kern.warning awplus kernel: KASLR disabled due to lack of seed
+        2026 Oct 21 23:30:49 kern.warning awplus kernel: Malformed early option 'loglevel'
+        2026 Oct 21 23:30:49 kern.notice  awplus kernel: Kernel command line: console=ttyS0,115200
+                             root=/dev/ram0 loglevel= releasefile=x960-tb277.rel crashkernel=32M
+        2026 Oct 21 23:30:49 kern.notice  awplus kernel: Unknown kernel command line parameters
+                             "releasefile=x960-tb277.rel", will be passed to user space.
+        2026 Oct 21 23:30:49 kern.warning awplus kernel: GIC: Adjusting CPU interface base to 0x00000000f022f000
+        2026 Oct 21 23:30:49 kern.notice  awplus kernel: SCSI subsystem initialized
+        2026 Oct 21 23:30:49 kern.notice  awplus kernel: mv_xor_v2 f0400000.xor: Marvell Version 2 XOR driver
+    cpu ............. 0% / 0% / 0%   (`show cpu` on the x960 prints BUSY averages over
+                                      1 s / 20 s / 60 s and NEVER an idle percentage);
+                                      load 0.00
+    memory .......... free 7459512 of 8092132 kB (buffers 1448)
+
+  READ: CLEAN. The newest reboot entry, 2026-10-21 23:30:18 "Expected CLI(user request)",
+  is group A's own reload of forty minutes earlier and is the newest entry in the BEFORE
+  sample, so it is not something this case caused. Every kernel line quoted is from that
+  same boot at 23:30:49 and is ordinary start-up text. The exception log is None.
+
+CONFIG SAVED: tb277/x960/oper-2026-10-22T1122/T33401/swi_d.cfg (3 header + 112 config
+lines), from `show running-config` taken after setup and before step 1 via
+tools/rc2cfg.py.
+
+--------------------------------------------------------------------------------
+5. STEP 0 -- BASELINE OFF, ON THE WIRE
+--------------------------------------------------------------------------------
+
+DESIGNED: with no `log host` and no `log facility` configured, a bounded capture on the
+collector leg must contain ZERO syslog packets, while the same capture shows live ICMP,
+so the instrument is proved to be watching the right wire. (Measure the feature OFF
+first -- memory campaign-measurement-discipline.)
+
+  box:  tools/tb capture tb277 oper1022 eth3 45 s0-eth3.pcap udp port 514 or icmp
+  box:  tools/tb ping tb277 eth3 10.38.22.34 4
+  DUT:  show clock | include CKT33401-STEP0
+        show log config | include Facility      -> Facility: default
+        show clock | include CKT33401-STEP0b
+
+  ping:  4 packets transmitted, 4 received, 0% packet loss,
+         rtt min/avg/max/mdev = 0.401/0.842/1.868/0.596 ms
+
+  tools/tb tool tb277 oper1022 syslogwire /tmp/oper1022/s0-eth3.pcap
+    syslogwire: /tmp/oper1022/s0-eth3.pcap -- 8 frames in the capture,
+                0 syslog message(s) on port(s) 514
+      NO SYSLOG MESSAGES. For a control leg that is the measurement, not an error.
+    (exit 2)
+
+  The capture filter was `udp port 514 or icmp`, and it holds EXACTLY 8 frames: the four
+  ICMP echo requests and the four replies of the 4/4 ping, and nothing else. So the
+  instrument was live on the right wire for the whole window and there was no syslog on
+  it. The DUT's three marker commands in that window produced log entries locally (they
+  appear in `show log`) and NOTHING left the device.
+
+  STEP 0 VERDICT: PASS -- the baseline is silence, measured, not assumed.
+
+--------------------------------------------------------------------------------
+6. STEP 1 -- REMOTE LOGGING ON, FACILITY NOT OVERRIDDEN
+--------------------------------------------------------------------------------
+
+DESIGNED: configure the real collector and, in the same breath, an unreachable CONTROL
+destination on the same /27. A marker message must arrive carrying the DEFAULT facility;
+the control destination must draw zero packets in the same window (STANDING-ORDERS §7:
+every counted leg carries a control that must NOT match, sent in the same run).
+
+6a. The configuration, and TWO things the CLI does not warn about
+  awplus# configure terminal
+  awplus(config)# log host 10.38.22.33
+  awplus(config)# log host 10.38.22.40
+  awplus(config)# end
+  awplus# show running-config | include log host
+  log host 10.38.22.33
+  log host 10.38.22.40
+
+  Both accepted silently. But `show log config` then read:
+
+    Host 10.38.22.33 log:
+      Filters:
+      Statistics ..... 1991 messages received, 0 accepted, 0 excluded
+    Host 10.38.22.40 log:
+      Filters:
+      Statistics ..... 1991 messages received, 0 accepted, 0 excluded
+
+  -- a destination with an EMPTY filter list, accepting nothing. A 30 s capture over a
+  marker run confirmed it on the wire:
+
+    tools/tb capture tb277 oper1022 eth3 30 s1-eth3.pcap udp port 514
+    DUT: show clock | include CKT33401-A1 / -A2 / -A3 / end
+    syslogwire: 0 frames in the capture, 0 syslog message(s) on port 514   (exit 2)
+
+>>> OBSERVATION O-1. `log host <ip>` is a COMPLETE command -- `log host 10.38.22.33 ?`
+>>> offers `<cr>` -- and it is accepted with no warning, but on its own it sends NOTHING
+>>> EVER. The destination exists in `show log config` with an empty `Filters:` list and a
+>>> permanent `0 accepted`. At least one `log host <ip> level <sev>` (or another filter)
+>>> is required before a single byte leaves the device. An operator who configures
+>>> `log host <ip>` alone gets a device that looks configured, reads as configured, and
+>>> is silent.
+
+>>> OBSERVATION O-2, found when adding that filter: the filter cannot be added in one
+>>> step. Against a host that has not been created first:
+>>>   awplus(config)# log host 10.38.22.65 level notices
+>>>   % host address "10.38.22.65" not found
+>>>   % Error: Unable to add log filter
+>>> So `log host <ip>` must be entered on its own line BEFORE `log host <ip> level ...`,
+>>> although the single-line form is what a reader of the running-config would copy.
+>>> (tools/cfg.py stopped at the `% ` line, as STANDING-ORDERS requires; the batch was
+>>> re-sent with the two-step form.)
+
+  awplus(config)# log host 10.38.22.33 level notices
+  awplus(config)# log host 10.38.22.40 level notices
+  awplus# show running-config | include log
+  log host 10.38.22.33
+  log host 10.38.22.33 level notices
+  log host 10.38.22.40
+  log host 10.38.22.40 level notices
+  aaa authentication login default local
+
+  `show log config` now reads, for the real destination:
+
+    Host 10.38.22.33 log:
+      Time offset .... +0:00          Offset type .... UTC
+      Source ......... -              Secured ........ disabled
+      Delay parameters:   Startup-Delay: 120    Buffered-Messages: 2000
+      Filters:
+      1   Level ...... notices    Program .... any    Facility ... any
+          Msg text ... any        Type ....... include
+      Statistics ..... 2053 messages received, 23 accepted, 0 excluded
+
+  and the routing to it is direct and resolved:
+    awplus# show arp
+    10.38.22.33     000d.b955.770e   vlan10   port1.0.10   dynamic
+    awplus# show ip route 10.38.22.33
+    Routing entry for 10.38.22.32/27  Known via "connected", ... directly connected, vlan10
+
+6b. THREE MORE EMPTY CAPTURES, AND WHY THEY WERE NOT A DEFECT
+
+  With the filter in place the accepted counter climbed (23 -> 40 -> 45) and the wire was
+  still empty in two more bounded windows (30 s at 13:06:29, 40 s at 13:07:42). On the
+  device's own evidence the messages were being accepted for that destination and were
+  not being sent.
+
+  🔴 A TIMEOUT IS NOT A MEASUREMENT. Rather than write "the DUT does not send syslog",
+  the window was widened and the filter opened to all UDP. At 13:08:51 a 40 s capture on
+  eth3 returned 12 messages -- and the DUT's OWN messages in that capture explain every
+  earlier zero:
+
+    13:09:11.889263 PRI=43 syslog.err    2026 Oct 22 00:08:11 awplus syslog-ng[541]:
+                                         Error reading data; fd='17', error='...
+    13:09:11.889402 PRI=45 syslog.notice 2026 Oct 22 00:08:11 awplus syslog-ng[541]:
+                                         Syslog connection broken; fd='17', s...
+    ... the nine messages logged between 00:08:11 and 00:09:11 ...
+    13:09:11.889693 PRI=45 syslog.notice 2026 Oct 22 00:09:11 awplus syslog-ng[541]:
+                                         Syslog connection established; fd='1...
+
+  All twelve arrived inside 0.5 MILLISECONDS of each other, carrying DUT timestamps
+  spanning a full minute. The DUT does not stream syslog here; it BUFFERS and FLUSHES.
+
+>>> OBSERVATION O-3 -- a bench mechanism, not a product defect, and it would have
+>>> produced a false FAIL. tb277 has NO UDP/514 listener (and starting one is a root
+>>> change on the box, STANDING-ORDERS §4). So every syslog datagram the DUT sends draws
+>>> an ICMP port-unreachable from the testbox. The DUT's syslog-ng reads that as
+>>> "Error reading data" -> "Syslog connection broken", stops sending, and reopens the
+>>> destination exactly 60 s later ("Syslog connection established"), flushing everything
+>>> it buffered meanwhile in one burst. Later captures show the cadence exactly:
+>>> bursts at 13:11:58.565 and 13:12:58.567 -- 60.002 s apart.
+>>>
+>>> CONSEQUENCE FOR THE METHOD, and for anyone who runs a syslog case on this bench:
+>>> a capture window shorter than ~70 s can land entirely between two flushes and read
+>>> ZERO while the feature is working perfectly. Every measurement window in this case
+>>> from here on is 170 s, with markers spread across it, so each window is guaranteed to
+>>> contain at least two flushes. The three empty windows above are reported here as what
+>>> they were -- an instrument artefact of a collector that does not listen -- and NOT as
+>>> a property of the DUT.
+
+6c. THE DEFAULT FACILITY, MEASURED
+
+  tools/tb tool tb277 oper1022 syslogwire /tmp/oper1022/s1e-eth3.pcap --abs
+
+    13:09:11.889435 v4 10.38.22.34:39703 -> 10.38.22.33:514  PRI=13  user.notice (fac 1,
+      sev 5)  2026 Oct 22 00:08:47 awplus IMISH[4271]: [manager@ttyS0]terminal length 0
+    13:09:11.889652 v4 10.38.22.34:39703 -> 10.38.22.33:514  PRI=11  user.err   (fac 1,
+      sev 3)  2026 Oct 22 00:08:53 awplus IMISH[4271]: Command [end] failed
+    13:09:11.889693 v4 10.38.22.34:39703 -> 10.38.22.33:514  PRI=45  syslog.notice (fac 5,
+      sev 5)  2026 Oct 22 00:09:11 awplus syslog-ng[541]: Syslog connection established...
+
+    syslogwire: 12 frames in the capture, 12 syslog message(s) on port(s) 514
+      by facility: user(1)=9  syslog(5)=3
+      by severity: err(3)=2  notice(5)=10
+      by PRI:      11=user.err x1  13=user.notice x8  43=syslog.err x1  45=syslog.notice x2
+      10.38.22.34 -> 10.38.22.33                                   12
+
+  SO: with `Facility: default` the DUT does NOT stamp one facility on everything. It
+  passes each message out under the facility of the subsystem that raised it -- `user`
+  for the CLI's IMISH messages, `syslog` for syslog-ng's own. That MIXTURE is the precise
+  thing an override has to collapse, and it is what makes the next two steps measurable.
+
+  THE CONTROL, in the same capture, on the same wire, in the same window:
+    tools/tb tool ... syslogwire /tmp/oper1022/s1e-eth3.pcap --to 10.38.22.40 --quiet
+      12 frames in the capture, 0 syslog message(s) on port(s) 514
+      NO SYSLOG MESSAGES. For a control leg that is the measurement, not an error.  (exit 2)
+  10.38.22.40 was configured identically to 10.38.22.33 -- same `log host`, same
+  `level notices` -- and is an address on vlan10's own /27 that nothing answers. It drew
+  ZERO packets while the real destination drew twelve.
+
+  Two further legs were captured in the same window and were silent, which locates the
+  traffic as well as counting it:
+    eth2 (the box's leg to swi_d's out-of-band eth0):  1 frame, 0 syslog
+    eth4 (vlan48):                                     0 frames, 0 syslog
+  -- correct: at this point only 10.38.22.33 was a working destination, and vlan10 is the
+  only route to it.
+
+  STEP 1 VERDICT: PASS -- remote syslog works, the default facility is the ORIGINATING
+  facility of each message (user and syslog seen), and an identically configured
+  unreachable destination drew nothing.
+
+--------------------------------------------------------------------------------
+7. STEP 2 -- THE GLOBAL FACILITY OVERRIDE, AND STEP 4 (SEVERITY) WITH IT
+--------------------------------------------------------------------------------
+
+DESIGNED: `log facility local4`. The same markers must now arrive with facility local4
+at BOTH real destinations, and no message in that window may carry the default facility.
+A second real destination is added for this (10.38.22.65, the box's eth4 leg, reached
+over vlan48) so that step 3 can compare two destinations in ONE window.
+
+  awplus# configure terminal
+  awplus(config)# log host 10.38.22.65                      <- create first (see O-2)
+  awplus(config)# log host 10.38.22.65 level notices
+  awplus(config)# log facility local4
+  awplus(config)# end
+  awplus# show running-config | include log
+  log facility local4
+  log host 10.38.22.33
+  log host 10.38.22.33 level notices
+  log host 10.38.22.40
+  log host 10.38.22.40 level notices
+  log host 10.38.22.65
+  log host 10.38.22.65 level notices
+  aaa authentication login default local
+  awplus# show log config | include Facility:
+  Facility: local4 (local use 4)
+
+MEASUREMENT WINDOW: 170 s on BOTH legs at once, started before the markers (two
+`run_in_background` captures first, then the marker run -- memory
+two-console-calls-in-one-block-run-sequentially).
+
+  tools/tb capture tb277 oper1022 eth3 170 s2-eth3.pcap udp port 514
+  tools/tb capture tb277 oper1022 eth4 170 s2-eth4.pcap udp port 514
+  DUT: show clock | include CKT33401-C1 .. C7, with `end` between some of them and
+       @sleep 20 between each, so the markers are spread across the whole window.
+
+RESULT -- eth3, the destination 10.38.22.33:
+
+  tools/tb tool tb277 oper1022 syslogwire /tmp/oper1022/s2-eth3.pcap --quiet \
+      --expect-facility local4
+    syslogwire: 25 frames in the capture, 25 syslog message(s) on port(s) 514
+      by family:   IPv4=25
+      by facility: local4(20)=25
+      by severity: err(3)=6  notice(5)=19
+      by PRI:      163=local4.err x6  165=local4.notice x19
+      10.38.22.34 -> 10.38.22.33                                   25
+      EXPECT facility local4(20): 25 of 25 message(s) match
+    (exit 0)
+
+RESULT -- eth4, the destination 10.38.22.65:
+
+    syslogwire: 25 frames in the capture, 25 syslog message(s) on port(s) 514
+      by facility: local4(20)=25
+      by severity: err(3)=6  notice(5)=19
+      by PRI:      163=local4.err x6  165=local4.notice x19
+      10.38.22.66 -> 10.38.22.65                                   25
+      EXPECT facility local4(20): 25 of 25 message(s) match
+    (exit 0)
+
+  Sample lines, both legs, the SAME device messages at the SAME moment:
+
+    eth3  13:11:58.565700 v4 10.38.22.34:55161 -> 10.38.22.33:514  PRI=165
+          local4.notice (fac 20, sev 5)  2026 Oct 22 00:11:20 awplus IMISH[4271]: [manager@ttyS0]show c...
+    eth3  13:11:58.565777 v4 10.38.22.34:55161 -> 10.38.22.33:514  PRI=163
+          local4.err    (fac 20, sev 3)  2026 Oct 22 00:11:42 awplus IMISH[4271]: Command [end] failed
+    eth4  13:11:57.399716 v4 10.38.22.66:59360 -> 10.38.22.65:514  PRI=165
+          local4.notice (fac 20, sev 5)  2026 Oct 22 00:11:20 awplus IMISH[4271]: [manager@ttyS0]show c...
+    eth4  13:11:57.399788 v4 10.38.22.66:59360 -> 10.38.22.65:514  PRI=163
+          local4.err    (fac 20, sev 3)  2026 Oct 22 00:11:42 awplus IMISH[4271]: Command [end] failed
+
+THE CONTROLS, all three in the same window:
+
+  (a) THE FACILITY THAT MUST NOT APPEAR. In step 1 the same stimulus produced
+      user(1)=9 and syslog(5)=3. Here:
+        syslogwire ... --expect-facility user
+          EXPECT facility user(1): 0 of 25 message(s) match  !! 25 DO NOT
+      ZERO messages carried the pre-override facility. The override did not merely ADD
+      local4 to some messages; it collapsed EVERY facility, including syslog-ng's own
+      `syslog` facility, onto local4.
+  (b) THE UNREACHABLE DESTINATION. syslogwire ... --to 10.38.22.40 --quiet
+        25 frames in the capture, 0 syslog message(s) on port(s) 514   (exit 2)
+      10.38.22.40 was configured with the same `log host` and the same `level notices`
+      and is an address on vlan10's own /27 that nothing answers. Zero packets.
+  (c) THE SEVERITY FIELD (this is STEP 4 of the design, and it is measured here because
+      it belongs in the same window). The 25 messages split err(3)=6 and notice(5)=19
+      -- two different severities, each keeping its own value, each carrying the
+      overridden facility. PRI 163 = 20*8+3 and PRI 165 = 20*8+5. The override acts on
+      the facility field ONLY; it does not touch, clamp or flatten severity.
+
+>>> MEASURED FACT M-1, worth not re-discovering: the SOURCE ADDRESS of a syslog datagram
+>>> is the egress SVI, not one fixed management address. The same messages left as
+>>> 10.38.22.34 (vlan10) towards 10.38.22.33 and as 10.38.22.66 (vlan48) towards
+>>> 10.38.22.65, in the same flush. `log host <ip> source` exists if one address is
+>>> wanted for all destinations; it was not used here and reads `Source ... -`.
+
+>>> MEASURED FACT M-2: the flush cadence is exactly 60 s against a collector that does
+>>> not listen -- bursts at 13:11:58.565 and 13:12:58.567 on eth3, and at 13:11:57.399
+>>> and 13:12:57.401 on eth4. Each burst delivers everything buffered since the last one,
+>>> with the DUT's own timestamps preserved inside the messages.
+
+  STEP 2 VERDICT: PASS -- the global facility override is in force on the wire, at two
+  destinations at once, for every message, with severity untouched and the default
+  facility entirely absent.
+  STEP 4 VERDICT: PASS -- severity is not collateral damage of a facility override.
+
+--------------------------------------------------------------------------------
+8. STEP 3 -- THE PER-DESTINATION "facility" COMMAND. FINDING F-1.
+--------------------------------------------------------------------------------
+
+DESIGNED: `log host 10.38.22.33 facility local5` while the global stays local4, with both
+legs captured simultaneously; .33 should read local5 and .65 local4, for the same
+messages at the same moment. That design assumed both commands were overrides. They are
+not, and three windows were needed to establish what the second one really is.
+
+8a. The configuration is accepted and appears in the running-config
+
+  awplus# configure terminal
+  awplus(config)# log host 10.38.22.33 facility local5
+  awplus(config)# end
+  awplus# show running-config | include log
+  log facility local4
+  log host 10.38.22.33
+  log host 10.38.22.33 level notices
+  log host 10.38.22.33 facility local5          <- the line under test
+  log host 10.38.22.40
+  log host 10.38.22.40 level notices
+  log host 10.38.22.65
+  log host 10.38.22.65 level notices
+
+8b. WINDOW 1 (s3) -- global local4 PLUS per-host local5 on .33. 170 s, both legs.
+
+  eth3, the destination that carries `facility local5`:
+    syslogwire ... --expect-facility local5
+      25 frames in the capture, 25 syslog message(s) on port(s) 514
+      by facility: local4(20)=25
+      by PRI:      163=local4.err x6  165=local4.notice x19
+      10.38.22.34 -> 10.38.22.33                                   25
+      EXPECT facility local5(21): 0 of 25 message(s) match  !! 25 DO NOT      (exit 4)
+  eth4, the destination that does not:
+      25 frames, 25 messages, by facility: local4(20)=25, 163 x6 / 165 x19
+      EXPECT facility local4(20): 25 of 25 message(s) match                   (exit 0)
+
+  So the configured line changed NOTHING on the wire. Both destinations carried the
+  global facility. At this point the honest statement is only "it had no effect here",
+  and two readings are still open: (i) it is an override that the global one outranks,
+  or (ii) it is not an override at all.
+
+8c. WHAT `show log config` ACTUALLY SAYS -- and it names the mechanism
+
+  awplus# show log config
+    Host 10.38.22.33 log:
+      Time offset .... +0:00          Offset type .... UTC
+      Source ......... -              Secured ........ disabled
+      Delay parameters:   Startup-Delay: 120    Buffered-Messages: 2000
+      Filters:
+      1   Level ...... notices    Program .... any    Facility ... any
+          Msg text ... any        Type ....... include
+      2   Level ...... any        Program .... any    Facility ... local5
+          Msg text ... any        Type ....... include
+      Statistics ..... 2295 messages received, 168 accepted, 0 excluded
+
+  The command did not set a property of the destination. It appended a FILTER -- filter
+  2, "Level any, Program any, Facility local5, Msg text any, Type include" -- in exactly
+  the same shape as the `Level notices` filter beside it. That is a rule for CHOOSING
+  which messages to send, not for rewriting them.
+
+8d. WINDOW 2 (s3b) -- the negative half. Global override REMOVED, per-host line KEPT.
+
+  awplus(config)# no log facility                    (running-config now has no `log facility`)
+  awplus# show log config | include Facility:   ->   Facility: default
+  170 s, both legs, markers CKT33401-E1..E6 spread across the window.
+
+    eth3 (.33, still carries `facility local5`):
+      15 frames, 15 messages
+      by facility: user(1)=9  syslog(5)=6
+      by PRI:      11=user.err x1  13=user.notice x8  43=syslog.err x2  45=syslog.notice x4
+    eth4 (.65, no per-host facility line at all):
+      15 frames, 15 messages
+      by facility: user(1)=9  syslog(5)=6
+      by PRI:      11=user.err x1  13=user.notice x8  43=syslog.err x2  45=syslog.notice x4
+
+  Byte-for-byte the same distribution at both destinations: the original, un-overridden
+  mixture. With nothing outranking it, the per-host line still did not restamp a single
+  message. Reading (i) is dead.
+
+8e. WINDOW 3 (s3c) -- the POSITIVE half. What the command DOES do, proved by selection.
+
+  If `log host <ip> facility <f>` is a selection filter, then a destination whose ONLY
+  filter is `facility user` must receive the user-facility messages and NOT the
+  syslog-facility ones -- while a destination filtered by level receives both. Both
+  configured at once, measured in ONE 170 s window:
+
+  awplus(config)# no log host 10.38.22.65 level notices
+  awplus(config)# log host 10.38.22.65 facility user
+  (running-config: `log host 10.38.22.65` + `log host 10.38.22.65 facility user`, and
+   .33 unchanged with `level notices` + `facility local5`)
+
+    eth3 (.33, Level notices + Facility local5):
+      13 frames, 13 messages
+      by facility: user(1)=8   syslog(5)=5
+      by PRI:      11=user.err x1  13=user.notice x7  43=syslog.err x2  45=syslog.notice x3
+    eth4 (.65, Facility user ONLY):
+      7 frames, 7 messages
+      by facility: user(1)=7
+      by PRI:      11=user.err x1  13=user.notice x6
+      ZERO syslog-facility messages.
+
+  The discriminator is the complete ABSENCE of the `syslog` facility at .65 while .33
+  received five of them in the same window from the same device. (The user counts, 8 and
+  7, differ only by where the 60 s flush boundaries fell; the counts are not the
+  measurement -- the missing facility class is.)
+
+>>> FINDING F-1 (CORRECTS the design-time reading R-1 in section 3)
+>>>
+>>> ON THE AT-x960-56YSQ THERE IS NO PER-DESTINATION SYSLOG FACILITY OVERRIDE.
+>>> `log host <ip> facility <f>` is a message-SELECTION FILTER on the facility a message
+>>> was RAISED under. It is not an override and it never rewrites the PRI byte.
+>>>   - with a global override in force, it changed nothing        (8b, 25/25 still local4)
+>>>   - with no global override at all, it changed nothing         (8d, identical to a
+>>>                                                                 destination without it)
+>>>   - used as a filter, it selects                               (8e, 7/7 user, 0 syslog)
+>>> `show log config` is honest about this -- it lists the setting under `Filters:` -- but
+>>> the CLI help is not: `log host <ip> facility ?` is introduced as "Specify a syslog
+>>> facility", word for word the same idea as the global `log facility ?`, and the
+>>> running-config line `log host 10.38.22.33 facility local5` sitting one line below
+>>> `log facility local4` reads unmistakably like a per-destination override of it.
+>>>
+>>> This also EXPLAINS AND DISMISSES the "asymmetry" of R-1. The global command offers all
+>>> twenty RFC facilities because it may stamp any of them. The per-host command offers
+>>> thirteen because those are the facilities an AW+ subsystem can actually RAISE a
+>>> message under -- kern, user, mail, daemon, auth, syslog, lpr, news, uucp, cron,
+>>> authpriv, ftp and local5 ("UTM feature messages"). Both lists are correct for their
+>>> own command. Only reading the two as the same feature makes them look inconsistent.
+>>>
+>>> IMPACT: an operator who wants different facilities at different collectors cannot
+>>> have them on this platform, and the configuration that looks like it does that is
+>>> accepted in silence. It does not make the TPS row false -- TPS 264 "Syslog facility
+>>> override" is satisfied by the global `log facility`, which works (step 2) -- so this
+>>> is reported as a finding about the CLI's clarity and about a capability gap, not as
+>>> a failure of the item under test.
+
+  STEP 3 VERDICT: PASS, with FINDING F-1. The behaviour was fully characterised in three
+  windows, each with its own control, rather than being left at "the command had no
+  effect". Removing the global override (8d) also demonstrates the removal limb: the wire
+  returned to the default facility mixture at both destinations.
+
+--------------------------------------------------------------------------------
+9. STEP 5 -- PERSISTENCE ACROSS A COLD BOOT, WITH NOTHING TYPED
+--------------------------------------------------------------------------------
+
+DESIGNED: `write` + `reload`, and with NOTHING typed to reconfigure, the override must
+still be in force on the wire after a cold boot. (The Test Engineer explicitly permitted
+`write` and `reload` for this campaign on 2026-10-22.)
+
+9a. The state written, and the proof that it was written
+
+  awplus(config)# no log host 10.38.22.65 facility user     <- undo step 3c's filter
+  awplus(config)# log host 10.38.22.65 level notices        <- back to the step-2 shape
+  awplus(config)# no log host 10.38.22.33 facility local5   <- undo step 3's filter
+  awplus(config)# log facility local4                       <- the override under test
+  awplus(config)# end
+  awplus# show running-config | include log
+  log facility local4
+  log host 10.38.22.33
+  log host 10.38.22.33 level notices
+  log host 10.38.22.40
+  log host 10.38.22.40 level notices
+  log host 10.38.22.65
+  log host 10.38.22.65 level notices
+  aaa authentication login default local
+  awplus# write
+  awplus# show startup-config | include log
+  log facility local4
+  log host 10.38.22.33
+  log host 10.38.22.33 level notices
+  log host 10.38.22.40
+  log host 10.38.22.40 level notices
+  log host 10.38.22.65
+  log host 10.38.22.65 level notices
+  aaa authentication login default local
+
+9b. The reload
+
+  tools/tb ckreload tb277 oper1022 u2 115200 600
+    13:23:34 >>> reload
+    reboot question: 'reboot system? (y/n):' -> y
+    13:24:36 login seen after 61 s
+  (exit 0)
+
+  🔴 A LOGIN PROMPT IS NOT READINESS. The leg was then polled until it answered, and
+  only then was anything read:
+    poll 1  4 packets transmitted, 0 received, 100% packet loss
+    poll 2  4 packets transmitted, 0 received, 100% packet loss
+    poll 3  4 packets transmitted, 0 received, 100% packet loss
+    poll 4  4 packets transmitted, 4 received, 0% packet loss     <- 13:24:47 NZDT
+
+9c. THE MEASUREMENT, taken with LITERALLY NOTHING TYPED INTO THE DEVICE
+
+  The two captures were started BEFORE the console was touched at all, so the only
+  stimulus in this window is the DUT's own boot logging. Nothing was logged in, nothing
+  was configured, no marker command was sent.
+
+  tools/tb capture tb277 oper1022 eth3 220 s5-eth3.pcap udp port 514
+  tools/tb capture tb277 oper1022 eth4 220 s5-eth4.pcap udp port 514
+
+  eth3 -> 10.38.22.33:
+    syslogwire ... --quiet --expect-facility local4
+      224 frames in the capture, 224 syslog message(s) on port(s) 514
+      by family:   IPv4=224
+      by facility: local4(20)=224
+      by severity: crit(2)=8  err(3)=10  warning(4)=7  notice(5)=199
+      by PRI:      162=local4.crit x8  163=local4.err x10  164=local4.warning x7
+                   165=local4.notice x199
+      10.38.22.34 -> 10.38.22.33                                   224
+      EXPECT facility local4(20): 224 of 224 message(s) match        (exit 0)
+
+  eth4 -> 10.38.22.65:
+      163 frames in the capture, 163 syslog message(s) on port(s) 514
+      by facility: local4(20)=163
+      by severity: crit(2)=8  err(3)=13  warning(4)=7  notice(5)=135
+      by PRI:      162=local4.crit x8  163=local4.err x13  164=local4.warning x7
+                   165=local4.notice x135
+      10.38.22.66 -> 10.38.22.65                                   163
+      EXPECT facility local4(20): 163 of 163 message(s) match        (exit 0)
+
+  387 messages across the two destinations, EVERY ONE carrying local4, after a cold boot
+  with nothing typed. And this window is a better severity test than step 2 was: the boot
+  log spans FOUR severities, and each keeps its own value under the overridden facility --
+  PRI 162/163/164/165 = 20*8 + 2/3/4/5. A facility override that silently normalised
+  severity would be visible here and is not.
+
+9d. The device's own view after the boot
+
+  awplus# show boot
+    Current boot image : flash:/x960-tb277.rel (file exists)
+    Current boot config: flash:/default.cfg (file exists)
+    Autoboot status    : disabled
+  awplus# show system | include Uptime|Software
+    Uptime             : 0 days 00:03:05           <- a real reboot, not a warm restart
+    Software version   : sin_x96056-20261019-27
+  awplus# show running-config | include log   -> log facility local4 + the three hosts
+  awplus# show startup-config | include log   -> identical
+  awplus# show log config | include Facility: -> Facility: local4 (local use 4)
+
+>>> OBSERVATION O-4: the two destinations received DIFFERENT NUMBERS of boot messages
+>>> (224 on vlan10, 163 on vlan48) although both carried the same configuration and the
+>>> same facility. The deficit is at the start of the boot log: a destination can only be
+>>> sent to once its egress interface is up, and vlan48/port1.0.48 came up later than
+>>> vlan10/port1.0.10. This is expected behaviour, it is recorded so a later run does not
+>>> read the mismatch as message loss, and it is NOT a defect. The measurement in this
+>>> step is the facility of every message received, not how many were received.
+
+  STEP 5 VERDICT: PASS -- the facility override survives a cold boot and is applied to
+  the boot log itself, at both destinations, with nothing typed into the device.
+
+--------------------------------------------------------------------------------
+10. STEP 6 -- REMOVAL, AND THE RETURN TO SILENCE
+--------------------------------------------------------------------------------
+
+DESIGNED: `no log facility` returns the wire to the default facility; `no log host ...`
+returns it to silence; and both running- and startup-config must be clean afterwards,
+proved by re-reading, not by the absence of an error.
+
+10a. The facility-override removal was already measured, in section 8d
+  `no log facility` was applied there with the destinations still configured, and the
+  wire returned to the ORIGINAL mixture at both destinations -- user(1)=9 and
+  syslog(5)=6 on each, identical distributions. That is the removal limb for the feature
+  under test, measured on the wire, and it is not repeated here.
+
+10b. The full removal
+
+  awplus# configure terminal
+  awplus(config)# no log facility
+  awplus(config)# no log host 10.38.22.33
+  awplus(config)# no log host 10.38.22.40
+  awplus(config)# no log host 10.38.22.65
+  awplus(config)# end
+  awplus# show running-config | include log
+  aaa authentication login default local               <- the one pre-existing line, alone
+  awplus# write
+  awplus# show startup-config | include log
+  aaa authentication login default local               <- the same, in NVS
+  awplus# show log config | include Facility:
+  Facility: default
+  awplus# show log config                              -> grep 'Host 10' matches: 0
+                                                          (no Host section of any kind)
+
+  🔴 Note that `no log host <ip>` removed the host AND its filters in one command: the
+  three `... level notices` lines are gone from both configs without being negated
+  individually.
+
+10c. The silence, measured on the wire with the instrument proved alive
+
+  tools/tb capture tb277 oper1022 eth3 150 s6-eth3.pcap udp port 514 or icmp
+  tools/tb capture tb277 oper1022 eth4 150 s6-eth4.pcap udp port 514
+  box:  tools/tb ping tb277 eth3 10.38.22.34 4
+  DUT:  show clock | include CKT33401-G1 .. G5, spread over the window with @sleep 25
+
+  eth3:  8 frames in the capture, 0 syslog message(s) on port(s) 514     (exit 2)
+  eth4:  0 frames in the capture, 0 syslog message(s) on port(s) 514     (exit 2)
+
+  The eth3 capture holds exactly the eight ICMP frames of the 4/4 ping, so the
+  instrument was live on the right wire for the whole 150 s, and the markers typed
+  during that window produced local log entries and NOTHING on the network. This window
+  is longer than two full 60 s flush cycles, so it cannot be an artefact of the burst
+  cadence of O-3.
+
+  STEP 6 VERDICT: PASS -- removal is complete in running-config, in startup-config, in
+  `show log config` and on the wire.
+
+--------------------------------------------------------------------------------
+11. HEALTH AFTER (STANDING-ORDERS §8) -- TOOL SAYS DIRTY, ADJUDICATED CLEAN
+--------------------------------------------------------------------------------
+
+  tools/tb health tb277 oper1022 u2 115200 --label after \
+      --before /tmp/oper1022/health-u2-T33401-before.json \
+      --save /tmp/oper1022/health-u2-T33401-after.out
+  Raw sample saved beside this log as work/health-u2-after.out (609 lines), and the
+  before sample as work/health-u2-before.out (463 lines). Tool exit 4.
+
+  HEALTH-DIFF u2 vs health-u2-T33401-before.json (12:55:11 before)
+    reboots ......... !! 1 NEW: 2026-10-22 00:23:35 Expected   CLI(user request)
+    exception log ... None -> None
+    log (filtered) .. 34 new non-echo lines, all `kern.*` and all timestamped 00:24:06
+    log tail 150 .... 150 lines, 75 echoes of our own commands; other lines by signature:
+          8 x 2026 Oct 22 00:24:33 syslog.notice awplus syslog-ng[537]: Configuration
+                reload request received, reloading configuration;
+          8 x 2026 Oct 22 00:24:33 syslog.notice awplus syslog-ng[537]: Configuration
+                reload finished;
+          2 x 2026 Oct 22 00:24:38 daemon.notice awplus root: DHCP Client: Do PREINIT6
+          2 x 2026 Oct 22 00:26:26 syslog.notice awplus syslog-ng[537]: Syslog connection
+                established; fd='18', server='AF_INET(10.38.22.33:514)',
+                local='AF_INET(0.0.0.0:0)'
+          2 x 2026 Oct 22 00:26:26 syslog.notice awplus syslog-ng[537]: Syslog connection
+                broken; fd='18', server='AF_INET(10.38.22.33:514)', time_reopen='60'
+          2 x 2026 Oct 22 00:28:29 user.err awplus IMISH[2931]: Command [end] failed
+    !! flagged ...... 34 line(s) matching kernel|exception|crash|restart|Unexpected
+          2026 Oct 22 00:24:06 kern.notice  awplus kernel: Linux version 6.12.110 ...
+          2026 Oct 22 00:24:06 kern.warning awplus kernel: KASLR disabled due to lack of seed
+          2026 Oct 22 00:24:06 kern.warning awplus kernel: Malformed early option 'loglevel'
+          2026 Oct 22 00:24:06 kern.notice  awplus kernel: Kernel command line: console=ttyS0,
+                               115200 root=/dev/ram0 loglevel= releasefile=x960-tb277.rel
+                               crashkernel=32M
+          2026 Oct 22 00:24:06 kern.notice  awplus kernel: Unknown kernel command line
+                               parameters "releasefile=x960-tb277.rel", will be passed to
+                               user space.
+          2026 Oct 22 00:24:06 kern.warning awplus kernel: GIC: Adjusting CPU interface base
+                               to 0x00000000f022f000
+          2026 Oct 22 00:24:06 kern.notice  awplus kernel: SCSI subsystem initialized
+          2026 Oct 22 00:24:06 kern.notice  awplus kernel: mv_xor_v2 f0400000.xor: Marvell
+                               Version 2 XOR driver
+          2026 Oct 22 00:24:06 kern.notice  awplus kernel: mv_xor_v2 f0420000.xor: ...
+          2026 Oct 22 00:24:06 kern.notice  awplus kernel: mv_xor_v2 f0440000.xor: ...
+    cpu ............. 0% -> 0%  (1 s busy average; `show cpu` on the x960 prints BUSY
+                                 averages over 1 s / 20 s / 60 s and NEVER an idle figure)
+    memory .......... free 7459512 -> 7456852 kB (-2660)
+    VERDICT ......... !! DIRTY
+
+  ADJUDICATION BY THE TESTER: **CLEAN**, and here is the whole reasoning, because a
+  tool-reported DIRTY is not overturned on an assertion.
+
+  1. THE NEW REBOOT ENTRY IS THIS CASE'S OWN RELOAD, matched to the second.
+     The entry reads `2026-10-22 00:23:35  Expected  CLI(user request)`. The DUT runs UTC
+     and the box displays NZDT, 13 h ahead, so 00:23:35 UTC is 13:23:35 NZDT. The reload
+     transcript in section 9b reads `13:23:34 >>> reload` followed by
+     `reboot question: 'reboot system? (y/n):' -> y`. One second apart. The entry's own
+     category is `Expected ... CLI(user request)` -- not `Unexpected System reboot`, which
+     is what the framework's post-failure power cycle or a crash would write. The reload
+     was explicitly permitted by the Test Engineer for this campaign and is STEP 5 of the
+     design. It is accounted for, so it is not a finding.
+  2. THE 34 FLAGGED LINES ARE THE BOOT LOG OF THAT SAME RELOAD, and nothing else.
+     Every one is stamped `2026 Oct 22 00:24:06`, i.e. 31 seconds after the reboot entry,
+     and every one is a `kern.notice` or `kern.warning` of ordinary start-up text --
+     kernel version, KASLR seed, the `loglevel` command-line option, the GIC base
+     adjustment, the SCSI subsystem, the three Marvell XOR engines. They match the health
+     BEFORE sample line for line, where the identical 34 lines appear stamped
+     `2026 Oct 21 23:30:49` from group A's reload. They are flagged only because the
+     §8 filter matches the literal word `kernel`, which every `kern.*` line contains.
+     There is no `crash`, no `Oops`, no `panic`, no daemon restart that was not asked for
+     and no line naming the feature under test in an unexpected way.
+  3. THE EXCEPTION LOG IS UNCHANGED AND EMPTY: `None -> None`.
+  4. CPU IS 0% IN BOTH SAMPLES and memory moved by 2660 kB of 8092132 kB free, which is
+     0.03%. No step change, and in any case ONE CASE CANNOT SHOW A LEAK and this log does
+     not claim one.
+  5. THE REMAINING TAIL LINES ARE THIS CASE'S OWN WORK, and two of them are valuable:
+     `Syslog connection established ... server='AF_INET(10.38.22.33:514)'` and
+     `Syslog connection broken ... time_reopen='60'` are the DUT confirming, in its own
+     words and with the number in it, the 60-second reopen cycle that observation O-3
+     measured from the capture timestamps. `Command [end] failed` is the deliberate
+     error-severity stimulus of step 4.
+
+  So the run is **CLEAN, not confounded**. Nothing is being reported to the sentinel as a
+  health finding.
+
+--------------------------------------------------------------------------------
+12. TEARDOWN, AND THE BENCH AFTERWARDS
+--------------------------------------------------------------------------------
+
+  RUNNING-CONFIG DIFF (STANDING-ORDERS §1), pre-case against post-case:
+    python3 tools/rcdiff.py rc-T33401-before.out rc-T33401-after.out
+    -> NO OUTPUT, exit 0. Not one line of difference between the configuration before
+       step 1 and the configuration after teardown, across a reload.
+
+  STARTUP-CONFIG: `show startup-config | include log` -> `aaa authentication login
+    default local` only, i.e. back to the pre-case content, proved by re-reading.
+
+  BOOT STATE, unchanged and at the baseline the queue requires:
+    Current boot image : flash:/x960-tb277.rel (file exists)
+    Current boot config: flash:/default.cfg (file exists)
+    Autoboot status    : disabled
+    Software version   : sin_x96056-20261019-27
+
+  POST-CASE PROBE, same session facts, against the run .setup:
+    tools/tb probe tb277 --consoles u2 --no-prompt --pdu 10.36.230.212 --outlet u2=1 \
+        --name u2=swi_d --template <run .setup>
+    capture -> bench-setup/tb277/captures/2026-10-22T003057Z
+    MATCH -- the bench equals the template.                                 (exit 0)
+  The probe again regenerated bench-setup/tb277/bench-state.md as a swi_d-only record;
+  the tracked three-unit file was reverted with `git checkout --`, as group A did and as
+  the dispatch requires. Nothing on the bench changed.
+
+  NOT TOUCHED, and confirmed not touched: `vlan 60` and `port1.0.2` (the Test Engineer's,
+  and the RSTP root port); the vlan10 / vlan48 IPv4 underlay (campaign infrastructure in
+  startup-config); every port that was `running` at the start. u3 and u5 were never
+  opened.
+
+--------------------------------------------------------------------------------
+13. TOOLS USED, WITH THEIR EXACT ARGUMENTS
+--------------------------------------------------------------------------------
+
+  tools/tb precheck tb277 u2
+  tools/tb peek tb277 oper1022 u2 115200
+  tools/tb template tb277
+  tools/tb probe tb277 --consoles u2 --no-prompt --pdu 10.36.230.212 --outlet u2=1
+                 --name u2=swi_d --template <box-absolute path to the run .setup>
+  tools/tb scratch tb277 oper1022
+  CKTO=120 tools/tb qmark tb277 oper1022 u2 115200 --mode 'configure terminal' -- <prefixes>
+  CKTO=120..300 tools/tb ckcon tb277 oper1022 u2 115200 <shows and markers, @sleep N between>
+  CKTO=120..180 tools/tb cfg  tb277 oper1022 u2 115200 <configuration, stops on any '% ' line>
+  tools/tb capture tb277 oper1022 <eth2|eth3|eth4> <secs> <out>.pcap udp port 514 [or icmp]
+  tools/tb ping tb277 eth3 10.38.22.34 4
+  CKTO=700 tools/tb ckreload tb277 oper1022 u2 115200 600
+  tools/tb health tb277 oper1022 u2 115200 --label before|after [--before <json>] --save <f>
+  tools/tb tool tb277 oper1022 syslogwire /tmp/oper1022/<f>.pcap
+                 [--quiet] [--abs] [--to ADDR] [--grep RE] [--limit N] [--msg-width N]
+                 [--expect-facility NAME]
+  python3 tools/rc2cfg.py <ckcon stdout> <out.cfg> <3 header lines>
+  python3 tools/rcdiff.py <before.out> <after.out>
+
+  NEW TOOL WRITTEN FOR THIS CASE: tools/syslogwire.py, with its tools/README.md entry, in
+  commit b9e657d. tools/ had no syslog decoder at all among its 60+ entries. It was
+  self-tested offline against a hand-built pcap (PRI 13/141/171/173 decoding to
+  user.notice / local1.notice / local5.err / local5.notice, plus the --to, --grep, exit-2
+  control and exit-4 --expect-facility paths) BEFORE it was pointed at hardware.
+
+  FILES SAVED:
+    tb277/x960/oper-2026-10-22T1122/T33401/swi_d.cfg          (3 header + 112 config lines)
+    tb277/x960/oper-2026-10-22T1122/T33401/work/run1.log      (this file)
+    tb277/x960/oper-2026-10-22T1122/T33401/work/health-u2-before.out
+    tb277/x960/oper-2026-10-22T1122/T33401/work/health-u2-after.out
+  Raw captures stay on the box under /tmp/oper1022/ and are not committed:
+    s0-eth3 s1-eth3 s1b-eth3 s1d-eth3 s1e-eth2 s1e-eth3 s1e-eth4 s2-eth3 s2-eth4
+    s3-eth3 s3-eth4 s3b-eth3 s3b-eth4 s3c-eth3 s3c-eth4 s5-eth3 s5-eth4 s6-eth3 s6-eth4
+  Console transcript on the box: /tmp/oper1022/console-u2.log
+
+--------------------------------------------------------------------------------
+14. SUMMARY OF STEP VERDICTS
+--------------------------------------------------------------------------------
+
+  STEP 0  baseline OFF, zero syslog with the instrument proved alive ......... PASS
+  STEP 1  remote logging on, DEFAULT facility measured on the wire;
+          an identically configured unreachable destination drew zero ........ PASS
+  STEP 2  the GLOBAL override in force at two destinations, 25/25 and 25/25
+          local4, zero messages at the pre-override facility ................. PASS
+  STEP 3  the per-destination `facility` command characterised in three
+          windows -- FINDING F-1: it is a FILTER, not an override ............ PASS (finding)
+  STEP 4  severity untouched by the override (2 severities in step 2,
+          4 severities in step 5, each keeping its own value) ................ PASS
+  STEP 5  persistence across a cold boot with nothing typed: 387 messages,
+          all local4, over two destinations .................................. PASS
+  STEP 6  removal complete in running-config, startup-config, `show log
+          config` and on the wire ........................................... PASS
+
+  FINDINGS AND OBSERVATIONS RAISED
+    F-1  No per-destination syslog facility override exists on this platform.
+         `log host <ip> facility <f>` is a message-selection filter, although the help
+         text and the running-config read like an override. Characterised positively and
+         negatively (section 8). The TPS item itself is satisfied by the global command.
+    O-1  `log host <ip>` on its own is accepted, appears configured, and sends nothing
+         ever: the destination has an empty filter list and a permanent `0 accepted`.
+    O-2  `log host <ip> level <sev>` is refused ("% host address ... not found") unless
+         `log host <ip>` was entered on a previous line, although the running-config
+         presents them as two independent lines.
+    O-3  BENCH MECHANISM, not a product defect: with no UDP/514 listener on the collector,
+         every datagram draws an ICMP port-unreachable, the DUT's syslog-ng marks the
+         destination broken and reopens it after exactly 60 s (`time_reopen='60'` in its
+         own log), flushing the backlog in one sub-millisecond burst. A capture window
+         shorter than ~70 s can read ZERO while the feature works perfectly. Three such
+         windows occurred in this case and are reported as instrument artefacts.
+    O-4  At boot the two destinations receive different message counts, because a
+         destination is only written to once its egress SVI is up. Not message loss.
+    M-1  The source address of a syslog datagram is the EGRESS SVI, not one fixed address.
+    M-2  The flush cadence against a non-listening collector is 60.00 s, measured.
+
+RUN LABEL: clean. (The health tool read DIRTY; the tester adjudicated CLEAN in section 11
+with the reasoning set out in full. Every flagged line is the boot log of this case's own
+permitted reload, matched to the second against the reload transcript.)
+
+VERDICT: PASS -- the global syslog facility override is in force on the received PRI byte
+at two destinations at once (25/25 and 25/25 local4), it leaves severity untouched, the
+default facility is entirely absent while it is set, an identically configured unreachable
+destination drew zero packets in every window, it survives a cold boot with nothing typed
+(387/387 messages local4 across four severities), and it removes cleanly from the wire and
+from both configurations. Reported with FINDING F-1: the per-destination
+`log host <ip> facility` command is a message-selection filter, not an override, so
+per-destination facilities cannot be set on this platform although the configuration
+reads as though they can.
