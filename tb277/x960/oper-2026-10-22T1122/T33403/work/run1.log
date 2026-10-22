@@ -1,0 +1,724 @@
+================================================================================
+WORKING LOG -- AWPTCM-T33403, run 1
+================================================================================
+
+CASE      : AWPTCM-T33403 -- (269) Management_Operation - Scripting
+GROUP     : oper-2026-10-22T1122   (group B, case 3 of 3)
+TESTBOX   : tb277
+CONSOLES  : u2 ONLY (swi_d). u3 and u5 were NOT opened, NOT probed and nothing was
+            typed at their login prompts -- CK_PASSWORD_U3 / CK_PASSWORD_U5 are absent
+            from this session's environment and a default-password fallback is a lockout
+            generator (AW+ locks at five failures; that is what locked swi_b on
+            2026-10-21). The Test Engineer's answer was "DUT only -- don't open u3/u5".
+TEST ENG. : bidhanc@bidhanc-dl
+CONSTRAINT: window partly attended; a NEEDS TEST ENGINEER: may wait and the tester
+            carries on.
+PERMISSION: the Test Engineer granted, 2026-10-22, that swi_d may be written to
+            startup-config and reloaded as often as a case needs, provided the tester
+            removes its own configuration from BOTH running- and startup-config at the
+            end of the case and PROVES the removal by re-reading.
+RUN .setup: tb277/x960/oper-2026-10-22T1122/tb277-u2.setup -- declares swi_d and nothing
+            else. Probe --consoles u2 against it: exit 0 MATCH.
+DATE      : 2026-10-22 (NZDT). The DUT runs UTC; the box displays NZDT (UTC+13). The
+            group's clock pair and host-NIC details are recorded once in
+            oper-2026-10-22T1122/T33401/work/run1.log section 1; re-read for this case:
+            DUT `UTC Time: Thu, 22 Oct 2026 01:04:10 +0000` vs box 14:04 NZDT.
+
+--------------------------------------------------------------------------------
+1. DEVICE
+--------------------------------------------------------------------------------
+
+  swi_d -- THE DUT -- AT-x960-56YSQ, S/N A2WQS700B, console u2 at 115200 on tb277.
+           Software sin_x96056-20261019-27, standalone, Active Master.
+  No partner device is needed. The whole case is on the DUT.
+
+--------------------------------------------------------------------------------
+2. THE CASE HAS NO AUTHORED TEXT -- what was designed, and from what
+--------------------------------------------------------------------------------
+
+Read from ck.db on tb277 before dispatch: AWPTCM-T33403 has `has_objective = 0` and ONE
+step whose text is the 53-character empty-JSON placeholder. There is no objective, no
+step text and no expected result in the database. Folder
+"/New Platform Test (MASTER)/New Platform Template/Management", status Draft,
+script_type STEP_BY_STEP, label New_Platform_Management.
+
+Designed from the three sources STANDING-ORDERS allows, in this order:
+
+  1. THE TITLE: "Management_Operation - Scripting". One word, and it does not say what a
+     script IS on this platform. Establishing that was the first job of the case.
+  2. THE X960 TPS ROW. The bracketed "(269)" in the title is NOT the TPS row number --
+     on this suite the title brackets are offset +2. The row for this case is
+     **267, "Scripting", Supported = Yes**. A feature missing on the DUT would therefore
+     be a FINDING, not a bench limit.
+  3. THE DUT'S OWN CLI SURFACE, read read-only with tools/qmark.py before designing --
+     section 4 below.
+
+OBJECTIVE AS DESIGNED
+  Establish what "scripting" is on the AT-x960-56YSQ, and then prove that a script is
+  genuinely EXECUTED rather than merely accepted: that a script file on the device's flash
+  can be run on demand and leaves an artefact only a running script could have made; that
+  the same script can be run by a TRIGGER without anyone typing anything; that a trigger
+  does not fire on something it should not match; that script, trigger and artefacts
+  survive a cold boot and still work afterwards; and that all of it removes cleanly,
+  proved by re-running the stimulus and getting nothing.
+
+DESIGNED STEPS, WRITTEN DOWN BEFORE THEY WERE RUN
+  STEP 0  Baseline: no triggers, no script file on flash, both working ports bare.
+  STEP 1  Establish the surface, read-only, with qmark (no CR, nothing executed).
+  STEP 2  Put a real script on the device's flash and show its contents.
+  STEP 3  ACTIVATE it by hand. The named port must gain the artefact; a port the script
+          does NOT name must stay bare, read in the same run (the control).
+  STEP 4  Make a TRIGGER run a second script with nobody typing the script's commands.
+          The trigger's condition is a log-message regular expression, so the control
+          is built in: a NEAR-MISS string that the regex must reject, sent first, in the
+          same run as the string that must match.
+  STEP 5  Persistence: write + reload. Trigger, script file and artefacts must survive,
+          and the trigger must still FIRE afterwards -- not merely still be configured.
+  STEP 6  Removal: trigger gone, script files gone from flash, artefacts gone from
+          running- and startup-config, and the matching stimulus re-sent to show it now
+          does nothing.
+
+--------------------------------------------------------------------------------
+3. SETUP READS, THE .cfg, AND HEALTH (BEFORE)
+--------------------------------------------------------------------------------
+
+`show system` -- VERBATIM AND IN FULL (the final log's header quotes this). Read at
+14:06 NZDT; the uptime is 22 minutes because T33402's permitted reload was at 13:43:18.
+
+  System Status                                           Thu Oct 22 01:06:4x 2026
+
+  Board      ID   Bay     Board Name                        Rev   Serial number
+  --------------------------------------------------------------------------------
+  Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+  PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+  PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+  Fan module 730  FAN1    AT-FAN19                          -     -
+  Fan module 730  FAN2    AT-FAN19                          -     -
+  --------------------------------------------------------------------------------
+  RAM: Total: 8092132 kB Free: 7456420 kB
+  Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+  --------------------------------------------------------------------------------
+  Environment Status : Normal
+  Uptime             : 0 days 00:20:34   (read at 14:04:13 with the baseline below)
+  Bootloader version : Unknown
+
+  Current software   : x960-tb277.rel
+  Software version   : sin_x96056-20261019-27
+  Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+  Current boot config: flash:/default.cfg (file exists)
+
+  System Name
+   awplus
+  System Contact
+
+  System Location
+
+`show boot` -- the baseline this case must return to:
+  Current boot image : flash:/x960-tb277.rel (file exists)
+  Default boot config: flash:/default.cfg
+  Current boot config: flash:/default.cfg (file exists)
+  Autoboot status    : disabled
+
+CONFIG SAVED: tb277/x960/oper-2026-10-22T1122/T33403/swi_d.cfg (3 header + 112 config
+lines), from `show running-config` after setup and before step 1, via tools/rc2cfg.py.
+
+HEALTH BEFORE (STANDING-ORDERS §8): tools/tb health tb277 oper1022 u2 115200
+--label before --save /tmp/oper1022/health-u2-T33403-before.out. Exit 0. Raw sample
+saved beside this log as work/health-u2-before.out (461 lines).
+  reboots ......... 100 entries, newest 2026-10-22 00:43:18 Expected CLI(user request)
+                    (= T33402's own permitted reload, 13:43:18 NZDT)
+  exception log ... None
+  log (filtered) .. 41 lines: 7 echoes of our own commands, 34 other -- the kern.* start-up
+                    text of that same boot
+  cpu ............. 0% / 0% / 0%  (`show cpu` on the x960 prints BUSY averages over
+                    1 s / 20 s / 60 s and NEVER an idle figure); load 0.00
+  memory .......... free 7456420 of 8092132 kB (buffers 1560)
+  READ: CLEAN.
+
+--------------------------------------------------------------------------------
+4. STEP 0 AND STEP 1 -- THE BASELINE, AND WHAT "SCRIPTING" IS ON THIS PLATFORM
+--------------------------------------------------------------------------------
+
+4a. Baseline, before anything was changed
+
+  awplus# show trigger
+  TR# Type & Details     Description          Ac Te Tr Repeat     #Scr Days/Date
+  -------------------------------------------------------------------------------
+  % No triggers currently defined
+  -------------------------------------------------------------------------------
+  ⚠ That `% ` line is from a SUCCESSFUL show. It is informational, not an error, and a
+    stop-on-error driver aborts on it. Every `show` in this case therefore went through
+    tools/ckcon.py, never tools/cfg.py (platforms/x960.md §7F.6 says exactly this).
+
+  awplus# show running-config | include trigger      -> nothing
+  awplus# dir flash:                                 -> no .scp file of any kind
+  awplus# show running-config interface port1.0.20   -> switchport / switchport mode access
+  awplus# show running-config interface port1.0.21   -> switchport / switchport mode access
+  awplus# show interface port1.0.20 status
+  port1.0.20  -   notconnect   1  auto  auto  not present
+
+  The two working ports are unused access ports with NO description and no module in the
+  cage ("not present"). port1.0.22 is the same and is held back as a second control. None
+  of the ports that were carrying links (1.0.2, 1.0.4, 1.0.8, 1.0.10, 1.0.14, 1.0.16,
+  1.0.48) was touched at any point in this case.
+
+4b. 🔴 THERE IS NO `show script` COMMAND -- said in exactly those words
+
+  awplus# show script
+  ^
+  % Invalid input detected at '^' marker.
+
+  No `show script` CLI command exists on this platform. (The triage note predicted the
+  wording "% Unrecognized command"; what the device actually prints is the caret and
+  "% Invalid input detected at '^' marker." The conclusion is the same, and the exact
+  text is recorded here because that is what the next person will see.) A script file is
+  listed by `dir flash:` and its contents are read with `start-shell`, not by any
+  script-specific show command.
+
+4c. The surface, read with qmark (types `<prefix> ?` with NO carriage return, then clears
+    the line with Ctrl-U, so nothing is executed; its self-test proved that first)
+
+  awplus# activate ?
+    SCRIPT      Script to activate
+    background  Activate script in background
+  awplus# activate flash ?
+    ARGUMENT  Arguments for the script
+    <cr>
+
+  awplus(config)# trigger 1
+  awplus(config-trigger)# type ?
+    atmf  cpu  env-sensor  interface  linkmon-probe  log  main-pse  memory  periodic
+    ping-poll  pse-port  reboot  stack  time  usb                      (fifteen types)
+  awplus(config-trigger)# type interface ?
+    IFNAME  Interface name
+  awplus(config-trigger)# type interface port1.0.20 ?
+    any   Activate when any interface link status event occurs
+    down  Activate when the interface closes
+    up    Activate when the interface becomes operational
+    <cr>
+  awplus(config-trigger)# type log ?
+    LINE  Log filter regular expression
+  awplus(config-trigger)# type log 5 ?
+    LINE  Log filter regular expression
+    <cr>
+  awplus(config-trigger)# script ?
+    <1-5>  The list position of the script
+  awplus(config-trigger)# script 1 ?
+    FILE  The file containing the script
+
+  Entering `trigger 1` and leaving without setting a `type` creates nothing, so this
+  probe left no state behind -- confirmed afterwards by `show trigger` still printing
+  `% No triggers currently defined`.
+
+>>> SO: "SCRIPTING" ON THIS PLATFORM IS A `.scp` FILE ON THE DEVICE'S FLASH, run either
+>>> by the exec command `activate <file>` or automatically by a `trigger`, which can take
+>>> up to five script files in an ordered list. There is no scripting LANGUAGE: the file
+>>> holds AlliedWare Plus CLI commands and they are executed as though typed.
+
+>>> DESIGN DECISION, and the reason this case is stronger than the obvious version of it.
+>>> The natural trigger for a bench test is `type interface <port> down` with a port
+>>> flap. On THIS unit every candidate port is an SFP cage with no module ("not present"),
+>>> so an interface event is not reliably producible without disturbing a port that is
+>>> carrying a link -- and those are the campaign's own legs and the Test Engineer's
+>>> vlan 60 on the RSTP root port. `type log <regex>` needs no cable at all: the DUT logs
+>>> every CLI command it is given, so a command carrying a chosen string IS the stimulus,
+>>> produced on demand and timed to the second. It also makes the control exact, as
+>>> STEP 4 shows.
+
+--------------------------------------------------------------------------------
+5. STEP 2 -- PUTTING A REAL SCRIPT ON THE DEVICE
+--------------------------------------------------------------------------------
+
+Two routes were available and neither is a STANDING-ORDERS §4 item (triage established
+both): stage the file in the box's `/tftproot` (mode 1777, `tftpd-hpa` active) and pull it
+with `copy tftp://10.38.22.33/<f>.scp flash:/<f>.scp`, or write it on the DUT through
+`start-shell`. The second was used, because it needs nothing on the testbox at all and
+`tools/tb` has no action that writes outside `/tmp/<scratch>/`.
+
+Said plainly: this case used tools/awshell.py, a `start-shell` root shell ON THE DUT, to
+create two files under /flash and to read them back. `start-shell` is logged on the device
+(`IMISH[...]: [manager@ttyS0]start-shell`), so the session is auditable. Nothing else was
+written in that shell, and both files are deleted in STEP 6 with `dir flash:` as proof.
+
+  [root@awplus ~]# printf 'enable\nconfigure terminal\ninterface port1.0.20\ndescription CKT33403-ACTIVATE-RAN\nend\n' > /flash/ckt3a.scp
+  [root@awplus ~]# printf 'enable\nconfigure terminal\ninterface port1.0.21\ndescription CKT33403-TRIGGER-RAN\nend\n' > /flash/ckt3b.scp
+  [root@awplus ~]# ls -l /flash/ckt3a.scp /flash/ckt3b.scp
+  -rw-r-----    1 root     wheel           85 Oct 22 01:07 /flash/ckt3a.scp
+  -rw-r-----    1 root     wheel           84 Oct 22 01:07 /flash/ckt3b.scp
+  [root@awplus ~]# cat /flash/ckt3a.scp
+  enable
+  configure terminal
+  interface port1.0.20
+  description CKT33403-ACTIVATE-RAN
+  end
+  [root@awplus ~]# cat /flash/ckt3b.scp
+  enable
+  configure terminal
+  interface port1.0.21
+  description CKT33403-TRIGGER-RAN
+  end
+
+  The artefact each script leaves is an INTERFACE DESCRIPTION with a unique string. A
+  description is a good artefact for this case: it is visible in `show running-config`,
+  it is saved by `write` so persistence can be tested, it has no effect on forwarding, and
+  nothing else on the device would ever produce that text.
+
+  Both files appear from the CLI too:
+  awplus# dir flash:
+        84 -rw- Oct 22 2026 01:07:20  ckt3b.scp
+        85 -rw- Oct 22 2026 01:07:19  ckt3a.scp
+  (method note: `dir flash: | include scp` is REJECTED -- "% Invalid input detected at
+   '^' marker." `dir` does not take a pipe filter on this platform.)
+
+--------------------------------------------------------------------------------
+6. STEP 3 -- ACTIVATE IT BY HAND, WITH A CONTROL PORT IN THE SAME RUN
+--------------------------------------------------------------------------------
+
+  BEFORE, both ports bare:
+  awplus# show running-config interface port1.0.20
+  !
+  interface port1.0.20
+   switchport
+   switchport mode access
+  !
+  awplus# show running-config interface port1.0.21      -> identical, no description
+
+  awplus# activate flash:/ckt3a.scp
+  AlliedWare Plus (TM) 0.0.0 10/18/26 23:18:21
+  enable
+  configure terminal
+  Enter configuration commands, one per line.  End with CNTL/Z.
+  interface port1.0.20
+  description CKT33403-ACTIVATE-RAN
+  end
+  exit
+
+  The device echoes a fresh CLI banner and then every line of the file in order -- the
+  script is run as a CLI session of its own, not interpreted by some other engine.
+
+  AFTER:
+  awplus# show running-config interface port1.0.20
+  !
+  interface port1.0.20
+   description CKT33403-ACTIVATE-RAN          <- the artefact, from the script
+   switchport
+   switchport mode access
+  !
+  awplus# show running-config interface port1.0.21
+  !
+  interface port1.0.21
+   switchport
+   switchport mode access                     <- CONTROL: untouched
+  !
+  awplus# show running-config interface port1.0.22
+  !
+  interface port1.0.22
+   switchport
+   switchport mode access                     <- second CONTROL: untouched
+
+  STEP 3 VERDICT: PASS -- a script file on flash is EXECUTED by `activate`, and it changed
+  exactly the one port it names. Two ports the script does not name were read in the same
+  run and are unchanged, so the result is a measurement and not a coincidence.
+
+--------------------------------------------------------------------------------
+7. STEP 4 -- A TRIGGER RUNS THE SECOND SCRIPT, WITH A NEAR-MISS CONTROL
+--------------------------------------------------------------------------------
+
+7a. The trigger, and why its regex is written the way it is
+
+  awplus# configure terminal
+  awplus(config)# trigger 1
+  awplus(config-trigger)# type log CK[0-9]33403FIRE
+  awplus(config-trigger)# script 1 flash:/ckt3b.scp
+  awplus(config-trigger)# end
+
+  🔑 THE REGEX IS DELIBERATELY ONE THAT DOES NOT MATCH ITS OWN CONFIGURATION LINE. The
+  DUT logs every command typed, so `type log <pattern>` would normally log a line
+  CONTAINING the pattern and fire the trigger at the moment it was configured, making
+  every later result ambiguous. `CK[0-9]33403FIRE` requires a DIGIT after "CK"; the
+  configuration line contains the literal text "CK[0-9]33403FIRE", whose next character
+  is "[", not a digit. So it cannot match itself. That is confirmed below, and it also
+  gives the case an exact control for free.
+
+  awplus# show running-config | include trigger
+  trigger 1
+     ⚠ NOTE: the grep shows the trigger EXISTS and nothing about what it does -- the
+       sub-mode lines do not contain the word "trigger". `show trigger <n>` is the read
+       that matters (platforms/x960.md §7F.6).
+
+  awplus# show trigger 1
+  Trigger Configuration Details
+  ------------------------------------------------------------
+  Trigger ..................... 1
+  Description ................. <no description>
+  Type and details ............ Log (CK[0-9]33403FIRE)
+  Days ........................ smtwtfs
+  After ....................... 00:00:00
+  Before ...................... 23:59:59
+  Active ...................... Yes
+  Test ........................ No
+  Trap ........................ Yes
+  Repeat ...................... Continuous
+  Modified .................... Thu Oct 22 01:08:37 2026
+  Number of activations ....... 0            <- it did NOT fire on its own config line
+  Last activation ............. not activated
+  Number of scripts ........... 1
+    1. flash:/ckt3b.scp
+    2. <not configured>
+    3. <not configured>
+    4. <not configured>
+    5. <not configured>
+  ------------------------------------------------------------
+  awplus# show running-config interface port1.0.21   -> still bare, no description
+
+7b. THE CONTROL FIRST -- a near-miss that the regex must reject
+
+  awplus# show clock | include CKX33403FIRE        <- "X" is not a digit
+  (8 s later)
+  awplus# show trigger 1
+  Number of activations ....... 0
+  Last activation ............. not activated
+  awplus# show running-config interface port1.0.21  -> still bare
+
+  A log message was certainly produced -- the DUT logs every command -- and it differs
+  from a matching one by a single character. The trigger did not fire and the script did
+  not run.
+
+7c. THE MATCHING STRING
+
+  awplus# show clock | include CK733403FIRE        <- "7" is a digit
+  (10 s later)
+  awplus# show trigger 1
+  Number of activations ....... 1
+  Last activation ............. Thu Oct 22 01:12:30 2026   [01:09:23 on this first run]
+  awplus# show running-config interface port1.0.21
+  !
+  interface port1.0.21
+   description CKT33403-TRIGGER-RAN           <- the second script's artefact
+   switchport
+   switchport mode access
+  !
+  awplus# show running-config interface port1.0.22  -> still bare (control)
+
+  awplus# show log | include TRIGGER
+  2026 Oct 22 01:09:23 user.notice awplus TRIGGER[4679]: Trigger 1 activated
+  2026 Oct 22 01:09:23 user.notice awplus IMISH[4689]: [SCRIPT]description CKT33403-TRIGGER-RAN
+
+>>> THE `[SCRIPT]` PREFIX IS THE PROOF. The device's own log distinguishes a command that
+>>> came from a script from one typed on a console: a console command is logged as
+>>> `[manager@ttyS0]<command>` and this one is logged as `[SCRIPT]<command>`. Nobody typed
+>>> `description CKT33403-TRIGGER-RAN`; the trigger ran the file, and the device says so.
+>>> Activation and script execution are in the same second as the stimulus (01:09:23).
+
+>>> THIS CLOSES AN OPEN ITEM IN THE PLATFORM FILE. platforms/x960.md §7F.8 records that a
+>>> trigger's action list was only ever proved to run by pointing `script 1` at a
+>>> DELIBERATELY NON-EXISTENT file and reading the resulting "Unable to activate script
+>>> ... (File not found)" error, and states: "Running a real script still needs a .scp on
+>>> the device's flash, which needs a root write to the box's /tftproot
+>>> (STANDING-ORDERS §4) -- still unmeasured, as it was after T44181." It is measured now,
+>>> and it needed no write to the box at all.
+
+  STEP 4 VERDICT: PASS -- a trigger executes a real script with nobody typing its
+  commands; the condition is a genuine regular expression, shown by a one-character
+  near-miss that was rejected in the same run; and the artefact appeared on the one port
+  the script names while two others stayed bare.
+
+--------------------------------------------------------------------------------
+8. STEP 5 -- PERSISTENCE: THE TRIGGER MUST STILL *FIRE* AFTER A COLD BOOT
+--------------------------------------------------------------------------------
+
+  awplus# write
+  awplus# show startup-config | include trigger|CKT33403
+  description CKT33403-ACTIVATE-RAN
+   description CKT33403-TRIGGER-RAN
+  trigger 1
+
+  tools/tb ckreload tb277 oper1022 u2 115200 600
+    14:10:14 >>> reload
+    reboot question: 'reboot system? (y/n):' -> y
+    14:11:14 login seen after 61 s
+  (exit 0)
+
+  🔴 A LOGIN PROMPT IS NOT READINESS -- the leg was polled until it answered:
+    poll 1  0 received, 100% packet loss
+    poll 2  0 received, 100% packet loss
+    poll 3  4 packets transmitted, 4 received, 0% packet loss   <- 14:11:27 NZDT
+
+  AFTER THE BOOT, with nothing restored by hand:
+  awplus# show system | include Uptime
+  Uptime             : 0 days 00:01:09                 <- a real restart
+  awplus# show trigger 1
+  Type and details ............ Log (CK[0-9]33403FIRE)
+  Active ...................... Yes
+  Number of activations ....... 0                      <- a RUNTIME counter; it resets
+  Last activation ............. not activated
+    1. flash:/ckt3b.scp
+  awplus# dir flash:
+        84 -rw- Oct 22 2026 01:07:20  ckt3b.scp
+        85 -rw- Oct 22 2026 01:07:19  ckt3a.scp       <- both script files still there
+  awplus# show running-config interface port1.0.20  -> description CKT33403-ACTIVATE-RAN
+  awplus# show running-config interface port1.0.21  -> description CKT33403-TRIGGER-RAN
+
+  SO FAR THIS ONLY SHOWS THE CONFIGURATION SURVIVED. The question the case actually asks
+  is whether the MECHANISM still works, so the artefact was cleared and the whole
+  stimulus pair re-run on the rebooted device:
+
+  awplus# configure terminal / interface port1.0.21 / no description / end
+  awplus# show running-config interface port1.0.21   -> bare again
+
+  awplus# show clock | include CKX33403FIRE          <- the control, after the reboot
+  (8 s later)
+  awplus# show running-config interface port1.0.21   -> still bare. Did not fire.
+
+  awplus# show clock | include CK733403FIRE          <- the matching string
+  (10 s later)
+  awplus# show trigger 1
+  Number of activations ....... 1
+  Last activation ............. Thu Oct 22 01:12:30 2026
+  awplus# show running-config interface port1.0.21
+   description CKT33403-TRIGGER-RAN                  <- recreated by the script
+  awplus# show log | include TRIGGER
+  2026 Oct 22 01:12:30 user.notice awplus TRIGGER[2963]: Trigger 1 activated
+  2026 Oct 22 01:12:30 user.notice awplus IMISH[2973]: [SCRIPT]description CKT33403-TRIGGER-RAN
+
+  Note the PIDs: TRIGGER[4679]/IMISH[4689] before the reboot, TRIGGER[2963]/IMISH[2973]
+  after it -- different processes of a different boot, doing the same work.
+
+  STEP 5 VERDICT: PASS -- script file, trigger configuration and artefacts all survive a
+  cold boot, and the trigger still fires, still runs the script and still rejects the
+  near-miss afterwards. Only the activation counter resets, which is correct for a
+  runtime counter.
+
+--------------------------------------------------------------------------------
+9. STEP 6 -- REMOVAL, PROVED BY RE-SENDING THE STIMULUS
+--------------------------------------------------------------------------------
+
+  awplus# configure terminal
+  awplus(config)# no trigger 1
+  awplus(config)# interface port1.0.20
+  awplus(config-if)# no description
+  awplus(config-if)# exit
+  awplus(config)# interface port1.0.21
+  awplus(config-if)# no description
+  awplus(config-if)# exit
+  awplus(config)# exit
+  awplus# show running-config | include trigger          -> nothing
+  awplus# show running-config interface port1.0.20       -> no description
+  awplus# show running-config interface port1.0.21       -> no description
+  awplus# write
+
+  awplus# delete force flash:/ckt3a.scp
+  Deleting...
+  Successful operation
+  awplus# delete force flash:/ckt3b.scp
+  Deleting...
+  Successful operation
+
+  awplus# dir flash:
+     13635 -rw- Feb 07 2106 06:31:46  onie-support-alliedtelesis_x960_56ysq.tar.bz2
+  57697531 -rw- Feb 07 2106 06:31:45  x960-sin_x96056-20261008-22.rel
+      1774 -rw- Oct 22 2026 01:13:20  default.cfg
+      4096 drwx Oct 22 2026 00:45:00  log/
+  57902387 -rw- Oct 20 2026 21:40:24  x960-tb277.rel
+       402 -rw- Oct 14 2026 21:43:17  minicom.log
+  57898103 -rw- Mar 22 2000 17:14:49  x960-benb.rel
+      4096 drwx Mar 22 2000 16:25:43  gui-userdata/
+     16384 drwx Jan 01 1970 00:03:27  lost+found/
+  -- the same listing as the baseline in section 4a, with neither .scp file.
+
+  awplus# show trigger
+  % No triggers currently defined
+  awplus# show startup-config | include trigger|CKT33403      -> nothing
+
+  AND THE REMOVAL PROVED BY STIMULUS, not by the absence of an error:
+  awplus# show clock | include CK733403FIRE       <- the string that fired it twice
+  (8 s later)
+  awplus# show running-config interface port1.0.21
+  !
+  interface port1.0.21
+   switchport
+   switchport mode access
+  !
+  Nothing happened. No activation, no script, no artefact.
+
+  STEP 6 VERDICT: PASS -- removal is complete in running-config, in startup-config, in
+  `show trigger`, on flash, and against the live stimulus.
+
+--------------------------------------------------------------------------------
+10. HEALTH AFTER (STANDING-ORDERS §8) -- TOOL SAYS DIRTY, ADJUDICATED CLEAN
+--------------------------------------------------------------------------------
+
+  tools/tb health tb277 oper1022 u2 115200 --label after
+      --before /tmp/oper1022/health-u2-T33403-before.json
+      --save /tmp/oper1022/health-u2-T33403-after.out
+  Raw sample saved beside this log as work/health-u2-after.out (624 lines); the before
+  sample as work/health-u2-before.out (461 lines). Tool exit 4.
+
+  HEALTH-DIFF u2 vs health-u2-T33403-before.json (14:06:44 before)
+    reboots ......... !! 1 NEW: 2026-10-22 01:10:14 Expected   CLI(user request)
+    exception log ... None -> None
+    log (filtered) .. 35 new non-echo lines, all kern.* start-up text of that boot
+    log tail 150 .... 150 lines, 109 echoes of our own commands; other lines by signature:
+          4 x 01:11:11 syslog.notice syslog-ng[543]: Configuration reload request received
+          4 x 01:11:11 syslog.notice syslog-ng[543]: Configuration reload finished
+          3 x 01:11:16 daemon.notice root: DHCP Client: Do PREINIT6
+          1 x 01:11:11 user.notice NSM[943]: port1.0.2 updated vlans
+          1 x 01:11:11 user.notice NSM[943]: port1.0.10 port mode access updated VLAN
+          1 x 01:11:11 user.notice NSM[943]: port1.0.48 port mode access updated VLAN
+    !! flagged ...... 35 line(s) matching kernel|exception|crash|restart|Unexpected
+    cpu ............. 0% -> 0%  (1 s busy average)
+    memory .......... free 7456420 -> 7454748 kB (-1672)
+    VERDICT ......... !! DIRTY
+
+  ADJUDICATION BY THE TESTER: **CLEAN**. The reasoning in full:
+
+  1. THE NEW REBOOT ENTRY IS THIS CASE'S OWN RELOAD, matched to the second. The entry is
+     `2026-10-22 01:10:14  Expected  CLI(user request)`. The DUT runs UTC and the box
+     displays NZDT, 13 h ahead, so 01:10:14 UTC is 14:10:14 NZDT -- and the reload
+     transcript in section 8 reads `14:10:14 >>> reload`. The same second. Its category is
+     `Expected ... CLI(user request)`, not `Unexpected System reboot`. It is STEP 5 of the
+     design and was explicitly permitted by the Test Engineer for this campaign.
+  2. THE 35 FLAGGED LINES ARE THAT BOOT'S ORDINARY START-UP TEXT, all stamped 01:11:0x,
+     all `kern.notice` or `kern.warning`, and word for word the same set the BEFORE sample
+     carries from T33402's reload. They are flagged only because the §8 filter matches the
+     literal word `kernel`, which every `kern.*` line contains. No crash, no Oops, no
+     panic, no unrequested daemon restart.
+  3. EXCEPTION LOG `None -> None`.
+  4. CPU 0% in both samples. Memory free moved by 1672 kB of 8092132 kB, which is 0.02% --
+     no step change, and one case cannot show a leak; this log does not claim one.
+  5. THE REMAINING TAIL LINES ARE THE EXPECTED WORK OF A REBOOT: syslog-ng reloading its
+     configuration, the DHCP client starting, and NSM re-applying the VLAN membership of
+     port1.0.2, port1.0.10 and port1.0.48 -- the Test Engineer's vlan 60 trunk and the two
+     campaign legs, coming back exactly as they should. Nothing names a trigger or a
+     script, which is itself worth noting: the trigger that had been removed left nothing
+     behind in the log.
+
+  So the run is **CLEAN, not confounded**, and nothing is reported to the sentinel as a
+  health finding.
+
+--------------------------------------------------------------------------------
+11. TEARDOWN, AND THE BENCH AFTERWARDS
+--------------------------------------------------------------------------------
+
+  RUNNING-CONFIG DIFF (STANDING-ORDERS §1), pre-case against post-case:
+    python3 tools/rcdiff.py rc-T33403-before.out rc-T33403-after.out
+    -> NO OUTPUT, exit 0. Not one line of difference, across a reload.
+
+  STARTUP-CONFIG: no `trigger` line and no `CKT33403` description, proved by re-reading
+    after `write`.
+
+  FLASH: both .scp files deleted; `dir flash:` is the same listing as the baseline.
+
+  BOOT STATE, at the baseline the queue requires:
+    Current boot image : flash:/x960-tb277.rel (file exists)
+    Current boot config: flash:/default.cfg (file exists)
+    Autoboot status    : disabled
+
+  POST-CASE PROBE, same session facts, against the run .setup:
+    MATCH -- the bench equals the template.                                 (exit 0)
+  The probe again regenerated bench-setup/tb277/bench-state.md as a swi_d-only record;
+  the tracked three-unit file was reverted with `git checkout --`. Nothing on the bench
+  changed.
+
+  NOT TOUCHED: `vlan 60` and `port1.0.2`; the vlan10 / vlan48 underlay; every port that
+  was carrying a link. Only port1.0.20 and port1.0.21 were configured, both unused access
+  ports with empty SFP cages, and both are back to `switchport` / `switchport mode access`
+  with no description. port1.0.22 was only ever read. u3 and u5 were never opened.
+  Inside the `start-shell` root shell, the only writes were the two /flash/ckt3*.scp files
+  this case created and then deleted.
+
+--------------------------------------------------------------------------------
+12. TOOLS USED, WITH THEIR EXACT ARGUMENTS
+--------------------------------------------------------------------------------
+
+  CKTO=180..240 tools/tb ckcon tb277 oper1022 u2 115200 <shows, activate, markers, @sleep N>
+  CKTO=180      tools/tb cfg   tb277 oper1022 u2 115200 <configuration, stops on '% '>
+  CKTO=180      tools/tb qmark tb277 oper1022 u2 115200 [--mode 'configure terminal' 'trigger 1' --] <prefixes>
+  CKTO=240      tools/tb ckyn  tb277 oper1022 u2 115200 'YN?:delete force flash:/ckt3a.scp' ...
+  CKSHTO=60 CKTO=300 tools/tb awshell tb277 oper1022 u2 115200 <printf > /flash/..., ls, cat>
+  CKTO=700      tools/tb ckreload tb277 oper1022 u2 115200 600
+  tools/tb ping tb277 eth3 10.38.22.34 4
+  tools/tb health tb277 oper1022 u2 115200 --label before|after [--before <json>] --save <f>
+  tools/tb probe tb277 --consoles u2 --no-prompt --pdu 10.36.230.212 --outlet u2=1
+                 --name u2=swi_d --template <box-absolute path to the run .setup>
+  python3 tools/rc2cfg.py <ckcon stdout> <out.cfg> <3 header lines>
+  python3 tools/rcdiff.py <before.out> <after.out>
+
+  No new tool was needed for this case. Both script files were created on the DUT and
+  deleted again, so nothing was left loose anywhere -- and in particular no `.py` or
+  `.scp` was written into the lab tree (hook-enforced) and nothing was written on the
+  testbox outside /tmp/oper1022/.
+
+  FILES SAVED:
+    tb277/x960/oper-2026-10-22T1122/T33403/swi_d.cfg          (3 header + 112 config lines)
+    tb277/x960/oper-2026-10-22T1122/T33403/work/run1.log      (this file)
+    tb277/x960/oper-2026-10-22T1122/T33403/work/health-u2-before.out
+    tb277/x960/oper-2026-10-22T1122/T33403/work/health-u2-after.out
+  Console transcript on the box: /tmp/oper1022/console-u2.log
+
+--------------------------------------------------------------------------------
+13. SUMMARY OF STEP VERDICTS
+--------------------------------------------------------------------------------
+
+  STEP 0  baseline: no triggers, no .scp on flash, both working ports bare .... baseline
+  STEP 1  the surface established read-only; **no `show script` command exists** .. PASS
+  STEP 2  two real scripts placed on the device's flash and read back ........... PASS
+  STEP 3  `activate flash:/ckt3a.scp` EXECUTED the file -- the named port gained
+          the artefact, two unnamed ports stayed bare in the same run .......... PASS
+  STEP 4  a TRIGGER ran the second script with nobody typing its commands;
+          `TRIGGER[...]: Trigger 1 activated` + `IMISH[...]: [SCRIPT]<command>`;
+          a one-character near-miss was REJECTED in the same run .............. PASS
+  STEP 5  script file, trigger and artefacts survive a cold boot, and the trigger
+          still FIRES and still rejects the near-miss afterwards .............. PASS
+  STEP 6  removal complete in running-config, startup-config, `show trigger`,
+          on flash, and against the re-sent live stimulus ..................... PASS
+
+  FINDINGS AND OBSERVATIONS RAISED
+    (1) **No `show script` CLI command exists on this platform** -- in exactly those
+        words. `show script` returns the caret and "% Invalid input detected at '^'
+        marker." A script is listed by `dir flash:` and read with `start-shell`.
+        "Scripting" here is a `.scp` file of ordinary CLI commands on the device's flash,
+        run by the exec command `activate <file>` or by a `trigger` (up to five files in
+        an ordered list). There is no scripting language.
+    (2) **platforms/x960.md §7F.8's open item is now CLOSED.** That note says a trigger's
+        action list had only ever been proved to run by pointing it at a non-existent file
+        and reading the error, and that running a REAL script "needs a root write to the
+        box's /tftproot (STANDING-ORDERS §4) -- still unmeasured". A real script has now
+        been run, twice, by a trigger, and it needed no write to the testbox at all.
+    (3) The device's log distinguishes a script's commands from a console's:
+        `[SCRIPT]<command>` versus `[manager@ttyS0]<command>`. That is the cheapest
+        available proof that a command came from a script.
+    (4) `trigger <n>` entered and left without a `type` creates nothing, so a read-only
+        help probe of the sub-mode is safe (confirmed again here).
+    (5) `show running-config | include trigger` prints only `trigger 1` and nothing about
+        what the trigger does -- the sub-mode lines do not contain the word. Use
+        `show trigger <n>`.
+    (6) A trigger's `Number of activations` is a RUNTIME counter and resets to 0 at
+        reboot, while the trigger itself persists. Do not read the reset as a loss of
+        configuration.
+    (7) `dir flash: | include <x>` is REJECTED -- `dir` takes no pipe filter here.
+    (8) `show trigger` with no triggers prints `% No triggers currently defined`, a `% `
+        line from a SUCCESSFUL show. Run it through ckcon.py, never cfg.py.
+    (9) METHOD, reusable: when a trigger's condition is `type log <regex>`, write a regex
+        that cannot match its own configuration line (here `CK[0-9]33403FIRE`, since the
+        configuration line has "[" where the regex needs a digit). Otherwise the trigger
+        fires the moment it is configured -- the DUT logs every command typed -- and every
+        later result is ambiguous. The same trick hands you an exact control for free: a
+        one-character near-miss that must be rejected.
+
+RUN LABEL: clean. (The health tool read DIRTY; adjudicated CLEAN in section 10 with the
+reasoning in full -- the single new reboot entry is this case's own permitted reload,
+matched to the second, and every flagged line is that boot's ordinary kern.* start-up
+text.)
+
+VERDICT: PASS -- "scripting" on the AT-x960-56YSQ is a `.scp` file of CLI commands on the
+device's flash, run by `activate <file>` or by a trigger, and there is no `show script`
+command. A real script was executed both ways and proved by an artefact only a running
+script could have made, with ports the script does not name read in the same run and
+unchanged. The trigger's log-regular-expression condition was shown to be a real regex by
+a one-character near-miss that it rejected in the same run as the string it accepted, and
+the device's own `[SCRIPT]` log prefix shows the command came from the file and not from a
+console. Script, trigger and artefacts survive a cold boot and the trigger still fires
+afterwards. Everything removes cleanly, proved by re-sending the stimulus and getting
+nothing. This case also closes the open item recorded in platforms/x960.md §7F.8.
