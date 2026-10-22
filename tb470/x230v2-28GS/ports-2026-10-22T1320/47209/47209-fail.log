@@ -1,0 +1,285 @@
+================================================================================
+TEST 47209 -- Fibre pluggable with supported speeds
+================================================================================
+Run:      2026-10-22 13:45-14:22 NZDT.  The DUT's clock reads UTC, so add 13 h to its log
+          times for NZDT.
+Bench:    tb470, console u1 (x230v2-28GS swi_f, the DUT); Test Engineer terrenceb@terrenceb-dl
+Tester:   bench-runner (manual CLI through tools/tb ckcon and tools/tb cfg; frames with
+          tools/tb sudotool vsend, tools/tb capture and tools/tb tool vcount)
+Graded:   tester
+Case:     AWPTCM-T47209 "Fibre pluggable with supported speeds". The test-case database
+          holds no objective and one empty step. The run used the method and the expected
+          result stated under VERDICT.
+Build:    swi_f x230-28GSv2 (the DUT) awplus_main-20261019-75
+          (x230v2_28GS-awplus_main-20261019-75.rel, build date Mon Oct 19 08:39:33 UTC 2026)
+
+x230-28GSv2# show system
+System Status                                           Thu Oct 22 00:46:34 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       706  Base    AT-x230-28GS V2                   A-0   A10783G262900002
+--------------------------------------------------------------------------------
+RAM: Total: 506920 kB Free: 310064 kB
+Flash: 95.6MB Used: 35.2MB Available: 60.5MB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 2 days 02:17:15
+Bootloader version : 6.2.40
+
+Current software   : x230v2_28GS-awplus_main-20261019-75.rel
+Software version   : awplus_main-20261019-75
+Build date         : Mon Oct 19 08:39:33 UTC 2026
+
+Current boot config: flash:/tb470-bench.cfg (file exists)
+
+System Name
+ x230-28GSv2
+System Contact
+
+System Location
+
+Configs:  swi_f.cfg (running-config in the case's setup state, captured at 14:18:41 after
+          the last row, with every row's speed and duplex change undone; saved to startup: no)
+
+VERDICT: FAIL -- the AT-SPSX (1000BASE-SX) module accepts `speed 100` and `speed auto 100`.
+         The port then reads "connected" at 100 Mb/s, and 0 of 100 frames cross the fibre.
+  Method (the database has no steps): the DUT's two SX modules, port1.0.25 and port1.0.26,
+  are joined by one fibre. Each port is in a different VLAN, so frames from tb470 eth2 must
+  cross the fibre to reach tb470 eth1. Each row sets a speed or duplex on port1.0.25. Then
+  eth2 sends 100 TEST frames to eth1 and 100 CONTROL frames that the DUT must drop.
+  Expected: a 1000BASE-SX module runs only 1000 Mb/s full duplex. The DUT accepts the
+  settings that give 1000/full and passes 100 of 100 frames with them. The DUT refuses every
+  other speed and duplex.
+      auto-negotiation ............... connected a-full a-1000, 100/100 frames  (STEP 1)
+      speed 1000 ..................... connected 1000, 100/100 frames  (STEP 2)
+      speed 1000 + duplex full ....... both ends set: connected, 100/100 frames  (STEP 2)
+      speed 100, speed auto 100 ...... ACCEPTED, reads connected 100, 0/100 frames  (STEP 3)
+      speed 10, 2500, 10000 .......... refused, link stays at 1000, 100/100 frames  (STEP 4)
+      duplex half .................... refused, link stays at 1000, 100/100 frames  (STEP 4)
+      control frames ................. 0/100 at eth1 in every row
+FAIL CONDITION: STEP 3. Expected: `speed 100` and `speed auto 100` are refused, because
+         1000BASE-SX has no 100 Mb/s mode. Seen: the DUT accepted both with no error line.
+         The two ends of one fibre then read different speeds: 100 on port1.0.25 and 1000 on
+         port1.0.26. The DUT counted 101 frames out of port1.0.25, and port1.0.26 counted 0
+         in. 0 of 100 frames reached eth1. The same path passed 100 of 100 before and after
+         this setting, so the method is not the cause. The DUT accepts a setting the module
+         cannot run, and it reports a link that carries no traffic.
+TRIED:   `speed 100` (0/100 frames) and `speed auto 100` (0/100 frames).
+CAVEAT:  One module type (AT-SPSX), one pair of modules, looped on one DUT. The DUT is
+         also its own link partner, so a different partner was not tested.
+HEALTH:  reboots ......... no new entry (32 entries before and after, newest
+                           2026-10-20 08:05:54)
+         exception log ... None before -> None after
+         log ............. no crash, daemon restart or kernel error. The only other lines
+                           are the rows' own port down/up messages and one failed read
+                           command of this case (STEP 6).
+         CPU ............. busy 1% before -> busy 1% after (the x230 prints busy, not idle)
+         memory .......... free 310064 kB before -> 308952 kB after, of 506920 kB
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+        tb470 eth2 10.38.215.33/27 (sender)
+             |
+             v  100 TEST + 100 CONTROL frames per row
+    +------------------------------------------------+
+    |  swi_f x230-28GSv2   DUT                       |
+    |                                                |
+    |  port1.0.10 (vlan3901)    port1.0.2 (vlan1000) |
+    |        |                         ^             |
+    |        v                         |             |
+    |  port1.0.25 (vlan3901)    port1.0.26 (vlan1000)|
+    |   AT-SPSX ====== SX fibre ======> AT-SPSX      |
+    +------------------------------------------------+
+                                       |
+                                       v  only frames that crossed the fibre
+                        tb470 eth1 10.38.215.1/27 (capture)
+
+  DUT     : swi_f (AT-x230-28GS V2 rev A-0) console u1, S/N A10783G262900002,
+            MAC 00c2.8f3f.0f5d, bootloader 6.2.40. Standalone. Spanning tree disabled.
+  modules : port1.0.25 AT-SPSX S/N A03240R192701902 (datecode 19070401, 1000BASE-SX)
+            port1.0.26 AT-SPSX S/N A03240R111800014 (datecode 11050701, 1000BASE-SX)
+  link    : swi_f port1.0.25 <-> swi_f port1.0.26  (SX fibre loop on the DUT)
+  host    : tb470 eth2 00:f0:4d:00:77:17 10.38.215.33/27 -> swi_f port1.0.10
+            (MAC table: "1 port1.0.10 00f0.4d00.7717 forward dynamic")
+  host    : tb470 eth1 00:f0:4d:00:77:16 10.38.215.1/27 -> swi_f port1.0.2
+            (MAC table: "1000 port1.0.2 00f0.4d00.7716 forward dynamic")
+  tools   : on tb470: tools/tb sudotool vsend (scapy sender on eth2), tools/tb capture
+            (tcpdump on eth1, "ether src 00:f0:4d:00:77:17"), tools/tb tool vcount (per-marker
+            frame count). One case script ran each row: it set the row on port1.0.25,
+            read the ports, sent both bursts, counted at eth1 and read the ports again.
+  TEST    : 100 untagged IPv4/UDP frames 192.168.10.1 -> .2, destination = eth1's MAC.
+  CONTROL : 100 frames with 802.1Q VLAN ID 1000, same destination. The access port
+            port1.0.10 (vlan3901) must drop them. If they reached vlan1000 they would reach
+            eth1 without crossing the fibre.
+
+STEP 0 -- baseline: modules, setup, and the fibre path OFF                  done
+--------------------------------------------------------------------------------
+x230-28GSv2# show system pluggable
+1.0.25  ATI              AT-SPSX          A03240R192701902 19070401 1000BASE-SX
+1.0.26  ATI              AT-SPSX          A03240R111800014 11050701 1000BASE-SX
+                                           <-- both modules are 1000BASE-SX
+x230-28GSv2#configure terminal
+x230-28GSv2(config)#vlan database
+x230-28GSv2(config-vlan)#vlan 3901 name T47209A
+x230-28GSv2(config-vlan)#exit
+x230-28GSv2(config)#interface port1.0.10,port1.0.25
+x230-28GSv2(config-if)#switchport access vlan 3901
+x230-28GSv2(config-if)#exit
+x230-28GSv2(config)#interface port1.0.26
+x230-28GSv2(config-if)#switchport access vlan 1000
+x230-28GSv2(config-if)#end
+x230-28GSv2#show vlan brief
+1000    VLAN1000         STATIC  ACTIVE  port1.0.2(u) port1.0.26(u)
+3901    T47209A          STATIC  ACTIVE  port1.0.10(u) port1.0.25(u)
+                                           <-- the two fibre ends are in different VLANs
+  Fibre path OFF (port1.0.26 still shut), 13:49:29:
+port1.0.25  -                  notconnect       3901 auto   auto    1000BASE-SX
+port1.0.26  -                  disabled         1000 auto   auto    1000BASE-SX
+host# vsend eth2 100 TEST, vsend eth2 100 CONTROL
+host# vcount t47209-R0-off-baseline.pcap  -> "/tmp/x230p1022/t47209-R0-off-baseline.pcap: 0 frames"
+  DUT counters: port1.0.25 in +0 out +0, port1.0.26 in +0 out +0.
+  Fibre path ON, 13:50:40:
+x230-28GSv2(config)#interface port1.0.26
+x230-28GSv2(config-if)#no shutdown
+port1.0.25  -                  connected        3901 a-full a-1000  1000BASE-SX
+port1.0.26  -                  connected        1000 a-full a-1000  1000BASE-SX
+x230-28GSv2#show cpu
+ 1 second: 1%, 20 seconds: 0%, 60 seconds: 1%
+  => STEP 0 done: with the fibre shut, 0 frames reached eth1. So the fibre is the only path
+     from eth2 to eth1. With it open, the link came up at 1000 full, with no traffic storm.
+
+STEP 1 -- auto-negotiation (speed auto, duplex auto)                        PASS
+--------------------------------------------------------------------------------
+  Read three times: at the start (13:52), after the refused rows (14:11), and with both
+  ends set back to auto (14:16). port1.0.25 has no speed or duplex line in its
+  running-config each time.
+port1.0.25  -                  connected        3901 a-full a-1000  1000BASE-SX
+port1.0.26  -                  connected        1000 a-full a-1000  1000BASE-SX
+host# vcount t47209-R1-auto.pcap  -> "/tmp/x230p1022/t47209-R1-auto.pcap: 100 frames"
+    100  marker=TEST_R1_auto tags=none        type=0x0800 dst=00:f0:4d:00:77:16 src=00:f0:4d:00:77:17
+
+  | read  | port1.0.25 status         | eth1 TEST | eth1 CONTROL | DUT 1.0.25 out | DUT 1.0.26 in |
+  | 13:52 | connected 3901 a-full a-1000 | 100/100 | 0/100        | +102           | +102          |
+  | 14:11 | connected 3901 a-full a-1000 | 100/100 | 0/100        | +101           | +101          |
+  | 14:16 | connected 3901 a-full a-1000 | 100/100 | 0/100        | +101           | +101          |
+  => STEP 1 PASS: with auto-negotiation the module links at 1000 full. 100 of 100 frames
+     crossed the fibre each time, and the DUT counters agree at both ends.
+
+STEP 2 -- fixed 1000, and fixed 1000 + full duplex                          PASS
+--------------------------------------------------------------------------------
+  speed 1000 on port1.0.25 (13:53:48):
+x230-28GSv2(config)#interface port1.0.25
+x230-28GSv2(config-if)#speed 1000
+  "current duplex full, current speed 1000 ... configured duplex auto, configured speed 1000"
+port1.0.25  -                  connected        3901 a-full 1000    1000BASE-SX
+port1.0.26  -                  connected        1000 a-full a-1000  1000BASE-SX
+host# vcount t47209-R2-speed1000.pcap  -> "/tmp/x230p1022/t47209-R2-speed1000.pcap: 100 frames"
+    100  marker=TEST_R2_speed1000 tags=none        type=0x0800 dst=00:f0:4d:00:77:16 src=00:f0:4d:00:77:17
+  DUT counters: port1.0.25 out +101, port1.0.26 in +101, port1.0.2 out +103. CONTROL 0/100.
+
+  speed 1000 + duplex full on BOTH ends (14:14):
+x230-28GSv2(config)#interface port1.0.26
+x230-28GSv2(config-if)#speed 1000
+x230-28GSv2(config-if)#duplex full
+x230-28GSv2(config)#interface port1.0.25
+x230-28GSv2(config-if)#speed 1000
+x230-28GSv2(config-if)#duplex full
+  running-config: port1.0.25 and port1.0.26 both " speed 1000" / " duplex full"
+  port1.0.25 "connected 3901 full 1000", port1.0.26 "connected 1000 full 1000"
+host# vcount t47209-R9c-both1000-full.pcap  -> 100 frames, "100  marker=TEST_R9c_both1000_full ..."
+  DUT counters: port1.0.25 out +101, port1.0.26 in +101, port1.0.2 out +102. CONTROL 0/100.
+  => STEP 2 PASS: the DUT accepted the module's one supported fixed setting, 1000 Mb/s full
+     duplex. 100 of 100 frames crossed the fibre with it.
+
+STEP 3 -- unsupported speed 100 (fixed and auto-limited)                    FAIL
+--------------------------------------------------------------------------------
+  speed 100 (13:55:03):
+x230-28GSv2(config)#interface port1.0.25
+x230-28GSv2(config-if)#speed 100
+                                           <-- no "%" line: the DUT accepted it
+  "current duplex full, current speed 100 ... configured duplex auto, configured speed 100"
+port1.0.25  -                  connected        3901 a-full 100     1000BASE-SX
+port1.0.26  -                  connected        1000 a-full a-1000  1000BASE-SX
+                                           <-- the two ends of one fibre read 100 and 1000
+host# vcount t47209-R3-speed100.pcap  -> "/tmp/x230p1022/t47209-R3-speed100.pcap: 0 frames"
+  DUT counters: port1.0.10 in +200, port1.0.25 in +0 out +101, port1.0.26 in +0 out +2,
+                port1.0.2 out +2
+                                           <-- 101 frames out of 1.0.25, 0 into 1.0.26
+  DUT log (UTC), filter 'port1.0.2[56]|EXFX|Unsupported|capabil':
+  2026 Oct 22 00:55:07 ... IMISH[8542]: [manager@ttyS0]interface port1.0.25
+  2026 Oct 22 00:55:09 ... NSM[592]: Port down notification received for port1.0.25
+  2026 Oct 22 00:55:09 ... NSM[592]: Port down notification received for port1.0.26
+  2026 Oct 22 00:55:09 ... NSM[592]: Port up notification received for port1.0.25
+  2026 Oct 22 00:55:10 ... NSM[592]: Port up notification received for port1.0.26
+                                           <-- no EXFX, "Unsupported" or capability line
+
+  speed auto 100 (13:56:42):
+x230-28GSv2(config)#interface port1.0.25
+x230-28GSv2(config-if)#speed auto 100
+                                           <-- no "%" line: the DUT accepted it
+  "current duplex full, current speed 100 ... configured duplex auto, configured speed auto 100"
+port1.0.25  -                  connected        3901 a-full a-100   1000BASE-SX
+port1.0.26  -                  connected        1000 a-full a-1000  1000BASE-SX
+host# vcount t47209-R4-speedauto100.pcap  -> "/tmp/x230p1022/t47209-R4-speedauto100.pcap: 0 frames"
+  DUT counters: port1.0.25 in +0 out +101, port1.0.26 in +0 out +2, port1.0.2 out +2
+  => STEP 3 FAIL: 1000BASE-SX has no 100 Mb/s mode, so both commands should be refused. The
+     DUT accepted both and logged no error. The port then reported "connected" at 100 while
+     its partner reported 1000. 0 of 100 frames crossed, both times. The DUT sent 101 frames
+     out and the partner received 0, so the frames were lost on the fibre.
+
+STEP 4 -- other unsupported speeds and half duplex are refused              PASS
+--------------------------------------------------------------------------------
+x230-28GSv2(config-if)#speed 10
+% port1.0.25: Unsupported speed/duplex combination port1.0.25
+x230-28GSv2(config-if)#speed 2500
+% port1.0.25: Unsupported speed/duplex combination port1.0.25
+x230-28GSv2(config-if)#speed 10000
+% port1.0.25: Unsupported speed/duplex combination port1.0.25
+x230-28GSv2(config-if)#duplex half
+% Duplex set failed port1.0.25
+  DUT log (UTC):
+  2026 Oct 22 00:58:04 local7.err ... EXFX[619]: DBG:exfx_port_physicalSpeedSet 1101: Invalid request vs capabilities for port
+  2026 Oct 22 00:58:04 local6.err ... EXFX[619]: Unsupported speed/duplex combination ifx 5025
+  2026 Oct 22 01:09:11 local7.err ... EXFX[619]: DBG:exfx_port_duplexSet 5365:rc=16
+  2026 Oct 22 01:09:11 local6.err ... EXFX[619]: Failed to set the duplex mode on ifx 5025, rc 16
+  After each refusal: port1.0.25 has no speed or duplex line in its running-config, and
+  reads "configured duplex auto, configured speed auto".
+
+  | setting     | DUT answer                                   | port1.0.25 after             | eth1 TEST | CONTROL |
+  | speed 10    | % Unsupported speed/duplex combination        | connected 3901 a-full a-1000 | 100/100   | 0/100   |
+  | speed 2500  | % Unsupported speed/duplex combination        | connected 3901 a-full a-1000 | 100/100   | 0/100   |
+  | speed 10000 | % Unsupported speed/duplex combination        | connected 3901 a-full a-1000 | 100/100   | 0/100   |
+  | duplex half | % Duplex set failed port1.0.25               | connected 3901 a-full a-1000 | 100/100   | 0/100   |
+  DUT counters for each row: port1.0.25 out +101 or +102, port1.0.26 in +101 or +102.
+  => STEP 4 PASS: the DUT refused all four. None reached the running-config. The link stayed
+     at 1000 full and passed 100 of 100 frames after each one. Only `speed 10` and
+     `duplex half` write an EXFX line; 2500 and 10000 are refused at the CLI only.
+
+STEP 5 -- one end fixed at 1000 full, the other end on auto                 done
+--------------------------------------------------------------------------------
+  Not graded. This is a mismatch between the two ends, not a setting of one module.
+  port1.0.25 speed 1000 + duplex full, port1.0.26 auto (14:10):
+port1.0.25  -                  connected        3901 full   1000    1000BASE-SX
+port1.0.26  -                  notconnect       1000 auto   auto    1000BASE-SX
+host# vcount t47209-R9-speed1000-full.pcap  -> "0 frames"
+  DUT counters: port1.0.25 in +0 out +101, port1.0.26 in +0 out +0
+  The same with the ends swapped (port1.0.26 fixed, port1.0.25 auto, 14:13):
+port1.0.25  -                  notconnect       3901 auto   auto    1000BASE-SX
+port1.0.26  -                  connected        1000 full   1000    1000BASE-SX
+host# vcount t47209-R9b-both1000-full.pcap  -> "0 frames"
+  => STEP 5 done: `duplex full` with `speed 1000` turns auto-negotiation off at that end. The
+     auto end then does not link. The fixed end still reads "connected", and 0 frames cross.
+     The result is the same whichever end is fixed, so it follows the setting, not a module.
+
+STEP 6 -- module diagnostics                                                done
+--------------------------------------------------------------------------------
+x230-28GSv2# show system pluggable diagnostics port1.0.25
+% Invalid input detected at '^' marker.
+x230-28GSv2# show system pluggable diagnostics
+  port1.0.25 / port1.0.26 "Diagnostics information is not supported by device"
+  => STEP 6 done: this module has no diagnostics, and this build has no port form of the
+     command.
+================================================================================
