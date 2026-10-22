@@ -1177,6 +1177,7 @@ def derive_links(stacks, devs, meta):
             hostname_of[d.hostname] = ("stack", d.stack) if d.stack else ("dev", d)
     views = [("stack", st, st.rec) for st in stacks] + [("dev", d, d.rec) for d in devs if not d.stack]
     seen, links, notes = {}, [], []
+    loops = set()     # (dev, port) ends of a cable from a standalone unit back to itself
     for kind, obj, rec in views:
         ll = parse_lldp(rec["out"].get("show lldp neighbors", ""))
         if ll["total"] is not None and ll["total"] > len(ll["rows"]):
@@ -1200,6 +1201,16 @@ def derive_links(stacks, devs, meta):
                 notes.append("{} {}: neighbour port {!r} on {} maps to no member"
                              .format(a.name, lp, rport, far[1].name if far[0] == "dev" else "stack"))
                 continue
+            if a is b and not a.stack and lp != rport:
+                # A standalone unit seeing its own chassis on another port: a cabled self-loop.
+                # With the two ends in one VLAN and spanning tree off it storms (tb470 x230
+                # port1.0.15<->1.0.16 and 1.0.25<->1.0.26, 2026-10-22: CPU 68%). Advisory only.
+                k = tuple(sorted([lp, rport]))
+                if (a.name, lp) not in loops:          # each loop is seen from both of its ends
+                    loops.update({(a.name, lp), (a.name, rport)})
+                    notes.append("{} {} <-> {}: SELF-LOOP cable (LLDP sees its own chassis); it storms "
+                                 "if both ends share a VLAN with spanning tree off".format(a.name, k[0], k[1]))
+                continue
             if a is b or (a.stack and a.stack is b.stack):
                 continue                                  # a stack seeing itself (ring residue)
             k = tuple(sorted([(a.name, lp), (b.name, rport)]))
@@ -1207,18 +1218,30 @@ def derive_links(stacks, devs, meta):
     for (an, ap), (bn, bp) in seen:
         links.append((an, ap, bn, bp, "lldp both ends" if seen[((an, ap), (bn, bp))] >= 2
                       else "lldp one end"))
-    # host edges: a NIC's MAC learned on a PHYSICAL port (a LAG hit is arrival, not the edge)
-    edges, hostmacs = {}, {n: mac_dotted(i["mac"]) for n, i in meta["host_nics"].items() if i["mac"]}
+    # host edges: a NIC's MAC learned on a PHYSICAL port (a LAG hit is arrival, not the edge).
+    # A NIC's frames flood across inter-switch links, so its MAC is also learned on the far
+    # end of every link it crosses. Ports LLDP already shows as a link or a self-loop end are
+    # arrivals, not the edge (2026-10-22: tb470 eth2 on x230 port1.0.10 was reported on the
+    # 4050's port1.0.2, the first port read that had learned it).
+    trunk_ends = {(an, ap) for an, ap, _, _, _ in links} | {(bn, bp) for _, _, bn, bp, _ in links} | loops
+    cands, hostmacs = {}, {n: mac_dotted(i["mac"]) for n, i in meta["host_nics"].items() if i["mac"]}
     for kind, obj, rec in views:
         for _, port, mac, _, _ in parse_mac_table(rec["out"].get("show mac address-table", "")):
             for nic, hm in hostmacs.items():
                 if mac == hm and PHYS_PORT_RE.match(port):
                     d = port_owner(kind, obj, port)
-                    if d and nic not in edges:
-                        edges[nic] = (d.name, port)
-                    elif d and edges[nic] != (d.name, port):
-                        notes.append("{} learned on {} {} AND {} {}".format(
-                            nic, edges[nic][0], edges[nic][1], d.name, port))
+                    if d and (d.name, port) not in cands.setdefault(nic, []):
+                        cands[nic].append((d.name, port))
+    edges = {}
+    for nic, found in cands.items():
+        edge_ports = [c for c in found if c not in trunk_ends]
+        pick = edge_ports or found          # all on links: keep the old first-seen answer, and say so
+        edges[nic] = pick[0]
+        if not edge_ports:
+            notes.append("{} learned only on inter-switch ports ({}); edge NOT proven".format(
+                nic, ", ".join("{} {}".format(*c) for c in found)))
+        for other in pick[1:]:
+            notes.append("{} learned on {} {} AND {} {}".format(nic, pick[0][0], pick[0][1], *other))
     return sorted(links), edges, notes
 
 

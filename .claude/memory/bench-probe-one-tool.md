@@ -93,3 +93,12 @@ Related: [[tb470-topology-and-setup]], [[setup-file-declares-topology]],
 (`diff` runs offline from the repo), then `git checkout bench-setup/bench-state.md` to keep the last full capture.
 **Never `apply` from a subset file:** it would delete the other units from the template. A full re-probe waits until
 every console is free.
+
+**2026-10-22 fix (Terrence: "fix the probe first"), tb470 u0/u1:** host-NIC edges used the FIRST physical port that had
+learned the NIC's MAC, so a NIC's flooded frames made it land on an inter-switch port (eth2, cabled to x230 port1.0.10,
+was reported on the 4050's port1.0.2, the LLDP link to the x230). `derive_links()` now drops candidate ports that LLDP
+shows as a link end or a self-loop end; "edge NOT proven" is noted when only link ports learned it. It also reports a
+**standalone unit's LLDP neighbour that is itself** as a `SELF-LOOP` Advisory (it used to be skipped silently as
+"ring residue"). Verified by `generate` on captures 2026-10-21T234530Z (both x230 loops live: 2 advisories, eth2 on
+x230 port1.0.10) and 2026-10-22T014128Z. **Limit:** a self-loop with one end `shutdown` has no LLDP neighbour, so the
+probe cannot see it -- the handover must name it.
