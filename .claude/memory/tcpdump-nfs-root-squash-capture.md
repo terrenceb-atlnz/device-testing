@@ -1,6 +1,6 @@
 ---
 name: tcpdump-nfs-root-squash-capture
-description: "Two ways a tcpdump capture lies that it saw NO TRAFFIC: -Z <user> to the root-squashed NFS home gives header-only pcaps; and a file SIZE read before the writer has exited reads 0 while the buffer is unflushed. Capture to local /tmp as root, and confirm the process exited before believing a zero"
+description: "Three ways a tcpdump capture lies that it saw NO TRAFFIC: -Z <user> to the root-squashed NFS home gives header-only pcaps; and a file SIZE read before the writer has exited reads 0 while the buffer is unflushed. and a syslog destination the box does not listen on goes quiet for exactly 60 s at a time. Capture to local /tmp as root, confirm the writer exited, and size the window to the protocol's own back-off before believing a zero"
 metadata:
   node_type: memory
   type: reference
@@ -19,6 +19,17 @@ header-only, 24 bytes, and every reader reports **zero packets**.
 indistinguishable from the DUT dropping the traffic. On this campaign the earlier group's
 captures had worked *precisely because* they were root-owned, so the "fix" turned a working
 measurement into a false negative that mimics a dropping relay.
+
+**A THIRD way, measured on tb277 2026-10-22 (x960 syslog campaign).** With **no UDP/514
+listener on the box**, every syslog datagram the DUT sends draws an **ICMP port-unreachable**.
+The DUT's syslog-ng marks the destination broken and **reopens it after exactly 60 s**
+(`time_reopen='60'` in its own log), then flushes the whole backlog in one sub-millisecond
+burst. **Three capture windows read ZERO while the feature was working perfectly.** Windows of
+170 s or more saw everything.
+
+**The general rule this third case gives:** before believing a zero, ask what back-off the
+*protocol or the daemon* applies, and make the window longer than it. A capture shorter than
+the sender's retry interval measures the retry interval, not the feature.
 
 **The method that works:**
 

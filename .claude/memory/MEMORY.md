@@ -44,7 +44,7 @@
 - [tb470 bench structural limits](tb470-bench-structural-limits.md) — CORRECTED 09-23 (ports) + 09-24: tcpreplay gives LINE RATE (~983 Mbps/NIC); left: no MRP, TACACS+, SFP+ link faulty
 - [Campaign measurement discipline](campaign-measurement-discipline.md) — baseline the feature OFF first, make traffic TRANSIT the DUT, split PROVEN from NOT MEASURABLE
 - [Traffic tests use scapy, not ping](scapy-for-traffic-tests.md) — Test Engineer 2026-10-15, ALL cases: craft the exact frame + a control flow that must NOT match, count both; ping proves reachability only. STANDING-ORDERS §7; tools/ already has 10 scapy helpers
-- [Two ways a tcpdump capture lies](tcpdump-nfs-root-squash-capture.md) — `-Z` to the root-squashed lab home gives header-only pcaps; a file SIZE read before the writer exited reads 0 unflushed (nearly a false finding, tb277 10-15). A zero is a measurement only once the same instrument gave a non-zero
+- [Three ways a tcpdump capture lies](tcpdump-nfs-root-squash-capture.md) — root-squash gives header-only pcaps; a SIZE read before the writer exits reads 0; a daemon's back-off empties short windows
 - [STP mode change re-enables spanning tree](stp-mode-change-reenables-spanning-tree.md) — a `spanning-tree mode` change silently drops `no spanning-tree <mode> enable`
 - [LACP passive hides links from STP](lacp-passive-hides-links-from-stp.md) — auto-enrols freed ports; STP runs on the AGGREGATOR so a live link forwards where STP cannot block. Hit all 3 devices
 - [Sentinel session keeps long runs moving](sentinel-session-keeps-long-runs-moving.md) — MANDATORY for test sessions (Terrence 2026-09-28): rescues the tester + is his channel to it; the CAMPAIGN is the unit of work
@@ -57,7 +57,8 @@
 - [tb277 x960 mcast/BFD/VRRP campaign 2026-10-16](tb277-x960-mcast-bfd-vrrp-campaign-2026-10-16.md) — 10 cases, 9 PASS + 1 UNSUPPORTED; two-router multicast works here (swi_a); keepers F-15 and F-17
 - [tb277 x960 Management campaign 2026-10-20](tb277-x960-management-campaign-2026-10-20.md) — 14 cases, 12 PASS/1 FAIL; factory password warns nobody, hw-monitoring trap ignores its own enable command, AW+ eats a chained `| exclude`
 - [tb277 x960 Management campaign 2026-10-21](tb277-x960-management-campaign-2026-10-21.md) — 14 cases, 10 PASS; 7 persistence limbs measured at last; numbered ACL silently keeps ONE rule; a 180 s timeout nearly became a false defect report
-- [Console driver retries are lockout generators](console-driver-retries-are-lockout-generators.md) — AW+ locks at 5 failures and EVERY failure re-arms the 5-min timer; awlogin.py's tries=5 locked a switch. Supply a password ONCE; never type a word at a credential prompt
+- [tb277 x960 Management campaign 2026-10-22](tb277-x960-management-campaign-2026-10-22.md) — last 4 cases, 4 PASS, DUT-only because the partner wasn't needed; `log host ... facility` is a FILTER, not an override
+- [Console driver retries are lockout generators](console-driver-retries-are-lockout-generators.md) — AW+ locks at 5 failures and each one re-arms the timer. FIXED 10-22 (fdaded7): a credential is submitted ONCE
 - [The CLI surface is not the device's surface](cli-surface-is-not-the-device-surface.md) — Test Engineer 10-20: NOT MEASURABLE from an exhaustive CLI probe was WRONG; `start-shell` reaches sysfs. hwmon nodes differ per platform; prove restore with `od -c`
 - [Act on Terrence-stated live faults](act-on-terrence-stated-live-faults.md) — "there is a loop, just fix it": shut a leg and configure, verify AFTER; run literal commands literally
 - [Bench cannot open TCP to office PCs](bench-cannot-open-tcp-to-office-pcs.md) — lab→10.33.22.x TCP is dropped (ping passes); servers the bench connects TO go on tb470, never the dev PC; test the transport first

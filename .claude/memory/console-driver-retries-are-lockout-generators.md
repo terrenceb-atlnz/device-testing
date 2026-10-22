@@ -51,6 +51,15 @@ prepending to it, so a forwarded secret swallowed the password being piped behin
 - **Re-send a truncated-echo username only after proving the echo**, never by restarting the
   credential dialog. At 9600, verify the echo before sending the password.
 - **A failed login that you did not intend: stop and report it. Never retry in a loop.**
+- ✅ **`tools/awlogin.py` was FIXED on 2026-10-22** (commit `fdaded7`). `login()` now takes
+  `cred_attempts=1`: a username+password is **submitted once**, `Login incorrect` returns
+  False immediately, and a desync *after* submitting also returns False, because you cannot
+  know whether the attempt landed. `tries` now bounds **prompt navigation only** — bare CRs,
+  `enable`, an already-open session — none of which costs an authentication attempt. The
+  username is also typed per character below 19200 baud and its echo verified before the
+  password is sent, so the baud truncation that started all this cannot repeat. Verified on
+  hardware: a bad credential now produces **exactly one** `Login incorrect` where the old
+  loop produced five.
 
 **How to tell the three cases apart** — the probe's `meta.json` `login:` note is the whole
 diagnosis, and getting this wrong cost a session:
