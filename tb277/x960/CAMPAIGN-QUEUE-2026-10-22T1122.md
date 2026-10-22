@@ -90,6 +90,9 @@ Read from `ck.db` on tb277, 2026-10-22 (`tools/ckcase.py`, which must run ON a t
 | case | title | `has_objective` | `num_steps` | steps column |
 | --- | --- | --- | --- | --- |
 | AWPTCM-T44299 | (265) Management_NTP - IPv6 NTP Client | **0** | 1 | 53-char placeholder |
+| AWPTCM-T33401 | (266) Management_Operation - Syslog Facility Override | oper-2026-10-22T1122 | **PASS** | Global `log facility local4` in force on the received PRI byte at two destinations at once (25/25 and 25/25), severity untouched (PRI 162/163/164/165 across four severities after the reboot), the pre-override facility entirely absent, the identically configured unreachable control drew **zero** in every window, survives a cold boot with nothing typed (387/387), removes cleanly from the wire and both configs. **FINDING F-1**: `log host <ip> facility` is a selection FILTER, not an override | `oper-2026-10-22T1122/T33401/work/run1.log` | 2026-10-22 |
+| AWPTCM-T33402 | (267) Management_Operation - Syslog stored in NVS | oper-2026-10-22T1122 | **PASS** | Five entries written before a restart read back from `show log permanent` with nothing typed, while the identical entries are gone from `show log`; storage named down to the media (permanent = `/flash/log/messages`, ext3 on `/dev/mmcblk0p1`; volatile = `/var/log/messages` on a 10240k tmpfs); markers generated AFTER `write` survived too; the filter's rejection of a notice survived as well. Graded on a `reload`: an abrupt power cut was ATTEMPTED and is NOT MEASURABLE here (**B-1**) | `oper-2026-10-22T1122/T33402/work/run1.log` | 2026-10-22 |
+| AWPTCM-T33403 | (269) Management_Operation - Scripting | oper-2026-10-22T1122 | **PASS** | "Scripting" here is a `.scp` of CLI commands on flash, run by `activate <file>` or by a `trigger`; **no `show script` command exists**. A real script executed both ways, proved by an artefact only a running script could make, with unnamed ports read in the same run and unchanged, by the device's own `[SCRIPT]` log prefix, and by a one-character near-miss the trigger regex rejected in the same run. Survives a cold boot and still fires. Removal proved by re-sending the stimulus. **Closes `platforms/x960.md` §7F.8's open item** | `oper-2026-10-22T1122/T33403/work/run1.log` | 2026-10-22 |
 | AWPTCM-T33401 | (266) Management_Operation - Syslog Facility Override | **0** | 1 | 53-char placeholder |
 | AWPTCM-T33402 | (267) Management_Operation - Syslog stored in NVS | **0** | 1 | 53-char placeholder |
 | AWPTCM-T33403 | (269) Management_Operation - Scripting | **0** | 1 | 53-char placeholder |
@@ -334,7 +337,7 @@ and removed when its case is graded.
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
 | A | T44299 IPv6 NTP Client | `ntp6-2026-10-22T1122` | **DONE — PASS** | Mirrors yesterday's T33400 (IPv4 client) with the family swapped. **The server must be reachable over IPv6 from the DUT.** First choice is tb277's own ntpd — **check it is listening on IPv6 and that the box↔DUT leg has IPv6 reachability before designing the case**; `ss -lun` on the box, then a counted leg. swi_a served IPv6 NTP yesterday but is **not available this session** (u5 not opened). 🔴 `show ntp status` and `show ntp counters` return **EMPTY output, not an error** — read them before and after configuring and report if they stay empty. 🔴 **The DUT clock is UTC, 13 h behind the box** — record the pair once. 🔴 tb277's ntpd has `limited kod` armed: a boot-time burst draws a **kiss-o'-death, refid RATE**, which cost 10 m 55 s to converge yesterday and nearly became a false defect report. Expect it; it is the bench, not the DUT |
-| B | T33401 Syslog Facility Override; T33402 Syslog stored in NVS; T33403 Scripting | `oper-2026-10-22T1122` | **IN PROGRESS** — setup + restore recipe written above, run `.setup` probed exit 0 MATCH | Three Operation cases, all DUT-centric. **T33401** needs a syslog collector that records the facility byte — run one on tb277 and grade on the **received PRI**, not on `show log config`. **T33402 is the reboot case**: `write` + `reload` are permitted; prove storage survives a cold boot with nothing typed afterwards. **T33403**: establish what "scripting" means on this platform before designing — `.scp` activation, trigger scripts, or neither — and say which. 🔴 A file-driven `activate <script>.scp` from the box's `/tftproot` needs a **root write to the box** (STANDING-ORDERS §4) — that limb is `NEEDS TEST ENGINEER:`, not something to work around |
+| B | T33401 Syslog Facility Override; T33402 Syslog stored in NVS; T33403 Scripting | `oper-2026-10-22T1122` | **DONE — 3 PASS** | All three graded and committed (`1db87d2`, `96573fe`, `62e89d8`), bench restored, probe exit 0 MATCH, u2 logged out. New tool `tools/syslogwire.py` + README entry (`b9e657d`). Two findings for the Test Engineer: **F-1** `log host <ip> facility` is a message-selection FILTER, not a per-destination override; **B-1** swi_d has TWO PSUs and the session's single PDU outlet cannot power-cycle it (sent as `NEEDS TEST ENGINEER:`). T33403 closes the open item in `platforms/x960.md` §7F.8. |
 
 Both groups run on the **same single console**, so they run **sequentially**, A then B. Nothing
 runs on the bench between groups.
@@ -542,6 +545,57 @@ no LED, no GUI, no account, no removable media, no partner switch. Nothing was a
 | AWPTCM-T33402 | (267) Management_Operation - Syslog stored in NVS | oper-2026-10-22T1122 | **PASS** | Five entries written before a restart read back from `show log permanent` **with nothing typed**, while the identical entries are gone from `show log`; markers generated AFTER `write` survived too. **Storage named down to the media**, not inferred: permanent = `/flash/log/messages` on `/dev/mmcblk0p1`, **ext3 on the eMMC**; volatile = `/var/log/messages` on a **10240k tmpfs**. **STEP 4 is PARTIAL AS DESIGNED and the log says so in those words.** An abrupt power cut was ATTEMPTED FIRST -- non-volatile storage shown to survive only a graceful restart has not really been tested -- and could not be achieved: see bench finding **B-1** in this file, swi_d has two PSUs and one outlet. Graded on a `reload` instead, which is a real discriminator because the volatile log was **measured** to be on a tmpfs rather than assumed. The stronger test is declared **NOT MEASURABLE on this bench**, not quietly skipped. **MF-1, a method trap**: `show log permanent | include <pattern>` **NEVER returns a prompt when the pattern matches nothing** -- measured twice, each wait exactly the driver's timeout (180 s, then 600 s, long enough for the DUT's console idle-timeout to log the session out); with at least one match it returns in 4 s. **Prove an ABSENCE with `grep -c X /flash/log/messages*` in a start-shell.** **O-5**: `log permanent level <lvl>` **APPENDS** a filter rather than replacing the default -- the same filter-builder mechanism as F-1, so it is a **pattern across both cases**, not a one-off. There is no `show log buffered` on this platform; the buffered log is plain `show log`. A near-miss checked rather than assumed: `/var/log/messages.1` held 2 marker matches that looked like pre-restart content surviving in RAM and would have undermined the whole contrast -- `head -1` shows the file begins at this boot's own kernel line and the two matches are the post-restart read commands; the arithmetic closes at 5 pre-restart occurrences, flash only. Health-after DIRTY, adjudicated CLEAN in section 11; run **clean**. `clear log permanent` deliberately never run; nothing written inside the start-shell. | oper-2026-10-22T1122/T33402/work/run1.log | tester |
 
 ## Issues
+
+### F-1 (T33401) — there is no per-destination syslog facility override on the x960
+`log host <ip> facility <f>` is accepted, appears in the running-config one line below
+`log facility local4`, and reads exactly like a per-destination override of it. It is a
+message-**SELECTION FILTER** on the facility a message was RAISED under, and it never
+rewrites the PRI byte. Proved three ways in one case: with a global override in force it
+changed nothing (25/25 still local4); with NO global override it changed nothing (a
+byte-identical distribution to a destination without it); and used as a filter it selected
+(a destination whose only filter was `facility user` received 7/7 user messages and ZERO
+syslog-facility ones, while the other destination received five in the same window).
+`show log config` is honest — it lists the setting under `Filters:` — but the CLI help
+calls it "Specify a syslog facility". **TPS row 264 is still satisfied by the global
+command, so T33401 is PASS.** This is a clarity-and-capability finding for the Test
+Engineer, not a failure of the item under test.
+
+### B-1 (T33402) — swi_d has TWO power supplies; one PDU outlet cannot power-cycle it
+Sent as a `NEEDS TEST ENGINEER:` line during the run. `tools/tb pdu tb277 10.36.230.212 1
+cycle` completed and the outlet reports on, but the DUT's uptime did not reset
+(`0 days 00:18:31`, matching the earlier reload exactly) and `show reboot history` gained
+no entry. `show system` lists PSU1 and PSU2, both AT-PWRSYS4, and afterwards
+`show system environment` reads `PSU Power Input ... Ok` for BOTH bays. Nothing was harmed.
+- T33402 is therefore graded on a `reload`, which still discriminates because the volatile
+  log was MEASURED to be on a tmpfs; the stronger abrupt-interruption test is declared
+  NOT MEASURABLE on this bench rather than quietly skipped.
+- **The framework's own post-failure power cycle would not power-cycle swi_d either.**
+- The second PSU's outlet was NOT hunted for: an outlet outside the session facts may
+  belong to another unit (STANDING-ORDERS §4). **Open: which outlet feeds swi_d's PSU2?**
+
+### MF-1 (T33402) — `show log permanent | include <pattern>` hangs when nothing matches
+It prints no output and never returns a prompt; the console driver waits out its entire
+per-command timeout. Measured twice, each wait exactly equal to the timeout (180 s, then
+600 s — long enough for the DUT's own 10-minute console idle-timeout to fire and log the
+session out). With at least one match it returns in four seconds. **Prove an ABSENCE with
+`grep -c <pattern> /flash/log/messages*` in a `start-shell` instead**, which returns a
+definite 0.
+
+### O-3 (T33401) — a bench mechanism that produced three empty captures and would have been a false FAIL
+tb277 runs no UDP/514 listener, so every syslog datagram the DUT sends draws an ICMP
+port-unreachable. The DUT's syslog-ng reads that as `Error reading data` →
+`Syslog connection broken`, stops sending, and reopens the destination exactly 60 s later
+(`time_reopen='60'` in its own log), flushing everything buffered in one sub-millisecond
+burst. **A capture window shorter than ~70 s can read ZERO while the feature works
+perfectly.** Every measurement window in T33401 after that was 170 s.
+
+### Closed by this group
+`platforms/x960.md` §7F.8's open item — "Running a real script still needs a `.scp` on the
+device's flash, which needs a root write to the box's `/tftproot` (STANDING-ORDERS §4) —
+still unmeasured, as it was after T44181" — is **CLOSED by T33403**. A real script was run
+by a trigger twice, before and after a reboot, and it needed no write to the testbox at
+all: the `.scp` files were created on the DUT through `start-shell` and deleted again.
+
 
 ### 🔴 BENCH FACT, measured 2026-10-22 13:41 — swi_d has TWO PSUs, so ONE outlet cannot power-cycle it
 
