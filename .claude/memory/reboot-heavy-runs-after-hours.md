@@ -1,6 +1,6 @@
 ---
 name: reboot-heavy-runs-after-hours
-description: Repeated PDU power-cycles / reloads on tb470 are audible and distressed the office (2026-10-07); a colleague stopped the run. Schedule reboot-heavy suites after hours.
+description: Repeated PDU power-cycles / reloads on tb470 are audible and distressed the office (2026-10-07); a colleague stopped the run. After-hours is an OPTION the Test Engineer may choose, not a rule.
 metadata:
   type: feedback
 ---
@@ -14,7 +14,7 @@ answer: *"queue the test again to start at 6pm and watch it until its done"*.
 cannot escape, and they will stop the run themselves, which confounds it.
 
 **How to apply:** at triage, estimate how many reboots a group causes. For a reboot-heavy group
-(the 5700 suite, failover/reload campaigns), ask whether to run it during office hours or after hours,
-and don't launch a new reboot-heavy case into office hours without asking. A console taken mid-run by a
+(the 5700 suite, failover/reload campaigns), offer after-hours as an option. **It is an option, not a
+hard rule** (Terrence, 2026-10-22): office-hours runs are fine unless the Test Engineer chooses to wait. A console taken mid-run by a
 colleague may be someone stopping the noise, not someone wanting the device: say so when
 surfacing it. Related: [[shared-testbox-console-occupancy]], [[sentinel-session-keeps-long-runs-moving]].
