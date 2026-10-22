@@ -1,0 +1,421 @@
+================================================================================
+TEST T33402 -- (267) Management_Operation - Syslog stored in NVS
+================================================================================
+Run:      2026-10-22 13:34-13:59 NZDT.  Log entries written before a restart were read
+          back after it, and compared against the volatile log of the same device.
+          The DUT's clock reads UTC, 13 hours behind the box, and this log quotes both.
+Bench:    tb277, consoles u2; Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T33402. The test-case database holds no objective and no step text for
+          this case. The steps below were designed before the run, from the title, from
+          the x960 TPS row 265 "Syslog stored in NVS (Log)" (Supported = Yes), and from
+          the DUT's own CLI surface and filesystem. 8 steps (STEP 0 to STEP 7).
+Build:    swi_d  sin_x96056-20261019-27 (x960-tb277.rel, build date Sun Oct 18 23:18:21
+          UTC 2026)
+
+awplus# show system
+
+  System Status                                           Thu Oct 22 00:34:22 2026
+
+  Board      ID   Bay     Board Name                        Rev   Serial number
+  --------------------------------------------------------------------------------
+  Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+  PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+  PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+  Fan module 730  FAN1    AT-FAN19                          -     -
+  Fan module 730  FAN2    AT-FAN19                          -     -
+  --------------------------------------------------------------------------------
+  RAM: Total: 8092132 kB Free: 7461424 kB
+  Flash: 14.3GB Used: 166.1MB Available: 14.1GB
+  --------------------------------------------------------------------------------
+  Environment Status : Normal
+  Uptime             : 0 days 00:10:28
+  Bootloader version : Unknown
+
+  Current software   : x960-tb277.rel
+  Software version   : sin_x96056-20261019-27
+  Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+  Current boot config: flash:/default.cfg (file exists)
+
+  System Name
+   awplus
+  System Contact
+
+  System Location
+
+Configs:  swi_d.cfg (running-config after setup, before step 1; saved to startup: no)
+
+VERDICT: PASS -- log entries written before a restart are kept in non-volatile storage
+and can be read back after it with nothing typed, while the same entries are gone from
+the volatile log.
+      the permanent log is selective ... PASS  (a notice is stored only after the filter
+                                                is raised to informational)
+      stored before the restart ........ PASS  (5 entries present, confirmed first)
+      the media named .................. PASS  (permanent = /flash/log/messages on
+                                                /dev/mmcblk0p1, ext3 on eMMC; volatile =
+                                                /var/log/messages on a 10240k tmpfs)
+      read back after the restart ...... PASS  (all 5 entries, original timestamps)
+      gone from the volatile log ....... PASS  (0 of the 5 in `show log`, 0 in the tmpfs)
+      the filter decision persists ..... PASS  (the step-1 notice is still absent)
+      removal and re-proof ............. PASS  (3 occurrences in RAM, 0 on flash)
+
+CAVEAT:  This run did not establish the following.
+         1. The restart was a `reload`. An abrupt power interruption is the harder test,
+            and it was attempted first on this bench. It could not be achieved here, so
+            it was not measured. The `reload` is still a real discriminator, for a
+            reason this run measured and did not assume: the volatile log is a tmpfs,
+            which is a filesystem in RAM, and a `reload` on this platform is a full
+            kernel restart (STEP 3 names the media and STEP 5 shows the result).
+         2. Only one filter level was used for the permanent log (informational on top
+            of the default warnings). Program, facility, message-text and exclude
+            filters were not measured.
+         3. The permanent log's 50 kb size limit and its rotation behaviour under a full
+            log were not tested. Rotation was only observed at boot.
+         4. The run used one DUT in a standalone (not stacked) configuration.
+HEALTH:  reboots ......... 1 new: 2026-10-22 00:43:18 Expected   CLI(user request).
+                           That is this case's own permitted reload in STEP 4, which the
+                           box logged at 13:43:18 NZDT. There is no reboot entry for the
+                           power-cut attempt, because the DUT did not lose power.
+         exception log ... None -> None
+         log ............. no crash, no daemon restart and no kernel error. 35 lines
+                           matched the filter word `kernel`. Every one is ordinary
+                           start-up text of that same reload, stamped
+                           `2026 Oct 22 00:43:50`, and the same set appears in the
+                           before sample from the previous boot.
+         CPU ............. `show cpu` on this platform prints busy averages and never an
+                           idle percentage. It printed
+                           `1 second: 0%, 20 seconds: 0%, 60 seconds: 0%` in both samples
+         memory .......... RAM total 8092132 kB; free 7461424 kB before -> free
+                           7467988 kB after (free memory rose by 6564 kB)
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+      tb277  console u2 @115200
+            |
+            v  the only connection this case used: the console
+   +--------------------------------------------------------------+
+   |  swi_d   AT-x960-56YSQ                                 DUT   |
+   |                                                              |
+   |   volatile log   /var/log/messages    tmpfs, 10240k (RAM)    |
+   |   permanent log  /flash/log/messages  ext3 on /dev/mmcblk0p1 |
+   +--------------------------------------------------------------+
+
+  No partner device and no traffic. Everything this case measures happens inside the
+  DUT: a log entry is written, the device is restarted, and the entry is read back.
+
+  DUT      : swi_d (AT-x960-56YSQ) console u2 at 115200, S/N A2WQS700B, standalone,
+             Active Master, software sin_x96056-20261019-27
+  stimulus : the DUT writes a log message for every CLI command it is given. A command
+             that carries a unique text string is therefore a log message on demand,
+             at notice level, with known text.
+  tools    : tools/ckcon.py, tools/cfg.py (console driving);
+             tools/awshell.py (a `start-shell` root shell on the DUT, used read-only in
+             this case, to name the media and to count entries in the log files);
+             tools/ckreload.py (reload); tools/health.py (health reads)
+
+STEP 0 -- the permanent log before anything was changed                         done
+--------------------------------------------------------------------------------
+awplus# show log config
+    Permanent log:
+      Status ......... enabled
+      Maximum size ... 50kb
+      Filters:
+     *1   Level ...... warnings
+          Program .... any
+          Facility ... any
+          Msg text ... any
+          Type ....... include
+      Statistics ..... 1691 messages received, 37 accepted, 0 excluded
+
+  The volatile side, from the same output:
+    Buffered log:  enabled, 50kb, Filters *1 Level notices
+    Console log:   enabled,        Filters *1 Level critical
+    External log:  DISABLED
+
+awplus# show running-config | include log
+  aaa authentication login default local     <-- no `log` configuration of any kind
+awplus# show startup-config | include log
+  aaa authentication login default local
+
+  The permanent log is already enabled, and its filter is `warnings`. That is one level
+  more severe than the buffered log's `notices`. This difference is what STEP 1 uses.
+
+  Note for the next person: there is no `show log buffered` command on this platform.
+awplus# show log buffered | include CKT33402-NOTICE
+  ^
+  % Invalid input detected at '^' marker.
+  The volatile log is read with plain `show log` and `show log tail N`. The permanent
+  log is read with `show log permanent`.
+
+STEP 1 -- control: a notice is not stored under the default filter              PASS
+--------------------------------------------------------------------------------
+  Method: with the default `warnings` filter in force, produce a notice-level event. It
+  must appear in the volatile log and must not appear in the permanent log. This shows
+  the permanent log is selective, so a later presence is a real result and not simply
+  "the device keeps everything".
+
+awplus# show clock | include CKT33402-NOTICE-1
+awplus# show log | include CKT33402-NOTICE-1
+  2026 Oct 22 00:35:35 user.notice awplus IMISH[3404]: [manager@ttyS0]show clock | include CKT33402-NOTICE-1
+  2026 Oct 22 00:36:19 user.notice awplus IMISH[3404]: [manager@ttyS0]show clock | include CKT33402-NOTICE-1
+  2026 Oct 22 00:36:24 user.notice awplus IMISH[3404]: [manager@ttyS0]show log | include CKT33402-NOTICE-1
+                                            <-- present in the volatile log, three times
+
+awplus# show log permanent | include CKT33402-NOTICE-1
+                                            <-- no output: not in the permanent log
+
+  The same absence, counted at the filesystem level rather than inferred:
+[root@awplus ~]# grep -c CKT33402-NOTICE-1 /flash/log/messages /flash/log/messages.1 /flash/log/messages.2
+  /flash/log/messages:0
+  /flash/log/messages.1:0
+  /flash/log/messages.2:0
+
+  => STEP 1 PASS: the permanent log is selective. A notice-level event is accepted by the
+  volatile log and refused by the permanent log, because the permanent filter is
+  `warnings`. Everything stored later in this case is stored because the filter was
+  changed on purpose.
+
+STEP 2 -- raise the filter and write three markers, one of them after `write`   PASS
+--------------------------------------------------------------------------------
+awplus# configure terminal
+awplus(config)# log permanent level informational
+awplus(config)# end
+awplus# show running-config | include log
+  log permanent level informational
+  aaa authentication login default local
+
+awplus# show log config
+    Permanent log:
+      Status ......... enabled
+      Maximum size ... 50kb
+      Filters:
+     *1   Level ...... warnings      Program .... any   Facility ... any
+          Msg text ... any           Type ....... include
+      2   Level ...... informational Program .... any   Facility ... any
+          Msg text ... any           Type ....... include
+      Statistics ..... 1777 messages received, 43 accepted, 0 excluded
+
+  The command did not change the existing filter. It added a second one. The default
+  `*1 Level warnings` is still there. Both filters are `Type ... include`, so a message
+  is stored if either filter accepts it, and informational and above now pass.
+
+  The three markers:
+  13:40:17  awplus# show clock | include CKT33402-PERM-1      <-- before the write
+  13:40:19  awplus# write
+            Building configuration...
+            [OK]
+  13:40:20  awplus# show startup-config | include log
+            log permanent level informational
+            aaa authentication login default local
+  13:40:21  awplus# show clock | include CKT33402-PERM-2      <-- after the write
+  13:41:34  awplus# show clock | include CKT33402-PERM-3      <-- 1 m 42 s before restart
+
+  Marker 2 and marker 3 were made after the configuration was saved. If they survive the
+  restart, then what survived is the log itself being written to non-volatile storage as
+  each event happens. It is not a side effect of the `write` that saved the
+  configuration.
+
+  Confirmed stored before anything was interrupted, so that a later absence could not be
+  read two ways:
+awplus# show log permanent | include CKT33402-PERM
+  2026 Oct 22 00:40:16 user.notice awplus IMISH[3404]: [manager@ttyS0]show clock | include CKT33402-PERM-1
+  2026 Oct 22 00:40:20 user.notice awplus IMISH[3404]: [manager@ttyS0]show clock | include CKT33402-PERM-2
+  2026 Oct 22 00:40:37 user.notice awplus IMISH[3404]: [manager@ttyS0]show log permanent | include CKT33402-PERM
+  2026 Oct 22 00:40:41 user.notice awplus IMISH[3404]: [manager@ttyS0]show log | include CKT33402-PERM
+  2026 Oct 22 00:41:33 user.notice awplus IMISH[3404]: [manager@ttyS0]show clock | include CKT33402-PERM-3
+
+  => STEP 2 PASS: with the filter raised, notice-level events are stored. Five entries
+  were present in the permanent log before the restart: the three markers and the two
+  read commands.
+
+STEP 3 -- where the two logs are actually stored                                PASS
+--------------------------------------------------------------------------------
+  Method: "non-volatile storage" is a claim about media, and no `show` command on this
+  device names the media. It was read directly, in a `start-shell` root shell on the
+  DUT. Only read commands were used in that shell. `start-shell` is logged by the device
+  (`IMISH[...]: [manager@ttyS0]start-shell`), so the session can be audited.
+
+[root@awplus ~]# mount | grep -E " /flash | /var/log "
+  none on /var/log type tmpfs (rw,relatime,size=10240k)
+  /dev/mmcblk0p1 on /flash type ext3 (rw,nosuid,nodev,relatime)
+
+[root@awplus ~]# ls -l /flash/log/
+  -rw-r--r--    1 root     root          5957 Oct 22 00:41 messages
+  -rw-r--r--    1 root     root         10546 Oct 22 00:24 messages.1
+  -rw-r--r--    1 root     root         11578 Oct 21 23:30 messages.2
+  -rw-r--r--    1 root     root         11862 Oct 21 04:29 messages.3
+
+[root@awplus ~]# grep -c CKT33402-PERM /flash/log/*
+  /flash/log/messages:4
+  /flash/log/messages.1:0
+  /flash/log/messages.2:0
+  /flash/log/messages.3:0
+
+  => STEP 3 PASS: the two logs are on two different kinds of media. The volatile log is
+  /var/log/messages on a tmpfs of 10240k, which is a filesystem held in RAM. The
+  permanent log is /flash/log/messages on /dev/mmcblk0p1, an ext3 filesystem on the eMMC
+  device. The markers were already in the flash copy before the restart. The rotation
+  times of messages.1, .2 and .3 match earlier restarts, so the permanent log rotates at
+  each boot and keeps about a day of history.
+
+STEP 4 -- interrupting the device                                          PARTIAL
+--------------------------------------------------------------------------------
+  Method as designed: first an abrupt power interruption, which is the harder test,
+  because the device then has no chance to write anything out. Fallback: `reload`.
+
+  The abrupt power interruption was attempted first, at 13:41:36 NZDT. It could not be
+  achieved on this bench. The DUT did not lose power and did not restart:
+
+awplus# show system | include Uptime
+  Uptime             : 0 days 00:18:31
+  Read at 13:42:05 NZDT. 13:42:05 minus 18 m 31 s is 13:23:34, which is the previous
+  restart of this unit, before this case started. So no restart happened.
+  `show reboot history` gained no entry either, and the health sample after the case
+  shows only one new reboot entry, which is the `reload` below.
+
+  The device kept running through the attempt and its environment reads stayed normal.
+  The abrupt interruption was therefore not measured, and this log does not claim it was.
+
+  The fallback was used:
+  box: tools/tb ckreload tb277 oper1022 u2 115200 600
+    13:43:18 >>> reload
+    reboot question: 'reboot system? (y/n):' -> y
+    13:44:18 login seen after 60 s
+  (exit 0)
+
+  A login prompt is not readiness, so the leg was polled until it answered:
+    poll 1  4 packets transmitted, 0 received, 100% packet loss
+    poll 2  4 packets transmitted, 0 received, 100% packet loss
+    poll 3  4 packets transmitted, 4 received, 0% packet loss    <- 13:44:30 NZDT
+
+  => STEP 4 PARTIAL: the device was restarted, but by `reload`, not by an abrupt power
+  interruption. The abrupt interruption was attempted and could not be achieved on this
+  bench, so that half of the step was not measured. The `reload` still discriminates
+  between the two logs, for a reason STEP 3 measured: the volatile log lives on a tmpfs,
+  which is RAM, and a `reload` on this platform is a full kernel restart. The boot's own
+  kernel lines are in the health sample. RAM does not survive that.
+
+STEP 5 -- reading it back, with nothing typed to restore anything               PASS
+--------------------------------------------------------------------------------
+  The only things typed after the restart were the login and the reads below. Nothing
+  was configured again. No file was copied or touched.
+
+awplus# show system | include Uptime
+  Uptime             : 0 days 00:01:05                 <-- a real restart, 1 minute old
+
+awplus# show log permanent | include CKT33402-PERM
+  2026 Oct 22 00:40:16 user.notice awplus IMISH[3404]: [manager@ttyS0]show clock | include CKT33402-PERM-1
+  2026 Oct 22 00:40:20 user.notice awplus IMISH[3404]: [manager@ttyS0]show clock | include CKT33402-PERM-2
+  2026 Oct 22 00:40:37 user.notice awplus IMISH[3404]: [manager@ttyS0]show log permanent | include CKT33402-PERM
+  2026 Oct 22 00:40:41 user.notice awplus IMISH[3404]: [manager@ttyS0]show log | include CKT33402-PERM
+  2026 Oct 22 00:41:33 user.notice awplus IMISH[3404]: [manager@ttyS0]show clock | include CKT33402-PERM-3
+  2026 Oct 22 00:44:47 user.notice awplus IMISH[2880]: [manager@ttyS0]show log permanent | include CKT33402-PERM
+
+  All five entries from before the restart are there, with their original timestamps and
+  their original process numbers (IMISH[3404], the process of the previous boot). The
+  sixth line is this read command itself, from the new boot's process IMISH[2880].
+
+awplus# show log | include CKT33402-PERM
+  2026 Oct 22 00:44:47 user.notice awplus IMISH[2880]: [manager@ttyS0]show log permanent | include CKT33402-PERM
+  2026 Oct 22 00:44:51 user.notice awplus IMISH[2880]: [manager@ttyS0]show log | include CKT33402-PERM
+
+  Only the two reads just issued. Not one of the five entries from before the restart.
+
+awplus# show log permanent | include CKT33402-NOTICE
+  2026 Oct 22 00:35:37 user.err awplus IMISH[3404]: Command [show log buffered | include CKT33402-NOTICE] failed
+  2026 Oct 22 00:44:55 user.notice awplus IMISH[2880]: [manager@ttyS0]show log permanent | include CKT33402-NOTICE
+
+  The notice-level marker of STEP 1 is still absent after the restart. What is there from
+  before the restart is the `user.err` line of 00:35:37, which passed the `warnings`
+  filter when it was raised.
+
+awplus# show running-config | include log   ->  log permanent level informational
+                                                aaa authentication login default local
+awplus# show startup-config | include log   ->  identical
+
+  The same split at the filesystem level:
+[root@awplus ~]# mount | grep -E " /flash | /var/log "
+  none on /var/log type tmpfs (rw,relatime,size=10240k)
+  /dev/mmcblk0p1 on /flash type ext3 (rw,nosuid,nodev,relatime)
+[root@awplus ~]# grep -c CKT33402-PERM /flash/log/messages /flash/log/messages.1 /flash/log/messages.2
+  /flash/log/messages:0
+  /flash/log/messages.1:2
+  /flash/log/messages.2:5
+[root@awplus ~]# grep -c CKT33402-PERM /var/log/messages
+  0
+
+  The five entries from before the restart are in /flash/log/messages.2. That is the file
+  which was the live permanent log before the restart and was rotated by it.
+
+  One result was checked instead of assumed:
+[root@awplus ~]# grep -c CKT33402-PERM /var/log/messages.1
+  2
+  Two matches in a file on the tmpfs could look like content surviving in RAM. It is not:
+[root@awplus ~]# head -1 /var/log/messages.1
+  #3 2026-10-22T00:43:50+00:00 kern.notice awplus kernel: Linux version 6.12.110 ...
+[root@awplus ~]# tail -1 /var/log/messages.1
+  #1487 2026-10-22T00:44:59+00:00 user.notice awplus IMISH[2880]: [manager@ttyS0]terminal no monitor
+  The file starts at this boot's own kernel line, at 00:43:50. Its two matches are the
+  two reads issued at 00:44:47 and 00:44:51, after the restart.
+
+  => STEP 5 PASS: the numbers close exactly. 5 occurrences from before the restart, all
+  of them only on flash and none of them in RAM. 2 occurrences from after the restart, in
+  both places. So entries written before a restart are readable afterwards from the
+  permanent log with nothing typed, the same entries are gone from the volatile log, and
+  the filter's earlier decision survived as well.
+
+STEP 6 -- removal                                                               PASS
+--------------------------------------------------------------------------------
+awplus# configure terminal
+awplus(config)# no log permanent level informational
+awplus(config)# end
+awplus# show running-config | include log
+  aaa authentication login default local
+awplus# write
+awplus# show startup-config | include log
+  aaa authentication login default local
+awplus# show log config
+    Permanent log:
+      Status ......... enabled
+      Maximum size ... 50kb
+      Filters:
+     *1   Level ...... warnings
+          Program .... any      Facility ... any
+          Msg text ... any      Type ....... include
+      Statistics ..... 1532 messages received, 301 accepted, 0 excluded
+
+  => STEP 6 PASS: the filter added in STEP 2 is gone, and the default `*1 Level warnings`
+  is exactly as STEP 0 read it. Both configurations hold only the one `aaa` line that was
+  there before the case.
+
+STEP 7 -- the restored filter re-proved on a fresh event                        PASS
+--------------------------------------------------------------------------------
+  Method: do not take the removal from the absence of an error. Produce one more
+  notice-level event and show it is not stored.
+
+awplus# show clock | include CKT33402-AFTER-RESTORE
+awplus# show log | include CKT33402-AFTER-RESTORE
+  2026 Oct 22 00:47:18 user.notice awplus IMISH[2880]: [manager@ttyS0]show clock | include CKT33402-AFTER-RESTORE
+  2026 Oct 22 00:47:23 user.notice awplus IMISH[2880]: [manager@ttyS0]show log | include CKT33402-AFTER-RESTORE
+
+[root@awplus ~]# grep -c CKT33402-AFTER-RESTORE /var/log/messages /var/log/messages.1
+  /var/log/messages:3
+  /var/log/messages.1:0
+[root@awplus ~]# grep -c CKT33402-AFTER-RESTORE /flash/log/messages /flash/log/messages.1
+  /flash/log/messages:0
+  /flash/log/messages.1:0
+
+  => STEP 7 PASS: 3 occurrences in the volatile log and 0 on flash. With the filter back
+  at `warnings`, a notice-level event is again not stored. The device is in the state it
+  started in, and that is shown, not assumed.
+
+  Method note for the next person: `show log permanent | include <pattern>` does not
+  return a prompt when the pattern matches nothing. It prints no output and a console
+  driver then waits out its whole timeout. Prove an absence with
+  `grep -c <pattern> /flash/log/messages*` in a `start-shell`, which returns a definite 0.
+  That is how the absences in STEP 1 and STEP 7 are proved here.
+================================================================================

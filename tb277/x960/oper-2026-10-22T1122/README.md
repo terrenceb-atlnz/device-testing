@@ -1,0 +1,7 @@
+# tb277, AT-x960-56YSQ (swi_d), 2026-10-22 -- Management_Operation cases
+
+| case | title | log | verdict |
+| --- | --- | --- | --- |
+| T33401 | (266) Management_Operation - Syslog Facility Override | [T33401/T33401.log](T33401/T33401.log) | **PASS**. The global `log facility local4` command changed the facility of every syslog message on the wire at two collectors (25 of 25 and 25 of 25), left severity untouched, survived a reload (387 of 387 messages) and removed cleanly. The per-destination `log host <ip> facility` command is a message-selection filter, not an override. |
+| T33402 | (267) Management_Operation - Syslog stored in NVS | [T33402/T33402.log](T33402/T33402.log) | **PASS**. Five log entries written before a restart were read back afterwards from the permanent log with nothing typed, while the same entries were gone from the volatile log; permanent storage is ext3 on the eMMC and the volatile log is a tmpfs. Graded on a `reload`: an abrupt power interruption was attempted and could not be achieved on this bench. |
+| T33403 | (269) Management_Operation - Scripting | [T33403/T33403.log](T33403/T33403.log) | **PASS**. A `.scp` script on flash ran both by `activate` and from a trigger, proved by an artefact only a running script could make and by the device's own `[SCRIPT]` log prefix; a one-character near-miss was rejected in the same run; everything survived a cold boot and removed cleanly. There is no `show script` command on this platform. |
