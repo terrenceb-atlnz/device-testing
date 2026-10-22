@@ -1845,3 +1845,43 @@ reason. A failed read is written to the sample and its progress line, and the ru
     not a reboot of the testbox.
 - **Status:** first used 2026-10-21 on tb101 (IE520 4-stack, T17509): see that case's run1.log for the short test
   sample and the 12 h launch.
+
+### `syslogwire.py`
+Decodes and **counts** the syslog messages in a `tcpdump -w` pcap -- **IPv4 and IPv6** --
+and reports every message's **PRI byte** split into its facility and severity.
+- **Why it exists:** a syslog facility or severity case is graded on `PRI = facility*8 +
+  severity` **as it arrived**, never on the device's own `show log config`. It is also the
+  collector: on a bench with no UDP/514 listener (starting one is a root change on the testbox,
+  STANDING-ORDERS §4) a bounded `tcpdump -w ... udp port 514` plus this decoder IS the syslog
+  server, and it reads the one field a real syslog daemon usually throws away.
+- **Run:** `syslogwire.py <file.pcap> [--port N ...] [--from ADDR ...] [--to ADDR ...]
+  [--grep REGEX] [--limit N] [--quiet] [--abs] [--msg-width N]
+  [--expect-facility NAME|N] [--expect-severity NAME|N]`, or
+  `tools/tb tool <TB> <scratch> syslogwire /tmp/<scratch>/<f>.pcap ...`
+  (default port 514; any `--port` replaces the default list)
+- **Where:** anywhere; **needs:** nothing beyond Python (no scapy)
+- **Imports:** `snmpwire` (the classic-pcap reader) and `ntpwire` (its IPv4/IPv6 + 802.1Q +
+  UDP walk) -- so it takes `tcpdump -w` output, **not pcapng**.
+- **Output:** one line per message -- time, family, addresses and ports, `PRI=<n>`, the decoded
+  `<facility>.<severity>` with both numbers, the syslog tag and the message text -- then a
+  summary by family, by facility, by severity, **by PRI** and by address pair. It flags a
+  facility number that is in the RFC but is **not offered by AW+ `log facility ?`** (12-15),
+  which from an AW+ device would itself be a finding.
+- **`--expect-facility` / `--expect-severity`** turn the summary into a verdict: it prints how
+  many of the decoded messages carry that facility or severity and **exits 4** if any do not.
+  Both accept a number, the RFC short name (`local5`, `notice`) or AW+'s own word for the
+  severity (`notices`, `informational`).
+- **Exit codes:** 0 messages decoded; **2 no syslog message at all** (for a control leg that is
+  the measurement, not an error); 3 the file could not be read; 4 an `--expect-...` was not met
+  by every message.
+- **Use it with a control.** One destination counted on its own proves little. Configure a
+  second, unreachable destination on the same subnet in the same window and run `--to` against
+  it: it must exit 2. Where two reachable destinations differ only in a per-host `facility`
+  override, `--to` each one from the SAME capture window is what shows which knob wins.
+- **Limits:** Ethernet link type only; it walks 802.1Q/QinQ and the IPv6 hop-by-hop/routing/
+  destination extension headers, but not fragments; it decodes the RFC3164 and RFC5424 headers
+  heuristically and keeps the raw remainder when neither matches; no TLS and no TCP syslog.
+- **Status:** added 2026-10-22 for T33401 (Syslog Facility Override) on tb277, x960-56YSQ;
+  self-tested offline against a hand-built pcap (PRI 13/141/171/173 decoded to
+  user.notice / local1.notice / local5.err / local5.notice, `--to`, `--grep`, the exit-2 control
+  path and the exit-4 `--expect-facility` path) before its first hardware use.

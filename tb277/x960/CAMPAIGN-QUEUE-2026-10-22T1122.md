@@ -199,12 +199,142 @@ in UTC, against the box's `date -u`. The DUT runs **UTC**; the box displays **NZ
 Last: `end`, `terminal no monitor`, `exit` (shared box — log out of u2).
 
 
+## Group B bench setup and RESTORE RECIPE — written 2026-10-22 ~12:5x UTC, BEFORE the first case
+
+Written by the tester before touching the DUT, so a fresh tester can restore the bench if this
+session dies mid-group. Group B is `oper-2026-10-22T1122`, three cases, in order:
+**AWPTCM-T33401** (Syslog Facility Override) → **AWPTCM-T33402** (Syslog stored in NVS) →
+**AWPTCM-T33403** (Scripting).
+
+**Run `.setup`:** `tb277/x960/oper-2026-10-22T1122/tb277-u2.setup` — declares **swi_d and
+nothing else**, so the framework's post-failure power cycle can never reach u3 or u5.
+Probe `--consoles u2` against it: **exit 0 MATCH**.
+
+**Gate record, 2026-10-22 ~12:4x–12:55 UTC**
+- `tools/tb precheck tb277 u2` → `/dev/u2` **free**, no holder. One FOUND item, `ser2net`
+  pid 744 (root, up 41 d) — the box's own console daemon, the standing adjudication already
+  given for the 2026-10-20, 2026-10-21 and today's campaigns. Nothing displaced. **u3/u5 untouched.**
+- `tools/tb peek tb277 oper1022 u2 115200` → `'awplus login:'`. The console was **NOT parked
+  mid-state** — no `[root@… ~]#` shell, no `(config…)#` prompt.
+- `tools/tb template tb277` → **no deployed `/home/st-art/configs/tb277.setup`**. Never bind one.
+- Probe captures: `bench-setup/tb277/captures/2026-10-21T235239Z` (relative `--template` path
+  was not resolved — the probe runs with the box's own checkout root, so the template must be
+  given box-absolute) and `2026-10-21T235303Z` (**exit 0 MATCH** against the run `.setup`).
+- 🔴 The probe again regenerated `bench-setup/tb277/bench-state.md` as a **swi_d-only** record.
+  The tracked file was **reverted** (`git checkout --`) to the committed three-unit version;
+  the regeneration is kept in the tester's scratchpad. Nothing on the bench changed.
+- Boot baseline read from the DUT at 12:54 UTC, which **T33402's and any other reload must
+  return to**:
+  ```
+  Current software   : x960-tb277.rel
+  Current boot image : flash:/x960-tb277.rel (file exists)
+  Default boot config: flash:/default.cfg
+  Current boot config: flash:/default.cfg (file exists)
+  Autoboot status    : disabled
+  ```
+  Build `sin_x96056-20261019-27`, uptime 0 days 00:23:48 (group A's reload), standalone.
+
+**Baseline the three cases measure from, read before anything was changed**
+
+| read | value |
+| --- | --- |
+| `show log config` → `Facility:` | **default** (the clean OFF for T33401) |
+| Buffered log | enabled, 50kb, filter `*1 Level notices` |
+| Console log | enabled, filter `*1 Level critical` |
+| **Permanent log** | enabled, 50kb, filter `*1 Level **warnings**` (the T33402 trap) |
+| Monitor / External log | monitor filter debugging; external **disabled** |
+| `show running-config \| include log` | only `aaa authentication login default local` — **no `log` configuration of any kind** |
+| `show startup-config \| include log` | the same one line |
+| `show trigger` | `% No triggers currently defined` |
+| `dir flash:` | no `.scp` file present |
+| ports **down and unused** | port1.0.20, port1.0.21 (and 1.0.3, 1.0.5–1.0.7, 1.0.9, 1.0.11–1.0.13, 1.0.15, 1.0.17–1.0.19, 1.0.22–1.0.47, 1.0.49+) |
+| ports **running** (never touched) | port1.0.2 (RSTP root port, carries the Test Engineer's vlan 60), 1.0.4, 1.0.8, 1.0.10 (box eth3), 1.0.14, 1.0.16, 1.0.48 (box eth4) |
+| box legs | eth3 `10.38.22.33/27` ↔ DUT vlan10 `10.38.22.34/27`; eth4 `10.38.22.65/27` ↔ DUT vlan48 `10.38.22.66/27` |
+| clock pair | DUT `UTC Wed, 21 Oct 2026 23:54:25 +0000` vs box 2026-10-22 12:54 NZDT — **13 h behind** |
+
+🔑 **The log generator these cases use.** Every CLI command typed is logged by the DUT as
+`user.notice awplus IMISH[<pid>]: [manager@ttyS0]<the command text>`, and a rejected one adds
+`user.err awplus IMISH[<pid>]: Command [<text>] failed`. So typing a harmless command that
+carries a unique marker (`show log | include CKT33401-A`) produces a syslog message with known
+text, known facility (`user`, 1) and known severity (`notice`, 5) — PRI 13 — on demand. That is
+the stimulus for T33401 and T33402, and it needs no port flap and no traffic.
+
+**What group B ADDS to swi_d, and nothing else**
+
+| what | case | why |
+| --- | --- | --- |
+| `log host 10.38.22.33` | T33401 | the collector leg (box eth3); the capture is the collector |
+| `log host 10.38.22.65` | T33401 | a second REAL destination, to show which facility knob wins per destination |
+| `log host 10.38.22.40` | T33401 | the **control** — an unused address on the same `/27` that must draw zero syslog packets |
+| `log facility local5` | T33401 | the global override under test |
+| `log host 10.38.22.33 facility local1` | T33401 | the per-destination override, measured against the global one |
+| `log permanent level informational` | T33402 | the default filter is `warnings`, so a notice-level marker is NOT stored without this |
+| `flash:/ckt33403.scp`, `flash:/ckt33403b.scp` | T33403 | the scripts, TFTP'd from the box's `/tftproot` (mode 1777, `tftpd-hpa` active — no root write) |
+| `description CKT33403-*` on port1.0.20 | T33403 | the artefact that proves a script RAN, rather than was merely accepted |
+| `trigger 1` (`type interface port1.0.20 down`, `script 1 ...`) | T33403 | the trigger-driven half of the scripting surface |
+| `shutdown` / `no shutdown` on port1.0.20 | T33403 | the trigger stimulus; the port is **down and unused** |
+| `write` + `reload` | all three | permitted by the Test Engineer 2026-10-22; T33402 cannot be graded without one |
+
+**Nothing else is touched.** In particular: `vlan 60` and `port1.0.2` are the Test Engineer's
+and are left alone; the vlan10 / vlan48 IPv4 L3 underlay is campaign infrastructure in
+startup-config and stays; no port that is currently `running` is shut, flapped or reconfigured.
+
+**RESTORE RECIPE — run this on u2 (115200) if the session dies mid-group**
+
+```
+configure terminal
+ no log host 10.38.22.33
+ no log host 10.38.22.65
+ no log host 10.38.22.40
+ no log facility
+ no log permanent level informational
+ no trigger 1
+ interface port1.0.20
+  no description
+  no shutdown
+ exit
+ interface port1.0.21
+  no description
+  no shutdown
+ exit
+exit
+delete force flash:/ckt33403.scp
+delete force flash:/ckt33403b.scp
+write
+```
+(`no log permanent level informational` must put the filter back to **`Level warnings`** —
+check it in `show log config`, and if the negation leaves another level, set it explicitly.)
+
+Then prove it, do not assume it:
+```
+show log config                            <- Facility: default; Permanent filter Level warnings
+show running-config | include log          <- only `aaa authentication login default local`
+show startup-config | include log          <- the same one line
+show running-config | include trigger      <- nothing
+show trigger                               <- % No triggers currently defined
+show running-config interface port1.0.20   <- no description, no shutdown
+show running-config interface port1.0.21   <- no description, no shutdown
+dir flash:                                 <- no .scp file
+show interface brief                       <- port1.0.20/21 admin up; the seven running ports unchanged
+show boot                                  <- the baseline above
+show clock
+```
+Last: `end`, `terminal no monitor`, `exit` (shared box — log out of u2).
+
+🔴 **After ANY reload: ping the leg to 4/4 before reading anything.** A login prompt is not
+readiness. And swi_d's out-of-band `eth0` link-local **changes across a reboot**, so never
+cache it and expect the box's `ip -6 neigh` to hold a stale entry.
+
+🔴 **/tmp on tb277 has ~90 MB free of 2.0 G**; 1.8 G is someone else's `wireshark_eth4*.pcapng`
+and is **not ours to delete**. Every capture in this group is bounded (`-c` and a time limit)
+and removed when its case is graded.
+
 ## Queue
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
 | A | T44299 IPv6 NTP Client | `ntp6-2026-10-22T1122` | **DONE — PASS** | Mirrors yesterday's T33400 (IPv4 client) with the family swapped. **The server must be reachable over IPv6 from the DUT.** First choice is tb277's own ntpd — **check it is listening on IPv6 and that the box↔DUT leg has IPv6 reachability before designing the case**; `ss -lun` on the box, then a counted leg. swi_a served IPv6 NTP yesterday but is **not available this session** (u5 not opened). 🔴 `show ntp status` and `show ntp counters` return **EMPTY output, not an error** — read them before and after configuring and report if they stay empty. 🔴 **The DUT clock is UTC, 13 h behind the box** — record the pair once. 🔴 tb277's ntpd has `limited kod` armed: a boot-time burst draws a **kiss-o'-death, refid RATE**, which cost 10 m 55 s to converge yesterday and nearly became a false defect report. Expect it; it is the bench, not the DUT |
-| B | T33401 Syslog Facility Override; T33402 Syslog stored in NVS; T33403 Scripting | `oper-2026-10-22T1122` | QUEUED (after A) | Three Operation cases, all DUT-centric. **T33401** needs a syslog collector that records the facility byte — run one on tb277 and grade on the **received PRI**, not on `show log config`. **T33402 is the reboot case**: `write` + `reload` are permitted; prove storage survives a cold boot with nothing typed afterwards. **T33403**: establish what "scripting" means on this platform before designing — `.scp` activation, trigger scripts, or neither — and say which. 🔴 A file-driven `activate <script>.scp` from the box's `/tftproot` needs a **root write to the box** (STANDING-ORDERS §4) — that limb is `NEEDS TEST ENGINEER:`, not something to work around |
+| B | T33401 Syslog Facility Override; T33402 Syslog stored in NVS; T33403 Scripting | `oper-2026-10-22T1122` | **IN PROGRESS** — setup + restore recipe written above, run `.setup` probed exit 0 MATCH | Three Operation cases, all DUT-centric. **T33401** needs a syslog collector that records the facility byte — run one on tb277 and grade on the **received PRI**, not on `show log config`. **T33402 is the reboot case**: `write` + `reload` are permitted; prove storage survives a cold boot with nothing typed afterwards. **T33403**: establish what "scripting" means on this platform before designing — `.scp` activation, trigger scripts, or neither — and say which. 🔴 A file-driven `activate <script>.scp` from the box's `/tftproot` needs a **root write to the box** (STANDING-ORDERS §4) — that limb is `NEEDS TEST ENGINEER:`, not something to work around |
 
 Both groups run on the **same single console**, so they run **sequentially**, A then B. Nothing
 runs on the bench between groups.
