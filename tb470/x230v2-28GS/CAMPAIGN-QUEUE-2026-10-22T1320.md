@@ -142,6 +142,7 @@ Path: tb470 eth2 → x230 port1.0.10 → **port1.0.25 =SX fibre= port1.0.26** �
 | T44179 Jumbo Frames | NOT TESTED | BLOCKED: `platform jumboframe` needs write + 2 x230 reloads (excluded by "no reboots") and root MTU 9216 on tb470 eth1/eth2 (Test Engineer's); nothing measurable at MTU 1500. Test Engineer 2026-10-22 13:4x: "Proceed with the 3", the other three ignored for this run | sentinel (triage) | — (triage section above) |
 | T47119 secure-mode SSH algorithm sets | NOT TESTED | BLOCKED: secure mode needs write + 2 x230 reloads ("no reboots"), and no reference device with secure mode on the bench (the 4050 rejects `show secure-mode`). Test Engineer 2026-10-22: "ignore them for this run" | sentinel (triage) | — (triage section above) |
 | T47121 secure-mode TLS algorithms | NOT TESTED | BLOCKED: as T47119 (reloads + no secure-mode reference device). Test Engineer 2026-10-22: "ignore them for this run" | sentinel (triage) | — (triage section above) |
+| T47209 Fibre pluggable with supported speeds | FAIL | AT-SPSX port1.0.25 accepts `speed 100` and `speed auto 100`, link reads connected 100, 0/100 frames cross (101 out, 0 in at the partner); 10/2500/10000/duplex half refused; auto, 1000 and 1000+full (both ends) pass 100/100. Same defect as 2026-10-09, now on awplus_main-20261019-75. Resumed mid-case 14:04 by a fresh tester after the first sentinel session exited (R2-R6 transcribed from its row files) | tester | [run1.log](ports-2026-10-22T1320/47209/work/run1.log) (298c54d) |
 
 ## Issues
 
