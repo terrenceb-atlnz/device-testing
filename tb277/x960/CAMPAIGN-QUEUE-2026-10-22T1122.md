@@ -540,3 +540,28 @@ no LED, no GUI, no account, no removable media, no partner switch. Nothing was a
 | AWPTCM-T44299 | (265) Management_NTP - IPv6 NTP Client | ntp6-2026-10-22T1122 | **PASS** | Originates NTPv4 mode-3 over IPv6 and is answered — 8/11/13/13 requests in four captures, every one paired; Stratum 6 from a stratum-5 IPv6 source; real clock steps of 2.241471 s and 50.914095 s; the identically-configured unreachable IPv6 control drew **zero** packets in every window; silent on removal; survives a cold boot with nothing typed | `ntp6-2026-10-22T1122/T44299/work/run1.log` | 2026-10-22 |
 
 ## Issues
+
+### 🔴 BENCH FACT, measured 2026-10-22 13:41 — swi_d has TWO PSUs, so ONE outlet cannot power-cycle it
+
+`tools/tb pdu 10.36.230.212 1 cycle` completed and the outlet reported on, but **the DUT did not
+reboot**: uptime stayed at `0 days 00:18:31` (matching the earlier reload exactly) with **no new
+reboot-history entry**. `show system` lists **PSU1 and PSU2, both AT-PWRSYS4**, and after the cut
+`show system environment` read `PSU Power Input ... Ok` for **both** bays. The second supply
+carried the unit straight through. Nothing was harmed: Environment Status Normal, no reboot, no
+log entry.
+
+**Two consequences:**
+
+1. **T33402 cannot be given a true AC-interruption test on this bench as configured.** It is
+   graded on a `reload` — a full kernel restart, which still discriminates, because the tester
+   established from `mount` inside `start-shell` that **`/var/log` is tmpfs (RAM)** and
+   **`/flash/log` is ext3 on the eMMC**. The volatile/non-volatile split is proven at the
+   filesystem level, not from `show` output. The working log states plainly that an abrupt power
+   interruption was **attempted and could not be achieved with one outlet**.
+2. 🔴 **The framework's post-failure power cycle would not power-cycle swi_d either** on this
+   bench. True for any future campaign here, not just this one.
+
+**NEEDS TEST ENGINEER (open):** the PDU outlet feeding swi_d's **second** PSU, if it is on
+`10.36.230.212` and is theirs to give. The tester deliberately did **not** hunt for it: an outlet
+outside the session facts may belong to another unit, which is STANDING-ORDERS §4.
+
