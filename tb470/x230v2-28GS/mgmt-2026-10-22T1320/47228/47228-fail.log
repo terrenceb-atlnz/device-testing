@@ -1,0 +1,220 @@
+================================================================================
+TEST 47228 -- API-enable/disable  interafce, add/delete vlans
+================================================================================
+Run:      2026-10-22 14:24-14:37 NZDT.  The DUT's log times are UTC (add 13 h for NZDT),
+          and the 4050's log times are NZDT.
+Bench:    tb470, consoles u0 (AR4050S swi_e, the link partner, read only) and u1
+          (x230v2-28GS swi_f, the DUT); Test Engineer terrenceb@terrenceb-dl
+Tester:   bench-runner (RESTCONF with tools/restconf.py through tools/tb tool, run on tb470
+          over eth2; CLI through tools/tb ckcon and tools/tb cfg)
+Graded:   tester
+Case:     AWPTCM-T47228 "API-enable/disable  interafce, add/delete vlans". The test-case
+          database holds no objective and one empty step. "API" means RESTCONF. The run used
+          the method and the expected result stated under VERDICT.
+Build:    swi_f x230-28GSv2 (the DUT) awplus_main-20261019-75
+          (x230v2_28GS-awplus_main-20261019-75.rel, build date Mon Oct 19 08:39:33 UTC 2026)
+          swi_e 4050-5g (AR4050S-5G, the link partner) awplus_main-20261008-57
+
+x230-28GSv2# show system
+System Status                                           Thu Oct 22 01:25:21 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       706  Base    AT-x230-28GS V2                   A-0   A10783G262900002
+--------------------------------------------------------------------------------
+RAM: Total: 506920 kB Free: 310408 kB
+Flash: 95.6MB Used: 35.2MB Available: 60.5MB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 2 days 02:56:01
+Bootloader version : 6.2.40
+
+Current software   : x230v2_28GS-awplus_main-20261019-75.rel
+Software version   : awplus_main-20261019-75
+Build date         : Mon Oct 19 08:39:33 UTC 2026
+
+Current boot config: flash:/tb470-bench.cfg (file exists)
+
+System Name
+ x230-28GSv2
+System Contact
+
+System Location
+
+Configs:  swi_f.cfg, swi_e.cfg (running-config after setup; swi_e was never changed; saved
+          to startup: no)
+
+VERDICT: FAIL -- RESTCONF can disable and enable a port, but it cannot add or delete a VLAN.
+         PATCH answers 204 and changes nothing.
+  Method (the database has no steps): from tb470 eth2, send RESTCONF requests to the DUT at
+  https://10.38.215.35/restconf as user manager (privilege 15). The interface under test is
+  port1.0.3, cabled to the 4050's port1.0.3. Prove each request at five places: the
+  RESTCONF state, the DUT CLI, the DUT running-config, the DUT log and the 4050's link.
+  For VLANs, prove each request with `show vlan brief`.
+  Expected: a request that succeeds changes the device, and a request that does not change
+  the device does not report success.
+      disable / enable by PUT, OpenConfig model .... works, every place agrees  (STEP 2)
+      disable / enable by PUT, IETF model .......... works, every place agrees  (STEP 2)
+      disable by PATCH on the leaf ................. 204, port stays up  (STEP 3)
+      disable by PATCH on the list entry ........... 404  (STEP 3)
+      add a VLAN, 4 request forms .................. no VLAN created  (STEP 4)
+      delete a real VLAN, both models .............. 403 access-denied  (STEP 5)
+FAIL CONDITION: STEP 4 and STEP 5. Expected: RESTCONF can add a VLAN and delete a VLAN.
+         Seen: no request created a VLAN. Three forms were refused (403, 403, 404). The
+         fourth answered 204 but created nothing on the device. Deleting a VLAN made by the
+         CLI answered 403 access-denied on both models, for a privilege 15 user. The yang
+         library has no model for the VLAN database. So the product has no RESTCONF way to
+         add or delete a VLAN.
+         Also STEP 3: PATCH on the `enabled` leaf answered 204 No Content and did not shut
+         the port. A 204 says the change was made, so the client is told something false.
+TRIED:   VLAN add: IETF PUT with a type (403), IETF PUT without a type (204, nothing
+         created), IETF POST (403), OpenConfig PUT (404). VLAN delete: IETF DELETE (403),
+         OpenConfig DELETE (403). Port disable by PATCH: on the leaf (204, no change), on
+         the list entry (404).
+CAVEAT:  Persistence across a reboot was not measured: the session did not allow reboots,
+         and nothing was written. Only port1.0.3 was disabled and enabled.
+HEALTH:  reboots ......... no new entry (32 entries before and after, newest
+                           2026-10-20 08:05:54)
+         exception log ... None before -> None after
+         log ............. no crash, daemon restart or kernel error. The only other lines
+                           are the port1.0.3 shutdown, no shutdown, port down and port up
+                           messages of STEP 2.
+         CPU ............. busy 1% before -> busy 1% after (the x230 prints busy, not idle)
+         memory .......... free 310036 kB before -> 307760 kB after, of 506920 kB
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+        tb470 eth2 10.38.215.33/27
+             |
+             v  RESTCONF requests (HTTPS) to 10.38.215.35
+    +------------------------------------------+
+    |  swi_f x230-28GSv2   DUT                 |
+    |  port1.0.10 (vlan105, 10.38.215.35/27)   |
+    |  port1.0.3  (vlan103)  <- port under test|
+    +------------------------------------------+
+             |  port1.0.3, 1000 full (copper SFP)
+             v  link state is read at the partner
+    swi_e 4050-5g port1.0.3 (link partner, read only)
+
+  DUT     : swi_f (AT-x230-28GS V2 rev A-0) console u1, S/N A10783G262900002,
+            MAC 00c2.8f3f.0f5d, bootloader 6.2.40. Standalone. RESTCONF through
+            `service http`, HTTPS 443, root /restconf.
+  partner : swi_e (AR4050S-5G rev A-2) console u0, S/N A10401G214000005. Never configured.
+  link    : swi_f port1.0.3 <-> swi_e port1.0.3  (1000 full)
+  host    : tb470 eth2 00:f0:4d:00:77:17 10.38.215.33/27 -> swi_f port1.0.10
+            (MAC table: "1 port1.0.10 00f0.4d00.7717 forward dynamic")
+  tools   : on tb470: tools/restconf.py (through tools/tb tool), with two case scripts that
+            send one request and then take the reads (one for the interface steps, one for
+            the VLAN steps). Test VLANs 3999 and 3998.
+
+STEP 0 -- setup and the RESTCONF baseline                                   done
+--------------------------------------------------------------------------------
+x230-28GSv2#configure terminal
+x230-28GSv2(config)#interface port1.0.10
+x230-28GSv2(config-if)#switchport access vlan 105
+x230-28GSv2(config-if)#interface vlan105
+x230-28GSv2(config-if)#ip address 10.38.215.35/27
+x230-28GSv2(config-if)#end
+host# tools/tb ping tb470 eth2 10.38.215.35 3  -> 3 transmitted, 3 received, 0% loss
+host# restconf GET /.well-known/host-meta                         -> 404 Not Found
+host# restconf GET /restconf                                      -> 200 OK
+host# restconf GET /restconf/data/ietf-yang-library:yang-library  -> 200 OK, 78 modules
+  Interface models: ietf-interfaces@2026-08-12, openconfig-interfaces@2022-10-25,
+  openconfig-if-ethernet, at-interface@2025-05-15.
+  VLAN models: openconfig-vlan@2023-02-07 only. No openconfig-network-instance, and no
+  model for the VLAN database.                <-- nothing models adding a VLAN
+  Interface baseline (14:28:18): RESTCONF state enabled true, admin UP, oper UP. DUT
+  "port1.0.3 admin up running", no `shutdown`. 4050 port1.0.3 admin up running.
+  => STEP 0 done: the DUT answers RESTCONF at /restconf. Port1.0.3 is up at both ends.
+
+STEP 1 -- the VLAN baseline                                                 done
+--------------------------------------------------------------------------------
+host# restconf GET data/openconfig-vlan:vlans   -> 404 "uri path not found"
+host# restconf GET data/at-l2-topology:vlans    -> 404
+host# restconf GET ietf .../interface=vlan105   -> 200 {"name":"vlan105","type":"iana-if-type:l3ipvlan"}
+host# restconf GET ietf .../interface=vlan3999  -> 200 {}
+host# restconf GET ietf .../interface=vlan3998  -> 200 {}
+x230-28GSv2#show vlan brief | include 399      <-- no 3999 or 3998
+  => STEP 1 done: VLANs appear only as interfaces named vlanN. VLANs 3999 and 3998 do not
+     exist. A GET for an interface that does not exist answers 200 with an empty body,
+     not 404.
+
+STEP 2 -- disable and enable port1.0.3 by PUT, both models                  PASS
+--------------------------------------------------------------------------------
+  OC = /restconf/data/openconfig-interfaces:interfaces/interface=port1.0.3
+  IE = /restconf/data/ietf-interfaces:interfaces/interface=port1.0.3
+
+  | time     | request                                   | HTTP | RESTCONF after              | DUT CLI after                          | 4050 port1.0.3 |
+  | 14:28:53 | PUT OC/config/enabled {"enabled":false}   | 204  | enabled false, DOWN / DOWN  | admin down down; ` shutdown` added     | admin up down  |
+  | 14:29:26 | PUT OC/config/enabled {"enabled":true}    | 204  | enabled true, UP / UP       | admin up running; `shutdown` removed   | running        |
+  | 14:30:01 | PUT IE/enabled {"enabled":false}          | 204  | enabled false, DOWN / DOWN  | admin down down; ` shutdown` added     | down           |
+  | 14:30:29 | PUT IE/enabled {"enabled":true}           | 204  | enabled true, UP / UP       | admin up running; `shutdown` removed   | running        |
+
+  DUT log (UTC) and 4050 log (NZDT):
+  DUT  01:28:52 "port1.0.3 user shutdown", "Port down notification received for port1.0.3"
+  4050 14:28:54 "Port down notification received for port1.0.3"
+  DUT  01:29:25 "user no shutdown", 01:29:28 "Port up notification"
+  4050 14:29:29 "Port up notification"
+  DUT  01:30:01 "port1.0.3 user shutdown"
+  4050 14:30:02 "Port down notification"
+  DUT  01:30:29 "user no shutdown", 01:30:32 "Port up"
+  4050 14:30:32 "Port up"
+  => STEP 2 PASS: PUT on the `enabled` leaf disabled and enabled the port in both models.
+     All five places agree each time: RESTCONF, the CLI, the running-config, the DUT log
+     and the link partner. Each enable removed `shutdown` from the running-config.
+
+STEP 3 -- disable port1.0.3 by PATCH                                        FAIL
+--------------------------------------------------------------------------------
+host# restconf PATCH OC/config/enabled {"enabled":false}          (14:31:07)
+  -> 204 No Content
+  RESTCONF after: state still enabled true, admin UP. The OC config read no longer shows
+  an `enabled` leaf (before: enabled true).
+  DUT: "port1.0.3 admin up running", no `shutdown`, no NSM line. 4050: running, no new line.
+host# restconf PATCH IE {"ietf-interfaces:interface":[{"name":"port1.0.3","enabled":false}]}   (14:31:35)
+  -> 404 "uri path not found", error-tag invalid-value
+  DUT and 4050: unchanged, port up.
+  => STEP 3 FAIL: PATCH is the RESTCONF method to merge a change. On the leaf it answered
+     204, which means the change was made, but the port stayed up. On the list entry it
+     answered 404. A client using PATCH cannot disable a port, and in the first form it is
+     told it did.
+
+STEP 4 -- add a VLAN                                                        FAIL
+--------------------------------------------------------------------------------
+  After each request: GET IE and OC interface=vlan3999 / vlan3998, and on the DUT
+  `show vlan brief | include 399`, `show interface brief | include vlan399`,
+  `show running-config | include 399`, `show log tail 10`.
+
+  | time     | request                                                                                   | HTTP                                   | DUT after       |
+  | 14:32:51 | PUT IE .../interface=vlan3999 {"interface":[{"name":"vlan3999","type":"iana-if-type:l3ipvlan"}]} | 403 Forbidden, error-tag access-denied | no VLAN 3999    |
+  | 14:33:15 | PUT IE .../interface=vlan3999 {"interface":[{"name":"vlan3999"}]}  (no type)               | 204 No Content                         | no VLAN 3999    |
+  | 14:33:34 | POST IE data/ietf-interfaces:interfaces {"interface":[{"name":"vlan3998","type":"iana-if-type:l3ipvlan"}]} | 403 access-denied           | no VLAN 3998    |
+  | 14:33:59 | PUT OC .../interface=vlan3998 {"interface":[{"name":"vlan3998","config":{"name":"vlan3998","type":"iana-if-type:l3ipvlan"}}]} | 404 "uri path not found" | no VLAN 3998 |
+
+  After the 204 (14:33:15): the IETF GET returned {"name":"vlan3999"} with no type. The
+  OpenConfig state GET returned {}. On the DUT: no VLAN 3999 in `show vlan brief`, no
+  vlan3999 interface, nothing in the running-config, no NSM line.
+                                           <-- the 204 created an entry in RESTCONF only
+host# restconf DELETE IE .../interface=vlan3999  (14:34:17)  -> 204; GET returns {} again
+  => STEP 4 FAIL: no RESTCONF request added a VLAN to the device. Three forms were refused.
+     One form answered 204 and created an entry that only the RESTCONF server holds. The
+     device has no VLAN 3999 after it.
+
+STEP 5 -- delete a real VLAN                                                FAIL
+--------------------------------------------------------------------------------
+  The VLAN to delete is made by the CLI (14:34:47):
+x230-28GSv2#configure terminal
+x230-28GSv2(config)#vlan database
+x230-28GSv2(config-vlan)#vlan 3999 name T47228
+x230-28GSv2(config-vlan)#end
+  `3999 T47228 STATIC ACTIVE`; log 01:34:47 "NSM: VLAN: added VID 3999"
+  RESTCONF sees it: IE vlan3999 {"name":"vlan3999","type":"iana-if-type:l3ipvlan"};
+  OC state name vlan3999, type l3ipvlan.
+host# restconf DELETE IE .../interface=vlan3999  (14:35:10)  -> 403 Forbidden, access-denied
+  DUT: VLAN 3999 still STATIC ACTIVE.
+host# restconf DELETE OC .../interface=vlan3999  (14:35:35)  -> 403 Forbidden, access-denied
+  DUT: VLAN 3999 still present.
+  => STEP 5 FAIL: RESTCONF sees the VLAN in both models, but it refused to delete it in
+     both. The user was manager, with privilege 15, the highest level.
+================================================================================
