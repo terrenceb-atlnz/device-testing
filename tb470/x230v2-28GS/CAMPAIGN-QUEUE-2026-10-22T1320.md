@@ -54,7 +54,7 @@ Peer session `device-testing-c9` (Terrence's orient session, 13:1x): *"tb470 and
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | ports: T47209 (fibre pluggable speeds), T44179 (jumbo frames) | tb470/x230v2-28GS/ports-2026-10-22T1320/ | T47209 RUNNABLE (go 13:4x); T44179 BLOCKED (not run, Test Engineer 13:4x) | T47209: setup/restore "Group 1" below (u1 only). T44179 BLOCKED (K): see Triage 2026-10-22 13:30 |
+| 1 | ports: T47209 (fibre pluggable speeds), T44179 (jumbo frames) | tb470/x230v2-28GS/ports-2026-10-22T1320/ | T47209 RUNNING (bench-runner RUN, started 13:46; run1; setup/restore = "Group 1" recipe below, unchanged); T44179 BLOCKED (not run, Test Engineer 13:4x) | T47209: setup/restore "Group 1" below (u1 only). T44179 BLOCKED (K): see Triage 2026-10-22 13:30 |
 | 2 | mgmt: T47228 (RESTCONF interface enable/disable, VLAN add/delete), T45543 (TPM) | tb470/x230v2-28GS/mgmt-2026-10-22T1320/ | RUNNABLE (go 13:4x) | setup/restore "Group 2" below. T45543 step 3 MANUAL-ONLY, so the expected verdict is PARTIAL |
 | 3 | secure: T47119 (secure-mode SSH algorithms), T47121 (secure-mode TLS algorithms) | tb470/x230v2-28GS/secure-2026-10-22T1320/ | BLOCKED (Test Engineer 13:4x: "ignore them for this run") | (K): 2 reloads each under "no reboots", AND no reference unit with secure mode on the bench. See Triage 2026-10-22 13:30 |
 
