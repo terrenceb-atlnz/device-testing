@@ -1,6 +1,6 @@
 # tb470 — bench state
 
-> **Generated 2026-10-21T233422Z by `bench_probe.py`** from `captures/2026-10-21T233422Z/` on tb470. Measured state only;
+> **Generated 2026-10-22T002207Z by `bench_probe.py`** from `captures/2026-10-22T002207Z/` on tb470. Measured state only;
 > nothing here is hand-written. Regenerate with `./bench_probe.py run` on tb470. The
 > `setup` fence at the end IS `tb470.setup`; `./bench_probe.py apply` writes it to the box.
 > Names and PDU outlets come from `tb470.static`; platform mechanics live in the orient-dt
@@ -18,18 +18,20 @@
 | A | port | B | port | proof |
 | --- | --- | --- | --- | --- |
 | tb | eth1 (10.38.215.1/27) | swi_f | port1.0.2 | MAC learned on a physical port |
+| tb | eth2 (10.38.215.33/27) | swi_e | port1.0.2 | MAC learned on a physical port |
 | tb | eth3 (10.38.215.65/27) | swi_e | port1.0.1 | MAC learned on a physical port |
 | swi_e | port1.0.2 | swi_f | port1.0.1 | lldp both ends |
-| tb | eth2 (10.38.215.33/27) | — | — | carrier DOWN |
+| swi_e | port1.0.3 | swi_f | port1.0.3 | lldp both ends |
 
 ## Advisories
 
-- none
+- eth2 learned on swi_e port1.0.2 AND swi_f port1.0.10
+- eth2 learned on swi_e port1.0.2 AND swi_f port1.0.3
 
 ## tb470.setup
 
 ```setup
-### GENERATED 2026-10-21T233422Z by bench_probe.py from a console capture -- DO NOT HAND-EDIT.
+### GENERATED 2026-10-22T002207Z by bench_probe.py from a console capture -- DO NOT HAND-EDIT.
 ### Source: claude/device-testing/bench-setup/bench-state.md (regenerate with
 ### `bench_probe.py run` on tb470; `bench_probe.py apply` writes this file).
 ### Names and PDU outlets come from bench-setup/tb470.static.
@@ -59,18 +61,18 @@ swi_e = True
 swi_f = True
 
 [portlink]
-tb-swi_e = eth3-port1.0.1
+tb-swi_e = eth2-port1.0.2, eth3-port1.0.1
 tb-swi_f = eth1-port1.0.2
-swi_e-swi_f = port1.0.2-port1.0.1
+swi_e-swi_f = port1.0.2-port1.0.1, port1.0.3-port1.0.3
 ```
 
 ```nic-state
 # NIC  carrier  learned_on
 eth1 up swi_f:port1.0.2
-eth2 down -
+eth2 up swi_e:port1.0.2
 eth3 up swi_e:port1.0.1
 ```
 
 ```probe-meta
-capture 2026-10-21T233422Z
+capture 2026-10-22T002207Z
 ```
