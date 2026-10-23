@@ -281,6 +281,39 @@ with counts and one example each, CPU and memory before -> after) and a CLEAN / 
   with `--before` 21 s, diff CLEAN; the tail's signatures named the snmpd `send_trap` lines (12)
   and the NSM port notifications (6 each) with one example line each
 
+### `conkey.py`
+Sends raw keys and lines to a console that is **not at a prompt**, with no login, and prints
+what came back. Every other console tool here logs in first, which makes all of them useless on
+exactly the console that most needs driving -- one parked mid-state. `peek.py` reports such a
+console but can only send a bare CR, and a CR is the wrong key for most of the states a console
+gets parked in. conkey is the deliberate counterpart: **peek reports the state, conkey changes
+it.**
+- **Why it exists**, two real cases:
+  - **gate item 2 recovery.** A killed run leaves a console inside a pager, a half-typed line, a
+    `(y/n)`, or a text-entry mode. Ctrl-C, Ctrl-U or `q` gets it back to exec; a CR usually makes
+    it worse.
+  - **interactive CLI commands.** AW+ `mail to <addr> subject <s>` answers *"Type the message
+    below and finish with a CTRL-d"* and then consumes every following line as message body. It
+    cannot be driven by a prompt-driven tool at all -- on tb277 (T33368) `ckcon.py` sent it, had
+    its NEXT command typed into the message body, waited out its full 90 s timeout and left the
+    console parked, after which `ckcon.py` could not even log in (`no privileged prompt`).
+- **Run:** `conkey.py <tty> <baud> <transcript> ITEM [ITEM ...] [--settle S] [--final S]
+  [--quiet]`, or `tools/tb conkey <TB> <scratch> <uN> <baud> ITEM ...`
+  - `ITEM` is `key:NAME` (ctrl-a..ctrl-z, cr, lf, crlf, esc, tab, space, bs, del),
+    `hex:XXXX` (raw bytes), `text:STRING` (no CR), `line:STRING` (with CR) or `wait:SECS`.
+  - Every item is validated BEFORE the port is opened, so a typo never half-drives a console
+    that is already in a delicate state.
+- **Where:** testbox; **needs:** pyserial
+- **Imports:** none (deliberately not `console`, which would want a prompt)
+- **Limits:** 🔴 **it cannot tell success from failure** -- it does not know what a prompt is and
+  does no `% ` checking. Use the prompt-driven tools for everything they can do, and follow a
+  conkey run with `peek` or a `ckcon` read. It does not log in, so the console must already be
+  logged in (typically a prompt-driven tool left it at exec) or genuinely stuck.
+- **Status:** verified 2026-10-23 on tb277, x960-56YSQ (AWPTCM-T33368): recovered a console
+  parked in `mail` message-body entry with one `key:ctrl-d`, then drove 11 more interactive
+  `mail to ... subject ...` triggers (`line:` + `line:` + `key:ctrl-d`) across six measurement
+  windows without a single miss
+
 ### `speedrow.py`
 Speed/duplex rows on a DUT port and its link partner, BOTH consoles driven from ONE process, so
 the partner is polled while the DUT changes. Two console tools issued in one tool block run one
@@ -1606,6 +1639,51 @@ the whole server side of a case is visible in the working log. One log line per 
 - **Limits:** PAP only (no CHAP, no EAP -- for EAP use `radeap.py`), no proxying of its own, no
   duplicate-request cache
 - **Status:** verified 2026-10-20 on tb277 (T33408/T33409) and end-to-end against `radsend.py`
+
+### `smtpsrv.py`
+An SMTP server in pure Python, on any TCP port, that can **require authentication**. It exists
+because a DUT that is an SMTP *client* (AW+ `mail smtpserver <ip> [port N] [authentication
+plain|login|crammd5|oauth2]`) can only be graded on what it puts on the wire -- which `AUTH`
+verb it sends, with which mechanism, carrying which credential, and what it does with the
+server's answer -- and a testbox's packaged MTA cannot provide that: a stock Postfix advertises
+no `AUTH` at all, and adding SASL to it means editing `/etc/` and restarting a system service,
+which is root, as is binding port 25 (STANDING-ORDERS s4). This one runs as an ordinary user on
+an unprivileged port, and every user, password, mechanism and behaviour switch is on the command
+line, so the whole server side of a case is visible in the working log.
+- **Run:** `smtpsrv.py [--port N] [--bind IP] [--hostname NAME] [--user NAME:PASSWORD ...]
+  [--mech PLAIN|LOGIN|CRAM-MD5|none ...] [--require-auth] [--reject-auth] [--show-secrets]
+  [--maildir D] [--log PATH] [--seconds N] [--stopfile PATH] [--pidfile PATH]`, or
+  `tools/tb tool <TB> <scratch> smtpsrv --port 11025 ...`
+- **Where:** a host the DUT can reach; **needs:** nothing beyond Python, and no root while the
+  port is >= 1024 (it refuses a privileged port as a non-root user, naming STANDING-ORDERS s4)
+- **Imports:** none
+- **Output:** a timestamped `C:` / `S:` transcript of every line in both directions -- the
+  server-side half of the wire evidence, the other half being a tcpdump of the same exchange --
+  with a `** AUTH verb from DUT: mechanism=...` line per attempt, the decoded credential, and a
+  closing `SUMMARY` block counting connections, messages and per-mechanism attempts / successes
+  / failures. `SUMMARY auth: NO AUTH verb was ever sent by any client` is the line an OFF
+  baseline or a removal leg is graded on.
+- **Behaviour worth knowing:**
+  - `AUTH PLAIN` is accepted in both the initial-response (`AUTH PLAIN <b64>`) and the two-step
+    forms; `AUTH LOGIN` prompts `334 VXNlcm5hbWU6` / `334 UGFzc3dvcmQ6` as every client expects.
+  - **`CRAM-MD5` is a real challenge and a real HMAC-MD5 check**, so a success *proves* the
+    client computed a digest from the shared password -- the password never crosses the wire,
+    and a client that echoes something is rejected with the expected and received digests
+    logged side by side.
+  - `--mech none` advertises no `AUTH` line at all, which is what a stock Postfix looks like:
+    a no-root negative control for "the server will not take authentication".
+  - `--require-auth` refuses `MAIL FROM` with `530 5.7.0` until the session has authenticated.
+    That is what makes an un-authenticated client fail **visibly** instead of silently
+    delivering, and it is how an OFF baseline and a removal leg are graded.
+  - `--reject-auth` answers every `AUTH` with 535 whatever the credential: it separates "the
+    DUT sent the verb" from "the DUT was let in".
+  - Passwords are logged as `pass=<n> chars`, never in clear, unless `--show-secrets`.
+- **Limits:** no TLS (`STARTTLS` is neither advertised nor accepted -- this server exists to
+  read the AUTH dialogue in clear, and answers 454), no relaying, no spool, one connection at a
+  time (a DUT's log-email client opens one), IPv4 only on the listening socket.
+- **Status:** verified 2026-10-23 offline (all three mechanisms accepted with the right
+  credential and rejected with the wrong one, `--require-auth` refusing `MAIL FROM` at 530 in
+  each failing case, 3 messages stored) and on tb277, x960-56YSQ (AWPTCM-T33368)
 
 ### `radeap.py`
 A RADIUS server that speaks enough **EAP** to drive an authentication-relay case:
