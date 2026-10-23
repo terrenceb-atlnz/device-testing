@@ -33,6 +33,7 @@ import binascii
 import hashlib
 import json
 import os
+import select
 import sys
 import time
 
@@ -118,6 +119,8 @@ def main():
     ap.add_argument('--pcap', default=None, help='write every EAPOL frame seen here')
     ap.add_argument('--json', default=None, help='write the full result as JSON here')
     ap.add_argument('--label', default='', help='a name for this run, echoed in the output')
+    ap.add_argument('--debug', action='store_true',
+                    help='also log the raw EAP Type-Data hex of every Request')
     args = ap.parse_args()
 
     try:
@@ -145,6 +148,32 @@ def main():
             % (s.mac, s.identity, s.expect,
                ('nak->%s' % EAP_METHOD.get(s.nak_to, s.nak_to)) if s.nak_to else ''))
     log('  filter: ether proto 0x888e   timeout: %.0f s' % args.timeout)
+
+    debug = args.debug
+
+    def eap_type_data(pkt, eap):
+        """The EAP Type-Data, taken from the RAW BYTES, never from scapy's dissection.
+
+        🔴 Two traps, both of which silently corrupt an MD5 digest:
+        1. scapy may dissect a known EAP method into its own class (EAP_MD5 and friends),
+           in which case `eap.payload` is empty and the challenge is in a FIELD;
+           or it may leave the Type-Data as a Raw payload. Which one you get depends on
+           the scapy version, so neither is safe to rely on.
+        2. An EAPOL frame shorter than 60 bytes is PADDED by Ethernet, and the padding
+           lands in `eap.payload` whenever scapy has not trimmed it. Hashing the padding
+           as part of the challenge produces a digest the server rejects, with no error
+           anywhere that names the cause.
+        Slicing the EAP header's own length field off the frame avoids both.
+        """
+        buf = bytes(pkt[EAPOL].payload.original if hasattr(pkt[EAPOL].payload, 'original')
+                    else bytes(pkt[EAPOL].payload))
+        if len(buf) < 5:
+            return b''
+        eap_len = int.from_bytes(buf[2:4], 'big')
+        # Code(1) Identifier(1) Length(2) Type(1), then Type-Data to the declared length.
+        if eap_len < 5 or eap_len > len(buf):
+            eap_len = len(buf)
+        return buf[5:eap_len]
 
     conf.verb = 0
     try:
@@ -198,6 +227,17 @@ def main():
             break
         if all(s.verdict for s in sups.values()) and settle_until is None:
             settle_until = now + args.settle
+        # 🔴 NEVER call sock.recv() unguarded. A scapy L2socket recv BLOCKS until a frame
+        # arrives, so with the BPF filter in place an idle wire means the loop never comes
+        # back to check the deadline and --timeout is silently ignored. Measured 2026-10-23:
+        # a run with --timeout 25 was still alive 11 minutes later, holding eth4 in
+        # promiscuous mode, and had to be killed by PID. select() first, always.
+        try:
+            ready, _, _ = select.select([sock], [], [], 0.5)
+        except Exception:
+            break
+        if not ready:
+            continue
         try:
             pkt = sock.recv(2048)
         except Exception:
@@ -247,8 +287,10 @@ def main():
             name = EAP_METHOD.get(etype, 'type%d' % etype)
             if name not in sup.methods_offered:
                 sup.methods_offered.append(name)
-            raw = bytes(eap.payload) if eap.payload else b''
-            sup.note('<- EAP-Request/%s id=%d len=%d' % (name, int(eap.id), len(raw)))
+            raw = eap_type_data(pkt, eap)
+            sup.note('<- EAP-Request/%s id=%d len=%d%s'
+                     % (name, int(eap.id), len(raw),
+                        (' raw=' + binascii.hexlify(raw).decode()) if debug else ''))
 
             if etype == EAP_IDENTITY:
                 eap_response(sup, int(eap.id), EAP_IDENTITY,

@@ -1676,8 +1676,20 @@ which is about which supplicants the authenticator admits, not about the cipher.
   - EAP-Request/Notification payloads are captured per supplicant and printed, which is the hook
     an EAP-Notification case needs;
   - it listens with a BPF filter of `ether proto 0x888e`, for the loop-protection reason above.
-- **Status:** written 2026-10-23 for tb277 group A/B; **not yet re-verified on hardware** -- first
-  use should update this line
+- 🔴 **Two traps it already fixes, for anyone writing another EAP tool:**
+  - **Never read the Type-Data from `eap.payload`.** scapy dissects a MD5-Challenge into its own
+    `EAP_MD5` class, so the challenge is in a FIELD and `eap.payload` holds only the **Ethernet
+    PADDING** an EAPOL frame gets to reach the 60-byte minimum (37 bytes of it on a
+    Request/Identity here). The digest then hashes no challenge at all, the frame is well formed,
+    and the server says only `Login incorrect`. Take the Type-Data from the raw bytes using the
+    EAP header's own length field.
+  - **Never call a scapy L2socket `recv()` unguarded.** It BLOCKS until a frame arrives, so on an
+    idle wire the loop never re-checks its deadline and `--timeout` does nothing. A `--timeout 25`
+    run was still alive 11 minutes later. `select()` with a short timeout first, always.
+- **Status:** verified 2026-10-23 on tb277, x960-56YSQ (T33360): single-host admits 1 of 2
+  supplicants (the second gets no reply at all); multi-supplicant admits 2 of 2 and then 3 of 3
+  distinct MACs; a bad-credential supplicant in the SAME invocation is refused while the good ones
+  succeed (3/3 matched expectation in one 1.04 s window)
 
 ### `rs.py`
 Sends ICMPv6 Router Solicitations to ff02::2, 2 s apart.
