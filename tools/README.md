@@ -1621,6 +1621,64 @@ measurement (STANDING-ORDERS §7).
 - **Status:** verified 2026-10-20 on tb277, x960-56YSQ (T33407): 10 packets, 5 Access-Request /
   2 Access-Accept / 3 Access-Reject, authenticator valid=5 invalid=0 unpaired=0
 
+### `wpasup.py`
+Drives `wpa_supplicant` as a WIRED 802.1X supplicant, captures the EAPOL exchange and grades it.
+One process does all three, so the capture can never start after the exchange it was meant to
+record (memory `two-console-calls-in-one-block-run-sequentially`). Use it where the EAP method
+itself is the subject -- PEAP, TLS, TTLS -- and `eapol.py` where the case needs several
+supplicant MACs on one wire.
+- **Run:** `wpasup.py <iface> --method peap|peap-gtc|ttls|md5|tls --identity U
+  [--password P | --password-env VAR] [--anonymous-identity A] [--ca-cert F] [--client-cert F]
+  [--private-key F|.p12] [--private-key-passwd P] [--phase1 S] [--extra LINE]
+  [--timeout S] [--settle S] [--pcap F] [--json F] [--label L] [--expect success|failure|timeout]`
+- **Where:** testbox, as **root** (`tools/tb sudotool`); **needs:** `wpa_supplicant`, `tcpdump`,
+  scapy (for the decode only)
+- **Imports:** none from `tools/`
+- **What it prints:** every `CTRL-EVENT-EAP-*` line, then one row per EAPOL frame
+  (time, src, dst, EAPOL type, EAP code, id, EAP method), then the methods the authenticator
+  offered, then `RESULT <label>: expected X, got Y -- MATCH|MISMATCH`. Exit 0 only on MATCH, so a
+  **control leg that must not authenticate is `--expect failure`** and still exits 0 when it is
+  correctly refused (STANDING-ORDERS §7).
+- 🔴 **The capture is ALWAYS filtered `ether proto 0x888e`.** On a bench running loop-protection
+  (tb277: 1 LDF/s across 57 instances) an unfiltered capture drowns.
+- **Limits:**
+  - with no `--ca-cert` the server certificate is accepted WITHOUT validation; the banner says so
+    on every run, so a log can never imply the chain was checked when it was not;
+  - do not add `tls_disable_tlsv1_3` or other post-2.6 network fields -- wpa_supplicant 2.6
+    rejects the whole config file with "unknown network field";
+  - ⚠️ **check the `--json` file against the printed RESULT.** On 2026-10-23 one run
+    (T44270 control B) printed 22 frames and `got failure` while its own JSON recorded
+    `"verdict": "timeout"` and `"eapol_frames": 2`. Nothing in the code can produce that -- both
+    are final before the JSON is built -- and it did not recur on an unchanged re-run. Unexplained;
+    grade on the printed RESULT plus the device's own log until it is understood.
+- **Status:** verified 2026-10-23 on tb277, x960-56YSQ (T44270): EAP-PEAP success (24 EAPOL
+  frames, EAP-Success), wrong-password control and unknown-identity control (22 frames each,
+  EAP-Failure), all five legs matching `--expect`
+
+### `eapol.py`
+A scapy 802.1X supplicant that can be SEVERAL supplicants at once on one wire, each with its own
+source MAC. `wpa_supplicant` is one supplicant per interface, so a multi-supplicant case
+(`auth host-mode multi-supplicant`, multiple dynamic VLANs, two-step authentication,
+`auth max-supplicant`) cannot be driven with it at all. Speaks EAP-Identity, EAP-MD5 (RFC 1994),
+EAP-Notification (RFC 3748 §5.2) and Legacy-Nak -- enough for every authentication-MODE case,
+which is about which supplicants the authenticator admits, not about the cipher.
+- **Run:** `eapol.py <iface> --supplicant MAC:identity:password[:expect[:nak_type]] [--supplicant ...]
+  [--timeout S] [--stagger S] [--no-start] [--logoff] [--settle S] [--pcap F] [--json F] [--label L]`
+- **Where:** testbox, as **root** (`tools/tb sudotool`); **needs:** scapy
+- **Imports:** none from `tools/`
+- **Grading:** each supplicant carries its OWN expected outcome (`success`/`failure`, default
+  `success`), so one run contains its own control. Exit 0 only if every supplicant matched.
+- **Notes:**
+  - `--stagger S` spaces the EAPOL-Starts, for a case about the ORDER two supplicants arrive in;
+  - `--no-start` sends no EAPOL-Start and waits for the authenticator to ask, which is how you
+    prove the authenticator initiates;
+  - `nak_type` makes that supplicant Legacy-Nak to a chosen EAP type when offered something else;
+  - EAP-Request/Notification payloads are captured per supplicant and printed, which is the hook
+    an EAP-Notification case needs;
+  - it listens with a BPF filter of `ether proto 0x888e`, for the loop-protection reason above.
+- **Status:** written 2026-10-23 for tb277 group A/B; **not yet re-verified on hardware** -- first
+  use should update this line
+
 ### `rs.py`
 Sends ICMPv6 Router Solicitations to ff02::2, 2 s apart.
 - **Run:** `sudo rs.py <iface> <count>`
