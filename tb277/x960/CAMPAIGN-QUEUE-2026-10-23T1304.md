@@ -19,6 +19,10 @@ Constraints: Window: **UNATTENDED** — nothing may block on the Test Engineer. 
              decision is recorded BLOCKED with its reason and the campaign runs on.
              **T44287 runs LAST, with a written recovery plan.**
              **T9032 is redesigned with `wpa_supplicant` on tb277.**
+             🔴 **NEW, 2026-10-23 13:1x, verbatim:** *"If you have to remove vlan or
+             change config on a switch because you need to execute the test, please dont ask
+             me - just go ahead and do it"* — **so `vlan 60` is NO LONGER off-limits**, and no
+             device-config change is a question. See below.
 
 ### ✅ THE CREDENTIAL GATE IS OPEN (2026-10-23 13:09 NZDT)
 
@@ -142,9 +146,15 @@ Confirmed at the 2026-10-23 wrap of the previous campaign:
 
 - **The L3 underlay is in startup-config**: vlan10 `10.38.22.34/27` (port1.0.10 ↔ box eth3),
   vlan48 `10.38.22.66/27` (port1.0.48 ↔ box eth4). **Campaign infrastructure — do not remove.**
-- 🔴 **`vlan 60` `ckMGMT-A` `10.38.22.97/27` on port1.0.2 (tagged) is in running- AND
-  startup-config.** It is **the Test Engineer's**, still outstanding. **Do not remove it and do
-  not report it as your leftover.** It sits on `port1.0.2`, the RSTP **root port**.
+- ✅ **`vlan 60` `ckMGMT-A` `10.38.22.97/27` on port1.0.2 (tagged) is in running- AND
+  startup-config — and as of 2026-10-23 it is YOURS TO REMOVE if it is in your way.**
+  The Test Engineer's instruction: *"If you have to remove vlan or change config on a switch
+  because you need to execute the test, please dont ask me - just go ahead and do it"*.
+  It is leftover campaign residue, not infrastructure. **If a case needs it gone, remove it
+  (`no interface vlan60` / `no vlan 60`), say so in the working log, and say whether you put
+  it back.** 🔴 It sits on `port1.0.2`, the RSTP **root port** — so **re-read
+  `show spanning-tree brief` after removing it** and record what the tree did. If no case
+  needs it gone, leave it: removing it is not an errand, it is a means to an end.
 - swi_d: build `sin_x96056-20261019-27`, boot image `flash:/x960-tb277.rel` **(file exists)**,
   boot config `flash:/default.cfg` (file exists), autoboot disabled, standalone Ready Active
   Master. **That is the baseline every reload must return to.**

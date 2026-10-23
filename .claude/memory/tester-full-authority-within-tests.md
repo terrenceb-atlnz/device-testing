@@ -16,6 +16,13 @@ stall that cost 13.6 h on 09-22 ([[sentinel-session-keeps-long-runs-moving]]). C
 for the case's own steps bought nothing: he had already asked for the case to be run.
 
 **How to apply:**
+- 🔴 **Widened by the Test Engineer, 2026-10-23:** *"If you have to remove vlan or change
+  config on a switch because you need to execute the test, please dont ask me - just go
+  ahead and do it"*. **This closed a real gap**: a tester had been told to leave an earlier
+  campaign's leftover `vlan 60` alone and report it back, and it sat unremoved across three
+  campaigns because each one treated it as the Test Engineer's. **Bench residue that stands
+  between you and the test is yours to remove.** Say what you removed and whether you put it
+  back. The §4 list is unchanged.
 - **Within a test, act.** That covers every device change the case's steps and its restore need
   (config, `write`, boot config, `reload`/`reload stack-member`, a PDU power-cycle of a DUT),
   test traffic from tb470, and scratch in tb470 `/tmp`. Then restore what the case changed and

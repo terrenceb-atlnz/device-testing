@@ -29,6 +29,15 @@ exist, which consoles) is NOT here. Bench facts live in the box's generated `ben
     then returns a silent False. A unit with no known outlet is asked for, not guessed. A
     session that says "no PDU" power-cycles nothing.
 - **You may reconfigure and deconfigure devices as required to perform a test.**
+  - 🔴 **Reaffirmed and widened, Test Engineer, 2026-10-23:** *"If you have to remove vlan
+    or change config on a switch because you need to execute the test, please dont ask me -
+    just go ahead and do it"*. **This includes configuration left on the bench by an earlier
+    campaign**, which a tester had been treating as off-limits and reporting back about.
+    Removing a leftover VLAN, an SVI or any other residue that stands between you and the
+    test is a tester action, not a request. **Say what you removed and whether you put it
+    back**; do not ask first. (STANDING-ORDERS §4 is untouched: root on the testbox, an
+    `apply`, a recable, a destack, a licence, a USER-CONFLICT and displacing a console
+    holder are still the Test Engineer's.)
 - **Keep configs tidy between unrelated cases.** Remove configuration a case added before the
   next unrelated case starts, so one case's leftovers never become another case's variable.
   Verify by diffing `show running-config` against the pre-case copy (the 2026-09-24 queue rule).
