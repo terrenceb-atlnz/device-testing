@@ -1603,8 +1603,45 @@ the whole server side of a case is visible in the working log. One log line per 
   Message-Authenticator does not verify, is DROPPED and logged -- so a wrong-secret control
   shows up as silence rather than a Reject, as a real server does. `--reject-all` and
   `--drop-all` give deliberate negative controls.
-- **Limits:** PAP only (no CHAP, no EAP), no proxying of its own, no duplicate-request cache
+- **Limits:** PAP only (no CHAP, no EAP -- for EAP use `radeap.py`), no proxying of its own, no
+  duplicate-request cache
 - **Status:** verified 2026-10-20 on tb277 (T33408/T33409) and end-to-end against `radsend.py`
+
+### `radeap.py`
+A RADIUS server that speaks enough **EAP** to drive an authentication-relay case:
+EAP-Identity, **EAP-Notification** (RFC 3748 §5.2) and EAP-MD5. `radsrv.py` is PAP only and
+cannot carry an EAP-Message at all, and an authenticator never originates a Notification by
+itself -- it comes from the authentication SERVER inside an Access-Challenge -- so the only way
+to find out whether a switch RELAYS one is to be the server and send one. A DUT's own local
+RADIUS server will not emit one on demand.
+- **Run:** `radeap.py --secret S --client IP --user NAME:PASSWORD [--auth-port N] [--bind IP]
+  [--notify TEXT] [--notify-only] [--log PATH] [--seconds N] [--stopfile PATH]`
+- **Where:** a host the DUT can reach; **needs:** nothing beyond Python, and **no root** while
+  the port is >= 1024 (STANDING-ORDERS §4: 1812 is privileged and a packaged freeradius is
+  root to configure). Point the DUT at it with
+  `radius-server host <box> auth-port <n> key <secret>`
+- **Imports:** radius
+- **The session, per supplicant:** Access-Request with EAP-Response/Identity → Access-Challenge
+  with **EAP-Request/Notification(TEXT)** if `--notify`, else EAP-Request/MD5-Challenge; then
+  the Notification response → an MD5 challenge; then the MD5 response → Access-Accept +
+  EAP-Success, or Access-Reject + EAP-Failure. Every reply carries a **Message-Authenticator**
+  (RFC 3579 requires it on any RADIUS packet with an EAP-Message) and a **State** attribute.
+- **`--notify` is the whole point of the A/B:** run it once without and once with, everything
+  else identical, and the only difference on the wire is the notification. The closing lines
+  `NOTIFICATIONS SENT=n  RESPONSES RELAYED BACK=n` are the headline numbers -- the second one is
+  non-zero only if the DUT relayed the supplicant's answer back, i.e. only if the relay works in
+  **both** directions.
+- **Limits:** EAP-Identity / Notification / MD5 only -- no TLS, PEAP or TTLS (use `wpasup.py`
+  against the DUT's own server for real crypto); no accounting; no duplicate-request cache. A
+  request from an unlisted `--client` is dropped and logged.
+- 🔴 **`radius.parse()` returns the BODY, not parsed attributes** -- run it through
+  `radius.parse_attrs()`. Getting that wrong is a `TypeError: cannot unpack non-iterable int
+  object` from inside `radius.find()`, which does not point at the caller.
+- **Status:** verified 2026-10-23 on tb277 against the x960-56YSQ authenticator (T33354):
+  control run 6 EAPOL frames and no notification; `--notify` run 8 frames with the 50-byte text
+  relayed to the supplicant intact and the empty response relayed back to the server; and a
+  paired run where both supplicants got the notification and only the correct credential was
+  accepted
 
 ### `radwire.py`
 Decodes and COUNTS the RADIUS packets in a `tcpdump -w` pcap, and, given the shared secret,
