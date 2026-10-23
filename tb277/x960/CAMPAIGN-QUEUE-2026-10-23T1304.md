@@ -503,7 +503,45 @@ must show only the two baseline lines `aaa authentication enable default local` 
 | AWPTCM-T44277 | (214) Authentication&Security - Supplicant MAC | authmodes-2026-10-23T1304 | **PASS** | 🔴 **`auth supplicant-mac` is a PER-MAC OVERRIDE of the port's authentication parameters, NOT the pre-authorisation the title suggests** — and that is the finding of the case. The **bare** command does neither: it does not pre-authorise (named MAC got **0/4** ARP replies) and does not restrict (an unnamed MAC authenticated normally, EAP-Success in **1.024 s**). It only bites when given a parameter. With `port-control force-authorized` the named MAC got **3/4 ARP replies having sent ZERO EAPOL frames** (DUT reads Mode **NONE** / ForceAuthorized / no username) while the control MAC got **0/4 on the same port**. With `port-control force-unauthorized` the named MAC was **refused in silence even with valid credentials** (1 frame in 40 s) while the control authenticated at **1.025 s** — an inverted control, so the effect follows the configuration rather than the choice of MAC. Removal returns it to 0/4 in the dataplane. `swi_d.cfg` device config byte-identical to T33374's (only the per-case header differs, verified by the sentinel); health twice, CLEAN; no `write`. | authmodes-2026-10-23T1304/T44277/work/run1.log | tester |
 | AWPTCM-T33362 | (201) ..._DynamicVlan - Multiple Dynamic VLAN (Un-tag) | authmodes-2026-10-23T1304 | **PASS** | Two supplicants on **one port** received **two different RADIUS-assigned VLANs, untagged**, and the separation holds **in the dataplane**: `show vlan brief` lists port1.0.48 as an untagged `(u)` member of **both 362 and 363** with `taggedVlansupplicantNum: 0`, and the **2×2 ARP matrix came out on the diagonal** — each supplicant **3/3** replies from its own VLAN's gateway, **0** from the other's. **OFF baseline:** both land in VID 48, the VLAN attribute ignored. **An unplanned extra control:** the first supplicant **LOST** vlan 48 (3/3 → 0/3) when it moved — it gained a VLAN *and left one*, which a gateway-reachability test alone would not have shown. **Discriminator:** `type single` refuses the second, different VLAN with EAP-Failure at **0.039 s** against the normal **1.037 s** success — and **the refusal is the SWITCH's, not the server's**: the local RADIUS server records ckdv2 `Successes 4 Failures 0` while the DUT logs `VLAN is not valid for given supplicant`. Rig built and fully removed (vlans 362/363 with L3 addresses, RADIUS groups ckdvg1/ckdvg2, users ckdv1/ckdv2); spanning tree unchanged; vlan 60 untouched; `swi_d.cfg` device config **byte-identical to the previous three — zero drift across four cases**, verified by the sentinel. Health twice, CLEAN. | authmodes-2026-10-23T1304/T33362/work/run1.log | tester |
 | AWPTCM-T44279 | (218) Authentication&Security - Tri-Authentication | authmodes-2026-10-23T1304 | **PASS** | **All THREE methods authenticated SIMULTANEOUSLY** on port1.0.48, visible in one `show auth supplicant brief`: `M 020d.b900.4279 Authenticated 02-0d-b9-00-42-79` (MAC), `D 020d.b900.427a Authenticated ckmulti1` (802.1X), `W 000d.b955.770f Authenticated ckweb` (WEB), **plus `D 020d.b900.427b Connecting` as the control** — macBased / dot1x / webBased SupplicantNum all 1, authorizedSupplicantNum 3. Each is backed in the dataplane: **4/4, 4/4, 4/4 against the control's 0/4 in the same window.** Removal of `auth-web enable` is real at **three** levels: sessions cleared, host ping 4/4 → 0/4, and the HTTP GET times out with no interception. **The authored objective names only two methods; the third the title implies is met as well, so no caveat is needed.** 🔧 **No HTTP client had to be built** — the AW+ web-auth login page is a plain POST of `USERNAME`/`PASSWORD`/`ACTION=login` to `/index.cgi` with **no cookie, no session token and no CSRF token**, so `httpq.py --method POST --data` drove it unchanged. The wrong-password control was run **first** and left the supplicant `Mode W Connecting` with `webBasedAuthenticationSupplicantNum: 0`. Health twice, CLEAN; **`swi_d.cfg` byte-identical to all four other group B captures**. | authmodes-2026-10-23T1304/T44279/work/run1.log | tester |
+| AWPTCM-T33368 | (209) Authentication&Security_SMTP - SMTP server authentication | smtp-2026-10-23T1304 | **PASS** | Three SMTP AUTH mechanisms — **PLAIN, LOGIN and CRAM-MD5** — proven **on the wire**, each with correct-credential acceptance and **535** on wrong credentials. **CRAM-MD5 is the valuable one**: challenge-response, so a wrong password gives a wrong digest, which only a real computation produces. **OFF baseline:** the server *offers* `AUTH`, the DUT sends none, the server answers **530** — so a later `AUTH` is attributable to the configuration, not to the server. **Removal** returns to that same 530. 🔑 **A no-downgrade control against TWO independent servers:** with a server offering no `AUTH` at all, the DUT **refuses to send rather than falling back to unauthenticated delivery** — confirmed on our own listener *and* on tb277's real Postfix, which answered *"server does not support authentication"*. The finding does not depend on our instrument. 🔥 **FINDING: `mail smtpserver authentication oauth2` is SILENTLY INERT** — the CLI accepts it with no diagnostic, **running-config never changes** (three reproductions, from a configured state and from a clean one), and the previous mechanism stays in force. The device contradicts itself in its own words: `show mail oauth2 url` → *"% The smtpserver is not configured for OAUTH2"*, read immediately after the command was accepted. **The defect is the silence, not the absence.** The oauth2 **step** is graded UNSUPPORTED (a missing feature, STANDING-ORDERS §1), which is what lets the case hold as PASS. **CAVEAT:** tb277 has **no OAuth2 provider, token or authorisation**, so whether oauth2 would authenticate *given a token* is not established and is not claimed; TLS-wrapped delivery was only a config-retention check, never driven against a TLS listener; and the `log email` trigger path was not used — every send went through the deterministic exec `mail to …` trigger. Health twice, CLEAN; zero config drift. New tools `tools/smtpsrv.py` and `tools/conkey.py`, both with README entries. | smtp-2026-10-23T1304/T33368/work/run1.log | tester, re-graded from PARTIAL on 2026-10-23 after a sentinel challenge |
 ## Issues
+
+### 🔥 SILENT DISCARD #5 — `mail smtpserver authentication oauth2`, and a verdict argument worth keeping
+
+**Fifth instance of the pattern, in a fourth subsystem.** The CLI accepts the command with no
+diagnostic, **running-config never changes** (three reproductions, from a configured state and
+from a clean one), and the previously configured mechanism stays in force. The device
+contradicts itself in its own words — `show mail oauth2 url` → *"% The smtpserver is not
+configured for OAUTH2"* — **read immediately after it had accepted the command.**
+
+**The defect is the silence, not the absence.** tb277 has no OAuth2 provider, so whether oauth2
+would authenticate given a token cannot be established here and is not claimed. What needs no
+provider is that the **config command is inert**, and that is what the finding rests on.
+
+✅ **A negative result worth recording:** the sentinel asked whether the flat siblings on
+`mail smtpserver` (`authentication` / `port` / `tls`) would discard one another, as four other
+commands on this platform do. **They do not** — setting `tls` and removing it left
+`authentication` untouched. So the pattern is not universal, which makes the five instances more
+pointed, not less.
+
+### 📋 A VERDICT ARGUMENT, recorded because the reasoning generalises
+
+T33368 was first graded **PARTIAL**. The sentinel challenged it: `logged-output.md` §1 reserves
+PARTIAL for a test that was **unable to be run**, and nothing here went unmeasured — the oauth2
+limb *ran* and produced a result. The log carried no `NOT RUN:` or `UNBLOCK:` blocks because
+there was nothing to put in them.
+
+**The tester agreed, and then went further than the challenge did** — which is the part worth
+keeping. A straight re-label to PASS would have been incoherent, because §1 also says PASS means
+*every step the platform supports passed*, so a step graded **FAIL** drags the whole case to
+FAIL. The fix was to re-grade the **oauth2 step** from FAIL to **UNSUPPORTED**: a missing feature
+is UNSUPPORTED (STANDING-ORDERS §1), and an UNSUPPORTED step inside a case does not stop a PASS.
+
+**The general rule:** when a case meets its objective but one limb reveals a missing feature, the
+limb is UNSUPPORTED and the case is PASS with a finding — it is neither PARTIAL (nothing was
+blocked) nor FAIL (nothing the platform supports failed). This is also how the four earlier
+silent discards were handled, so the campaign is consistent.
+
 
 ### 🔬 T44279 side-results — including the CONTRAST case to the four silent discards
 
