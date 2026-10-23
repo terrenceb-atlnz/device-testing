@@ -501,7 +501,41 @@ must show only the two baseline lines `aaa authentication enable default local` 
 | AWPTCM-T33369 | (210) ..._TwoStepAuthentication - Mac-based 1st then 802.1x 2nd | authmodes-2026-10-23T1304 | **PASS** | Two-step **requires BOTH methods and attempts them in the configured order**, measured on the wire in four outcomes. **(1)** `auth two-step enable` alone took the **identical MAC** from Authorized / **3-of-4 ARP replies** to Unauthorized / **0-of-4**, the supplicant entry flipping from `MAC-based Authentication` to `802.1X`/`Connecting` — same client, one command, opposite result. **(2)** Passes MAC, fails 802.1X → **EAP-Failure at 1.022 s**, PAE `Held`, **0/4**: the second step is enforced, not decorative. **(3)** Fails MAC → **1 EAPOL frame in 45 s with NO Identity request ever sent**; 802.1X never started **despite valid credentials** — the ordering constraint proved, not assumed. **(4)** Reversed to `order dot1x auth-mac`, that same MAC went from 1 frame to **8, EAP-Success at 1.009 s**, and was **still Unauthorized 0/4** because the MAC step then failed — both orders enforce their own second step. RADIUS counters corroborate the wire (4 successes registered MAC, 1 failure unregistered). **`swi_d.cfg` device config byte-identical to T33374's AND T44277's — zero drift across three cases**, verified by the sentinel. Health twice, CLEAN; no `write`. | authmodes-2026-10-23T1304/T33369/work/run1.log | tester |
 | AWPTCM-T33374 | (216) Authentication&Security - Re-authentication option | authmodes-2026-10-23T1304 | **PASS** | Re-authentication happens **on time at the configured period** and **stops when removed** — measured on the wire, never from `show`. The frame count is a straight function of the period: **OFF 6 frames / 1 authentication in 106 s; 15 s → 31 frames, six authentications at 15.03 s; 30 s → 26 frames, intervals 30.049 / 30.044 / 30.048 / 30.049 s; 60 s → 16 frames, intervals 60.070 / 60.068 s** — within 70 ms of the configured value. The authenticator **initiates each cycle unsolicited** and runs a **full EAP exchange with a fresh challenge and new EAP ids** every time, and the **session never drops** (port `Authorized`, supplicant `Authenticated` at four samples across the window). **Second witness:** the DUT's own RADIUS server counted **+6 Successes** for the six authentications seen on the wire, to the unit. **Removal limb:** `no auth reauthentication` returns the port to **6 frames in 76 s — identical to the OFF control — with `reauth-period` STILL configured**, so it is the enable that governs, not the period value. Restored field by field and verified; health twice, **CLEAN** against the pre-existing dirty baseline; no `write`. | authmodes-2026-10-23T1304/T33374/work/run1.log | tester |
 | AWPTCM-T44277 | (214) Authentication&Security - Supplicant MAC | authmodes-2026-10-23T1304 | **PASS** | 🔴 **`auth supplicant-mac` is a PER-MAC OVERRIDE of the port's authentication parameters, NOT the pre-authorisation the title suggests** — and that is the finding of the case. The **bare** command does neither: it does not pre-authorise (named MAC got **0/4** ARP replies) and does not restrict (an unnamed MAC authenticated normally, EAP-Success in **1.024 s**). It only bites when given a parameter. With `port-control force-authorized` the named MAC got **3/4 ARP replies having sent ZERO EAPOL frames** (DUT reads Mode **NONE** / ForceAuthorized / no username) while the control MAC got **0/4 on the same port**. With `port-control force-unauthorized` the named MAC was **refused in silence even with valid credentials** (1 frame in 40 s) while the control authenticated at **1.025 s** — an inverted control, so the effect follows the configuration rather than the choice of MAC. Removal returns it to 0/4 in the dataplane. `swi_d.cfg` device config byte-identical to T33374's (only the per-case header differs, verified by the sentinel); health twice, CLEAN; no `write`. | authmodes-2026-10-23T1304/T44277/work/run1.log | tester |
+| AWPTCM-T33362 | (201) ..._DynamicVlan - Multiple Dynamic VLAN (Un-tag) | authmodes-2026-10-23T1304 | **PASS** | Two supplicants on **one port** received **two different RADIUS-assigned VLANs, untagged**, and the separation holds **in the dataplane**: `show vlan brief` lists port1.0.48 as an untagged `(u)` member of **both 362 and 363** with `taggedVlansupplicantNum: 0`, and the **2×2 ARP matrix came out on the diagonal** — each supplicant **3/3** replies from its own VLAN's gateway, **0** from the other's. **OFF baseline:** both land in VID 48, the VLAN attribute ignored. **An unplanned extra control:** the first supplicant **LOST** vlan 48 (3/3 → 0/3) when it moved — it gained a VLAN *and left one*, which a gateway-reachability test alone would not have shown. **Discriminator:** `type single` refuses the second, different VLAN with EAP-Failure at **0.039 s** against the normal **1.037 s** success — and **the refusal is the SWITCH's, not the server's**: the local RADIUS server records ckdv2 `Successes 4 Failures 0` while the DUT logs `VLAN is not valid for given supplicant`. Rig built and fully removed (vlans 362/363 with L3 addresses, RADIUS groups ckdvg1/ckdvg2, users ckdv1/ckdv2); spanning tree unchanged; vlan 60 untouched; `swi_d.cfg` device config **byte-identical to the previous three — zero drift across four cases**, verified by the sentinel. Health twice, CLEAN. | authmodes-2026-10-23T1304/T33362/work/run1.log | tester |
 ## Issues
+
+### 🔥🔥 THE PATTERN: FOUR silent discards on this platform, every one a WEAKENING
+
+Four separate commands, measured in four different cases across 2026-10-23, all behaving the
+same way: **the device accepts your configuration, quietly discards or weakens part of it, and
+tells you nothing.** No `% ` line, no warning, no log entry. Recorded here once rather than four
+times.
+
+| # | the command you give | what it silently does | case |
+| --- | --- | --- | --- |
+| 1 | `auth host-mode multi-supplicant` | **rewrites** `dot1x control-direction both` → `in` | T33360, T33354, T33362 (three sightings) |
+| 2 | `auth-mac enable` | **deletes** `dot1x control-direction both` outright | T33369 |
+| 3 | `auth supplicant-mac <MAC> <param>` | **replaces** the previous param — the entry is single-valued | T44277 |
+| 4 | `auth dynamic-vlan-creation ... rule` | **replaces** `type multi`, reverting the port to single-dynamic-vlan | T33362 |
+
+**Every one is a weakening**, never a strengthening: the stricter setting is the one that
+vanishes. And **#1 and #2 remove the same setting by two different mechanisms** — a rewrite you
+could at least read back, and a deletion you cannot.
+
+**The device is NOT uniformly silent, which is what makes this reportable.** It has a precise
+error for the control-direction incompatibility —
+`% port1.0.48: DOT1X control-direction cannot be modified on a Web-auth or Mac-auth enabled
+port` — and prints it **only when the commands are given in one order**. And `auth
+dynamic-vlan-creation type multi rule permit|deny` is **refused in all three host-modes**, with
+**two mutually contradictory messages**: `Vlan assignment rule is not configured on
+assignment-per-user port` under multi-supplicant, and `Vlan assignment per user is not
+configured on single supplicant port` under multi-host and single-host. So the capability to
+warn exists; it is applied inconsistently.
+
+**Open and needing an authority we do not have:** whether `auth dynamic-vlan-creation ... rule`
+is reachable **at all** on this platform. The wiki has no x960 pages and the cousin pages do not
+cover it, so this needs the AW+ command reference or a developer.
+
 
 ### 🔴 TOOLING DEFECT, found and FIXED 2026-10-23 — `tools/tb killmine` could not kill ANY root sudotool
 
