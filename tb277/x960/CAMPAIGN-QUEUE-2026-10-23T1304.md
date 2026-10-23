@@ -362,3 +362,43 @@ port1.0.48; removing it would re-converge the tree through the root port for no 
 | --- | --- | --- | --- | --- | --- | --- |
 
 ## Issues
+
+### 🔴🔥 UNATTRIBUTED: snmpd SIGSEGV + an Unexpected System reboot on swi_d, 2026-10-23 12:49–12:55 NZDT
+
+**Found by group A's `before` health read at 13:29 NZDT, the first thing it did. It pre-dates
+this campaign and was caused by nothing we ran.**
+
+```
+2026 Oct 22 23:49:18 local7.debug awplus corehandler : Process snmpd (PID:1841) signal 11,
+    core dumped to /flash/snmpd-swmrvl_armv8-sin_x96056-20261019-27-1-1792712958-1841.tgz
+show reboot history (newest):  2026-10-22 23:55:56   Unexpected   System reboot
+```
+
+Device times are **UTC, 13 h behind the box**: 23:49:18 UTC = **12:49 NZDT**, 23:55:56 UTC =
+**12:55 NZDT**, both on 2026-10-23.
+
+**The control that makes this new, not inherited:** the `/wrap-dt` of the previous campaign read
+`show reboot history` at **10:11 NZDT today** and its newest entry was
+`2026-10-22 01:10:14 **Expected** CLI(user request)`, with `show exception log` **None**. So both
+events happened **after 10:11 and before triage at 13:21**, and neither appears in
+`SESSION-HANDOVER-2026-10-23.md` or anywhere in this queue.
+
+**Nothing of ours was on the box in that window.** This session did nothing between the wrap and
+13:04, and that was a no-console `precheck`. A user was logged in on `pts/1`.
+
+**Not established, deliberately:**
+- **whether the crash CAUSED the reboot.** Seven minutes apart, snmpd segfaulting, then a
+  restart — plausible, not proven. `show log` between 23:49 and 23:56 UTC would say more.
+- what snmpd was doing. The 2026-10-20 campaign exercised SNMP heavily (T44308 RMON, T33413
+  traps, T44309 sFlow), but that was three days earlier and the unit has rebooted since.
+
+**Handling, agreed with no one because the window is unattended:**
+- **Not blocking.** The tester recorded it as the **baseline** in every group A working log, so
+  per-case health verdicts are **diffs against this state** — a NEW core or a NEW unexpected
+  reboot is still caught.
+- 🔴 **The core file stays on flash.** It is the only evidence and it must not be deleted until
+  the Test Engineer has decided. It also consumes flash on a unit this campaign reloads.
+- **For the Test Engineer:** whether this warrants its own investigation, whether the core should
+  be pulled off the unit for a developer, and whether anyone was on the DUT at 12:49 NZDT.
+
+
