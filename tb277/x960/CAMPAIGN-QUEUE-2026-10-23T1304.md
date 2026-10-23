@@ -532,6 +532,38 @@ since every session here runs as the same Unix user. Verified live: `tb: 17344 s
   instrument is the cheapest way to tell a tool defect from a product one.**
 - A scapy `L2socket.recv()` **blocks on an idle wire**, so `--timeout` did nothing and a
   `--timeout 25` run was still alive 11 minutes later. Fixed with `select`.
+| AWPTCM-T9032 | EAP-TLS | dot1x-2026-10-23T1304 | **PARTIAL** | **The authored objective is MET on the wire** — EAP-TLS negotiated (MD5-Challenge offered, Legacy-Nak to type 13, TLS selected), the server's **2520-byte flight fragmented and reassembled exactly per RFC 5216** (flags `0xc0 LM msglen=2520` twice, then `0x80 L`, with correct 6-byte empty ACKs), and the server chain **validated against a CA exported from this very unit** (CN carries serial `A2WQS700B`). 🔴 **The DUT validates client certificates**: a self-signed cert with the same identity `cktls` but a different issuer is refused with **EAP-Failure at 1.045 s**, confirmed in the DUT's own log — a decision on the wire, which also disposes of any suggestion the DUT cannot conclude an EAP-TLS exchange. **The DUT behaved correctly at every observed step.** **NOT RUN:** EAP-Success on a *valid* certificate, and the port reaching Authorized. **Diagnosed to the bottom and it is the SUPPLICANT, not the DUT**: tb277 carries `wpa_supplicant 2.6`, which predates TLS 1.3 / RFC 9190, while OpenSSL 1.1.1 underneath negotiates 1.3 (`ver=0x304`). Under 1.3 the client's handshake completes when it sends Finished, so 2.6 logs `EAP-TLS: Done` with **743 bytes unsent** and then `EAP entering state DISCARD` on the DUT's correct request for them, twice. **UNBLOCK, cheapest first:** the exported PKCS#12 contains **the CA as well as the leaf**, so the supplicant sends the whole chain — that is what makes the flight 2141 bytes and two fragments, where the control's single 1224-byte certificate was one fragment and concluded normally; **split the p12 and present a leaf-only credential** (no root needed). Failing that, `wpa_supplicant` 2.10+ (root) or capping TLS at 1.2 (impossible on the DUT — no CLI control; on the box it is `/etc/ssl/openssl.cnf`, also root). Three workarounds tried and recorded as negative results: `fragment_size` has no effect on 2.6, an **ECDSA credential gave `msglen=2141` unchanged to the byte**, and the DUT has no TLS-version knob. **The 15 authored Internet Explorer steps were NOT followed and the log says so in its FIRST section**, quoted verbatim, with the Test Engineer's redesign decision named — not a footnote. Authenticator responsiveness re-proved **twice** (mid-case and as the last act) with known-good PEAP: 24 frames, EAP-Success, dataplane 4/4, so T33354 inherits a healthy port. Health twice, CLEAN. No `write`. The pre-existing `local` trustpoint was deliberately NOT removed. | dot1x-2026-10-23T1304/T9032/work/run1.log | tester |
+
+
+### 🔧 Three traps for anyone following T9032's authored precondition on this build (measured 2026-10-23)
+
+The authored precondition is from the legacy `xml` corpus and does not match this build:
+
+- **`crypto pki` is EXEC-only.** Config mode offers only `trustpoint`. The authored text shows
+  these commands in a config context.
+- **`crypto pki enroll` asks for an export passphrase TWICE, as FREE TEXT.** No console driver
+  could answer that — `ckcon.py` could handle `(y/n)` confirmations and nothing else. Hence its
+  new **`@ask` directive**, which answers an arbitrary prompt. That is reusable for every future
+  case with a free-text prompt.
+- **The export syntax differs**: there is no `url` keyword, pkcs12 requires a key type, and
+  there is **`pem terminal`**, which emits the CA straight to the console and **removes the need
+  for any file transfer at all** — simpler than the authored `export ... url flash:` route.
+
+### 📋 A SENTINEL ERROR worth recording, because the lesson is about reporting, not about EAP
+
+Mid-case I directed the tester to stop debugging T9032 and grade it PARTIAL, on the grounds that
+its observations of the same leg contradicted each other — a completed handshake at 14:41, then
+"only EAPOL-Start, no server response" at 14:44 and 14:47.
+
+**The captures were never inconsistent.** All five runs of that leg produced **exactly 17 EAPOL
+frames with an identical shape, stalling at the identical point**. What reached the sentinel was
+the tester's own `grep` of the tool's stdout, narrowed to a couple of lines — so the sentinel was
+reading the filter, not the capture, and drew the obvious (wrong) conclusion from it.
+
+The direction was stood down within a minute, before it was acted on, once the rogue-certificate
+result showed the tester was a step ahead. **The rule both sides took from it: when a leg is in
+dispute, send the frame table, not a grep of it.** A narrowed view of good evidence is
+indistinguishable from bad evidence.
 
 ## Issues
 
