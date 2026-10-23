@@ -842,3 +842,72 @@ group C/D; group A's own recipe above removes it when the campaign is done with 
 | 8 Ask-CK server path | not used |
 | 9 sentinel | `sentinel: parent` — nothing to arm |
 | 10 CLI defaulting | N/A (no framework defaulting step). Each case probes its own commands with `qmark` read-only before sending them |
+
+## 🔴 Bench state as group B hands over — 2026-10-23 16:40 NZDT, all five rows DONE
+
+**Group B is DONE: 5 PASS, 0 PARTIAL, 0 BLOCKED.** Nothing in it ran `write`, so
+`startup-config` is still `flash:/default.cfg` and **a reload (or a BOTH-outlet power cut) is
+itself a complete restore**. Group A's rig is left in place for groups C and D exactly as found.
+
+🔴 **Zero running-config drift across all five cases.** Each case saved a full
+`show running-config` as its `<id>/swi_d.cfg` after restoring itself, and **all five are
+byte-identical** (verified with `diff` at each capture). Everything group B created — two
+VLANs with L3 addresses, four local RADIUS users, two RADIUS groups, and every `auth`,
+`auth-mac`, `auth-web`, `dot1x` and `aaa` line it added — was removed and read back.
+
+| thing | state at handover |
+| --- | --- |
+| boot | `flash:/x960-tb277.rel` (exists) / `flash:/default.cfg` (exists), autoboot disabled — **the baseline, unchanged** |
+| `show auth` | 802.1X **Enabled**, MAC-based **Disabled**, WEB-based **Disabled** — group A's rig |
+| `show radius` | `127.0.0.1` only |
+| `show radius local-server user` | **4 users**: `ckmulti1`, `ckmulti2`, `ckpeap`, `cktls` — group A's, untouched |
+| `show radius local-server group` | empty — group B's `ckdvg1`/`ckdvg2` removed |
+| port1.0.48 | `switchport mode access` / `switchport access vlan 48` / `dot1x port-control auto` / **`dot1x control-direction both`** — restored explicitly, read back |
+| `show auth interface port1.0.48` | reAuthenticate disabled, reAuthPeriod 3600, hostMode single-host, CD **both**, dynamicVlanCreation / multiVlanSession / twoStep / authMac / authWeb all disabled, supplicantMac none, supplicantIpv4 none |
+| `running-config \| include aaa` | the three baseline lines only (`enable default local`, `login default local`, `dot1x default group radius`) |
+| trustpoints | all three present: `default-selfsigned`, `default-system`, `local` — never touched |
+| VLANs | `1 default`, `10 ckUNDERLAY-eth3`, `48 ckUNDERLAY-eth4`, `60 ckMGMT-A` — **vlan 60 untouched; 362/363 created and removed** |
+| spanning tree | root `8000:0000cd423029`, port1.0.2 Rootport Forwarding, port1.0.10 Designated Forwarding, port1.0.48 Disabled Discarding — **identical to before the group** |
+| host `eth3` → 10.38.22.34 | **ping 4/4** |
+| host `eth4` → 10.38.22.66 | **ping 0/4 — EXPECTED**, 802.1X with no supplicant authenticated |
+| probe | exit 2 NEEDS-CHECK, the same 2 `CHECK_CABLE` lines (eth3 artefact disproved by hand at 4/4; eth4 expected) — **no change**. `bench-state.md` regenerated and restored with `git checkout --`, not committed |
+| console u2 | exec prompt `awplus#`, not in config mode, not at a shell |
+| anything of ours running on the box | **nothing.** The only `wpa_supplicant` is the system D-Bus daemon, pid 606, up since 11 Sep |
+| health | every case CLEAN against the pre-existing dirty baseline; **no new reboot, no new core, no new exception** in the whole group |
+
+### Group B's five working logs and commits
+
+| case | verdict | working log | commit |
+| --- | --- | --- | --- |
+| T33374 Re-authentication option | PASS | `authmodes-2026-10-23T1304/T33374/work/run1.log` | `21a7005` |
+| T44277 Supplicant MAC | PASS | `.../T44277/work/run1.log` | `ae7b4d8` |
+| T33369 Two-step (MAC then 802.1X) | PASS | `.../T33369/work/run1.log` | `902b218` |
+| T33362 Multiple Dynamic VLAN (un-tag) | PASS | `.../T33362/work/run1.log` | `661b26e` |
+| T44279 Tri-Authentication | PASS | `.../T44279/work/run1.log` | `76ded09` |
+
+(The group's rig and gate record were committed first as `61a480c`.)
+
+### 🔴 What group C and D must carry forward
+
+1. **The silent-discard family now has four members** — see `## Issues`. Any case touching
+   `auth host-mode`, `auth-mac enable`, `auth supplicant-mac` or `auth dynamic-vlan-creation`
+   should **read back what it set, not assume it stuck**, and restore
+   `dot1x control-direction both` explicitly afterwards. Note the ORDER: `control-direction` is
+   only accepted once `auth-mac` and `auth-web` are off.
+2. **MAC authentication needs `aaa authentication auth-mac default group radius`**, and web
+   authentication needs `aaa authentication auth-web default group radius`. Without the list the
+   DUT creates a supplicant entry and never sends a RADIUS request at all. The **MAC-auth
+   username format is `02-0d-b9-00-33-69`** (lowercase, hyphenated, used as both username and
+   password), and the cheapest way to discover it on any platform is the local server's
+   **`Users NOT present in the User Database`** table.
+3. **`auth-web enable` auto-adds `auth forward arp|dhcp|dns`**, so an **ARP-based dataplane probe
+   stops discriminating**. Use ICMP echo (`arpleg.py --icmp ... --gw-mac e0:1a:ea:d4:70:43`)
+   whenever web authentication is enabled anywhere in the case.
+4. **The AW+ web-auth login page is a plain POST** (`USERNAME`, `PASSWORD`, `ACTION=login`) to
+   `http://<auth-web-server ip>/index.cgi`, with no cookie, session or CSRF token.
+   `tools/httpq.py --method POST --data` drives it as it stands — **no HTTP client is needed.**
+5. **`no interface vlanN` is refused** (`% Removal of interface not allowed`); delete the VLAN in
+   `vlan database` instead and the interface goes with it.
+6. **`radiusd` restarted once during group B** (pid 6457 → 14569), with no core, no reboot and no
+   exception-log entry, most likely on the `aaa auth-web` / `auth-web-server` reconfiguration.
+   Noted so a later PID change is not read as new.
