@@ -20,6 +20,18 @@ Constraints: Window: **UNATTENDED** — nothing may block on the Test Engineer. 
              **T44287 runs LAST, with a written recovery plan.**
              **T9032 is redesigned with `wpa_supplicant` on tb277.**
 
+### ✅ THE CREDENTIAL GATE IS OPEN (2026-10-23 13:09 NZDT)
+
+`~/.ckenv` now exists: mode **0600**, outside the repo, holding `export CK_PASSWORD_U3=...`
+and `export CK_PASSWORD_U5=...`. Created at the Test Engineer's instruction (*"Go ahead and
+create it for me"*) with the password they gave on 2026-10-21. Verified by sourcing it in a
+subshell: both variables set, 11 characters, identical. **The value was never printed, never
+put on a command line, and is not in this repo.**
+
+**So u3 and u5 MAY now be opened** — always as `. ~/.ckenv && tools/tb ...`, never with the
+password as an argument. The gate below still governs: test `[ -f ~/.ckenv ]` before every
+such call, because a future session may not have it.
+
 ### 🔴 The credential gate — u3 and u5 are opened ONLY if `~/.ckenv` exists
 
 The Test Engineer chose **"All three — I'll put the password in `~/.ckenv`"**. At campaign start
