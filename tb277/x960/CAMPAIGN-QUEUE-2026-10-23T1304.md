@@ -135,7 +135,7 @@ crypto pki export local pkcs12 <user> flash:/<user>.p12   # the supplicant certi
 | --- | --- | --- | --- | --- |
 | A | T33354 EAP-Notification; T44270 EAP-PEAP; T33360 Multiple Authentication; T9032 EAP-TLS | `dot1x-2026-10-23T1304` | **DONE — 3 PASS, 1 PARTIAL** | The EAP / encryption-type family. **Build the local RADIUS server + supplicant rig ONCE as group setup** and let all four inherit it. T33354 is likely a desk UNSUPPORTED (`Not Support`) — confirm against the TPS, do not assume. T9032 is the redesign; use its authored precondition for the RADIUS and certificate recipe |
 | B | T33369 Two-step (MAC then 802.1X); T44279 Tri-Authentication; T44277 Supplicant MAC; T33374 Re-authentication option; T33362 Multiple Dynamic VLAN (un-tag) | `authmodes-2026-10-23T1304` | QUEUED | Authentication modes and dynamic VLAN. Inherits group A's rig. 🔴 **T44277 "Supplicant MAC" may need the DUT to act as SUPPLICANT toward an authenticator** — that is the one case here most likely to need a partner switch, so it is the one most likely to hit the credential gate. Decide that at triage and say so. T33362 needs **two** dynamic VLANs assigned from RADIUS to different supplicants, untagged |
-| C | T33368 SMTP server authentication | `smtp-2026-10-23T1304` | QUEUED | A different subsystem: the DUT authenticating to an **SMTP server**, not 802.1X. Needs an SMTP listener that requires AUTH. **tb277 almost certainly does not run one** — establish at triage what exists before designing, and grade on the SMTP dialogue on the wire (the `AUTH` verb and the server's reply), never on `show`. Starting a service on the box is a root change (STANDING-ORDERS §4) |
+| C | T33368 SMTP server authentication | `smtp-2026-10-23T1304` | **DONE — 1 PASS** | A different subsystem: the DUT authenticating to an **SMTP server**, not 802.1X. Needs an SMTP listener that requires AUTH. **tb277 almost certainly does not run one** — establish at triage what exists before designing, and grade on the SMTP dialogue on the wire (the `AUTH` verb and the server's reply), never on `show`. Starting a service on the box is a root change (STANDING-ORDERS §4) |
 | D | T44287 CryptSecureMode | `securemode-2026-10-23T1304` | **BLOCKED (unattended) — safe half runs LAST as PARTIAL** | 🔴 **Test Engineer's decision: this case runs after every other row is DONE or BLOCKED**, so a DUT that comes back awkward costs nothing already measured. On AW+ secure mode disables telnet, SNMPv1/v2, most privilege levels and weak crypto, **needs a reboot, and can drop configuration**. **Before enabling anything, write the exact recovery steps into this file.** If recovery cannot be stated with confidence, report **BLOCKED** rather than risk an unrecoverable unit — the window is unattended |
 
 Groups run **sequentially**: there is one DUT console. A, B, C, then D last.
@@ -939,3 +939,199 @@ VLANs with L3 addresses, four local RADIUS users, two RADIUS groups, and every `
 6. **`radiusd` restarted once during group B** (pid 6457 → 14569), with no core, no reboot and no
    exception-log entry, most likely on the `aaa auth-web` / `auth-web-server` reconfiguration.
    Noted so a later PID change is not read as new.
+
+## 🔴 GROUP C — `smtp-2026-10-23T1304` — DONE, 1 PASS. Rig, restore and handover
+
+Written at the close of the group (the rig was one case long and is fully removed, so the
+"before the first case" record and the handover are the same record).
+
+### The rig — what group C built and how it is restored
+
+**Nothing of group C is left on the DUT.** The group added exactly five config lines and removed
+every one of them; the post-teardown `show running-config` is **byte-identical** to the pre-run
+capture (125 lines, `diff` empty). `write` was never run, so `startup-config` is untouched and a
+reload is a complete restore on its own.
+
+The rig, for anyone repeating it:
+
+```
+! on the DUT (swi_d, u2) -- the SMTP *client* side
+configure terminal
+ mail smtpserver 10.38.22.33            ! the testbox, over eth3 <-> port1.0.10, vlan10
+ mail smtpserver port 11025             ! an UNPRIVILEGED port: this is what avoids root
+ mail from ck-dut@ck.invalid
+ mail smtpserver authentication {plain|login|crammd5} username ckmail password ckSmtp1
+end
+! trigger (INTERACTIVE -- see the trap below)
+mail to cklog@ck.invalid subject <tag>
+<one body line>
+<Ctrl-D>
+```
+
+```
+! on the box -- the SMTP *server* side, no root needed
+tools/tb tool tb277 <scratch> smtpsrv --port 11025 --bind 0.0.0.0 --hostname ck-smtp \
+  --user ckmail:ckSmtp1 [--mech none] [--require-auth] \
+  --maildir /tmp/<scratch>/mail-<W> --log /tmp/<scratch>/srv-<W>.log \
+  --stopfile /tmp/<scratch>/stop<W> --seconds N
+! end a window by scp-ing the stopfile in: tools/tb put tb277 <local empty file named stopW> <scratch>
+```
+
+**The exact restore recipe** (all five lines, in this order — no `% ` on any of them):
+
+```
+configure terminal
+ no mail smtpserver authentication
+ no mail smtpserver port
+ no mail smtpserver
+ no mail from
+end
+show mail        ! must read: State Dead / SMTP Server Not Set / Host Name Not Set / Port 25
+```
+
+🔴 **Drain the mail queue BEFORE teardown.** A refused message is queued on the DUT and retried
+on the next send, so a group that ends on a refused leg leaves residue. Point the DUT at a
+correct-credential listener and send once; `show mail` must then read *"There is no mail in the
+queue."* Group C drained six messages this way.
+
+### 🔴 Traps group C paid for — read these before touching `mail` on any AW+ box
+
+1. 🔴 **`mail to <addr> subject <s>` is INTERACTIVE.** It answers *"Type the message below and
+   finish with a CTRL-d"* and then eats every following line as message body. `tools/tb ckcon`
+   sent it, had its **next command typed into the message body**, waited out its full 90 s
+   timeout, and left the console **parked** — after which `ckcon` could not even log in
+   (`no privileged prompt on /dev/u2`). Drive it with the new **`tools/tb conkey`**
+   (`line:mail to ... subject ...` `line:<body>` `key:ctrl-d`), which sends raw keys with no
+   login. Sending is **synchronous** on Ctrl-D, so every trigger is deterministic.
+2. 🔴 **The grammar triage recorded was WRONG.** It is NOT
+   `mail smtpserver <ip> authentication <mech>` — the address takes `<cr>` and nothing else.
+   `authentication`, `port` and `tls` are **siblings** of the address, i.e. three independent
+   config lines:
+   `mail smtpserver authentication {crammd5|login|oauth2|plain} username <u> password <p>`
+   (username/password are **mandatory** for crammd5/login/plain, **absent** for oauth2),
+   `mail smtpserver port <1-65535>`, `mail smtpserver tls {disable-cert-check|smtps|starttls}`.
+3. **`show mail oauth2` alone is `% Incomplete command.`** — it needs `url`.
+4. **Postfix on the box answers on `10.38.22.33:25`** and advertises `STARTTLS` but **no AUTH**.
+   It is a free, real, third-party negative control and needs no change. **Do not reconfigure
+   it** — that is root (STANDING-ORDERS §4). Nothing was relayed into its queue.
+
+### 🔥 PRODUCT FINDING — a FIFTH silent discard, and a NEW SHAPE
+
+`mail smtpserver authentication oauth2` is **offered by the parser** (`authentication ?` lists
+`oauth2`; `oauth2 ?` offers `<cr>`, so it is a complete command), is **accepted with no
+diagnostic of any kind**, and **does nothing at all**: running-config unchanged, `show mail`
+unchanged, and on the wire the DUT still sends the *previous* mechanism. Reproduced **three
+times**, from a configured state and from a clean one. The device then contradicts itself:
+
+```
+awplus(config)# mail smtpserver authentication oauth2      <-- accepted, silently
+awplus# show mail oauth2 url
+% The smtpserver is not configured for OAUTH2
+```
+
+🔴 **How this differs from the four found in groups A and B:** those were all *weakenings* — a
+setting silently replaced by a weaker one. This is an **accepted command that is a pure no-op**,
+leaving the previous setting in force. The security consequence is the same shape though: an
+operator who believes they have moved to token authentication is **still sending the password**
+(as a CRAM-MD5 digest here; as cleartext base64 had the previous setting been `plain`).
+
+### 🔴 How the oauth2 limb was GRADED, and why the case is PASS
+
+The first grading of this case was **PARTIAL**. That was **wrong** and the sentinel caught it.
+`logged-output.md` §1 is the bench owner's own definition: *"PARTIAL means that the test was
+**unable** to be run"*. **Nothing in this case went unmeasured** — the oauth2 limb ran and
+produced a result — so there is no `NOT RUN:` step and nothing to put in an `UNBLOCK:` block.
+A case where every limb ran and one revealed a defect is not PARTIAL.
+
+It is **PASS**, for two reasons:
+
+1. **The requirement is met.** TPS row 207 is "SMTP Server Authentication (Mail based)" and does
+   not enumerate mechanisms. "The DUT can authenticate to an SMTP server" is proven three ways
+   on the wire, each with a control that must not match, in the same run.
+2. **The oauth2 limb is UNSUPPORTED, not FAIL, and §1 says UNSUPPORTED steps inside a case do
+   not stop a PASS.** On the evidence oauth2 is a partially-built feature on this build: the CLI
+   token exists, the function does not, and the device says so itself
+   (`% The smtpserver is not configured for OAUTH2`). STANDING-ORDERS §1: a missing feature is
+   UNSUPPORTED. This also keeps the case consistent with the four earlier silent discards in
+   groups A and B, every one of which was a finding inside a PASS.
+
+🔴 **The scope limit is recorded as a CAVEAT, not hidden by the verdict:** this bench **cannot**
+exercise oauth2 end-to-end at all — there is no OAuth2 provider, no token and no `mail oauth2`
+authorisation on tb277 — so the case does **not** establish whether oauth2 would authenticate
+given a token. What needs no provider, and is what the finding rests on, is that the **config
+command is inert**: running-config never changes. The defect is the **silence**, not the
+absence.
+
+### ✅ What group C proved works, with frame-level evidence
+
+- **All three real mechanisms** — `plain`, `login`, `crammd5` — send the right `AUTH` verb and
+  are accepted at `235`, each one switched purely by the single changed config word.
+- **CRAM-MD5 is genuinely implemented**: a real HMAC-MD5 over the server's random challenge,
+  verified server-side, with the password never on the wire. The wrong-credential control prints
+  both digests side by side (`expected e7a96ec1…, got 14585b46…`), and the same password against
+  a different challenge gives a different digest again — so it is neither a constant nor a
+  replay.
+- **Every accepting leg has a control that did not match, in the same run**: an OFF baseline
+  (no `authentication` → **no AUTH verb at all**, `SUMMARY auth: NO AUTH verb was ever sent`),
+  a wrong-credential control per mechanism (6 attempts, 0 accepted, 6 × `535`, and
+  `mail_from=0` — the body was never transmitted), and a removal leg.
+- **Removal proven three ways**: gone from running-config, gone from `show mail`, and **the AUTH
+  verb stops on the wire** (server refuses at `530`, exactly as in the OFF baseline).
+- 🔴 **NO SILENT DOWNGRADE** — the security question worth carrying forward. With
+  `authentication` configured and a server advertising no AUTH, the DUT sends `EHLO` then
+  **`QUIT`**: no credential, no `MAIL FROM`, no message body. Confirmed against our own listener
+  (`--mech none`, deliberately permissive so a downgrade *would* have succeeded visibly) **and**
+  against the real Postfix, the latter with an independent `tcpdump` (65 packets, 5 flows, 23 B
+  from the DUT per flow) decoded by `tools/tcpflow.py`.
+- **The password is stored encrypted** (`password 8 <base64>`) in running-config and is not
+  displayed by `show mail` at all.
+- **No silent discard between `authentication`, `port` and `tls`** — each survives the others.
+  Reported as a negative result, not as an absence of testing.
+- **Product internals:** the DUT's SMTP client is **msmtp**, driven from **`/etc/msmtprc`**, and
+  it reports the server's reply text to the operator verbatim.
+
+### Two new tools, committed with the case
+
+| tool | why it had to exist |
+| --- | --- |
+| `tools/smtpsrv.py` | an SMTP server that can **require** auth, on any port, pure Python, **no root** — the box's Postfix advertises no AUTH and adding SASL to it is root. It logs the timestamped `C:`/`S:` transcript the case is graded on, decodes PLAIN/LOGIN/CRAM-MD5, checks a real HMAC-MD5, and prints a per-mechanism `SUMMARY`. `--mech none` and `--reject-auth` are the built-in controls. Validated **offline** before it touched the bench |
+| `tools/conkey.py` | raw keys to a console with **no prompt and no login** — the counterpart to `peek.py` (peek reports the state, conkey changes it). Needed for the interactive `mail to` trigger, and the general gate-item-2 recovery tool. Registered as a `tb` console action (one line in `CON_TBT`) so it gets the holder refusal and the `/tmp/<scratch>/console-<uN>.log` convention |
+
+### Group C gate record (2026-10-23 16:46–16:55 NZDT)
+
+| gate | result |
+| --- | --- |
+| 1 occupancy | `tools/tb precheck tb277 u2` → `/dev/u2` **free**; exit 5 for the one standing FOUND item, `ser2net` pid 744 (root, up 42 d) — the standing adjudication, not touched. `tools/tb scratch tb277 smtp1304` → 81 files |
+| 2 console state | `tools/tb peek` → `awplus#`, exec prompt. Not in config mode, not at a shell |
+| 3 template path | `tools/tb template tb277` → `/nfsHome not mounted`, no deployed `tb277.setup` — expected for this box; none bound |
+| 4 probe | `--read-only`, group C run `.setup`, exit **2 NEEDS-CHECK**: the **one** expected `CHECK_CABLE` on **eth4** only (port1.0.48 is dot1x-controlled with no supplicant authenticated, so the box's MAC is not in the FDB) — identical to group B's. Nothing moved. 🔴 Note for the next tester: `bench_probe.py` wants `--outlet u2=1` / `--name u2=swi_d`, not a bare `1`. `bench-state.md` regenerated and restored with `git checkout --`, **not committed** |
+| 5 run `.setup` | `tb277/x960/smtp-2026-10-23T1304/tb277-u2.setup`, swi_d only, cut from group B's |
+| 6 preflight | **N/A — no framework script.** Console + host-server case, driven through `tools/tb` |
+| 7 boot baseline | `flash:/x960-tb277.rel` + `flash:/default.cfg`, autoboot disabled — re-read at the group's end, **unchanged** |
+| 8 Ask-CK server path | not used |
+| 9 sentinel | `sentinel: parent` — nothing to arm |
+| 10 CLI defaulting | **DONE before any command was sent**: four read-only `tools/tb qmark` passes over the whole `mail` / `log email` surface in both exec and config mode, each self-testing first. This is what caught the wrong grammar in the triage note |
+
+### 🔴 Bench state as group C hands over to group D — 2026-10-23 17:22 NZDT
+
+| thing | state at handover |
+| --- | --- |
+| boot | `flash:/x960-tb277.rel` (exists) / `flash:/default.cfg` (exists), autoboot disabled — **the baseline, unchanged** |
+| running-config | **byte-identical to the pre-run capture** (125 lines, `diff` empty). No `mail` line of any kind |
+| `show mail` | State **Dead**, SMTP Server Not Set, Host Name Not Set, Port 25, Debug Disabled, **queue empty** — the pre-run baseline exactly |
+| startup-config | untouched — **`write` was never run in group C**, so a reload is itself a complete restore |
+| group A's 802.1X rig | **not touched.** Local RADIUS, its 4 users, port1.0.48 state, `show auth` — group C never went near them, and group D inherits them as group B left them |
+| vlan 60 | **not touched** — group C never needed it gone |
+| consoles u3 / u5 | **never opened.** The credential gate was never exercised |
+| probe | exit 2 NEEDS-CHECK, the same single `CHECK_CABLE` on eth4 as before the case — **no change**. `bench-state.md` regenerated and restored with `git checkout --`, not committed |
+| console u2 | exec prompt `awplus#`; `terminal no monitor` sent **from exec** (confirmed in the box-side transcript, not from the tool's stdout). Not in config mode, not in mail-body entry. Left logged in, as groups A and B did, because group D inherits it |
+| anything of ours running on the box | **nothing.** Every `smtpsrv` window ended on its `--stopfile`; the `tcpdump` ended on its own 45 s timeout. `tools/tb ps` → empty |
+| box `/tmp` | `/tmp/smtp1304/` holds the tools copy, five server logs, one 65-packet pcap and the delivered `.eml` files. Small; not cleaned, so the evidence survives for `/create-logs` |
+| health | **CLEAN** against the pre-existing dirty baseline — no new reboot, no new core, no new exception, 0 new non-echo log lines. The one new log line is group C's own `show mail oauth2` typo |
+
+### Group C's working log and commit
+
+| case | verdict | working log | commit |
+| --- | --- | --- | --- |
+| T33368 SMTP server authentication | **PASS** | `smtp-2026-10-23T1304/T33368/work/run1.log` | `59a8d3a` (re-graded PARTIAL→PASS in the follow-up commit) |
+

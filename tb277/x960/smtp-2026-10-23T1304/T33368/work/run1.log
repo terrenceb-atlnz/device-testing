@@ -460,7 +460,17 @@ found four, all of them a WEAKENING in which a setting was silently replaced by 
 This one is different: an accepted command that does nothing at all, leaving the PREVIOUS
 setting silently in force. Same root symptom -- configuration accepted, configuration
 discarded, operator told nothing.
-STEP VERDICT: FAIL (this limb). Reproduced three times.
+STEP VERDICT: UNSUPPORTED (this limb), and the DEFECT is the SILENCE, not the absence.
+  Why UNSUPPORTED and not FAIL: on the evidence, oauth2 is a partially-built feature on this
+  build -- the CLI token exists, the function does not, and the device says so itself
+  ("% The smtpserver is not configured for OAUTH2"). STANDING-ORDERS §1: a missing feature is
+  UNSUPPORTED. What is NOT acceptable, and is the finding, is that an unsupported mechanism is
+  OFFERED by the parser and ACCEPTED with no diagnostic instead of being rejected.
+  🔴 SCOPE LIMIT, stated plainly: this bench CANNOT exercise oauth2 end-to-end at all -- there
+  is no OAuth2 provider, no token and no `mail oauth2` authorisation anywhere on tb277. So this
+  case does NOT establish whether oauth2 authentication would work given a token. What it does
+  establish, and what needs no provider, is that the CONFIG COMMAND is inert: running-config
+  never changes. Reproduced three times.
 
 ================================================================================
 STEP -- CONFIG RETENTION: does `port` or `tls` displace `authentication`? (NO)
@@ -753,8 +763,8 @@ SUMMARY OF LEGS
   A2   authentication plain,    correct credential    AUTH PLAIN    -> 235, delivered  PASS
   A3   authentication login,    correct credential    AUTH LOGIN    -> 235, delivered  PASS
   A4   authentication crammd5,  correct credential    AUTH CRAM-MD5 -> 235, delivered  PASS
-  A5   authentication oauth2, replacing crammd5       accepted, NO effect              FAIL
-  A7   authentication oauth2, from a clean state      accepted, NO effect              FAIL
+  A5   authentication oauth2, replacing crammd5       accepted, NO effect       UNSUPPORTED
+  A7   authentication oauth2, from a clean state      accepted, NO effect       UNSUPPORTED
   --   retention: tls / port vs authentication        all three independent, retained  PASS
   A6   no mail smtpserver authentication (removal)    AUTH verb STOPS, refused 530     PASS
   B1   crammd5, wrong credential (control)            digest mismatch -> 535           PASS
@@ -762,10 +772,12 @@ SUMMARY OF LEGS
   B3   login,   wrong credential (control)            535, no MAIL FROM                PASS
   C1   server offers no AUTH (control)                EHLO/QUIT, no downgrade          PASS
   E1   real Postfix :25, no AUTH (control, pcap)      EHLO/QUIT, 23 B, no downgrade    PASS
-  12 of 14 legs PASS. The two failing legs are the same defect, measured twice.
+  12 of 14 legs PASS, 2 UNSUPPORTED (the same oauth2 limb, measured from two states).
+  NOTHING IN THIS CASE WENT UNMEASURED -- there is no NOT RUN step and nothing to unblock.
 
 FINDINGS
-  1. *** FAIL / PRODUCT DEFECT *** `mail smtpserver authentication oauth2` is accepted by the
+  1. *** PRODUCT DEFECT (reported as a finding, not as the case verdict) *** `mail smtpserver
+     authentication oauth2` is accepted by the
      CLI with no diagnostic and has no effect at all -- running-config, `show mail` and the
      wire are all unchanged, and `show mail oauth2 url` then answers "% The smtpserver is not
      configured for OAUTH2". The previous mechanism silently stays in force, so an operator who
@@ -790,4 +802,21 @@ FINDINGS
      `mail smtpserver <ip> authentication <mech>` as triage recorded. username/password are
      mandatory for crammd5/login/plain and absent for oauth2.
 
-VERDICT: PARTIAL -- SMTP server authentication works and is proven on the wire for all three real mechanisms (plain, login, crammd5) with correct-credential acceptance, wrong-credential rejection, an OFF baseline, a no-downgrade control against two independent servers and removal that stops the AUTH verb; but the fourth advertised mechanism, `mail smtpserver authentication oauth2`, is accepted by the CLI with no diagnostic and silently does nothing, leaving the previous mechanism in force.
+VERDICT BLOCK
+  FINDING: `mail smtpserver authentication oauth2` is offered by the parser, accepted with no
+    diagnostic, and never applied -- running-config, `show mail` and the wire all keep the
+    PREVIOUS mechanism, and `show mail oauth2 url` then answers "% The smtpserver is not
+    configured for OAUTH2". A fifth silent discard on this platform and a new shape: not a
+    weakening, a no-op. Security consequence: an operator who believes they moved to token
+    authentication is still sending the password. Reproduced 3 times.
+CAVEAT: three of the four advertised mechanisms (plain, login, crammd5) are proven end-to-end on
+  the wire. The fourth, oauth2, is NOT proven either way: tb277 has no OAuth2 provider, no token
+  and no `mail oauth2` authorisation, so this run could not exercise oauth2 authentication
+  itself. What it did establish, and what needs no provider, is that the oauth2 CONFIG COMMAND
+  is inert. Whether oauth2 would authenticate given a token is NOT MEASURABLE on this bench.
+  Also not covered: TLS-wrapped delivery (`mail smtpserver tls smtps|starttls`) was set and
+  removed as a config-retention check only, never exercised against a TLS listener; and the
+  `log email` trigger path was not used -- every send was driven by the deterministic exec
+  `mail to ... subject ...` trigger.
+
+VERDICT: PASS -- SMTP server authentication works and is proven on the wire for all three real mechanisms (plain, login, crammd5), each with correct-credential acceptance at 235, wrong-credential rejection at 535, an OFF baseline that sends no AUTH verb at all, a no-downgrade control against two independent servers, and removal that stops the AUTH verb; the fourth advertised mechanism, oauth2, is a non-functional limb on this build (UNSUPPORTED) whose silent acceptance is recorded as a product finding, not as a failure of the feature under test.
