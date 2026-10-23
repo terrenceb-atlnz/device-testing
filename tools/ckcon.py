@@ -15,7 +15,12 @@ login credentials (default manager / friend).
 Directives (sent to nothing): `@sleep <s>` pauses; `@poll <s> <regex> <cmd>` re-runs <cmd>
 about every 0.5 s (plus its own run time) until its output matches <regex> (re.M) or <s>
 seconds pass, then prints MATCHED/TIMED OUT with the elapsed time and the last output; with
---stop-on-error a timeout stops the run (exit 3). <regex> must contain no space."""
+--stop-on-error a timeout stops the run (exit 3). <regex> must contain no space.
+`@ask <cmd> ;; <answer> [;; <answer> ...]` runs a command that asks for FREE TEXT rather
+than (y/n) -- an export passphrase, a filename, a confirmation phrase: the command is sent
+raw and each answer is sent after the output next goes quiet. A plain CMD cannot do this,
+because c.cmd() waits for a device prompt that a free-text question never produces, so the
+command times out and the device prints "% Aborted."."""
 import sys, time, re, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 USAGE = "usage: ckcon.py <tty> <baud> <transcript> [--stop-on-error] [--verbatim] CMD [CMD ...]"
@@ -130,6 +135,32 @@ try:
                 print(out)
             if stop and not hit:
                 print("!!! @poll timed out -- stopping"); rc = 3; break
+            continue
+        if line.startswith("@ask "):          # directive: @ask <cmd> ;; <answer> [;; <answer> ...]
+            # For a command that asks for FREE TEXT rather than (y/n) -- an export passphrase,
+            # a filename, a confirmation phrase. c.cmd() cannot be used: it waits for a device
+            # prompt, and a free-text question never produces one, so the command simply times
+            # out and the device eventually prints "% Aborted." (measured 2026-10-23 on
+            # `crypto pki enroll local user <u>`, which asks for an export passphrase twice).
+            # Instead: send the command raw, and after each quiet period send the next answer.
+            parts = [p.strip() for p in line[len("@ask "):].split(";;")]
+            acmd, answers = parts[0], parts[1:]
+            print("{} >>> {} (then {} prompted answer(s))".format(
+                time.strftime("%H:%M:%S"), acmd, len(answers)))
+            to = float(os.environ.get("CKTO", "90"))
+            c.s.write((acmd + "\r").encode())
+            out = ""
+            for ans in answers:
+                out += c.read_until_quiet(timeout=to, need_prompt=False) or ""
+                c.s.write((ans + "\r").encode())
+            out += c.read_until_quiet(timeout=to, need_prompt=True) or ""
+            if out:
+                print(out)
+            if stop and any(l.lstrip().startswith("%") and not console.is_advisory(l)
+                            for l in out.splitlines()):
+                print("!!! CLI error on {!r} -- stopping".format(acmd))
+                rc = 2
+                break
             continue
         if verbatim:
             out, prompt = run_verbatim(line, prompt)

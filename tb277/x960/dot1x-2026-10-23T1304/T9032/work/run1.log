@@ -1,0 +1,596 @@
+# AWPTCM-T9032 (EAP-TLS) — run 1 — working log
+
+Tester: the `bench-runner` subagent, dispatched by the `/test-mode` sentinel (this session's
+parent). Written as the case ran. **Case 3 of 4 in group A.**
+
+## 🔴 THE AUTHORED PROCEDURE WAS NOT FOLLOWED. Read this first.
+
+This case is the only one in the campaign with authored steps, and **they could not be run on
+this bench.** Stating that plainly is a requirement of the Test Engineer's approval, not a
+footnote.
+
+**What the case authors wrote.** `AWPTCM-T9032`, `src=xml` (the legacy corpus), status
+**Approved**, folder `/Interop/Windows_IO/802.1x`. Its 15 steps are a **person driving Internet
+Explorer's certificate import wizard on a Windows PC**, verbatim:
+
+> Prepare Route and the Supplicant certificate before the test. … They are copied onto
+> Supplicant. Start the Internet Explorer on Supplicant. 1) Click Tool button. 2) Click Internet
+> option. 3) Click Contents tab. 4) Click Certificate button. ■ Certificate screen 5) Click
+> Import button. … 13) Click Finish button. 14) Check that the certificate was added. 15) The
+> route certificate is similarly added.  Should be success. See and check the packet sequence.
+> When PC and switch are connected, certificate tab is opened. Packet sequence is correct.
+
+and the precondition names the environment outright: `Environment: Windows PC`.
+
+**Why they were not followed.** **There is no Windows PC on tb277, and no GUI of any kind.** The
+bench is a Linux testbox driving serial consoles. Steps 1–15 are mouse clicks in a browser that
+does not exist here. No amount of bench work makes them runnable; they are not blocked by a
+missing cable or a licence.
+
+**What was done instead, and on whose authority.** The Test Engineer decided on 2026-10-23 to
+**redesign the case with `wpa_supplicant` on tb277**, grading on the packet exchange rather than
+on a GUI. A **step-level MANUAL-ONLY row already exists** for the certificate-import limb. The
+authored **objective** is what this run measures, and it is quoted here in full because it is the
+thing being graded:
+
+> **"Confirm that an authenticator exchanges authentication messages between the supplicant and
+> Radius server."**
+
+The authored **precondition** was used as written wherever this build still accepts it — it is
+the source of the local-RADIUS recipe the whole group runs on — and every place this build
+differs from it is recorded below.
+
+**Nothing in this log should be read as a claim that the authored steps were executed.**
+
+## Session facts (from the dispatch; given, not measured)
+
+- **box:** tb277 — **consoles:** u2 = swi_d (AT-x960-56YSQ, S/N `A2WQS700B`), the only console
+  this group opens.
+- **pdu:** 10.36.230.212, outlets u2 = 1 **and** 8 (two PSUs). No power cycle performed.
+- **names:** u2 = swi_d — **Test Engineer:** bidhanc@bidhanc-dl
+- **constraints:** the window is **UNATTENDED**. Device configuration is the tester's.
+- **session dir:** `tb277/x960/`, **stamp:** `2026-10-23T1304`, **group:** A
+- **run `.setup`:** `tb277/x960/dot1x-2026-10-23T1304/tb277-u2.setup`, swi_d only.
+
+## The case, as authored — the rest of the record
+
+- **key:** AWPTCM-T9032 — **title:** `EAP-TLS` — **status:** Approved — **src:** `xml`
+- **num_steps:** 3 (grouped), `has_objective = 1`
+- **TPS:** row **192**, EAP-TLS under IEEE 802.1X, reads **Yes**.
+
+## Devices, links and clocks
+
+Group-level record is in case 1's working log,
+`tb277/x960/dot1x-2026-10-23T1304/T44270/work/run1.log`, unchanged. Supplicant leg **box eth4
+(`00:0d:b9:55:77:0f`) ↔ swi_d port1.0.48** (vlan48, DUT 10.38.22.66); swi_d SVI MAC
+`e0:1a:ea:d4:70:43`; DUT clock agrees with the box's; DUT log in UTC, console timestamps NZDT
+(UTC+13).
+
+**The certificate transfer used the OTHER leg on purpose:** the DUT pushed the PKCS#12 to the box
+at **10.38.22.33 (eth3, vlan10, port1.0.10)**, because port1.0.48 is the dot1x-controlled port and
+was Unauthorized at the time — with `control-direction both` the DUT's own egress there is
+blocked too.
+
+## Setup reads, before step 1
+
+### `show system`, verbatim and in full
+
+```
+14:29:59 >>> show system
+System Status                                           Fri Oct 23 01:29:57 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B       
+PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU 
+PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S 
+Fan module 730  FAN1    AT-FAN19                          -     -               
+Fan module 730  FAN2    AT-FAN19                          -     -               
+--------------------------------------------------------------------------------
+RAM: Total: 8092132 kB Free: 7452428 kB
+Flash: 14.3GB Used: 171.7MB Available: 14.1GB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 01:34:13
+Bootloader version : Unknown
+
+Current software   : x960-tb277.rel
+Software version   : sin_x96056-20261019-27
+Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+Current boot config: flash:/default.cfg (file exists)
+
+System Name
+ awplus
+System Contact
+
+System Location
+```
+
+### The EAP-TLS starting state
+
+```
+awplus#show dot1x interface port1.0.48
+  portStatus: Unauthorized
+  hostMode: single-host
+
+awplus#show radius local-server trustpoint
+Current PKI trustpoints for RADIUS EAP-TLS:
+   local
+```
+
+`show radius local-server statistics` had already reported
+`Enabled methods : MAC EAP-MD5 EAP-TLS EAP-PEAP` and **`EAP trustpoints : local`** when the group
+rig was built in case 1. So EAP-TLS is served, and the trustpoint it is served from is `local`.
+
+**The `cktls` user was proved to exist before any certificate work**, so that a later EAP-TLS
+failure could never be confused with a missing account:
+`wpasup --method md5 --identity cktls --password cktls123` → `RESULT ... expected success, got
+success -- MATCH`.
+
+## HEALTH — sample 1 of 2, before step 1
+
+```
+HEALTH u2 14:30:16-14:30:33 before-T9032  saved /tmp/dot1x1304/health-u2-20261023T143016.out  json /tmp/dot1x1304/health-u2-20261023T143016.out.json
+  reboots ......... 100 entries, newest 2026-10-22 23:55:56 Unexpected System reboot
+  exception log ... 2026 Oct 22 23:49:18 local7.debug awplus corehandler : Process snmpd (PID:1841) signal 11, core dumped to /flash/snmpd-swmrvl_armv8-sin_x96056-20261019-27-1-1792712958-1841.tgz
+  log (filtered) .. 14 lines: 14 echoes of our own commands, 0 other
+  cpu ............. 0% / 0% / 0%  (show cpu prints BUSY averages 1 s / 20 s / 60 s, not idle); load 0.00
+  memory .......... free 7452632 of 8092132 kB (buffers 1520)
+```
+
+Same pre-existing dirt as cases 1 and 2, unchanged and not this run's doing: the snmpd SIGSEGV
+core of `2026 Oct 22 23:49:18`, and **two** unexpected reboots (`23:55:56` and `23:53:17`). Case
+1's log explains them. The after-sample is a diff against this baseline.
+
+## Steps, as designed and as run
+
+### STEP 1 — the PKI provisioning path: enrol a user with the local CA and get its credentials off the DUT
+
+The authored precondition's commands were used as the starting point. **Three of them do not
+exist in this form on this build**, and the differences are findings in their own right because
+anyone following the authored text will hit them.
+
+**(a) `crypto pki` is EXEC-only here, not configuration.** The authored precondition shows
+`crypto pki trustpoint local` and `crypto pki enroll local` as configuration lines. On
+`sin_x96056-20261019-27`:
+
+```
+awplus(config)#crypto pki enroll local user cktls
+                          ^
+% Invalid input detected at '^' marker.
+
+awplus(config)#crypto pki  ?
+  trustpoint  Create or modify a trustpoint        <- config mode offers ONLY this
+
+awplus#crypto pki  ?                                <- exec mode has the rest
+  authenticate  Authenticate a root certifcate
+  enroll        Enroll the local server or a user to a trustpoint
+  export        Export a trustpoint certificate
+  import        Import a trustpoint certificate
+```
+
+**(b) `crypto pki enroll local user <u>` asks for an export passphrase, twice, as free text.**
+Not a (y/n) confirmation, so no existing console driver could answer it: `cfg.py` waits for a
+device prompt that never comes, times out after 90 s, and the device prints `% Aborted.`. This
+is why `tools/ckcon.py` gained an **`@ask`** directive in this run — send the command raw, then
+send each answer after the output next goes quiet. With it:
+
+```
+14:35:40 >>> crypto pki enroll local user cktls (then 2 prompted answer(s))
+crypto pki enroll local user cktls
+
+Enter an export passphrase, or "abort" to cancel.
+
+Enter the export passphrase again.
+
+Generating a user private key for "cktls"...
+Successfully enrolled user "cktls".
+The PKCS#12 file is ready to export.
+awplus#
+14:35:44 >>> show crypto pki certificates local
+--------------------
+```
+
+**(c) The export syntax is different from the authored text, and better.** Authored:
+`crypto pki export local pem url flash:/localca.cer` and
+`crypto pki export local pkcs12 stre flash:/stre.p12`. Measured here:
+
+```
+awplus#crypto pki export local pem  ?
+  URL       Destination URL        <- positional; there is NO `url` keyword
+  ecdsa     Export certificate for ECDSA key
+  rsa       Export certificate for RSA key
+  terminal  Export to terminal     <- not in the authored text at all
+
+awplus#crypto pki export local pkcs12 cktls  ?
+  ecdsa  Export certificate with ECDSA key     <- a key type is REQUIRED
+  rsa    Export certificate with RSA key
+awplus#crypto pki export local pkcs12 cktls rsa  ?
+  URL  Destination URL
+```
+
+**`pem terminal` is the useful discovery**: the CA certificate comes back on the console as text,
+so the bench needs no file transfer at all for it. Used here:
+
+```
+awplus#crypto pki export local pem terminal rsa
+-----BEGIN CERTIFICATE-----
+MIIDZjCCAk6gAwIBAgIJAORZbkQf9giCMA0GCSqGSIb3DQEBCwUAMEMxHTAbBgNV
+...
+```
+
+and the result parses as a real CA, checked with openssl on the box rather than taken on trust:
+
+```
+$ openssl x509 -in localca.cer -noout -subject -issuer -dates
+subject=O = "Allied Telesis, Inc.", CN = AlliedWarePlusCAA2WQS700B
+issuer=O = "Allied Telesis, Inc.", CN = AlliedWarePlusCAA2WQS700B
+notBefore=Oct 15 06:32:24 2026 GMT
+notAfter=Oct 14 06:32:24 2031 GMT
+```
+
+Self-signed, five-year validity, and **the unit's own serial `A2WQS700B` is inside the CN** — so
+this certificate demonstrably came from this DUT and not from anywhere else.
+
+The user's PKCS#12 needs a destination URL, and TFTP straight to the box worked:
+
+```
+awplus#crypto pki export local pkcs12 cktls rsa tftp://10.38.22.33/cktls-ec.p12
+Copying...
+Successful operation
+```
+
+⚠️ Recorded because it will confuse the next reader: **the pkcs12 export does NOT re-ask for the
+passphrase** (it is already bound into the bundle from enrolment), so the answer supplied for it
+was typed at the exec prompt instead and rejected — the three
+`user.err IMISH: Command [ckbench2026] failed` lines in the health sample are that, and nothing
+else. No device state was touched by them.
+
+**STEP 1 verdict: PASS.** The whole provisioning path works: a user is enrolled against the
+pre-existing `local` CA, `show crypto pki certificates local` shows a complete chain (leaf
+`/O=AlliedWare Plus/CN=cktls` issued by `/O=Allied Telesis, Inc./CN=AlliedWarePlusCAA2WQS700B`),
+the CA exports as parseable PEM and the user identity exports as a PKCS#12 the supplicant can
+load.
+
+### STEP 2 — EAP-TLS with the DUT-issued certificate: the full exchange is relayed, but it does not conclude
+
+```
+tools/tb sudotool tb277 dot1x1304 wpasup eth4 --method tls --identity cktls \
+    --private-key /tftproot/cktls.p12 --private-key-passwd ckbench2026 \
+    --ca-cert /tmp/dot1x1304/localca.cer --expect success --timeout 40 \
+    --label T9032-S2-EAP-TLS-valid-cert \
+    --pcap /tmp/dot1x1304/T9032-S2.pcap --json /tmp/dot1x1304/T9032-S2.json
+```
+
+preceded by `dot1x initialize interface port1.0.48`.
+
+```
+  1792720245.798537: eth4: CTRL-EVENT-EAP-PROPOSED-METHOD vendor=0 method=4 -> NAK
+  1792720245.799928: eth4: CTRL-EVENT-EAP-PROPOSED-METHOD vendor=0 method=13
+  1792720245.821294: eth4: CTRL-EVENT-EAP-METHOD EAP vendor 0 method 13 (TLS) selected
+  1792720245.837367: eth4: CTRL-EVENT-EAP-PEER-CERT depth=1 subject='/O=Allied Telesis, Inc./CN=AlliedWarePlusCAA2WQS700B' hash=e9db87ae6a2d8e562e85bcb974d8e513e1721f188057a0af5bd3480b0f34d352
+  1792720245.838631: eth4: CTRL-EVENT-EAP-PEER-CERT depth=0 subject='/O=Allied-Telesis/CN=AlliedwarePlusSystem/serialNumber=NULL' hash=e973031b8cc0520d74438d6185d11475fe8773f5bea203c8bd79f86e7260c01d
+RESULT T9032-S2-EAP-TLS-valid-cert: expected success, got timeout (from wpa_supplicant events) -- MISMATCH
+```
+
+```
+EAPOL frames on eth4 (17, filtered ether proto 0x888e):
+  t(s)     src               dst               eapol        eap       id   method         eaplen tls
+  0.0      00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAPOL-Start  -         -    -              -      
+  0.0003   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   1    Identity       5      
+  0.0009   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  1    Identity       10     
+  0.0022   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   2    MD5-Challenge  22     
+  0.0029   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  2    Legacy-Nak     6      
+  0.0039   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   3    TLS            6      0x20 S
+  0.0266   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  3    TLS            295    0x00 -
+  0.0279   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   4    TLS            109    0x80 L msglen=99
+  0.0294   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  4    TLS            334    0x00 -
+  0.0356   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   5    TLS            1014   0xc0 LM msglen=2520
+  0.0362   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  5    TLS            6      0x00 -  <- EMPTY ACK
+  0.0372   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   6    TLS            1014   0xc0 LM msglen=2520
+  0.0378   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  6    TLS            6      0x00 -  <- EMPTY ACK
+  0.0387   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   7    TLS            522    0x80 L msglen=2520
+  0.0568   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  7    TLS            1408   0xc0 LM msglen=2141
+  0.0577   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   8    TLS            6      0x00 -  <- EMPTY ACK
+  30.0267  e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   8    TLS            6      0x00 -  <- EMPTY ACK
+```
+
+**What this proves, and it is the authored objective.** The authenticator relayed a complete
+EAP-TLS conversation between the supplicant and the RADIUS server, in both directions, correctly:
+
+- **EAP-TLS (method 13) was negotiated**: the authenticator offered MD5-Challenge, the supplicant
+  Legacy-Nak'd to type 13, the authenticator offered TLS, and `CTRL-EVENT-EAP-METHOD EAP vendor 0
+  method 13 (TLS) selected`.
+- **The server's 2520-byte flight was fragmented and reassembled correctly** — RFC 5216 to the
+  letter. Ids 5 and 6 carry flags `0xc0` (**L**ength-included + **M**ore) with `msglen=2520` and
+  1014 bytes each; id 7 carries flags `0x80` (L, no More) with the final 522 bytes. The
+  supplicant answered each of the first two with a 6-byte **empty EAP-TLS ACK**, which is exactly
+  what the RFC requires.
+- **The server certificate chain validated against the CA exported from the DUT**:
+  `CTRL-EVENT-EAP-PEER-CERT depth=1 subject='/O=Allied Telesis, Inc./CN=AlliedWarePlusCAA2WQS700B'`
+  and `depth=0 subject='/O=Allied-Telesis/CN=AlliedwarePlusSystem/serialNumber=NULL'`. The
+  supplicant was given the CA and **did** verify the chain — this is not an unvalidated tunnel.
+- **The supplicant sent its own certificate and completed the TLS handshake.**
+
+**Where it stops, exactly.** After the supplicant's first response fragment at id 7 (1408 bytes,
+flags `0xc0` L+M, `msglen=2141`), **the DUT sends a 6-byte empty EAP-TLS ACK at id 8 — which is
+the correct RFC 5216 request for the next fragment — and the supplicant never sends it.** The DUT
+patiently re-sends the identical ACK 30 s later. No EAP-Success and no EAP-Failure.
+
+**STEP 2 verdict: the objective is met; the authentication does not conclude.** Graded in the
+case verdict below as the PARTIAL limb.
+
+### 🔴 Why it does not conclude — and it is the SUPPLICANT, not the DUT
+
+This was chased to the bottom rather than left as "it timed out", because "a timeout is not a
+measurement".
+
+The supplicant's own log, at the moment it stops:
+
+```
+  | 1792719631.984471: OpenSSL: Handshake finished - resumed=0
+  | 1792719631.984495: SSL: 2141 bytes left to be sent out (of total 2141 bytes)
+  | 1792719631.984502: SSL: sending 1398 bytes, more fragments will follow
+  | 1792719631.984511: EAP-TLS: Done
+  | 1792719631.984587: EAP-TLS: Derived key - hexdump(len=64): [REMOVED]
+  | 1792719631.985829: EAP: Received EAP-Request id=8 method=13 vendor=0 vendorMethod=0
+  | 1792719631.985842: EAP: EAP entering state DISCARD
+  | 1792719661.956393: EAP: Received EAP-Request id=8 method=13 vendor=0 vendorMethod=0
+  | 1792719661.956409: EAP: EAP entering state DISCARD
+```
+
+Read in order: the TLS handshake **finished**, the supplicant **derived its keys**, it had
+**2141 bytes still to send** and sent the first 1398 of them saying *"more fragments will
+follow"* — and then marked the EAP method **`EAP-TLS: Done`**. From that point its EAP state
+machine treats every further EAP-Request as `DISCARD`, which is precisely what it does to the
+DUT's ACK, twice.
+
+**The reason it was Done with 743 bytes still unsent is TLS 1.3.** Measured in its own log:
+
+```
+1792719826.184370: OpenSSL: TX ver=0x304 content_type=20 (change cipher spec/)
+1792719826.196267: SSL: SSL_connect:TLSv1.3 read encrypted extensions
+1792719826.199760: SSL: SSL_connect:TLSv1.3 read server certificate verify
+```
+
+`ver=0x304` is TLS 1.3. Under TLS 1.3 the client's handshake completes when it sends its own
+Finished, not when it receives the server's — so OpenSSL reports "Handshake finished" and
+wpa_supplicant's EAP-TLS concludes the method, while the EAP layer still owes the peer a second
+fragment. **tb277 runs `wpa_supplicant` 2.6 (2016), which predates TLS 1.3 and predates RFC 9190
+(EAP-TLS with TLS 1.3) entirely, but is linked against OpenSSL 1.1.1, which negotiates TLS 1.3
+happily.** That mismatch is the whole failure.
+
+**The DUT did nothing wrong at any observed point.** Every frame it sent is correct: a proper TLS
+Start, correct L/M flags and `msglen`, correct empty ACKs, and a patient retransmit. And it is
+demonstrably still able to conclude an EAP-TLS exchange — see the control below, where it
+concludes one with an EAP-Failure in 1.045 s.
+
+**Three things were tried to make it conclude, and all are recorded as negative results:**
+
+| attempt | result |
+| --- | --- |
+| `fragment_size=1000` in the supplicant's network block | identical, 17 frames, same stall. The client still emitted a 1408-byte fragment, so the field had no effect on 2.6 here |
+| an **ECDSA** client certificate instead of RSA (`crypto pki export local pkcs12 cktls ecdsa`, with the ECDSA CA added to the trust bundle) | identical, 17 frames, `msglen=2141` **unchanged to the byte** |
+| a DUT-side cap on the TLS version | **no such control exists.** `radius-server local` offers only `auth-mac-promiscuous / authentication / domain-style / group / nas / server / user`, and `authentication ?` only `eapmd5 / eaptls / mac / peap`. Nothing selects a TLS version |
+
+**Why the ECDSA attempt changed nothing, which also gives the cheapest unblock.** The supplicant's
+log says what the PKCS#12 actually contains:
+
+```
+TLS: Got certificate from PKCS12: subject='/O=AlliedWare Plus/CN=cktls'
+TLS: additional certificate from PKCS12: subject='/O=Allied Telesis, Inc./CN=AlliedWarePlusCAA2WQS700B'
+```
+
+**The bundle carries the CA certificate as well as the leaf**, and wpa_supplicant sends the whole
+chain — which is what pushes the client's flight to 2141 bytes and therefore to two fragments.
+The control leg below used a single self-signed certificate, its flight was **1224 bytes with
+flags `0x00`** — one fragment, no second fragment needed — and the exchange concluded normally.
+**So a leaf-only client credential would very likely conclude even on wpa_supplicant 2.6.** That
+is a concrete, cheap thing for the next run to try, and it is written into the verdict as the
+first unblock.
+
+### STEP 3 — CONTROL: a certificate the DUT's CA did not issue must be refused
+
+Generated on the box, deliberately nothing to do with the DUT:
+
+```
+$ openssl req -x509 -newkey rsa:2048 -keyout rogue.key -out rogue.crt -days 30 -nodes \
+      -subj "/O=ck-bench-rogue/CN=cktls"
+subject=O = ck-bench-rogue, CN = cktls
+issuer=O = ck-bench-rogue, CN = cktls
+```
+
+Same identity `cktls`, same everything else — **only the issuer differs.**
+
+```
+tools/tb sudotool tb277 dot1x1304 wpasup eth4 --method tls --identity cktls \
+    --client-cert /tmp/dot1x1304/rogue.crt --private-key /tmp/dot1x1304/rogue.key \
+    --ca-cert /tmp/dot1x1304/localca.cer --expect failure --timeout 40 \
+    --label T9032-S3-CONTROL-cert-not-issued-by-the-DUT-CA \
+    --pcap /tmp/dot1x1304/T9032-S3.pcap --json /tmp/dot1x1304/T9032-S3.json
+```
+
+```
+EAPOL frames on eth4 (17, filtered ether proto 0x888e):
+  t(s)     src               dst               eapol        eap       id   method         eaplen tls
+  0.0      00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAPOL-Start  -         -    -              -      
+  0.0005   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   1    Identity       5      
+  0.001    00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  1    Identity       10     
+  0.0022   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   2    MD5-Challenge  22     
+  0.0029   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  2    Legacy-Nak     6      
+  0.0039   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   3    TLS            6      0x20 S
+  0.0078   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  3    TLS            295    0x00 -
+  0.009    e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   4    TLS            109    0x80 L msglen=99
+  0.0111   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  4    TLS            334    0x00 -
+  0.0174   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   5    TLS            1014   0xc0 LM msglen=2520
+  0.0181   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  5    TLS            6      0x00 -  <- EMPTY ACK
+  0.0191   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   6    TLS            1014   0xc0 LM msglen=2520
+  0.0199   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  6    TLS            6      0x00 -  <- EMPTY ACK
+  0.0207   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   7    TLS            522    0x80 L msglen=2520
+  0.0408   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  7    TLS            1224   0x00 -
+  1.0435   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Failure   7    -              4      
+  33.0406  00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAPOL-Start  -         -    -              -      
+```
+
+**STEP 3 verdict: PASS, and this is the most valuable single measurement in the case.** The
+exchange runs identically up to id 7. The supplicant's flight is **1224 bytes with flags `0x00`**
+— complete in one fragment — and the DUT answers with an **EAP-Failure frame at 1.045 s**. The
+DUT's own log agrees: `802.1X Authentication failed (retry=0) for cktls@000d.b955.770f on
+port1.0.48`.
+
+So **the DUT's local RADIUS server really does validate the client certificate against its
+trustpoint and refuses one it did not issue.** That is a positive measurement — a decision the
+DUT made and put on the wire — not an absence of evidence. It also disposes of any suggestion
+that the DUT is simply failing to conclude EAP-TLS exchanges in general: here it concluded one in
+just over a second.
+
+### STEP 4 — the authenticator is still healthy, before and after
+
+Run twice, because three EAP-TLS legs in a row ended without a server verdict and T33354 runs
+next on this same port. A known-good PEAP authentication with `ckpeap`, the credential that
+succeeded repeatedly in case 1:
+
+```
+  1792720144.512949: eth4: CTRL-EVENT-EAP-PROPOSED-METHOD vendor=0 method=4 -> NAK
+  1792720144.514362: eth4: CTRL-EVENT-EAP-PROPOSED-METHOD vendor=0 method=25
+  1792720144.514637: eth4: CTRL-EVENT-EAP-METHOD EAP vendor 0 method 25 (PEAP) selected
+  1792720144.533354: eth4: CTRL-EVENT-EAP-PEER-CERT depth=1 subject='/O=Allied Telesis, Inc./CN=AlliedWarePlusCAA2WQS700B' hash=e9db87ae6a2d8e562e85bcb974d8e513e1721f188057a0af5bd3480b0f34d352
+  1792720144.534308: eth4: CTRL-EVENT-EAP-PEER-CERT depth=1 subject='/O=Allied Telesis, Inc./CN=AlliedWarePlusCAA2WQS700B' hash=e9db87ae6a2d8e562e85bcb974d8e513e1721f188057a0af5bd3480b0f34d352
+  1792720144.535743: eth4: CTRL-EVENT-EAP-PEER-CERT depth=0 subject='/O=Allied-Telesis/CN=AlliedwarePlusSystem/serialNumber=NULL' hash=e973031b8cc0520d74438d6185d11475fe8773f5bea203c8bd79f86e7260c01d
+  1792720145.551769: eth4: CTRL-EVENT-EAP-SUCCESS EAP authentication completed successfully
+RESULT T9032-S4-authenticator-still-alive-PEAP-control: expected success, got success (from wpa_supplicant events) -- MATCH
+```
+
+and again as the last act of the case:
+`RESULT T9032-teardown-authenticator-still-responsive: expected success, got success -- MATCH`,
+24 EAPOL frames, with the dataplane re-opening to **4/4**.
+
+**STEP 4 verdict: PASS. The authenticator is not wedged.** T33354 inherits a healthy port.
+
+## A measurement instrument was corrected mid-case
+
+**`wpasup.py` graded the control leg as `timeout` while an EAP-Failure frame sat in its own
+capture.** The verdict was being read from `wpa_supplicant`'s `CTRL-EVENT-*` stream, which it
+does not always emit; the pcap had the answer all along. That is an instrument reporting silence
+while holding the evidence, and it is the same family of error as grading a run on a `show`
+command instead of on the wire.
+
+Fixed: when the event stream yields no verdict, the verdict is now taken **from the frames**, and
+the RESULT line says which source it came from —
+`got failure (from the WIRE (EAP-Failure frame; no CTRL-EVENT line))`. The control re-ran and
+graded MATCH. **The fix does not paper over step 2**: that leg has no EAP-Success and no
+EAP-Failure frame either, so it still grades `timeout`, honestly.
+
+Two smaller tool improvements in the same pass, both of which this case needed: `wpasup.py` now
+saves the full `wpa_supplicant` output beside the pcap and prints its tail whenever a run did not
+do what `--expect` said (without it, step 2 would have been an unexplained timeout), and the
+decoder now prints the **EAP length and the EAP-TLS flags** (`0x20 S`, `0xc0 LM msglen=2520`,
+`<- EMPTY ACK`), which is what made the stall legible at all.
+
+## HEALTH — sample 2 of 2, after the last step, before teardown
+
+```
+HEALTH u2 14:54:33-14:54:55 after-T9032  saved /tmp/dot1x1304/health-u2-20261023T145433.out  json /tmp/dot1x1304/health-u2-20261023T145433.out.json
+  reboots ......... 100 entries, newest 2026-10-22 23:55:56 Unexpected System reboot
+  exception log ... 2026 Oct 22 23:49:18 local7.debug awplus corehandler : Process snmpd (PID:1841) signal 11, core dumped to /flash/snmpd-swmrvl_armv8-sin_x96056-20261019-27-1-1792712958-1841.tgz
+  log (filtered) .. 14 lines: 14 echoes of our own commands, 0 other
+  cpu ............. 0% / 0% / 0%  (show cpu prints BUSY averages 1 s / 20 s / 60 s, not idle); load 0.00
+  memory .......... free 7451500 of 8092132 kB (buffers 1592)
+HEALTH-DIFF u2 vs health-u2-20261023T143016.out.json (14:30:16 before-T9032)
+  reboots ......... no new entry (newest stays 2026-10-22 23:55:56 Unexpected System reboot)
+  exception log ... not None, but UNCHANGED since before (pre-existing entries, not this run's): 2026 Oct 22 23:49:18 local7.debug awplus corehandler : Process snmpd (PID:1841) signal 11, core dumped to /flash/snmpd-swmrvl_armv8-sin_x96056-20261019-27-1-179
+  log (filtered) .. 0 new non-echo lines
+  log tail 150 .... 150 lines, 125 echoes of our own commands; other lines by signature:
+        3 x  2026 Oct 23 01:36:04 user.err awplus IMISH[7256]: Command [ckbench2026] failed
+        2 x  2026 Oct 23 01:31:07 user.notice awplus MSTP[1102]: CIST port1.0.48 now forwarding, propagating TC to other ports
+        2 x  2026 Oct 23 01:31:18 user.err awplus IMISH[7256]: Command [crypto pki enroll local user cktls] failed
+        2 x  2026 Oct 23 01:34:03 user.notice awplus IMISH[8002]: Enrolled user cktls in trustpoint local
+        2 x  2026 Oct 23 01:37:20 user.notice awplus IMISH[8247]: Trustpoint local exported
+        2 x  2026 Oct 23 01:46:52 user.notice awplus 802.1X[1094]: 802.1X Authentication failed (retry=0) for cktls@000d.b955.770f on port1.0.48
+  cpu ............. 0% -> 0%  (1 s busy average)
+  memory .......... free 7452632 -> 7451500 kB (-1132; one case cannot show a leak)
+  VERDICT ......... CLEAN
+```
+
+1. **`show reboot history`** — no new entry; the pre-existing `2026-10-22 23:55:56` is still
+   newest. Nothing reloaded or power-cycled.
+2. **`show exception log`** — not None but **unchanged**. In particular the repeated TLS
+   handshakes and the PKI key generation produced **no new exception**.
+3. **`show log`** — **0 new non-echo lines** in the filtered view. Everything new is this case's
+   own and accounted for: `Enrolled user cktls in trustpoint local`, `Trustpoint local exported`,
+   `802.1X Authentication failed (retry=0) for cktls@000d.b955.770f` (the control),
+   `MSTP CIST port1.0.48 now forwarding`, and the `Command [ckbench2026] failed` /
+   `Command [crypto pki enroll local user cktls] failed` lines explained above.
+4. **`show cpu`** — 0% → 0% busy (this platform prints busy, not idle), load 0.00. Generating a
+   key pair and running six TLS handshakes left nothing busy.
+5. **`show memory`** — free 7 452 632 → 7 451 500 kB, **1 132 kB more in use**. Ordinary
+   variation around a PKI enrolment; no leak is claimed and none could be shown by one case.
+
+**Tool verdict: CLEAN.** Adjudicated **CLEAN**; the adjudication agrees with the tool.
+**Run label: CLEAN** — not confounded.
+
+## Teardown
+
+- **The enrolled user `cktls` and its certificate are deliberately LEFT on the DUT.** They are
+  the only evidence that the provisioning path worked, group B may want them, and they are
+  removed by the group restore recipe in the campaign queue. Note that `no crypto pki trustpoint
+  local` is **not** in that recipe and must never be: the trustpoint pre-dates this campaign
+  (CA valid from 2026-10-15) and removing it would destroy device state nobody asked us to touch.
+- **No `write` was run.** `startup-config` is still `flash:/default.cfg`; a reload is a complete
+  restore.
+- Port1.0.48 left as case 1 configured it: `dot1x port-control auto`, `dot1x control-direction
+  both`, `hostMode: single-host`. Verified responsive by the closing PEAP authentication.
+- Two files were left in the box's `/tftproot`: `cktls.p12` and `cktls-ec.p12`. They contain a
+  bench test identity and its passphrase-protected key, nothing sensitive, and `/tftproot` has
+  1.7 G free.
+- `vlan 60` untouched; the vlan10/vlan48 L3 underlay untouched.
+
+## Files this case saved
+
+| file | what it is |
+| --- | --- |
+| `tb277/x960/dot1x-2026-10-23T1304/T9032/swi_d.cfg` | the DUT's running-config, with a header explaining why the PKI state this case created is *not* in it |
+| `.../T9032/work/run1.log` | this file |
+| `.../work/health-u2-before.out`, `.../work/health-u2-after.out` | the two raw health samples |
+| `.../work/localca-rsa.cer`, `.../work/localca-ecdsa.cer` | the CA certificates exported from the DUT, as PEM — the primary artefact of the provisioning path |
+| `tools/ckcon.py` | new `@ask` directive for free-text prompts |
+| `tools/wpasup.py` | wire-authoritative verdict, supplicant-log capture, EAP-TLS flag decoding |
+
+pcaps on the box, all filtered `ether proto 0x888e`: `/tmp/dot1x1304/T9032-S2.pcap`,
+`T9032-S3.pcap`, `T9032-S4.pcap`, `T9032-S5.pcap`, each with its `.json` and its
+`-wpa_supplicant.log`.
+
+## Verdict
+
+The authored objective — *"Confirm that an authenticator exchanges authentication messages
+between the supplicant and Radius server"* — **is met, and on the wire**: EAP-TLS is negotiated,
+a 2520-byte server flight is fragmented and reassembled per RFC 5216, the server's certificate
+chain validates against a CA exported from this very unit, and the supplicant's certificate is
+carried back. The provisioning path that makes EAP-TLS possible is measured end to end. And the
+server demonstrably **validates** client certificates: one it did not issue is refused with an
+EAP-Failure in 1.045 s, in the same session, on the same port.
+
+What is **not** measured is an EAP-TLS authentication concluding in EAP-Success. The DUT behaved
+correctly at every observed step; the supplicant is `wpa_supplicant` 2.6, which predates TLS 1.3
+and RFC 9190 while OpenSSL 1.1.1 beneath it negotiates TLS 1.3, so it declares the EAP method Done
+with a fragment still unsent and discards the DUT's correct request for it.
+
+**NOT RUN:** EAP-TLS authentication concluding in EAP-Success, the port reaching Authorized on an
+EAP-TLS credential, and the 15 authored Internet Explorer certificate-import steps (no Windows PC
+on this bench; MANUAL-ONLY row already recorded).
+
+**UNBLOCK**, cheapest first:
+1. **Present a leaf-only client credential.** The PKCS#12 the DUT exports contains the CA as well
+   as the leaf, which is what makes the client flight 2141 bytes and therefore two fragments.
+   The control's single certificate produced a 1224-byte, one-fragment flight and concluded
+   normally. Split the p12 and pass `client_cert` + `private_key` separately. **No DUT change and
+   no root needed; try this first.**
+2. **A supplicant that implements RFC 9190** — `wpa_supplicant` 2.10 or newer. tb277 carries
+   `wpasupplicant 2:2.6-15ubuntu2.8`. Installing one is a root change on the box
+   (STANDING-ORDERS §4), so it is the Test Engineer's.
+3. **Cap TLS at 1.2.** Not possible on the DUT (no CLI control exists). On the box it would mean
+   `MaxProtocol = TLSv1.2` in `/etc/ssl/openssl.cnf` — again root, and it would affect every
+   other user of the box.
+
+VERDICT: PARTIAL -- the authored objective is MET on the wire (EAP-TLS negotiated, a 2520-byte server flight fragmented and reassembled per RFC 5216, the server chain validated against a CA exported from this unit) and the DUT is proved to VALIDATE client certificates (a cert its CA did not issue is refused with EAP-Failure in 1.045 s); the full provisioning path -- exec-mode `crypto pki enroll`/`export`, CA to terminal, PKCS#12 over TFTP -- works end to end. NOT concluded: EAP-Success on a valid certificate, because tb277's wpa_supplicant 2.6 predates TLS 1.3/RFC 9190 while OpenSSL 1.1.1 negotiates TLS 1.3, so it marks the method Done with a fragment unsent and discards the DUT's correct ACK. The DUT behaved correctly at every observed step. The 15 authored Internet Explorer steps were NOT followed: there is no Windows PC on this bench.

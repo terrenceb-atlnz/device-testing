@@ -156,6 +156,28 @@ def decode_pcap(path):
                     row['eap_type_name'] = EAP_METHOD.get(int(a.type), 'type%d' % a.type)
                 except Exception:
                     pass
+            # Read the EAP header from the RAW bytes: scapy may dissect a known method
+            # into its own class, and Ethernet padding otherwise pollutes the payload.
+            # (The same two traps eapol.py documents.)
+            try:
+                buf = bytes(p[EAPOL].payload.original)
+            except Exception:
+                buf = b''
+            if len(buf) >= 4:
+                row['eap_len'] = int.from_bytes(buf[2:4], 'big')
+                body = buf[5:row['eap_len']] if row['eap_len'] <= len(buf) else buf[5:]
+                # RFC 5216 EAP-TLS: one flags octet (L=0x80 length-included,
+                # M=0x40 more-fragments, S=0x20 start), then optionally a 4-byte
+                # TLS message length, then the TLS data. An EAP-TLS ACK is a packet
+                # with flags 0x00 and NO data -- eap_len 6.
+                if row.get('eap_type') == 13 and body:
+                    fl = body[0]
+                    row['tls_flags'] = '0x%02x' % fl
+                    row['tls_bits'] = ''.join(
+                        [c for c, b in (('L', 0x80), ('M', 0x40), ('S', 0x20)) if fl & b]) or '-'
+                    row['tls_is_ack'] = (row['eap_len'] == 6 and fl == 0)
+                    if fl & 0x80 and len(body) >= 5:
+                        row['tls_msg_len'] = int.from_bytes(body[1:5], 'big')
         rows.append(row)
     return rows, None
 
@@ -257,6 +279,7 @@ def main():
                            bufsize=1, universal_newlines=True)
 
     events = []
+    supout = []            # every line wpa_supplicant printed, for the mismatch diagnosis
     verdict = 'timeout'
     eap_method_seen = None
     deadline = time.time() + args.timeout
@@ -281,6 +304,7 @@ def main():
             buf += chunk
             while '\n' in buf:
                 line, buf = buf.split('\n', 1)
+                supout.append(line)
                 m = pat.search(line)
                 if m:
                     ev = m.group(1)
@@ -325,13 +349,20 @@ def main():
         log('EAPOL frames: NOT DECODED -- %s' % decode_err)
     else:
         log('EAPOL frames on %s (%d, filtered ether proto 0x888e):' % (args.iface, len(rows)))
-        log('  %-8s %-17s %-17s %-14s %-9s %-4s %s'
-            % ('t(s)', 'src', 'dst', 'eapol', 'eap', 'id', 'method'))
+        log('  %-8s %-17s %-17s %-12s %-9s %-4s %-14s %-6s %s'
+            % ('t(s)', 'src', 'dst', 'eapol', 'eap', 'id', 'method', 'eaplen', 'tls'))
         for r in rows:
-            log('  %-8s %-17s %-17s %-14s %-9s %-4s %s'
+            tls = ''
+            if r.get('tls_flags'):
+                tls = '%s %s' % (r['tls_flags'], r.get('tls_bits') or '-')
+                if r.get('tls_msg_len') is not None:
+                    tls += ' msglen=%d' % r['tls_msg_len']
+                if r.get('tls_is_ack'):
+                    tls += '  <- EMPTY ACK'
+            log('  %-8s %-17s %-17s %-12s %-9s %-4s %-14s %-6s %s'
                 % (r['t'], r['src'], r['dst'], r['eapol_name'],
                    r['eap_code_name'] or '-', r['eap_id'] if r['eap_id'] is not None else '-',
-                   r['eap_type_name'] or '-'))
+                   r['eap_type_name'] or '-', r.get('eap_len', '-'), tls))
 
     methods_offered = sorted({r['eap_type_name'] for r in rows
                               if r['eap_code'] == 1 and r['eap_type_name']})
@@ -347,21 +378,67 @@ def main():
         'ca_cert': args.ca_cert, 'pcap': pcap,
         'events': [l for _, l in events], 'frames': rows,
     }
-    if args.json:
-        with open(args.json, 'w') as fh:
-            json.dump(result, fh, indent=2)
-        log('\njson -> %s' % args.json)
-
+    # NOTE: the JSON is written ONCE, further down, only after the verdict is final.
+    # Writing it here as well (as an earlier version did) leaves two writes of the same
+    # path in one run and makes any disagreement between the file and the printed RESULT
+    # impossible to reason about.
     log('')
     log('  EAP-Request methods the authenticator offered: %s'
         % (', '.join(methods_offered) or '(none seen)'))
     log('  EAP-Success frame on the wire: %s' % got_success_frame)
     log('  EAP-Failure frame on the wire: %s' % got_failure_frame)
 
+    # 🔴 THE WIRE IS AUTHORITATIVE (STANDING-ORDERS §7). The verdict above comes from
+    # wpa_supplicant's CTRL-EVENT lines, which it does not always emit: measured
+    # 2026-10-23 (T9032 control), the DUT sent a clean EAP-Failure frame that is right
+    # there in the pcap, wpa_supplicant printed no CTRL-EVENT-EAP-FAILURE for it, and the
+    # run was graded "timeout" -- an instrument reporting silence while the evidence sat
+    # in its own capture. When the events gave no verdict, read it off the frames instead.
+    verdict_from = 'wpa_supplicant events'
+    if verdict == 'timeout' and not decode_err:
+        if got_success_frame:
+            verdict, verdict_from = 'success', 'the WIRE (EAP-Success frame; no CTRL-EVENT line)'
+        elif got_failure_frame:
+            verdict, verdict_from = 'failure', 'the WIRE (EAP-Failure frame; no CTRL-EVENT line)'
+    result['verdict'] = verdict
+    result['verdict_from'] = verdict_from
+    if args.json:
+        with open(args.json, 'w') as fh:
+            json.dump(result, fh, indent=2)
+        log('')
+        log('json -> %s' % args.json)
+
     ok = (verdict == args.expect)
+
+    # 🔴 On a MISMATCH the CTRL-EVENT lines alone are rarely enough: a TLS handshake that
+    # stalls says nothing in them, and the DUT's own log says only "Supplicant <u>
+    # unauthorized". The reason is almost always in wpa_supplicant's ordinary output
+    # (a certificate that would not load, an OpenSSL error, an alert it received), so
+    # print the tail of it rather than leaving the run unexplained. Measured 2026-10-23
+    # on T9032: 17 EAPOL frames of EAP-TLS and then silence, with no clue anywhere else.
+    supfile = None
+    if args.pcap:
+        supfile = os.path.splitext(args.pcap)[0] + '-wpa_supplicant.log'
+    elif args.json:
+        supfile = os.path.splitext(args.json)[0] + '-wpa_supplicant.log'
+    if supfile:
+        try:
+            with open(supfile, 'w') as fh:
+                fh.write('\n'.join(supout) + '\n')
+            log('')
+            log('wpa_supplicant output -> %s (%d lines)' % (supfile, len(supout)))
+        except Exception as exc:
+            log('WARNING: could not write %s: %s' % (supfile, exc))
+    if not ok and supout:
+        log('')
+        log('last %d lines of wpa_supplicant output (the run did NOT do what --expect said):'
+            % min(40, len(supout)))
+        for line in supout[-40:]:
+            log('  | %s' % line)
+
     log('')
-    log('RESULT %s: expected %s, got %s -- %s'
-        % (label, args.expect, verdict, 'MATCH' if ok else 'MISMATCH'))
+    log('RESULT %s: expected %s, got %s (from %s) -- %s'
+        % (label, args.expect, verdict, verdict_from, 'MATCH' if ok else 'MISMATCH'))
 
     if not args.keep_conf:
         try:

@@ -1651,9 +1651,28 @@ supplicant MACs on one wire.
     `"verdict": "timeout"` and `"eapol_frames": 2`. Nothing in the code can produce that -- both
     are final before the JSON is built -- and it did not recur on an unchanged re-run. Unexplained;
     grade on the printed RESULT plus the device's own log until it is understood.
-- **Status:** verified 2026-10-23 on tb277, x960-56YSQ (T44270): EAP-PEAP success (24 EAPOL
+- **The verdict comes from the WIRE when the event stream is silent.** wpa_supplicant does not
+  always print a `CTRL-EVENT-EAP-FAILURE`: on 2026-10-23 (T9032 control) the DUT sent a clean
+  EAP-Failure frame that was sitting in the tool's own pcap while the run was graded `timeout`.
+  The RESULT line now says which source the verdict came from, e.g.
+  `got failure (from the WIRE (EAP-Failure frame; no CTRL-EVENT line))`. A leg with neither an
+  EAP-Success nor an EAP-Failure frame still grades `timeout`, which is the honest answer.
+- **It keeps wpa_supplicant's own output** beside the pcap as `<pcap>-wpa_supplicant.log`, and
+  prints its tail whenever the run did not do what `--expect` said. Without that, an EAP-TLS
+  handshake that stalls is an unexplained timeout: neither the CTRL-EVENT lines nor the DUT's log
+  (`Supplicant <u> unauthorized`) say anything useful.
+- **The frame table decodes EAP-TLS flags**: `0x20 S` (start), `0xc0 LM msglen=2520`
+  (length-included + more-fragments), and `<- EMPTY ACK` for the 6-byte flags-0x00 packet RFC 5216
+  uses to request the next fragment. That is what makes a fragmentation stall legible.
+- **Status:** verified 2026-10-23 on tb277, x960-56YSQ. T44270: EAP-PEAP success (24 EAPOL
   frames, EAP-Success), wrong-password control and unknown-identity control (22 frames each,
-  EAP-Failure), all five legs matching `--expect`
+  EAP-Failure), all five legs matching `--expect`. T9032: EAP-TLS negotiated and fragmented
+  correctly, rogue-certificate control refused with EAP-Failure in 1.045 s.
+- ⚠️ **Known bench limit for `--method tls`:** wpa_supplicant 2.6 (tb277) predates TLS 1.3 and
+  RFC 9190 while OpenSSL 1.1.1 beneath it negotiates TLS 1.3, so on a client flight that needs
+  more than one fragment it marks the EAP method Done with a fragment unsent and discards the
+  authenticator's ACK. A leaf-only client credential (one fragment) avoids it; a supplicant 2.10
+  or newer fixes it.
 
 ### `eapol.py`
 A scapy 802.1X supplicant that can be SEVERAL supplicants at once on one wire, each with its own
