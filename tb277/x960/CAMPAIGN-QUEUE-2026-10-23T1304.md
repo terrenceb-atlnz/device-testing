@@ -133,7 +133,7 @@ crypto pki export local pkcs12 <user> flash:/<user>.p12   # the supplicant certi
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| A | T33354 EAP-Notification; T44270 EAP-PEAP; T33360 Multiple Authentication; T9032 EAP-TLS | `dot1x-2026-10-23T1304` | **RUNNING** | The EAP / encryption-type family. **Build the local RADIUS server + supplicant rig ONCE as group setup** and let all four inherit it. T33354 is likely a desk UNSUPPORTED (`Not Support`) — confirm against the TPS, do not assume. T9032 is the redesign; use its authored precondition for the RADIUS and certificate recipe |
+| A | T33354 EAP-Notification; T44270 EAP-PEAP; T33360 Multiple Authentication; T9032 EAP-TLS | `dot1x-2026-10-23T1304` | **DONE — 3 PASS, 1 PARTIAL** | The EAP / encryption-type family. **Build the local RADIUS server + supplicant rig ONCE as group setup** and let all four inherit it. T33354 is likely a desk UNSUPPORTED (`Not Support`) — confirm against the TPS, do not assume. T9032 is the redesign; use its authored precondition for the RADIUS and certificate recipe |
 | B | T33369 Two-step (MAC then 802.1X); T44279 Tri-Authentication; T44277 Supplicant MAC; T33374 Re-authentication option; T33362 Multiple Dynamic VLAN (un-tag) | `authmodes-2026-10-23T1304` | QUEUED | Authentication modes and dynamic VLAN. Inherits group A's rig. 🔴 **T44277 "Supplicant MAC" may need the DUT to act as SUPPLICANT toward an authenticator** — that is the one case here most likely to need a partner switch, so it is the one most likely to hit the credential gate. Decide that at triage and say so. T33362 needs **two** dynamic VLANs assigned from RADIUS to different supplicants, untagged |
 | C | T33368 SMTP server authentication | `smtp-2026-10-23T1304` | QUEUED | A different subsystem: the DUT authenticating to an **SMTP server**, not 802.1X. Needs an SMTP listener that requires AUTH. **tb277 almost certainly does not run one** — establish at triage what exists before designing, and grade on the SMTP dialogue on the wire (the `AUTH` verb and the server's reply), never on `show`. Starting a service on the box is a root change (STANDING-ORDERS §4) |
 | D | T44287 CryptSecureMode | `securemode-2026-10-23T1304` | **BLOCKED (unattended) — safe half runs LAST as PARTIAL** | 🔴 **Test Engineer's decision: this case runs after every other row is DONE or BLOCKED**, so a DUT that comes back awkward costs nothing already measured. On AW+ secure mode disables telnet, SNMPv1/v2, most privilege levels and weak crypto, **needs a reboot, and can drop configuration**. **Before enabling anything, write the exact recovery steps into this file.** If recovery cannot be stated with confidence, report **BLOCKED** rather than risk an unrecoverable unit — the window is unattended |
@@ -496,6 +496,8 @@ must show only the two baseline lines `aaa authentication enable default local` 
 | --- | --- | --- | --- | --- | --- | --- |
 | AWPTCM-T44270 | (177) Authentication&Security_IEEE 802.1XEncryptionType - EAP-PEAP | dot1x-2026-10-23T1304 | **PASS** | EAP-PEAP authenticates a valid supplicant on port1.0.48 against the DUT's own local RADIUS server, graded on frames: **24 EAPOL frames ending in EAP-Success, port Unauthorized -> Authorized, dataplane 0/4 -> 4/4**. **Both controls in the same window are refused** -- wrong password 22 frames EAP-Failure 0/4, unknown identity 22 frames EAP-Failure 0/4 -- and S5 authenticates again afterwards, so the refusals are the feature working, not the rig breaking. Five legs, each matching its declared expectation, from an S0 feature-OFF baseline of 4/4. **Measured, not assumed:** the local server is freeradius and PEAP's inner method is **MSCHAPv2**, and the TLS tunnel is served by the unit's own `local` trustpoint (CA `/O=Allied Telesis, Inc./CN=AlliedWarePlusCAA2WQS700B`, this unit's serial in the CN). Two anomalies recorded rather than smoothed over, neither changing the verdict: (a) the session's FIRST PEAP attempt failed where five identical later ones did not -- the Access-Request never reached the server (statistics all zero), a NAS rejection of a response belonging to a superseded EAP session; it has not recurred since every leg was preceded by `dot1x initialize interface port1.0.48`, now the group's method. (b) 🔴 **A TOOL TRUST ISSUE, not graded on**: control B's first run printed 22 frames and `MATCH` exit 0 while the JSON beside it recorded `"verdict": "timeout"`, `"eapol_frames": 2`. Nothing in `wpasup.py` can produce that. The leg was re-run unchanged as S4b, whose stdout and JSON agree with each other and with S4's stdout, and **S4b is what was graded**; the inconsistent JSON is kept as the record and `tools/README.md` now warns to check wpasup.py's JSON against its printed RESULT. Counter note so nobody redoes it: the local server counts **twice per PEAP authentication** (outer + inner), so three successes read `Successes: 6`; an unknown identity never gets a user-table row, so its failures are in the global total but attributable to nobody. Health twice, after-diff **CLEAN**: no new reboot, exception log unchanged from the dirty baseline, 0 new non-echo log lines, memory +10.6 MB which is radiusd now running. Run labelled **clean**. Nothing written to startup-config; vlan 60 untouched; no PKI object created or removed. New helpers `tools/wpasup.py` and `tools/eapol.py`, both with README entries in the same commit (`639f33b`). | dot1x-2026-10-23T1304/T44270/work/run1.log | tester |
 | AWPTCM-T33360 | (199) Authentication&Security_IEEE 802.1XEncryptionType - Multiple Authentication | dot1x-2026-10-23T1304 | **PASS** | `auth host-mode multi-supplicant` authenticates multiple supplicants **independently** on one port, proved by changing only the mode: **single-host admits 1 of 2** (the second gets **silence** — no challenge, no EAP-Failure, nothing in 40 s), **multi-supplicant admits 2 of 2, then 3 of 3** MACs Authenticated. Authorization is **per-MAC, not per-port**: the host's own unauthenticated MAC pinged **0/4** while crafted MACs were Authenticated on the same port at the same moment, then **4/4** once it authenticated. The bad-credential control shared a **single 1.04-second packet window** with the legs it controls for, and `show auth supplicant brief` showed all three at once: two `Authenticated`, one `Held`. Also measured: one RADIUS identity can hold several concurrent supplicant sessions on different MACs; the DUT does not keep a failed supplicant's identity in the table (its log does). 🔥 **PRODUCT FINDING the case did not ask for: `auth host-mode multi-supplicant` SILENTLY REWRITES `dot1x control-direction both` to `in`** — no warning, no `% ` line, no log entry — **and `no auth host-mode` restores single-host but does NOT restore `both`**, so the port stays ingress-only for good. Defensible (egress cannot be gated per-MAC on a shared port) but an operator who chose `both` for a security reason is never told it was weakened. Same shape as the known `spanning-tree mode` behaviour that silently drops `no spanning-tree <mode> enable`. `both` was restored explicitly and re-read. Health twice, **CLEAN**: no new reboot, exception log unchanged from the pre-existing dirty baseline, 0 new non-echo log lines, memory finished 348 kB MORE free than it started. | dot1x-2026-10-23T1304/T33360/work/run1.log | tester |
+| AWPTCM-T9032 | EAP-TLS | dot1x-2026-10-23T1304 | **PARTIAL** | 🔴 **The 15 authored steps were NOT followed and the log says so in its first section**: they are a person clicking through Internet Explorer's certificate import wizard on a Windows PC (`Environment: Windows PC`), and there is none on tb277. Redesigned with `wpa_supplicant` at the Test Engineer's decision; a step-level MANUAL-ONLY row already exists. Graded on the authored **objective**, which is **MET on the wire**: EAP-TLS (method 13) negotiated after a Legacy-Nak from MD5-Challenge; the server's **2520-byte flight fragmented and reassembled exactly per RFC 5216** (flags `0xc0 LM msglen=2520` twice, then `0x80 L`, with correct 6-byte empty ACKs back); and the server chain **validated against a CA exported from this very unit** (CN carries the serial `A2WQS700B`). The whole provisioning path works end to end. 🔥 **Best measurement in the case: the DUT VALIDATES CLIENT CERTIFICATES.** A self-signed cert with the same identity but a different issuer is refused with an **EAP-Failure frame at 1.045 s**, confirmed in the DUT's own log — a positive decision on the wire, and it disposes of any idea the DUT cannot conclude an EAP-TLS exchange. **NOT concluded:** EAP-Success on a valid certificate. Diagnosed to the bottom and **it is the SUPPLICANT, not the DUT**: `wpa_supplicant` 2.6 predates TLS 1.3 and RFC 9190 while OpenSSL 1.1.1 beneath it negotiates TLS 1.3 (`ver=0x304` in its own log), so the client's handshake completes when it sends its Finished — `Handshake finished`, `EAP-TLS: Done`, keys derived — with 743 of 2141 bytes still unsent, and it then **DISCARDs the DUT's correct empty ACK**, twice. Every frame the DUT sent is correct, and it was confirmed responsive with a known-good PEAP authentication both mid-case and as the last act. Three workarounds recorded as negative results: `fragment_size` had no effect, an ECDSA credential gave `msglen=2141` unchanged to the byte, and the DUT exposes **no TLS-version control**. **UNBLOCK, cheapest first and needing no root:** the exported PKCS#12 carries **the CA as well as the leaf** (proved from the supplicant's log), which is what makes the flight two fragments — the control's single certificate was 1224 bytes, one fragment, and concluded fine, so **split the p12 and present a leaf-only credential**; failing that `wpa_supplicant` 2.10+ (root, the Test Engineer's); capping TLS at 1.2 is impossible on the DUT and root on the box. Three traps for anyone following the authored precondition, all measured: `crypto pki` is **EXEC-only** here (config mode offers only `trustpoint`); `crypto pki enroll` asks for an export passphrase **twice as free text**, which no console driver could answer — hence `ckcon.py`'s new `@ask` directive; and the export syntax has no `url` keyword, requires a key type for pkcs12, and adds **`pem terminal`**, which emits the CA to the console and removes the need for any file transfer. Health twice, **CLEAN**. No `write`. The pre-existing `local` trustpoint was **not** removed and is excluded from the restore recipe on purpose. (`de19a1f`) | dot1x-2026-10-23T1304/T9032/work/run1.log | tester |
+| AWPTCM-T33354 | (191) Authentication&Security_IEEE 802.1X - EAP-Notification | dot1x-2026-10-23T1304 | **PASS** | 🔥 **The authored objective `Not Support` is WRONG; TPS row 189 (`Yes`) is right.** Had the objective been taken at face value this would have been graded UNSUPPORTED without a packet being sent. An **A/B pair differing in exactly ONE server flag** — same server, same user, same supplicant MAC, same port: **control (no `--notify`) 6 EAPOL frames, no notification anywhere** (the server's own counter reads `NOTIFICATIONS SENT=0`), EAP-Success 1.03 s; **`--notify` 8 frames**, the two extra being the Notification Request and its Response. Four things proved: the authenticator **relays** EAP-Request/Notification to the supplicant; the text survives **byte for byte** (50 bytes in, 50 bytes out, raw Type-Data decoding to the exact distinctive string given to the server); the supplicant's mandatory **empty** EAP-Response/Notification (RFC 3748 §5.2) is relayed **back** — the server logged `EAP code=2(Response) type=Notification len=0`, so the relay works in **both** directions; and it is informational, the exchange continuing to MD5 and EAP-Success in the same time as the control. Leg C put two supplicants in one invocation against the notifying server: **both** got the notification, the right password got EAP-Success at 1.05 s and the wrong one EAP-Failure at 0.05 s — a notification rescues nobody. ⚠️ **The DUT's own log shows NO trace of the notification** — not the text, not that one passed through — so only the wire and the RADIUS server can evidence this feature. 🔴 **The T33360 `control-direction` finding REPRODUCED independently here**, hours after `both` had been explicitly restored and verified: `auth host-mode multi-supplicant` (set for leg C) again silently rewrote it to `in`. Second clean observation, different case. New tool **`tools/radeap.py`** with its README entry — a RADIUS server speaking EAP-Identity, EAP-Notification and EAP-MD5 with Message-Authenticator (RFC 3579) and State on every reply, unprivileged on 11812 so **no root**; `radsrv.py` is PAP only and cannot carry an EAP-Message, and the DUT's own local server has no command that emits a notification. Health twice, **CLEAN**; memory finished 2712 kB MORE free. Fully restored and verified. The **login** method list was never touched (x960.md §7E.1). (`33de1ef`) | dot1x-2026-10-23T1304/T33354/work/run1.log | tester |
 
 
 ### 🔴 TOOLING DEFECT, found and FIXED 2026-10-23 — `tools/tb killmine` could not kill ANY root sudotool
@@ -619,4 +621,90 @@ events happened **after 10:11 and before triage at 13:21**, and neither appears 
 - **For the Test Engineer:** whether this warrants its own investigation, whether the core should
   be pulled off the unit for a developer, and whether anyone was on the DUT at 12:49 NZDT.
 
+### 🔴 PRODUCT FINDING: `auth host-mode multi-supplicant` silently rewrites `dot1x control-direction`
 
+**Observed TWICE, in two different cases, hours apart — T33360 and again in T33354.**
+
+`dot1x control-direction both` was configured on port1.0.48 in T44270 and verified in the
+running-config. Setting `auth host-mode multi-supplicant` rewrote it to `dot1x control-direction
+in` with **no warning, no `% ` line and no log entry**. `no auth host-mode` restores `hostMode:
+single-host` but **does NOT restore `both`** — the port stays ingress-only control permanently.
+
+It is technically defensible: egress on a shared port cannot be gated per supplicant MAC. **The
+silence is the defect, and the non-restoration on removal more so** — an operator who chose
+`both` for a security reason has had it weakened and is never told. Same shape as the known AW+
+behaviour where a `spanning-tree mode` change silently drops `no spanning-tree <mode> enable`.
+
+Restored explicitly both times. For `platforms/x960.md` and a memory at the wrap.
+
+### ⚠️ EAP-TLS cannot be concluded from this bench until the supplicant is newer (T9032)
+
+Not a DUT fault — every frame the DUT sent was correct, and it refused an untrusted client
+certificate with an EAP-Failure in 1.045 s. `wpa_supplicant` on tb277 is
+`2:2.6-15ubuntu2.8`, which predates TLS 1.3 and RFC 9190, while OpenSSL 1.1.1 beneath it
+negotiates TLS 1.3. The supplicant therefore completes its handshake with a fragment still
+unsent and discards the authenticator's correct request for it.
+
+**Cheapest unblock needs no root and should be tried first:** the DUT's PKCS#12 export carries
+the CA as well as the leaf, which is what makes the client flight need two fragments. Split it
+and present a leaf-only credential. Otherwise `wpa_supplicant` 2.10+ (a root change on the box,
+STANDING-ORDERS §4).
+
+### ⚠️ `tools/tb killmine` could not kill ANY root `sudotool` run — FIXED in this group
+
+A `sudotool` process is root, so an unprivileged `readlink /proc/<pid>/cwd` returned empty and
+killmine's cwd branch never matched; and the wrapper launches it with a RELATIVE command line
+(`cd /tmp/<x>/tools && sudo -n python3 <tool>.py`), so the absolute-path branch never matched
+either. Even past identification, the kill only allowed `sudo -n kill` for `pytest-create`
+paths. **This affected every root traffic tool** — `linerate`, `l2flows`, `vsend`, `igmp`,
+`dhcp4` — not just the new ones. Hit for real with a hung `eapol.py` holding eth4 promiscuous;
+closing the local ssh did not kill it.
+
+Fixed (`788205b`): `sudo -n readlink` fallback for the cwd, accept a `sudo -n python3 <tool>.py`
+command line, and `sudo -n kill` for a **root** process that identification has already
+established is ours. The refusal for `minicom`/`screen`/`tmux` and for any other user's process
+is untouched. Verified live on the stuck PID.
+
+### ⚠️ One `wpasup.py` artefact inconsistency that was never explained (T44270)
+
+Control B's first run printed 22 EAPOL frames and `got failure -- MATCH`, exit 0, while the JSON
+it wrote alongside recorded `"verdict": "timeout"` and `"eapol_frames": 2`. Nothing in the code
+can produce that — both are final before the JSON is built. **Not graded on**: the leg was
+re-run unchanged, the re-run is internally consistent, and that is what was graded. The JSON is
+kept on the box at `/tmp/dot1x1304/T44270-S4-peap-nouser.json` as the record, and
+`tools/README.md` warns to check wpasup.py's JSON against its printed RESULT. If it recurs it
+should be treated as a real tool defect. (The tool now writes its JSON exactly once, after the
+verdict is final, which removes one possible mechanism.)
+
+## 🔴 Bench state as group A hands over to group B
+
+Group A deliberately leaves its rig in place — group B inherits it. The full restore recipe is
+in **`## GROUP A RIG`** above and nothing in this group ran `write`, so `startup-config` is still
+`flash:/default.cfg` and **a reload is itself a complete restore**.
+
+Verified at 15:11 NZDT after the last case:
+
+| thing | state |
+| --- | --- |
+| boot | `flash:/x960-tb277.rel` (exists) / `flash:/default.cfg` (exists), autoboot disabled — the baseline, unchanged |
+| `show auth` | 802.1X **Enabled**, MAC-based Disabled, WEB-based Disabled |
+| `show radius` | `127.0.0.1` only — T33354's testbox server entry and its `ckbox` group are gone |
+| `show radius local-server user` | 4 users: `ckmulti1`, `ckmulti2`, `ckpeap`, `cktls` — **the rig, left for group B** |
+| port1.0.48 | `dot1x port-control auto`, `dot1x control-direction both`, **no** `auth host-mode` line |
+| trustpoints | all three present: `default-selfsigned`, `default-system`, `local` — the pre-existing `local` CA was **not** touched, and user `cktls` stays enrolled under it |
+| vlan 60 | untouched (no case needed it gone) |
+| vlan10/vlan48 L3 underlay | untouched |
+| host NIC `eth3` → 10.38.22.34 | **ping 4/4** |
+| host NIC `eth4` → 10.38.22.66 | **ping 0/4 — EXPECTED, not a fault** |
+| probe | exit 2 NEEDS-CHECK, the same 2 `CHECK_CABLE` lines as before the group — **no change** |
+| anything still running on the box | **nothing of ours.** The only `wpa_supplicant` is the system D-Bus daemon, pid 606, up since 11 Sep |
+
+🔴 **Two things group B must not misread:**
+
+1. **`eth4` pings 0/4 and port1.0.48 shows `Disabled / Discarding` in `show spanning-tree
+   brief`. That is 802.1X doing its job, not a cable or a port fault.** The port is
+   dot1x-controlled and no supplicant is currently authenticated. It goes to 4/4 and Forwarding
+   the moment one authenticates, which every group B case does as its first act.
+2. The probe's two `CHECK_CABLE` lines are therefore **expected** for eth4 now, and remain the
+   known `--read-only` artefact for eth3 (the probe may not ping, so the box's MACs age out of
+   the DUT's FDB). eth3 was confirmed at 4/4 by hand. Nothing moved.
