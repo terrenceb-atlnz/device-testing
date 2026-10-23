@@ -133,10 +133,10 @@ crypto pki export local pkcs12 <user> flash:/<user>.p12   # the supplicant certi
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| A | T33354 EAP-Notification; T44270 EAP-PEAP; T33360 Multiple Authentication; T9032 EAP-TLS | `dot1x-2026-10-23T1304` | TRIAGE | The EAP / encryption-type family. **Build the local RADIUS server + supplicant rig ONCE as group setup** and let all four inherit it. T33354 is likely a desk UNSUPPORTED (`Not Support`) — confirm against the TPS, do not assume. T9032 is the redesign; use its authored precondition for the RADIUS and certificate recipe |
-| B | T33369 Two-step (MAC then 802.1X); T44279 Tri-Authentication; T44277 Supplicant MAC; T33374 Re-authentication option; T33362 Multiple Dynamic VLAN (un-tag) | `authmodes-2026-10-23T1304` | TRIAGE | Authentication modes and dynamic VLAN. Inherits group A's rig. 🔴 **T44277 "Supplicant MAC" may need the DUT to act as SUPPLICANT toward an authenticator** — that is the one case here most likely to need a partner switch, so it is the one most likely to hit the credential gate. Decide that at triage and say so. T33362 needs **two** dynamic VLANs assigned from RADIUS to different supplicants, untagged |
-| C | T33368 SMTP server authentication | `smtp-2026-10-23T1304` | TRIAGE | A different subsystem: the DUT authenticating to an **SMTP server**, not 802.1X. Needs an SMTP listener that requires AUTH. **tb277 almost certainly does not run one** — establish at triage what exists before designing, and grade on the SMTP dialogue on the wire (the `AUTH` verb and the server's reply), never on `show`. Starting a service on the box is a root change (STANDING-ORDERS §4) |
-| D | T44287 CryptSecureMode | `securemode-2026-10-23T1304` | TRIAGE — **RUNS LAST** | 🔴 **Test Engineer's decision: this case runs after every other row is DONE or BLOCKED**, so a DUT that comes back awkward costs nothing already measured. On AW+ secure mode disables telnet, SNMPv1/v2, most privilege levels and weak crypto, **needs a reboot, and can drop configuration**. **Before enabling anything, write the exact recovery steps into this file.** If recovery cannot be stated with confidence, report **BLOCKED** rather than risk an unrecoverable unit — the window is unattended |
+| A | T33354 EAP-Notification; T44270 EAP-PEAP; T33360 Multiple Authentication; T9032 EAP-TLS | `dot1x-2026-10-23T1304` | **RUNNING** | The EAP / encryption-type family. **Build the local RADIUS server + supplicant rig ONCE as group setup** and let all four inherit it. T33354 is likely a desk UNSUPPORTED (`Not Support`) — confirm against the TPS, do not assume. T9032 is the redesign; use its authored precondition for the RADIUS and certificate recipe |
+| B | T33369 Two-step (MAC then 802.1X); T44279 Tri-Authentication; T44277 Supplicant MAC; T33374 Re-authentication option; T33362 Multiple Dynamic VLAN (un-tag) | `authmodes-2026-10-23T1304` | QUEUED | Authentication modes and dynamic VLAN. Inherits group A's rig. 🔴 **T44277 "Supplicant MAC" may need the DUT to act as SUPPLICANT toward an authenticator** — that is the one case here most likely to need a partner switch, so it is the one most likely to hit the credential gate. Decide that at triage and say so. T33362 needs **two** dynamic VLANs assigned from RADIUS to different supplicants, untagged |
+| C | T33368 SMTP server authentication | `smtp-2026-10-23T1304` | QUEUED | A different subsystem: the DUT authenticating to an **SMTP server**, not 802.1X. Needs an SMTP listener that requires AUTH. **tb277 almost certainly does not run one** — establish at triage what exists before designing, and grade on the SMTP dialogue on the wire (the `AUTH` verb and the server's reply), never on `show`. Starting a service on the box is a root change (STANDING-ORDERS §4) |
+| D | T44287 CryptSecureMode | `securemode-2026-10-23T1304` | **BLOCKED (unattended) — safe half runs LAST as PARTIAL** | 🔴 **Test Engineer's decision: this case runs after every other row is DONE or BLOCKED**, so a DUT that comes back awkward costs nothing already measured. On AW+ secure mode disables telnet, SNMPv1/v2, most privilege levels and weak crypto, **needs a reboot, and can drop configuration**. **Before enabling anything, write the exact recovery steps into this file.** If recovery cannot be stated with confidence, report **BLOCKED** rather than risk an unrecoverable unit — the window is unattended |
 
 Groups run **sequentially**: there is one DUT console. A, B, C, then D last.
 
@@ -188,6 +188,173 @@ Confirmed at the 2026-10-23 wrap of the previous campaign:
 - 🔴 **Prove an ABSENCE with `grep -c` in a `start-shell`, never with `| include`** — on this
   platform `show log permanent | include <pattern>` **never returns a prompt when nothing
   matches** (measured 2026-10-22, `platforms/x960.md` §7J.4).
+
+## ✅ TRIAGE ANSWER, 2026-10-23 13:21 NZDT — 10 runnable, 0 blocked by topology, 1 blocked
+
+Measured on swi_d through u2. No device state changed, no case run. **No case needs u3 or u5**,
+so the credential gate binds nothing — it is open anyway.
+
+### 🔴 TPS: all eleven read `Yes`. There is NO desk UNSUPPORTED in this campaign.
+
+Read **by feature name, not by the bracketed number** — and the dispatch's warning proved
+necessary: **the offset is not a stable +2.** Supplicant MAC and Re-authentication sit at **+1**,
+Tri-Authentication at **+2**. By-number lookup would have mis-read three cases.
+
+| case | TPS feature | row | supported |
+| --- | --- | --- | --- |
+| T33354 EAP-Notification | under IEEE 802.1X | 189 | **Yes** |
+| T9032 EAP-TLS | | 192 | **Yes** |
+| T44270 EAP-PEAP | | 194 | **Yes** |
+| T33360 Multiple Authentication | | 197 | **Yes** |
+| T33362 Multiple Dynamic VLAN(Un-tag) | | 199 | **Yes** |
+| T33368 SMTP Server Authentication | Mail based | 207 | **Yes** |
+| T33369 Mac-based (1st) then 802.1x (2nd) | | 208 | **Yes** |
+| T44277 Supplicant MAC | | 213 | **Yes** |
+| T33374 Re-authentication option | | 215 | **Yes** |
+| T44279 Tri-Authentication | | 216 | **Yes** |
+| T44287 Crypt Secure-mode | | 226 | **Yes** |
+
+🔴 **T33354 — this queue's hypothesis was WRONG.** Its authored objective says `Not Support`, but
+**TPS row 189 says `Yes` with no caveat**, and `show auth` / `show dot1x` / the local RADIUS
+server all exist. There is no grounds for a desk UNSUPPORTED. **Measure it, and report the
+authored-vs-TPS discrepancy whichever way it grades.**
+
+🔴 **Do NOT grade T44287 off TPS row 129.** Row 129 is a different feature, plain "Secure Mode",
+marked `No / Not required`. T44287's row is **226, "Crypt Secure-mode"**, matching the case title
+word for word, and it reads **Yes**.
+
+### The rig — measured
+
+- **The DUT can be its own RADIUS server.** `radius-server local` exists; `show radius
+  local-server` offers `nas | user | group | statistics | **trustpoint** | auth-mac-promiscuous`
+  (trustpoint is the EAP-TLS hook). Current state `% Local RADIUS server not initialized` — a
+  clean baseline. `platforms/x960.md` §7E.5 already records its methods: **eapmd5 | eaptls | mac
+  | peap**, so EAP-TLS and PEAP are served natively. **T9032's authored precondition is the
+  correct recipe** and was not re-derived.
+- **Supplicant:** `/sbin/wpa_supplicant` **v2.6** + `wpa_cli` on tb277. No `eapol_test` (source
+  builds only), which is fine — `wpa_supplicant -D wired -i ethN` is the right driver. scapy
+  2.4.4 imports `EAPOL / EAP / EAP_TLS / EAP_MD5`; openssl 1.1.1; `sudo -n` available.
+- **Certificates:** `crypto pki trustpoint`, `crypto key generate|destroy|pubkey-chain` all
+  present. Triage deliberately did **not** enter `crypto pki trustpoint local` — per §7E.8,
+  entering a named sub-mode **creates** the object, which is not read-only.
+- 🔴 **Put the supplicant leg on eth4 ↔ port1.0.48, NOT eth3 ↔ port1.0.10.** Enabling dot1x
+  blocks a port until authentication succeeds; on port1.0.10 that would **cut the vlan10 L3
+  underlay mid-campaign**. vlan48/port1.0.48 keeps the box's path to the DUT intact.
+- 🔴 **Use `/tftproot` (1.7 G free), not `/tmp` (91 MB)**, for certificates and pcaps.
+
+### The four questions, settled
+
+- **T44277 Supplicant MAC needs NO partner switch.** `auth supplicant-mac <MAC>` is an
+  **authenticator-side** command in config-if: the DUT pre-authorises a named client MAC on its
+  own port. The DUT is not the supplicant. This queue's note said the opposite; it was wrong.
+- **T33362 Multiple Dynamic VLAN** — `auth dynamic-vlan-creation type **multi**` + `rule
+  permit|deny`, plus `auth multi-vlan-session`. `type multi` means **two supplicants on the SAME
+  port getting different RADIUS-assigned VLANs**, so it needs **two source MACs on one wire**,
+  not two ports. Recommended: a scapy EAP-MD5 multi-supplicant helper (`tools/eapol.py`) driven
+  through `tools/tb sudotool`, which also serves T33360, T33369, T33374, T44277 and every
+  negative control. `wpa_supplicant` only where real crypto is needed (T9032, T44270).
+- **T33368 SMTP is runnable with NO root change**, and this queue was wrong twice. tb277 *does*
+  run Postfix on `0.0.0.0:25` (reachable at `10.38.22.33:25`) — but its EHLO advertises **no
+  `AUTH`**, so as-is it cannot exercise the feature, and adding SASL to it *would* be root. It
+  does not have to be Postfix: `mail smtpserver <ip> **port** <1-65535>` and `mail smtpserver
+  authentication crammd5|login|oauth2|plain` exist, so run **our own Python listener on an
+  unprivileged port** advertising `250-AUTH PLAIN LOGIN CRAM-MD5`, trigger with `log email`, and
+  grade the `AUTH` verb and the server's reply **on the wire**. Postfix on 25 is a free negative
+  control: a server offering no AUTH. New helper `tools/smtpsrv.py`.
+- **T44287 — see the BLOCKED section below.**
+
+### No forwarding loop — re-measured today, two instruments
+
+`show spanning-tree brief` converged: root `8000:0000cd423029`, **one** root port (port1.0.2
+Forwarding), redundant legs port1.0.4 / 1.0.14 / 1.0.16 Alternate/Discarding; port1.0.8, 1.0.10,
+1.0.48 Designated/Forwarding. `show loop-protection`: 57 instances, every port `Normal`, none
+loop-disabled.
+
+⚠️ **Carry into every run: that loop-protection LDF stream is 1 packet/s across 57 instances.**
+Any EAPOL capture **must** be filtered on `ether proto 0x888e` or it drowns.
+
+### Probe
+
+Exit 1 MISMATCH, 11 lines, **all artefact**: the deployed `/home/st-art/configs/tb277.setup` is
+stale and still describes an older topology (`swi_a` on `/dev/u3`, a stack `stk_a`,
+`swi_a`-to-`swi_a` portlinks). The three `CHECK_CABLE` NEEDS-CHECKs are a `--read-only` artefact
+— the probe may not ping, so the box's MACs had aged out of the DUT's FDB. Both legs were
+independently confirmed up, in their VLANs, Designated/Forwarding. **Nothing moved.** Cutting the
+DUT-only run `.setup` makes all 11 lines disappear. `bench-state.md` was restored with
+`git checkout --`; nothing committed.
+
+### 🔴 T44287 — BLOCKED for this unattended window; the SAFE HALF runs last as PARTIAL
+
+`show secure-mode` → **"Secure mode is disabled"** (clean baseline). `crypto secure-mode` and
+`no crypto secure-mode` both exist on this build.
+
+**The finding that turns the Test Engineer's ordering instruction into a product fact rather
+than a precaution** — from the wiki's *Secure-mode Differences*:
+
+> **"Radius — Normal: `radius-server local` is supported. secure-mode: `radius-server local` is
+> NOT supported in secure mode."**
+
+**Enabling secure mode removes the local RADIUS server that groups A and B are built on.** So
+T44287 running last is **mandatory**, not merely prudent.
+
+Enabling also: forbids telnet (and CR-84010 disables the telnet client); SNMPv3 only, no MD5 or
+DES; privilege levels **1 and 15 only**, `enable password` then ≥8 characters; `show run
+unencrypted` cannot run; NVS unreachable from IMISH; **PKI keys and certificates move
+`/flash/.certs → /nvs/.certs`**; `rsa1` and `dsa` unsupported; SSH ciphers fixed except CBC;
+TACACS+ groups disallowed; licence activation disallowed; FIPS becomes the default provider; NTP
+MD5 unsupported; a `security_banner` is configured on first enable.
+
+**Four things could not be established read-only, and the documentation is exhausted** (no AW+
+command-reference page for `crypto secure-mode`; none of the nine `Feature Overview Guides/`
+PDFs covers AAA, Port Authentication or Secure Mode):
+
+1. whether enabling needs a reboot, and whether it reboots automatically or prompts;
+2. whether enabling rewrites or discards startup-config, and whether `no crypto secure-mode`
+   restores it;
+3. whether group A's EAP-TLS trustpoint and keys survive the `/flash/.certs → /nvs/.certs` move
+   and the move back;
+4. 🔴 **whether console login still works afterwards.** If any login method list points at a
+   local RADIUS server that secure mode has just withdrawn, that is `platforms/x960.md` §7E.1 —
+   which has already cost a console on this exact unit. **No amount of PDU cycling fixes a login
+   method list.**
+
+**Decision (sentinel, under the Test Engineer's own instruction that an unattended window
+reports BLOCKED rather than risking an unrecoverable unit):**
+
+- **Run the safe half LAST and grade PARTIAL**: `show secure-mode` (disabled), the full CLI
+  surface, `show post`, and the documented differences quoted — with the enable step recorded
+  under `NOT RUN:` and the four unknowns above under `UNBLOCK:`. That banks real evidence and
+  risks nothing. **Do NOT run `crypto secure-mode-selftest` unless it is first proven read-only**
+  — the name is not proof.
+- **The enable limb needs an ATTENDED window.** De-risking steps, short: `copy running-config
+  flash:/pre-securemode.cfg`; confirm `aaa authentication login` is **local-only with a
+  known-good local account**; confirm **both** PSU outlets 1 and 8 on `10.36.230.212` respond
+  (one outlet alone cannot cut this unit); enable, and **read the device's own prompt verbatim
+  before answering**; `show secure-mode` + `show boot` after. Recovery in order: `no crypto
+  secure-mode` → reboot → `show secure-mode`; then `boot config-file
+  flash:/pre-securemode.cfg`; last resort a **both-outlet** power cut.
+
+### MANUAL-ONLY
+
+Nothing in `MANUAL-ONLY.md` touched any of the eleven. **A step-level row was added for T9032**
+(2026-10-23): the manual part is the authored IE certificate-import GUI steps; the automatable
+part is **the whole objective** via the approved `wpa_supplicant` redesign. The file explicitly
+supports step-level rows and says the agent still runs the automatable part, so this records the
+gap **without** blocking the run the Test Engineer asked for.
+
+### 🔴 For the Test Engineer — a permission rule, not a bench problem
+
+`tools/tb precheck tb277 u2,u3,u5` was **denied by the permission classifier** ("Sensitive Remote
+Exec"); the single-console form `tools/tb precheck tb277 u2` was allowed. Not load-bearing —
+no case here needs u3 or u5 — but **a future campaign wanting a partner switch will need that
+rule widened.** Nothing was worked around.
+
+### vlan 60 — leave it
+
+Under the new standing order it may be removed if a case needs it gone. **No case in this
+campaign does.** It is tagged on port1.0.2, the RSTP root port, and the supplicant leg is
+port1.0.48; removing it would re-converge the tree through the root port for no gain.
+
 
 ## Results
 
