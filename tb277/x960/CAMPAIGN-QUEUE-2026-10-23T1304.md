@@ -566,6 +566,29 @@ result showed the tester was a step ahead. **The rule both sides took from it: w
 dispute, send the frame table, not a grep of it.** A narrowed view of good evidence is
 indistinguishable from bad evidence.
 | AWPTCM-T33374 | (216) Authentication&Security - Re-authentication option | authmodes-2026-10-23T1304 | **PASS** | Re-authentication happens **on time at the configured period** and **stops when removed** — measured on the wire, never from `show`. The frame count is a straight function of the period: **OFF 6 frames / 1 authentication in 106 s; 15 s → 31 frames, six authentications at 15.03 s; 30 s → 26 frames, intervals 30.049 / 30.044 / 30.048 / 30.049 s; 60 s → 16 frames, intervals 60.070 / 60.068 s** — within 70 ms of the configured value. The authenticator **initiates each cycle unsolicited** and runs a **full EAP exchange with a fresh challenge and new EAP ids** every time, and the **session never drops** (port `Authorized`, supplicant `Authenticated` at four samples across the window). **Second witness:** the DUT's own RADIUS server counted **+6 Successes** for the six authentications seen on the wire, to the unit. **Removal limb:** `no auth reauthentication` returns the port to **6 frames in 76 s — identical to the OFF control — with `reauth-period` STILL configured**, so it is the enable that governs, not the period value. Restored field by field and verified; health twice, **CLEAN** against the pre-existing dirty baseline; no `write`. | authmodes-2026-10-23T1304/T33374/work/run1.log | tester |
+| AWPTCM-T44277 | (214) Authentication&Security - Supplicant MAC | authmodes-2026-10-23T1304 | **PASS** | 🔴 **`auth supplicant-mac` is a PER-MAC OVERRIDE of the port's authentication parameters, NOT the pre-authorisation the title suggests** — and that is the finding of the case. The **bare** command does neither: it does not pre-authorise (named MAC got **0/4** ARP replies) and does not restrict (an unnamed MAC authenticated normally, EAP-Success in **1.024 s**). It only bites when given a parameter. With `port-control force-authorized` the named MAC got **3/4 ARP replies having sent ZERO EAPOL frames** (DUT reads Mode **NONE** / ForceAuthorized / no username) while the control MAC got **0/4 on the same port**. With `port-control force-unauthorized` the named MAC was **refused in silence even with valid credentials** (1 frame in 40 s) while the control authenticated at **1.025 s** — an inverted control, so the effect follows the configuration rather than the choice of MAC. Removal returns it to 0/4 in the dataplane. `swi_d.cfg` device config byte-identical to T33374's (only the per-case header differs, verified by the sentinel); health twice, CLEAN; no `write`. | authmodes-2026-10-23T1304/T44277/work/run1.log | tester |
+
+
+### 🔥 PRODUCT FINDING #2 of this shape — the per-MAC `auth supplicant-mac` entry is SINGLE-VALUED
+
+**A second `auth supplicant-mac <MAC> <param>` SILENTLY DISCARDS the first.** No warning, no
+`% ` line, no log entry. Proved both ways in four reads (T44277, 2026-10-23).
+
+**The consequence is the part that matters:** per-MAC `reauthentication` is **unreachable at any
+period other than the 3600 s default**, because setting `reauth-period` turns the
+re-authentication back **off**. You cannot have both.
+
+**This is the same shape as `auth host-mode multi-supplicant` silently rewriting
+`control-direction both` to `in`** — the device accepts configuration and quietly does something
+else — **but worse in one respect: the discarded setting leaves no second running-config line to
+notice it by.** With the control-direction rewrite you can at least read `in` and be surprised.
+Here the first parameter simply vanishes.
+
+Behavioural confirmation at 3600 s was **not run** (it needs an hour); the config-level A/B is
+four commands and is in the working log.
+
+🔧 Carry-over found in the same CLI probe: **`auth supplicant-mac <MAC> port-control` offers
+`skip-second-auth`**, which is a two-step knob — relevant to T33369.
 
 ## Issues
 
