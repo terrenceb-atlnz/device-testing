@@ -504,7 +504,45 @@ must show only the two baseline lines `aaa authentication enable default local` 
 | AWPTCM-T33362 | (201) ..._DynamicVlan - Multiple Dynamic VLAN (Un-tag) | authmodes-2026-10-23T1304 | **PASS** | Two supplicants on **one port** received **two different RADIUS-assigned VLANs, untagged**, and the separation holds **in the dataplane**: `show vlan brief` lists port1.0.48 as an untagged `(u)` member of **both 362 and 363** with `taggedVlansupplicantNum: 0`, and the **2×2 ARP matrix came out on the diagonal** — each supplicant **3/3** replies from its own VLAN's gateway, **0** from the other's. **OFF baseline:** both land in VID 48, the VLAN attribute ignored. **An unplanned extra control:** the first supplicant **LOST** vlan 48 (3/3 → 0/3) when it moved — it gained a VLAN *and left one*, which a gateway-reachability test alone would not have shown. **Discriminator:** `type single` refuses the second, different VLAN with EAP-Failure at **0.039 s** against the normal **1.037 s** success — and **the refusal is the SWITCH's, not the server's**: the local RADIUS server records ckdv2 `Successes 4 Failures 0` while the DUT logs `VLAN is not valid for given supplicant`. Rig built and fully removed (vlans 362/363 with L3 addresses, RADIUS groups ckdvg1/ckdvg2, users ckdv1/ckdv2); spanning tree unchanged; vlan 60 untouched; `swi_d.cfg` device config **byte-identical to the previous three — zero drift across four cases**, verified by the sentinel. Health twice, CLEAN. | authmodes-2026-10-23T1304/T33362/work/run1.log | tester |
 | AWPTCM-T44279 | (218) Authentication&Security - Tri-Authentication | authmodes-2026-10-23T1304 | **PASS** | **All THREE methods authenticated SIMULTANEOUSLY** on port1.0.48, visible in one `show auth supplicant brief`: `M 020d.b900.4279 Authenticated 02-0d-b9-00-42-79` (MAC), `D 020d.b900.427a Authenticated ckmulti1` (802.1X), `W 000d.b955.770f Authenticated ckweb` (WEB), **plus `D 020d.b900.427b Connecting` as the control** — macBased / dot1x / webBased SupplicantNum all 1, authorizedSupplicantNum 3. Each is backed in the dataplane: **4/4, 4/4, 4/4 against the control's 0/4 in the same window.** Removal of `auth-web enable` is real at **three** levels: sessions cleared, host ping 4/4 → 0/4, and the HTTP GET times out with no interception. **The authored objective names only two methods; the third the title implies is met as well, so no caveat is needed.** 🔧 **No HTTP client had to be built** — the AW+ web-auth login page is a plain POST of `USERNAME`/`PASSWORD`/`ACTION=login` to `/index.cgi` with **no cookie, no session token and no CSRF token**, so `httpq.py --method POST --data` drove it unchanged. The wrong-password control was run **first** and left the supplicant `Mode W Connecting` with `webBasedAuthenticationSupplicantNum: 0`. Health twice, CLEAN; **`swi_d.cfg` byte-identical to all four other group B captures**. | authmodes-2026-10-23T1304/T44279/work/run1.log | tester |
 | AWPTCM-T33368 | (209) Authentication&Security_SMTP - SMTP server authentication | smtp-2026-10-23T1304 | **PASS** | Three SMTP AUTH mechanisms — **PLAIN, LOGIN and CRAM-MD5** — proven **on the wire**, each with correct-credential acceptance and **535** on wrong credentials. **CRAM-MD5 is the valuable one**: challenge-response, so a wrong password gives a wrong digest, which only a real computation produces. **OFF baseline:** the server *offers* `AUTH`, the DUT sends none, the server answers **530** — so a later `AUTH` is attributable to the configuration, not to the server. **Removal** returns to that same 530. 🔑 **A no-downgrade control against TWO independent servers:** with a server offering no `AUTH` at all, the DUT **refuses to send rather than falling back to unauthenticated delivery** — confirmed on our own listener *and* on tb277's real Postfix, which answered *"server does not support authentication"*. The finding does not depend on our instrument. 🔥 **FINDING: `mail smtpserver authentication oauth2` is SILENTLY INERT** — the CLI accepts it with no diagnostic, **running-config never changes** (three reproductions, from a configured state and from a clean one), and the previous mechanism stays in force. The device contradicts itself in its own words: `show mail oauth2 url` → *"% The smtpserver is not configured for OAUTH2"*, read immediately after the command was accepted. **The defect is the silence, not the absence.** The oauth2 **step** is graded UNSUPPORTED (a missing feature, STANDING-ORDERS §1), which is what lets the case hold as PASS. **CAVEAT:** tb277 has **no OAuth2 provider, token or authorisation**, so whether oauth2 would authenticate *given a token* is not established and is not claimed; TLS-wrapped delivery was only a config-retention check, never driven against a TLS listener; and the `log email` trigger path was not used — every send went through the deterministic exec `mail to …` trigger. Health twice, CLEAN; zero config drift. New tools `tools/smtpsrv.py` and `tools/conkey.py`, both with README entries. | smtp-2026-10-23T1304/T33368/work/run1.log | tester, re-graded from PARTIAL on 2026-10-23 after a sentinel challenge |
+| AWPTCM-T44287 | (228) ..._CyptSecureMode - Disable Telnet, SNMPv1/v2, all privilege levels except 1 and 15, weak crypto | securemode-2026-10-23T1304 | **PARTIAL** | **Measured read-only, with NO device state changed at all** (running-config byte-identical before and after, diff empty; `write` never run): secure mode confirmed **disabled** as the baseline, the full `crypto` / `no crypto` / `show secure-mode` CLI surface captured, normal-mode `show post` passed, the PKI and hostkey inventory recorded, and the **15 documented differences** quoted from the wiki. **NOT RUN:** the enable step and 15 named downstream checks (telnet refusal, SNMPv3-only, privilege levels 1 and 15, weak-algorithm rejection). **UNBLOCK: an ATTENDED window** — and it is now much shorter, because **three of the four preconditions are MEASURED and already satisfied**: login and enable are **local-only** (`aaa authentication login default local`) with a known-good privilege-15 account, so the documented `radius-server local` withdrawal breaks **802.1X on port1.0.48, NOT the console**; only privilege 15 is in use; **both PSU outlets 1 and 8 read `on: True`**; and there is **no rsa1 or dsa key to lose** in the `/flash/.certs → /nvs/.certs` move. The one precondition still outstanding is `copy running-config flash:/pre-securemode.cfg`, deliberately not done. 🔴 **`crypto secure-mode-selftest` DOES NOT EXIST on this build** — `% Unrecognized command` in exec, although the wiki promises it under the `show post` row. Either it registers only in secure mode or it is unimplemented on the x960; **this run cannot separate the two**. Health twice, CLEAN. | securemode-2026-10-23T1304/T44287/work/run1.log | tester |
 ## Issues
+
+### 📋 A SECOND SENTINEL ERROR — the group D dispatch omitted the console baud
+
+**My fault, and it cost 85 seconds that looked like a dead DUT.** Group D's session block listed
+the box, console, PDU and names but **not the baud rate**. The tester's first `peek` went out at
+**9600**; u2 is **115200**. The console returned **zero bytes for 85 s** — and on a unit whose
+health baseline carries **two unexpected reboots**, a silent console reads exactly like a unit
+that has died again.
+
+It had been in group C's working log the whole time. The earlier dispatches carried it; this one
+did not, because I wrote the session block fresh instead of copying the previous group's.
+
+**Nothing was harmed** and there was no lockout: the console was at `awplus login:` because the
+DUT's **own idle timeout** fired at 17:32:57 NZDT, three minutes before the tester arrived, and
+the after-sample's log tail names it outright.
+
+**The rule: a session block without the baud is incomplete.** At 9600 against a 115200 console
+the failure mode is silence, which is indistinguishable from the worst thing that could have
+happened to this particular unit.
+
+### ⚠️ An after-probe `CHECK_CABLE` on eth3 that is an ARTEFACT OF QUIETNESS, not a bench change
+
+Group D's after-probe shows **two** `CHECK_CABLE` lines where the before-probe had one. The new
+one, on eth3, is explained and disproved:
+
+- group C's SMTP traffic over eth3 stopped at **17:22**;
+- the before-probe at **17:40** still found the box MAC in the DUT's FDB;
+- by **17:46** it had aged out (**ARP ageing 300 s**);
+- **this case is all-`show` and sends no traffic**, and `--read-only` suppresses the probe's own
+  host-NIC pings, so nothing refreshed it.
+
+Settled on the DUT: **port1.0.10 reads `connected`, a-full a-1000, and the box's `10.38.22.33`
+is still ARP-resolved on it.** Reported, not repaired.
+
+**The general trap: a probe's `CHECK_CABLE` is a statement about the FDB, not about the cable** —
+and a case that sends no traffic will manufacture one given five quiet minutes.
+
 
 ### 🔥 SILENT DISCARD #5 — `mail smtpserver authentication oauth2`, and a verdict argument worth keeping
 
