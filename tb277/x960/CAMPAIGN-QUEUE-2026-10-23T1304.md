@@ -371,8 +371,22 @@ this campaign and was caused by nothing we ran.**
 ```
 2026 Oct 22 23:49:18 local7.debug awplus corehandler : Process snmpd (PID:1841) signal 11,
     core dumped to /flash/snmpd-swmrvl_armv8-sin_x96056-20261019-27-1-1792712958-1841.tgz
-show reboot history (newest):  2026-10-22 23:55:56   Unexpected   System reboot
+
+show reboot history:
+    2026-10-22 23:55:56   Unexpected   System reboot      <-- 12:55 NZDT
+    2026-10-22 23:53:17   Unexpected   System reboot      <-- 12:53 NZDT
+    2026-10-22 01:10:14   Expected     CLI(user request)  <-- the last one of OURS, yesterday
 ```
+
+🔴 **CORRECTED 13:30 NZDT: there are TWO unexpected reboots, not one.** The tester's
+`NEEDS TEST ENGINEER:` line reported only the newest. The sentinel read the tester's own health
+sample (`/tmp/dot1x1304/health-u2-20261023T132928.out`) after the narrator said "two", and the
+second entry is there. **The sequence is: core at 12:49 -> unexpected reboot at 12:53 ->
+unexpected reboot again at 12:55.**
+
+**Two restarts two minutes apart is a different and worse signal than one.** One restart after a
+segfault reads as a crash-and-recover; two in two minutes reads as a repeated fault or a short
+boot-loop that settled. The unit has been stable for the ~37 minutes since.
 
 Device times are **UTC, 13 h behind the box**: 23:49:18 UTC = **12:49 NZDT**, 23:55:56 UTC =
 **12:55 NZDT**, both on 2026-10-23.
