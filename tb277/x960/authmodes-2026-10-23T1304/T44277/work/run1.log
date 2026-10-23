@@ -1,0 +1,446 @@
+# AWPTCM-T44277 (214) Authentication&Security_... - Supplicant MAC
+# Working log, run 1 -- tb277 / swi_d (AT-x960-56YSQ) -- group B, authmodes-2026-10-23T1304
+# Tester: bench-runner subagent, 2026-10-23 15:41-15:54 NZDT (02:41-02:54 UTC)
+
+## What the case asks, and what the feature turned out to be
+
+No authored steps in `ck.db`. TPS row **213 "Supplicant MAC" reads `Yes`**. The dispatch set the
+objective as: *pre-authorise a specific MAC and show that MAC passes traffic without
+authenticating, while a different MAC on the same port does not, in the same run.*
+
+🔴 **That framing is only half right, and finding out which half is the first result of this
+case.** `auth supplicant-mac <MAC>` on its own is **neither a pre-authorisation nor a
+restriction**. It creates a **per-supplicant-MAC override of the port's authentication
+parameters**, and it is the `port-control` sub-option that produces the behaviour the dispatch
+described. Both halves of the dispatch's pair were delivered -- a MAC that passes traffic
+having sent no EAPOL frame at all, beside a MAC on the same port that does not -- but via
+`auth supplicant-mac <MAC> port-control force-authorized`, and the bare form was measured
+separately and shown to do neither thing.
+
+Everything below is graded on frames: ARP requests sent and ARP replies received on the wire
+(`tools/arpleg.py`), and EAPOL frame tables (`tools/eapol.py`). Nothing is graded on `show`;
+`show` is used only as a second witness.
+
+## Build and platform -- `show system`
+
+`show system` was taken in full for this group at 02:18:41 UTC and is quoted verbatim in
+`../../T33374/work/run1.log`. The identifying fields, unchanged for this case:
+**AT-x960-56YSQ, S/N `A2WQS700B`, software `sin_x96056-20261019-27`, build date Sun Oct 18
+23:18:21 UTC 2026, current boot config `flash:/default.cfg` (file exists)**, PSU1/PSU2
+AT-PWRSYS4, FAN1/FAN2 AT-FAN19, Environment Status Normal, RAM total 8092132 kB.
+`show boot`: boot image `flash:/x960-tb277.rel` (file exists), autoboot **disabled** -- the
+declared baseline, unchanged at the end of the case.
+
+DUT clock and box clock were reconciled once for the group (T33374's log): they agree, and
+**device times are UTC, 13 hours behind the NZDT wall clock in the console transcripts**.
+Host NIC facing the DUT: **`eth4` <-> `port1.0.48`** (vlan48, DUT address 10.38.22.66/27).
+
+## The rig and the instruments
+
+Group A's rig, inherited unchanged (DUT is both authenticator and RADIUS server; users
+`ckmulti1 ckmulti2 ckpeap cktls`). port1.0.48: `dot1x port-control auto`,
+`dot1x control-direction both`, host-mode **single-host**.
+
+Two MACs are used throughout, neither of them the host's own:
+
+| name | MAC | sender IP | role |
+| --- | --- | --- | --- |
+| **MAC A** | `02:0d:b9:00:42:77` (`020d.b900.4277`) | 10.38.22.70 | the MAC named in `auth supplicant-mac` |
+| **MAC B** | `02:0d:b9:00:42:78` (`020d.b900.4278`) | 10.38.22.71 | the CONTROL -- never named in any command |
+
+**The dataplane probe is an ARP request for the DUT's own vlan48 address** (`who-has
+10.38.22.66 tell <sender>`, link-layer broadcast, 4 of them per leg) and **the measurement is
+how many ARP replies come back**. It needs no next-hop MAC and no routing, and an unauthorized
+port drops it exactly as it drops any other non-EAPOL frame.
+
+🔴 **The zeros below are measurements, not a dead instrument.** The same `arpleg.py` invocation,
+unchanged but for the source MAC, returned **3 replies** in STEP 2 -- so the instrument is
+proven able to see a reply on this wire (memory `tcpdump-nfs-root-squash-capture`: a zero counts
+only once the same instrument has given a non-zero).
+
+Every authentication leg was preceded by `dot1x initialize interface port1.0.48` (group A's
+method).
+
+## HEALTH -- before (15:41:49 NZDT)
+
+raw sample: `work/health-before-T44277.out` (box: `/tmp/authm1304/health-u2-20261023T154149.out`)
+
+```
+  reboots ......... 100 entries, newest 2026-10-22 23:55:56 Unexpected System reboot
+  exception log ... 2026 Oct 22 23:49:18 local7.debug awplus corehandler : Process snmpd
+                    (PID:1841) signal 11, core dumped to /flash/snmpd-...-1841.tgz
+  log (filtered) .. 12 lines: 12 echoes of our own commands, 0 other
+  cpu ............. 0% / 0% / 0% (BUSY averages, not idle); load 0.00
+  memory .......... free 7455020 of 8092132 kB (buffers 1672)
+```
+
+🔴 **Pre-existing and NOT ours** -- the snmpd SIGSEGV and the two Unexpected reboots of
+2026-10-22 23:49-23:55 UTC, documented in the campaign queue's `## Issues`. Per-case health is a
+diff against this.
+
+## CLI surface, probed READ-ONLY with `qmark` before anything was sent
+
+```
+awplus(config-if)# auth supplicant-mac ?
+  MAC  MAC (hardware) address of the Supplicant entry in HHHH.HHHH.HHHH format
+
+awplus(config-if)# auth supplicant-mac 020d.b900.4277 ?
+  mask              MAC address mask
+  max-reauth-req    No of reauthentication attempts before becoming unauthorized (default 2)
+  max-req           Maximum number of times to retransmit an EAP Request packet (default 2)
+  port-control      Port control commands
+  quiet-period      Quiet period in the HELD state (default 60 sec)
+  reauth-period     Seconds between reauthorization attempts (default 3600 sec)
+  reauthentication  Enable reauthentication on a port
+  server-timeout    Authentication server response timeout (default 30 sec)
+  supp-timeout      Supplicant response timeout (default 30 sec)
+  <cr>
+
+awplus(config-if)# auth supplicant-mac 020d.b900.4277 port-control ?
+  auto                Allow port client to negotiate authentication
+  force-authorized    Force port state to authorized
+  force-unauthorized  Force port state to unauthorized
+  skip-second-auth    Skip second authentication
+```
+
+**That help text is the whole shape of the feature**: an entry keyed on a MAC (optionally a
+`mask`, so a range), carrying its own copies of the port's authentication parameters. From the
+`auth ?` list it sits beside `supplicant-ip`, the IP-keyed equivalent.
+(`port-control skip-second-auth` is noted here because it belongs to T33369 two-step; it was not
+exercised in this case.)
+
+`qmark`'s self-test passed first, so nothing was executed by the probe.
+
+## STEP 0 -- the OFF baseline: both MACs blocked
+
+`show auth interface port1.0.48 | include supplicantMac` -> `supplicantMac: none`.
+`dot1x initialize interface port1.0.48` -> `portStatus: Unauthorized`.
+
+```
+tools/tb sudotool tb277 authm1304 arpleg --tag T44277-S0-mac77 --out ... --iface eth4 \
+    --arp 10.38.22.66 --sender-ip 10.38.22.70 --sender-mac 02:0d:b9:00:42:77 --count 4 --wait 4
+```
+
+| leg | sent | capture | ARP replies |
+| --- | --- | --- | --- |
+| S0 MAC A | 4 x ARP-REQ who-has 10.38.22.66 tell 10.38.22.70 | 4 frames | **0** |
+| S0 MAC B | 4 x ARP-REQ who-has 10.38.22.66 tell 10.38.22.71 | 4 frames | **0** |
+
+**STEP 0 verdict: PASS.** With no supplicant authenticated, `dot1x control-direction both` drops
+both MACs. The capture holds only our own four requests in each leg and nothing from the DUT.
+
+## STEP 1 -- the bare command: `auth supplicant-mac <MAC A>` is NOT a pre-authorisation, and NOT a restriction
+
+```
+configure terminal / interface port1.0.48 / auth supplicant-mac 020d.b900.4277 / end
+
+show running-config interface port1.0.48
+ ...
+ dot1x port-control auto
+ dot1x control-direction both
+ auth supplicant-mac 020d.b900.4277
+
+show auth interface port1.0.48
+  ...
+  supplicantMac:
+    MAC Address: 020d.b900.4277
+      portControl: Auto
+      reAuthenticate: disabled
+      reAuthPeriod: 3600
+      PAE: quietPeriod: 60 - maxReauthReq: 2
+      BE: suppTimeout: 30 - serverTimeout: 30 - maxReq: 2
+
+show auth supplicant interface port1.0.48 brief   ->   No supplicants
+```
+
+Two things were then measured, and both refute the obvious readings of the case title:
+
+| leg | what it tests | result |
+| --- | --- | --- |
+| S1 MAC A, 4 x ARP, **no EAPOL at all** | *is the named MAC pre-authorised?* | **0 replies -- NO** |
+| S1 MAC B, 4 x ARP, no EAPOL | (control) | **0 replies** |
+| S2 **MAC B**, full EAP-MD5 as `ckmulti2`, alone on the port | *is the port restricted to the named MAC?* | **6 EAPOL frames, EAP-Success at 1.024 s -- NO** |
+
+```
+S2  pcap -> /tmp/authm1304/T44277-S2.pcap (6 EAPOL frames)
+     0.003 02:0d:b9:00:42:78 -> EAPOL-Start
+     0.008 02:0d:b9:00:42:78 <- EAP-Request/Identity id=1 len=0
+     0.012 02:0d:b9:00:42:78 -> EAP-Response/Identity "ckmulti2"
+     0.016 02:0d:b9:00:42:78 <- EAP-Request/MD5-Challenge id=2 len=17
+     0.019 02:0d:b9:00:42:78 -> EAP-Response/MD5-Challenge digest=994b15d3592d8454715a66f0967dd8f2
+     1.024 02:0d:b9:00:42:78 <- EAP-Success id=2
+RESULT T44277-S2-OTHER-mac-valid-credentials: 1/1 matched -- MATCH
+```
+
+**STEP 1 verdict: PASS, and it is a correction worth recording.** Naming a MAC with
+`auth supplicant-mac` **creates a parameter entry and changes no behaviour by itself**: the named
+MAC still cannot pass traffic without authenticating, and a MAC that was never named still
+authenticates normally and is admitted. `show auth supplicant brief` lists **No supplicants**
+while the entry exists. Anyone reading the case title as "pre-authorise this MAC" or as
+"only this MAC may authenticate" would write a wrong test and, on the bare command, get a wrong
+answer in both directions.
+
+## STEP 2 -- `port-control force-authorized`: the named MAC passes traffic having sent NO EAPOL frame, and the other MAC does not
+
+This is the dispatch's pair, and it is the headline of the case.
+
+```
+dot1x initialize interface port1.0.48
+configure terminal / interface port1.0.48
+ auth supplicant-mac 020d.b900.4277 port-control force-authorized
+end
+
+show running-config interface port1.0.48
+ ...
+ dot1x port-control auto
+ dot1x control-direction both
+ auth supplicant-mac 020d.b900.4277 port-control force-authorized
+
+show auth supplicant interface port1.0.48 brief   ->   No supplicants      <-- before any frame
+```
+
+Then the two dataplane legs, back to back, nothing changed between them but the source MAC:
+
+```
+LEG T44277-S3-mac77  iface=eth4 count=4
+  sent: arp who-has 10.38.22.66 tell 10.38.22.70  x4
+  cap T44277-S3-mac77-eth4.pcap: 7 frame(s)
+    x4     ARP-REQ   who-has 10.38.22.66   tell 10.38.22.70   [eth 02:0d:b9:00:42:77 -> ff:ff:ff:ff:ff:ff]
+    x3     ARP-REPLY 10.38.22.66 is-at e0:1a:ea:d4:70:43      [eth e0:1a:ea:d4:70:43 -> 02:0d:b9:00:42:77]
+
+LEG T44277-S3-mac78  iface=eth4 count=4
+  sent: arp who-has 10.38.22.66 tell 10.38.22.71  x4
+  cap T44277-S3-mac78-eth4.pcap: 4 frame(s)
+    x4     ARP-REQ   who-has 10.38.22.66   tell 10.38.22.71   [eth 02:0d:b9:00:42:78 -> ff:ff:ff:ff:ff:ff]
+```
+
+| source MAC | EAPOL frames it ever sent | ARP requests | ARP replies from the DUT |
+| --- | --- | --- | --- |
+| **MAC A** (named, force-authorized) | **0** | 4 | **3** |
+| **MAC B** (control, same port, same minute) | 0 | 4 | **0** |
+
+DUT side, read straight after:
+
+```
+Interface   VID  Mode MAC Address    Status            IP Address      Username
+=========== ==== ==== ============== ================= =============== ========
+port1.0.48  48   NONE 020d.b900.4277 ForceAuthorized   --              --
+```
+
+and in the DUT's own log: `802.1X[1094]: Force Authorized for 02-0d-b9-00-42-77 on port1.0.48`.
+
+**STEP 2 verdict: PASS.** The named MAC passes traffic **without authenticating** -- it is
+listed as a supplicant with Mode **`NONE`**, status **`ForceAuthorized`** and **no username**,
+which is the DUT saying in its own words that no authentication took place. The unnamed MAC,
+probed with the identical instrument in the same configuration seconds later, gets **nothing**.
+The `otherAuthenticationSupplicantNum` counter moved to 1 while `dot1xAuthenticationSupplicantNum`
+stayed 0.
+
+**3 of 4, not 4 of 4, and why that is not a defect:** the first request of the leg was sent
+while the switch was still creating the forced supplicant entry for a MAC it had not yet seen
+(the entry appears on first frame -- `No supplicants` was read moments before). Requests 2, 3
+and 4 were all answered. The discriminator is 3 versus 0, not 4 versus 3, and the control leg's
+instrument was identical.
+
+## STEP 3 -- `port-control force-unauthorized`: the named MAC is refused even with VALID credentials, while the control MAC authenticates
+
+The reverse override, and the strongest proof that the entry is MAC-scoped rather than
+port-scoped: the **same port**, the **same instant**, **valid credentials on both**.
+
+```
+configure terminal / interface port1.0.48
+ auth supplicant-mac 020d.b900.4277 port-control force-unauthorized
+end
+show running-config interface port1.0.48 | include supplicant-mac
+ auth supplicant-mac 020d.b900.4277 port-control force-unauthorized
+dot1x initialize interface port1.0.48     ->   No supplicants
+```
+
+| leg | supplicant | credentials | EAPOL frames | outcome |
+| --- | --- | --- | --- | --- |
+| S4c | **MAC A** (forced unauthorized) | `ckmulti1` / correct | **1** (its own EAPOL-Start) | **total silence for 40 s** |
+| S4d | **MAC A**, 4 x ARP | n/a | n/a | **0 ARP replies** |
+| S4b | **MAC B** (control) | `ckmulti2` / correct | **6** | **EAP-Success at 1.025 s** |
+
+```
+S4c  pcap (1 EAPOL frame)
+     0.003 02:0d:b9:00:42:77 -> EAPOL-Start
+  02:0d:b9:00:42:77  expected failure, got timeout -- MISMATCH
+
+S4b  pcap (6 EAPOL frames)
+     0.003 02:0d:b9:00:42:78 -> EAPOL-Start
+     0.009 02:0d:b9:00:42:78 <- EAP-Request/Identity id=1 len=0
+     0.013 02:0d:b9:00:42:78 -> EAP-Response/Identity "ckmulti2"
+     0.017 02:0d:b9:00:42:78 <- EAP-Request/MD5-Challenge id=2 len=17
+     0.021 02:0d:b9:00:42:78 -> EAP-Response/MD5-Challenge digest=ecfea37548e6ef95d50fe596c6f4cef5
+     1.025 02:0d:b9:00:42:78 <- EAP-Success id=2
+  RESULT T44277-S4b-CONTROL-other-mac-alone: 1/1 matched -- MATCH
+```
+
+DUT side: `port1.0.48 48 NONE 020d.b900.4277 ForceUnauthorized -- --`, and in the log
+`802.1X[1094]: Force Unauthorized for 02-0d-b9-00-42-77 on port1.0.48`.
+
+**STEP 3 verdict: PASS.** `force-unauthorized` on one MAC refuses that MAC and **only** that MAC.
+
+⚠️ **The tool's `MISMATCH` on S4c is the honest answer and is not a failure of the case.** The
+leg was declared `--expect failure`, i.e. an EAP-Failure frame. **The DUT does not send one** --
+it does not even send an `EAP-Request/Identity`. The refusal is **silence**: the EAPOL-Start is
+simply never answered. `eapol.py` grades neither-Success-nor-Failure as `timeout`, which is the
+truthful reading of a wire that carried one frame in 40 seconds. Recorded as measured rather
+than smoothed over.
+
+⚠️ **One leg had to be re-run, and the reason is a known property of this bench, not a product
+fault.** S4 first put **both** MACs in one `eapol.py` invocation (the pair in a single packet
+window, which is the preferred shape). Both timed out -- including MAC B, which authenticates
+reliably when run alone. That is `auth host-mode single-host` doing what group A measured in
+T33360: with two EAPOL-Starts 3 ms apart on a single-host port, the port is taken and the other
+supplicant gets no reply at all; here the forced-unauthorized entry took the slot and MAC B got
+the silence. **The legs were therefore re-run one at a time with `dot1x initialize` between**,
+and that is what is graded. The combined run is kept as `/tmp/authm1304/T44277-S4.pcap`. **The
+pair is still a pair** -- same configuration, same minute, same instrument, 100 seconds apart --
+it just is not a single packet window, and host-mode is why.
+
+## 🔥 PRODUCT FINDING -- the per-MAC parameter entry is SINGLE-VALUED: a second `auth supplicant-mac <MAC> <param>` SILENTLY DISCARDS the first
+
+Found while setting up a per-MAC re-authentication leg, and then isolated deliberately. **Four
+reads, each immediately after its own command, nothing else changed:**
+
+```
+(1) no auth supplicant-mac 020d.b900.4277
+    auth supplicant-mac 020d.b900.4277 reauthentication
+      running-config:  auth supplicant-mac 020d.b900.4277 reauthentication
+      show auth:       MAC Address: 020d.b900.4277
+                         portControl: Auto
+                         reAuthenticate: ENABLED          <-- the override works
+                         reAuthPeriod: 3600
+
+(2) auth supplicant-mac 020d.b900.4277 reauth-period 15
+      running-config:  auth supplicant-mac 020d.b900.4277 reauth-period 15      <-- ONE line only
+      show auth:       MAC Address: 020d.b900.4277
+                         portControl: Auto
+                         reAuthenticate: DISABLED         <-- (1) IS GONE
+                         reAuthPeriod: 15
+
+(3) auth supplicant-mac 020d.b900.4277 reauthentication
+      running-config:  auth supplicant-mac 020d.b900.4277 reauthentication
+      show auth:         reAuthenticate: enabled
+                         reAuthPeriod: 3600               <-- (2) IS GONE, symmetrically
+```
+
+**No warning, no `% ` line, no log entry.** The entry holds exactly one parameter: each new
+`auth supplicant-mac <MAC> <param>` **replaces** the whole entry rather than adding to it, in
+both directions. An earlier three-command attempt (`port-control auto`, then `reauthentication`,
+then `reauth-period 15`) left **only** `reauth-period 15` in the running-config, which is how
+this was noticed.
+
+**The functional consequence is real, not cosmetic:** the per-MAC re-authentication override
+**cannot be used at any period other than the 3600 s default**, because configuring the period
+turns the re-authentication off again. The same applies to every other pair of parameters.
+
+This is the **same shape** as the campaign's existing finding that
+`auth host-mode multi-supplicant` silently rewrites `dot1x control-direction both` to `in`
+(queue `## Issues`), and as the known AW+ behaviour where a `spanning-tree mode` change silently
+drops `no spanning-tree <mode> enable`: **a setting the operator entered is discarded without
+being told.** Here it is worse in one respect -- the discarded setting is not even visible as a
+second running-config line to notice.
+
+**NOT established** (it needs a developer or the command reference, neither available here):
+whether single-valuedness is intended -- i.e. whether the grammar is meant to be
+`auth supplicant-mac <MAC> [one-parameter]` with repeated commands replacing, or whether
+parameters were meant to accumulate. **Either way the operator is not told**, and the
+`reauthentication` + `reauth-period` combination is unreachable. The behavioural confirmation at
+the default period was **not run**: it would need a 3600-second window, which this unattended
+campaign cannot spend. The configuration-level A/B above is reproducible in four commands.
+
+## STEP 4 -- removal
+
+```
+configure terminal / interface port1.0.48
+ no auth supplicant-mac 020d.b900.4277
+ no auth timeout reauth-period
+end
+```
+
+```
+show running-config interface port1.0.48
+!
+interface port1.0.48
+ switchport
+ switchport mode access
+ switchport access vlan 48
+ dot1x port-control auto
+ dot1x control-direction both
+!
+show auth interface port1.0.48 | include supplicantMac   ->   supplicantMac: none
+show auth supplicant interface port1.0.48 brief          ->   No supplicants
+
+LEG T44277-S5-REMOVED-mac77: 4 x ARP-REQ sent, cap 4 frames, ARP replies: 0
+```
+
+**STEP 4 verdict: PASS.** The line is gone from the running-config, the per-MAC block is gone
+from `show auth interface`, no supplicant is listed, and **MAC A -- which was passing traffic
+with no authentication three minutes earlier -- is back to 0 replies out of 4**. The removal is
+real in the dataplane, not only in the config.
+
+## Restore, and proof of it
+
+`show auth interface port1.0.48` back to the group B baseline in every field: `supplicantMac:
+none`, `supplicantIpv4: none`, reAuthenticate disabled, reAuthPeriod **3600**, hostMode
+single-host, **CD adminControlledDirections: both**, dynamicVlanCreation / multiVlanSession /
+twoStepAuthentication / authMac / authWeb all disabled.
+
+🔴 **The full `show running-config` saved as `../swi_d.cfg` is BYTE-IDENTICAL to the one saved
+at the end of T33374** (verified with `diff`): **zero config drift across the two cases.**
+
+- No `write`; startup-config is still `flash:/default.cfg`. Boot image/config unchanged.
+- No VLAN added or removed; vlan 60, vlan 10, vlan 48 untouched.
+- `auth host-mode` was never touched, so the standing `control-direction`-rewrite finding could
+  not apply; `CD: both` was read back anyway and is correct.
+- Group A's rig left in place for the rest of the campaign.
+- Nothing of ours left running on the box: every `arpleg.py` and `eapol.py` run exited on its own
+  and printed its own sent-versus-captured counts.
+
+## HEALTH -- after (15:53:26 NZDT), diffed against before
+
+raw sample: `work/health-after-T44277.out`
+(box: `/tmp/authm1304/health-u2-20261023T155326.out`)
+
+```
+HEALTH-DIFF u2 vs health-u2-20261023T154149.out.json (15:41:49 before-T44277)
+  reboots ......... no new entry (newest stays 2026-10-22 23:55:56 Unexpected System reboot)
+  exception log ... not None, but UNCHANGED since before (pre-existing, not this run's)
+  log (filtered) .. 0 new non-echo lines
+  log tail 150 .... other lines by signature:
+        2 x 802.1X[1094]: 802.1X Authentication successful for ckmulti2@020d.b900.4278 on port1.0.48
+        2 x 802.1X[1094]: port1.0.48: Supplicant ckmulti2 unauthorized, Mac 020d.b900.4278
+        2 x 802.1X[1094]: Force Unauthorized for 02-0d-b9-00-42-77 on port1.0.48
+        1 x 802.1X[1094]: Force Authorized   for 02-0d-b9-00-42-77 on port1.0.48
+        1 x radiusd[6457]: (136) Login OK: [ckmulti2] (from client 127.0.0.1 port 5048 cli 02-0d-b9-00-42-78)
+        2 x MSTP[1102]: CIST port1.0.48 now forwarding, propagating TC to other ports
+  cpu ............. 0% -> 0%
+  memory .......... free 7455020 -> 7451712 kB (-3308; one case cannot show a leak)
+  VERDICT ......... CLEAN
+```
+
+**CLEAN. The run is not confounded.** The DUT's own log is also a **third witness** to the two
+headline legs: it records `Force Authorized` and `Force Unauthorized` for `02-0d-b9-00-42-77`
+by name, and `Login OK`/`Authentication successful` only ever for `ckmulti2@020d.b900.4278` --
+**never for `020d.b900.4277`, which never authenticated once in this case.**
+
+## Not run, and why
+
+- **A behavioural leg for the per-MAC `quiet-period`, `supp-timeout`, `max-req` or
+  `max-reauth-req` overrides.** Each is measurable the same way (a per-MAC value differing from
+  the port-wide one, timed on the wire), and `quiet-period` is the cheapest (~30 s per leg: fail
+  a supplicant, retry, see which one is still Held). Two per-MAC overrides were already proved
+  behaviourally, so these were left for a next run rather than spent from an unattended window
+  with three cases still queued.
+- **The `mask` sub-option** (a MAC range rather than a single MAC) was found in the help and not
+  exercised.
+- **Persistence across a reboot**, for the same reason as T33374: proving it needs `write`, and
+  this group's restore contract keeps `startup-config` at `flash:/default.cfg` so that a reload
+  is itself a complete restore of group A's rig. Appearance in and disappearance from
+  `show running-config` was proved instead.
+- **A behavioural confirmation of the single-valued-entry finding** -- see that section.
+
+VERDICT: PASS -- `auth supplicant-mac` works, and works as a per-MAC override of the port's authentication parameters rather than as the pre-authorisation or restriction the case title suggests: with `port-control force-authorized` the named MAC got 3 of 4 ARP replies from the DUT having sent zero EAPOL frames and is listed `Mode NONE / ForceAuthorized / no username`, while the unnamed control MAC got 0 of 4 on the same port with the same instrument; with `port-control force-unauthorized` the named MAC was refused in total silence even with valid credentials (1 EAPOL frame in 40 s, 0 ARP replies) while the control MAC authenticated to EAP-Success at 1.025 s; the bare command was measured to do neither thing; removal returned the named MAC to 0 of 4; and one defect-shaped finding is recorded -- the per-MAC entry is single-valued, so a second `auth supplicant-mac <MAC> <param>` silently discards the first and the `reauthentication` + `reauth-period` combination is unreachable.
