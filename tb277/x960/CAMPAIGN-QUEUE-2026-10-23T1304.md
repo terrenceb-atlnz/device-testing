@@ -136,7 +136,7 @@ crypto pki export local pkcs12 <user> flash:/<user>.p12   # the supplicant certi
 | A | T33354 EAP-Notification; T44270 EAP-PEAP; T33360 Multiple Authentication; T9032 EAP-TLS | `dot1x-2026-10-23T1304` | **DONE — 3 PASS, 1 PARTIAL** | The EAP / encryption-type family. **Build the local RADIUS server + supplicant rig ONCE as group setup** and let all four inherit it. T33354 is likely a desk UNSUPPORTED (`Not Support`) — confirm against the TPS, do not assume. T9032 is the redesign; use its authored precondition for the RADIUS and certificate recipe |
 | B | T33369 Two-step (MAC then 802.1X); T44279 Tri-Authentication; T44277 Supplicant MAC; T33374 Re-authentication option; T33362 Multiple Dynamic VLAN (un-tag) | `authmodes-2026-10-23T1304` | QUEUED | Authentication modes and dynamic VLAN. Inherits group A's rig. 🔴 **T44277 "Supplicant MAC" may need the DUT to act as SUPPLICANT toward an authenticator** — that is the one case here most likely to need a partner switch, so it is the one most likely to hit the credential gate. Decide that at triage and say so. T33362 needs **two** dynamic VLANs assigned from RADIUS to different supplicants, untagged |
 | C | T33368 SMTP server authentication | `smtp-2026-10-23T1304` | **DONE — 1 PASS** | A different subsystem: the DUT authenticating to an **SMTP server**, not 802.1X. Needs an SMTP listener that requires AUTH. **tb277 almost certainly does not run one** — establish at triage what exists before designing, and grade on the SMTP dialogue on the wire (the `AUTH` verb and the server's reply), never on `show`. Starting a service on the box is a root change (STANDING-ORDERS §4) |
-| D | T44287 CryptSecureMode | `securemode-2026-10-23T1304` | **BLOCKED (unattended) — safe half runs LAST as PARTIAL** | 🔴 **Test Engineer's decision: this case runs after every other row is DONE or BLOCKED**, so a DUT that comes back awkward costs nothing already measured. On AW+ secure mode disables telnet, SNMPv1/v2, most privilege levels and weak crypto, **needs a reboot, and can drop configuration**. **Before enabling anything, write the exact recovery steps into this file.** If recovery cannot be stated with confidence, report **BLOCKED** rather than risk an unrecoverable unit — the window is unattended |
+| D | T44287 CryptSecureMode | `securemode-2026-10-23T1304` | **DONE — 1 PARTIAL** (safe half measured; enable limb NOT RUN, still blocked to an attended window) | 🔴 **Test Engineer's decision: this case runs after every other row is DONE or BLOCKED**, so a DUT that comes back awkward costs nothing already measured. On AW+ secure mode disables telnet, SNMPv1/v2, most privilege levels and weak crypto, **needs a reboot, and can drop configuration**. **Before enabling anything, write the exact recovery steps into this file.** If recovery cannot be stated with confidence, report **BLOCKED** rather than risk an unrecoverable unit — the window is unattended |
 
 Groups run **sequentially**: there is one DUT console. A, B, C, then D last.
 
@@ -1173,3 +1173,172 @@ absence.
 | --- | --- | --- | --- |
 | T33368 SMTP server authentication | **PASS** | `smtp-2026-10-23T1304/T33368/work/run1.log` | `59a8d3a` (re-graded PARTIAL→PASS in the follow-up commit) |
 
+
+---
+
+## 🔴 GROUP D — `securemode-2026-10-23T1304` — DONE, 1 PARTIAL. Rig, restore and handover
+
+Written 2026-10-23 17:40 NZDT, before the group's first (and only) command, and completed at
+17:50 NZDT. Group D is the **last** group of the campaign: the bench described at the bottom of
+this section is what `/wrap-dt` records.
+
+### The rig — and why there is no restore recipe to write
+
+🔴 **Group D built no rig and changed no device state whatsoever.** This is the deliberate shape
+of the row: T44287's enable limb is BLOCKED for this unattended window (the triage answer
+above), and the safe half is entirely `show` commands plus read-only `?` help probes.
+
+**The complete list of everything the DUT executed during group D:**
+
+- `show system`, `show boot`, `show secure-mode` (x3), `show running-config` (x2), `show post`,
+  `show snmp-server`, `show crypto pki trustpoint`, `show crypto key hostkey`, `show clock`,
+  `show arp`, `show interface port1.0.10 status`, and the six `show` commands of each
+  `tools/tb health` sample;
+- `terminal length 0` and `terminal no monitor` (exec-only terminal settings, session-scoped);
+- `configure terminal` and `end`, used by `qmark.py` to reach config mode for a help probe and
+  leave it again. **No configuration command was entered in that mode** — `qmark.py` types
+  `PREFIX ?` with no CR and clears the line with Ctrl-U;
+- one rejected command, `show mac address-table interface port1.0.10` → `% Invalid input`.
+
+**No `crypto secure-mode`. No `no crypto secure-mode`. No `write`. No `reload`. No PDU action
+except a read-only `status` on outlets 1 and 8.**
+
+**THE RESTORE RECIPE IS THEREFORE: nothing.** A fresh tester picking this group up mid-way has
+nothing to undo. The proof, not the assertion:
+
+- `show running-config` captured before the first step and after the last — `diff` **empty**,
+  126 lines, byte-identical (`T44287/work/rc-before-D.txt` vs `rc-after-D.txt`);
+- `show boot` re-read at the end: `flash:/x960-tb277.rel` (file exists) /
+  `flash:/default.cfg` (file exists), autoboot disabled — the baseline, unchanged;
+- `show secure-mode` → `Secure mode is disabled`, before and after;
+- `write` was never run, so startup-config is untouched and a reload is itself a complete
+  restore.
+
+🔴 **If any future group DOES take the enable limb, the restore recipe is the attended-window
+sequence in the triage answer above, now with three of its four preconditions measured** — see
+`T44287/work/run1.log` §8 "UNBLOCK", which supersedes the triage sketch because it carries the
+measured values:
+
+1. `copy running-config flash:/pre-securemode.cfg` — **the one precondition still outstanding**;
+   group D did not do it, because it is a write to flash and this group changed nothing;
+2. ✅ login is local-only with a known-good account — **measured**:
+   `aaa authentication login default local`, `aaa authentication enable default local`,
+   `username manager privilege 15`. Only `aaa authentication dot1x default group radius` points
+   at RADIUS, so the documented RADIUS withdrawal breaks **802.1X on port1.0.48**, not the
+   console. That retires the unrecoverable half of unknown #4;
+3. ✅ both PSU outlets answer — **measured**, `tools/tb pdu tb277 10.36.230.212 1 status` and
+   `... 8 status` both `on: True`. Read-only `status`, never `cycle`;
+4. ✅ the PKI inventory that the `/flash/.certs → /nvs/.certs` move puts at risk is **recorded**
+   with its three hostkey fingerprints (run1.log §6.6d), and there is **no rsa1 and no dsa key
+   on this unit** to lose.
+
+### 🔴 Three product facts group D measured, all read-only
+
+1. **`crypto secure-mode` is a real global-configuration command on this build** —
+   `crypto secure-mode ?` → `<cr>`, help text `Enable secure mode`; `no crypto secure-mode ?` →
+   `<cr>`. TPS row 226 "Yes" is not a paper claim. **This is what makes the case PARTIAL rather
+   than UNSUPPORTED.**
+2. 🔥 **`crypto secure-mode-selftest` DOES NOT EXIST on `sin_x96056-20261019-27`** —
+   `crypto secure-mode-selftest ?` in exec → `% Unrecognized command`. The wiki's
+   *Secure-mode Differences* page promises it ("same cryptographic info can be shown using
+   'crypto secure-mode-selftest' in EXEC mode"). Two readings fit and this run cannot separate
+   them: registered only while secure mode is on, or not implemented on the x960. **The
+   dispatch's "do not run it unless proven read-only" is moot — the parser rejects it.**
+   Separating the two readings is an attended-window item (run1.log §8, N10).
+3. ⚠️ **The exec and config `crypto secure-mode` are different commands.** In exec, `?` offers
+   no `<cr>` — only `delete`, which offers only `hostkey`. **`crypto secure-mode delete hostkey`
+   removes key material** and is nobody's smoke test. Recorded so the exec form is never read as
+   a harmless synonym of the config one.
+
+Also measured: `show post` in normal mode prints exactly the wiki's Normal column — six
+file-system checks, all `OK`, no cryptographic information — so the instrument for the
+secure-mode comparison is identified and its normal-mode reading is banked. And this unit has
+**real NVS** (`Checking NVS filesystem... OK`), so the wiki's "non-NVS devices access
+/flash/.nvs" caveat does not apply to it.
+
+### 🔴 A caveat on the wiki's device list — an observation, not a verdict
+
+*Products with crypto secure-mode support* lists, as of 28/11/2024, the platforms carrying the
+`crypto-secure-mode` feature flag: `arctx2, IE220, IE340, IE360, IE560 (cli only), IEx60,
+SBx908NG, SBx90xGEN3, swmrvl_armv7, swmrvl_armv8, x220, x250, x320, x330, x530, x550, x930,
+XS900`. **The x960 is not named.** But the DUT's own core-dump filename identifies its platform
+as `swmrvl_armv8`, which **is** on the list — so the x960-56 is plausibly covered by that entry
+rather than missing from it. The wiki list is dated and must not be used to contradict either
+TPS row 226 or the CLI, which plainly offers the command on this unit.
+
+### 🔴 A method trap group D paid for — READ THE BAUD OUT OF THE PREVIOUS GROUP'S LOG
+
+The group D session block does not state the console baud. The first peek went out at **9600**
+and the console returned **zero bytes** across 85 seconds — on a unit whose baseline already
+carries two unexpected reboots, that reads exactly like a dead DUT, and it would have been easy
+to report one. **The baud is 115200**, recorded in the group B and C gate records above and in
+every `tools/tb` line of group C's working log
+(`grep -o 'tools/tb [a-z]* tb277 [a-z0-9]* u2 [0-9]*' smtp-2026-10-23T1304/T33368/work/run1.log`).
+
+Two corollaries:
+- **A silent console is not a measurement until the baud is confirmed.** On an AW+ IMISH console
+  a wrong-rate CR cost nothing; on an IE520 Linux console the same mistake has reached the far
+  end as a BREAK (`sysrq`).
+- No lockout resulted: `ckcon.py` never supplies credentials, so the garbage was never offered
+  at a credential prompt.
+- 🔴 **The console was at `awplus login:` when group D arrived, and that was NOT group D's
+  doing.** Group C handed it over logged in at `awplus#`; the after-sample's `show log tail 150`
+  names the cause: `2026 Oct 23 04:32:57 user.crit awplus IMISH[17877]: Console connection timed
+  out.` — 04:32:57 UTC = **17:32:57 NZDT**, three minutes *before* the first peek. **The DUT runs
+  UTC; every DUT log timestamp in this campaign is NZDT minus 11 hours.**
+
+### 🔴 A second trap — `tools/tb probe --template` needs the BOX-SIDE absolute path
+
+The probe runs **on the box**, so a repo-relative `--template` path does not resolve. It does not
+fail loudly: it prints `no template at <path> -- diff skipped` and **exits 0**. An exit 0 with
+"diff skipped" is **not a MATCH**, and reading it as one would skip gate 4 entirely. Use
+`/home/bidhanc/claude/device-testing/<path>`.
+
+### Group D gate record (2026-10-23 17:35–17:46 NZDT)
+
+| gate | result |
+| --- | --- |
+| 1 occupancy | `tools/tb precheck tb277 u2` → `/dev/u2` **free**; exit 5 for the one standing FOUND item, `ser2net` pid 744 (root, up 42-06:21:45) — the standing adjudication, not touched. `tools/tb scratch tb277 secmode1304` → 81 files |
+| 2 console state | 🔴 at **`awplus login:`** — logged out by the device's own idle timeout at 17:32:57 NZDT, 3 min before the first peek. Clean exec-level state: not in config mode, not at a shell. See the baud trap above |
+| 3 template path | `tools/tb template tb277` → `/nfsHome not mounted`, no deployed `tb277.setup` — expected for this box; none bound |
+| 4 probe | `--read-only`, group D run `.setup`, exit **2 NEEDS-CHECK**: the **one** expected `CHECK_CABLE` on **eth4** only — identical to groups B and C. Nothing moved. `bench-state.md` regenerated and restored with `git checkout --`, **not committed** |
+| 5 run `.setup` | `tb277/x960/securemode-2026-10-23T1304/tb277-u2.setup`, swi_d only, cut from group C's. Moot in practice: no framework script ran, so nothing could fail a TestCase and nothing could trigger a power cycle |
+| 6 preflight | **N/A — no framework script.** Console-only case, driven through `tools/tb` |
+| 7 boot baseline | `flash:/x960-tb277.rel` + `flash:/default.cfg`, autoboot disabled — re-read at the group's end, **unchanged** |
+| 8 Ask-CK server path | not used |
+| 9 sentinel | `sentinel: parent` — nothing to arm |
+| 10 CLI defaulting | **No script, so no defaulting path to fail every TestCase.** The equivalent work *is* the measurement: five read-only `tools/tb qmark` passes over the whole `crypto` / `show secure-mode` / `show post` surface in exec and config mode, each self-testing first that Ctrl-U clears the line and nothing executes. 🔴 This is also the gate that prevented the worst outcome available to this case: `crypto secure-mode` in config mode has a valid `<cr>`, so reading its help through a **CR** driver would have **enabled secure mode** |
+
+### 🔴 Bench state as group D hands over — 2026-10-23 17:50 NZDT, campaign complete
+
+| thing | state at handover |
+| --- | --- |
+| boot | `flash:/x960-tb277.rel` (exists) / `flash:/default.cfg` (exists), autoboot disabled — **the baseline, unchanged** |
+| running-config | **byte-identical to group C's handover and to group D's own pre-run capture** (126 lines, `diff` empty) |
+| secure mode | **disabled** — read three times across the run, unchanged. No `crypto secure-mode` line anywhere in running-config |
+| startup-config | untouched — **`write` was never run in group D**, so a reload is itself a complete restore |
+| group A's 802.1X rig | **not touched.** `radius-server local`, `radius-server host 127.0.0.1`, the `local` trustpoint (Applications: RADIUS), `aaa authentication dot1x default group radius`, port1.0.48's `dot1x port-control auto` / `dot1x control-direction both` — all read, none changed |
+| vlan 60 | **not touched** (`vlan 60 name ckMGMT-A`) |
+| vlan10 L3 underlay | **not touched.** `port1.0.10` reads `connected`, vlan 10, `a-full a-1000`, and the box's 10.38.22.33 is still ARP-resolved on it |
+| consoles u3 / u5 | **never opened.** The credential gate was never exercised in this group either |
+| probe | before: exit 2 NEEDS-CHECK, one `CHECK_CABLE` on eth4 (the standing one). after: exit 2 with **two**, eth3 as well — ⚠️ **an artefact of this group's own quietness, not a bench change.** Group C's SMTP traffic over eth3 stopped at 17:22; the before-probe at 17:40 still found the box MAC in the FDB and by 17:46 it had aged out (`arp ageing timeout 300`). Group D is an all-`show` case and sends no traffic, and `--read-only` correctly suppresses the probe's own host-NIC pings. The DUT side was read directly to settle it: port1.0.10 `connected`, ARP entry live. **Reported, not repaired.** `bench-state.md` restored with `git checkout --`, not committed |
+| console u2 | exec prompt `awplus#`; `terminal no monitor` sent **from exec** (confirmed in the box-side transcript, not from the tool's stdout). Not in config mode. Left logged in, as every group did — and this unit's own idle timeout logs it out within minutes anyway |
+| anything of ours running on the box | **nothing.** No framework run, no traffic tool, no capture, no watcher. Group D started no process at all |
+| box `/tmp` | `/tmp/secmode1304/` holds the tools copy, the console transcript and the two health samples. Small; not cleaned, so the evidence survives for `/create-logs`. Group C's `/tmp/smtp1304/` is likewise intact |
+| health | **CLEAN** against the pre-existing dirty baseline — no new reboot, no new core, exception log byte-identical, **0 new non-echo log lines**. The two signatures in the 150-line tail are both accounted for and neither is group D's: 9 x `Command [end] failed` at 17:21:41 NZDT (inside group C's window) and 1 x `Console connection timed out` at 17:32:57 NZDT (the event that logged the console out before group D arrived) |
+
+### Group D's working log and commit
+
+| case | verdict | working log | commit |
+| --- | --- | --- | --- |
+| T44287 CryptSecureMode | **PARTIAL** | `securemode-2026-10-23T1304/T44287/work/run1.log` | see the commit that adds this section |
+
+**PARTIAL, with the split stated plainly.** Measured: the disabled baseline, the full CLI
+surface in both modes, `crypto secure-mode-selftest` absent, `show post` in normal mode, this
+unit's starting point for every clause of the case title, three of the four attended-window
+preconditions, and the fifteen documented Normal-vs-secure-mode differences quoted. **NOT RUN:**
+the enable step and fifteen named downstream limbs (run1.log §8) — telnet refusal, SNMPv3-only,
+privilege 1-and-15, weak-algorithm rejection, `show run unencrypted`, NVS from IMISH, the PKI
+move, the `radius-server local` withdrawal, TACACS+ groups, licensing, FIPS provider,
+`security_banner`, and console login afterwards — plus unknowns U1 (does it reboot?) and U2
+(what happens to startup-config?), which no read-only measurement reached.
