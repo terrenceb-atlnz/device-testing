@@ -495,6 +495,43 @@ must show only the two baseline lines `aaa authentication enable default local` 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
 | AWPTCM-T44270 | (177) Authentication&Security_IEEE 802.1XEncryptionType - EAP-PEAP | dot1x-2026-10-23T1304 | **PASS** | EAP-PEAP authenticates a valid supplicant on port1.0.48 against the DUT's own local RADIUS server, graded on frames: **24 EAPOL frames ending in EAP-Success, port Unauthorized -> Authorized, dataplane 0/4 -> 4/4**. **Both controls in the same window are refused** -- wrong password 22 frames EAP-Failure 0/4, unknown identity 22 frames EAP-Failure 0/4 -- and S5 authenticates again afterwards, so the refusals are the feature working, not the rig breaking. Five legs, each matching its declared expectation, from an S0 feature-OFF baseline of 4/4. **Measured, not assumed:** the local server is freeradius and PEAP's inner method is **MSCHAPv2**, and the TLS tunnel is served by the unit's own `local` trustpoint (CA `/O=Allied Telesis, Inc./CN=AlliedWarePlusCAA2WQS700B`, this unit's serial in the CN). Two anomalies recorded rather than smoothed over, neither changing the verdict: (a) the session's FIRST PEAP attempt failed where five identical later ones did not -- the Access-Request never reached the server (statistics all zero), a NAS rejection of a response belonging to a superseded EAP session; it has not recurred since every leg was preceded by `dot1x initialize interface port1.0.48`, now the group's method. (b) 🔴 **A TOOL TRUST ISSUE, not graded on**: control B's first run printed 22 frames and `MATCH` exit 0 while the JSON beside it recorded `"verdict": "timeout"`, `"eapol_frames": 2`. Nothing in `wpasup.py` can produce that. The leg was re-run unchanged as S4b, whose stdout and JSON agree with each other and with S4's stdout, and **S4b is what was graded**; the inconsistent JSON is kept as the record and `tools/README.md` now warns to check wpasup.py's JSON against its printed RESULT. Counter note so nobody redoes it: the local server counts **twice per PEAP authentication** (outer + inner), so three successes read `Successes: 6`; an unknown identity never gets a user-table row, so its failures are in the global total but attributable to nobody. Health twice, after-diff **CLEAN**: no new reboot, exception log unchanged from the dirty baseline, 0 new non-echo log lines, memory +10.6 MB which is radiusd now running. Run labelled **clean**. Nothing written to startup-config; vlan 60 untouched; no PKI object created or removed. New helpers `tools/wpasup.py` and `tools/eapol.py`, both with README entries in the same commit (`639f33b`). | dot1x-2026-10-23T1304/T44270/work/run1.log | tester |
+| AWPTCM-T33360 | (199) Authentication&Security_IEEE 802.1XEncryptionType - Multiple Authentication | dot1x-2026-10-23T1304 | **PASS** | `auth host-mode multi-supplicant` authenticates multiple supplicants **independently** on one port, proved by changing only the mode: **single-host admits 1 of 2** (the second gets **silence** — no challenge, no EAP-Failure, nothing in 40 s), **multi-supplicant admits 2 of 2, then 3 of 3** MACs Authenticated. Authorization is **per-MAC, not per-port**: the host's own unauthenticated MAC pinged **0/4** while crafted MACs were Authenticated on the same port at the same moment, then **4/4** once it authenticated. The bad-credential control shared a **single 1.04-second packet window** with the legs it controls for, and `show auth supplicant brief` showed all three at once: two `Authenticated`, one `Held`. Also measured: one RADIUS identity can hold several concurrent supplicant sessions on different MACs; the DUT does not keep a failed supplicant's identity in the table (its log does). 🔥 **PRODUCT FINDING the case did not ask for: `auth host-mode multi-supplicant` SILENTLY REWRITES `dot1x control-direction both` to `in`** — no warning, no `% ` line, no log entry — **and `no auth host-mode` restores single-host but does NOT restore `both`**, so the port stays ingress-only for good. Defensible (egress cannot be gated per-MAC on a shared port) but an operator who chose `both` for a security reason is never told it was weakened. Same shape as the known `spanning-tree mode` behaviour that silently drops `no spanning-tree <mode> enable`. `both` was restored explicitly and re-read. Health twice, **CLEAN**: no new reboot, exception log unchanged from the pre-existing dirty baseline, 0 new non-echo log lines, memory finished 348 kB MORE free than it started. | dot1x-2026-10-23T1304/T33360/work/run1.log | tester |
+
+
+### 🔴 TOOLING DEFECT, found and FIXED 2026-10-23 — `tools/tb killmine` could not kill ANY root sudotool
+
+Not a case result; it affects **every campaign on every box**, so it is recorded here.
+
+**`killmine` could not kill any root `sudotool` run** — not only `eapol.py` but `linerate`,
+`l2flows`, `vsend`, `igmp`, `dhcp4`, every member of `SUDO_TOOLS`. Two independent reasons:
+
+1. a sudotool runs **as root**, so an unprivileged `readlink /proc/<pid>/cwd` returns empty and
+   the cwd branch can never match;
+2. the wrapper launches it as `cd /tmp/<x>/tools && sudo -n python3 <tool>.py` — a **relative**
+   command line — so the absolute-path branch cannot match either.
+
+Even past identification, the kill only allowed `sudo -n kill` for pytest-create paths. It was
+hit live: a hung `eapol.py` holding eth4 promiscuous, which **closing the local ssh did not
+kill**.
+
+**Fixed in commit `788205b`**: a `sudo -n readlink` fallback for the cwd, acceptance of a
+`sudo -n python3 <tool>.py` command line, and `sudo -n kill` for a **root** process that
+identification has **already established is ours**. The refusals that matter are untouched —
+minicom / screen / tmux, and any other user's process — which is the property that counts,
+since every session here runs as the same Unix user. Verified live: `tb: 17344 stopped`.
+
+### 🔧 Two `tools/eapol.py` bugs, found BEFORE any measurement, both now in `tools/README.md`
+
+- 🔴 **Never read EAP Type-Data from scapy's `eap.payload`.** scapy dissects a MD5-Challenge into
+  its own `EAP_MD5` class, so the challenge sits in a **field** and `eap.payload` holds only the
+  **Ethernet padding** an EAPOL frame gets to reach 60 bytes — 37 bytes of it on a
+  Request/Identity. The digest then hashes **no challenge at all**, the frame is perfectly well
+  formed, and the server says only `Login incorrect`. **What settled whose fault it was in one
+  step:** run the same credential through `wpa_supplicant --method md5`, whose EAP-MD5 is beyond
+  doubt. It succeeded first time, so the server was fine and the tool was wrong. **A second
+  instrument is the cheapest way to tell a tool defect from a product one.**
+- A scapy `L2socket.recv()` **blocks on an idle wire**, so `--timeout` did nothing and a
+  `--timeout 25` run was still alive 11 minutes later. Fixed with `select`.
 
 ## Issues
 
