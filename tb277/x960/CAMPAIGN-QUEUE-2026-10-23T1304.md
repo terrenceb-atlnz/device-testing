@@ -707,3 +707,81 @@ Verified at 15:11 NZDT after the last case:
 2. The probe's two `CHECK_CABLE` lines are therefore **expected** for eth4 now, and remain the
    known `--read-only` artefact for eth3 (the probe may not ping, so the box's MACs age out of
    the DUT's FDB). eth3 was confirmed at 4/4 by hand. Nothing moved.
+
+## 🔴 GROUP B RIG — `authmodes-2026-10-23T1304`, written BEFORE the first case
+
+Group B **inherits group A's rig unchanged** and adds nothing to it at group level. Everything
+group B configures is **per case, on `interface port1.0.48` only**, and is removed at the end of
+that case. Written here so a fresh tester can restore the bench if this one dies mid-group.
+
+### The rig as group B found it (measured 2026-10-23 15:18 NZDT / 02:18 UTC, u2)
+
+| thing | value |
+| --- | --- |
+| build / boot | `sin_x96056-20261019-27`; `flash:/x960-tb277.rel` (file exists) / `flash:/default.cfg` (file exists), autoboot disabled — **the baseline** |
+| uptime | 0 days 02:22:57 — same boot as group A's, **no new reboot** |
+| DUT clock vs box | DUT `Fri, 23 Oct 2026 02:18:43 +0000` vs box `Fri 23 Oct 2026 02:18:57 UTC` — agree within read latency |
+| `show auth` | 802.1X **Enabled**, MAC-based Disabled, WEB-based Disabled; RADIUS auth server `127.0.0.1:1812` |
+| `show radius` | one host `127.0.0.1` auth 1812 acct 1813 |
+| `show radius local-server user` | 4 users: `ckmulti1`, `ckmulti2`, `ckpeap`, `cktls` — group A's, reused by group B |
+| `show radius local-server nas` | one NAS `127.0.0.1` |
+| `running-config \| include radius` | `radius-server host 127.0.0.1 key <enc> encrypted` / `aaa authentication dot1x default group radius` / `radius-server local` |
+| `running-config \| include aaa` | the two baseline lines + `aaa authentication dot1x default group radius` |
+| port1.0.48 | `switchport mode access` / `switchport access vlan 48` / `dot1x port-control auto` / `dot1x control-direction both` |
+| `show auth interface port1.0.48` | portStatus **Unauthorized**; reAuthenticate **disabled**, reAuthPeriod 3600; hostMode **single-host**; CD adminControlledDirections **both**; dynamicVlanCreation / multiVlanSession / twoStepAuthentication / authMac / authWeb all **disabled**; supplicantMac **none** |
+| vlan 60 / vlan10 / vlan48 | untouched |
+
+### The one-line restore for group B
+
+🔴 **Nothing in group B runs `write`.** `startup-config` stays `flash:/default.cfg`, so **a
+reload (or a BOTH-outlet power cut, outlets 1 and 8 on 10.36.230.212) is itself a complete
+restore** of the whole bench, group A's rig included. That is the backstop.
+
+### The CLI restore recipe — group B's own additions, removed per case
+
+Run at the end of EVERY case in this group, then verified with one
+`show auth interface port1.0.48` (the single read that shows every knob below at once):
+
+```
+configure terminal
+ interface port1.0.48
+  no auth reauthentication           ! T33374
+  no auth timeout reauth-period      ! T33374  (returns reAuthPeriod to 3600)
+  no auth supplicant-mac             ! T44277
+  no auth two-step                   ! T33369
+  no auth dynamic-vlan-creation      ! T33362
+  no auth multi-vlan-session         ! T33362
+  no auth host-mode                  ! T33362 / T44279
+  no auth-mac enable                 ! T33369 / T44279
+  no auth-web enable                 ! T44279
+  dot1x control-direction both       ! 🔴 ALWAYS, EXPLICITLY -- see below
+  end
+```
+
+🔴 **`dot1x control-direction both` is re-sent explicitly at the end of every case that touches
+`auth host-mode`,** because of the standing finding: `auth host-mode multi-supplicant` silently
+rewrites it to `in` and `no auth host-mode` does not put it back. Verified by reading
+`CD: adminControlledDirections: both` back out, not by assuming.
+
+**Proof of restore for group B (after the LAST case):** `show auth interface port1.0.48` must
+read exactly the baseline row above — reAuthenticate disabled / reAuthPeriod 3600 / hostMode
+single-host / CD both / dynamicVlanCreation, multiVlanSession, twoStep, authMac, authWeb all
+disabled / supplicantMac none — and `show running-config interface port1.0.48` must hold only
+the four baseline lines. **Group A's rig (`radius-server local`, the four users, the NAS, the
+`local` trustpoint, `aaa authentication dot1x default group radius`) is LEFT IN PLACE** for
+group C/D; group A's own recipe above removes it when the campaign is done with it.
+
+### Group B gate record (2026-10-23 15:17–15:19 NZDT)
+
+| gate | result |
+| --- | --- |
+| 1 occupancy | `tools/tb precheck tb277 u2` → `/dev/u2` **free**; exit 5 for the one standing FOUND item, `ser2net` pid 744 (root, up 42 d) — the standing adjudication, not touched. `tools/tb scratch tb277 authm1304` → 79 files |
+| 2 console state | `tools/tb peek` → `awplus#`, exec prompt. Not in config mode, not at a shell |
+| 3 template path | `tools/tb template tb277` → `/nfsHome not mounted`, no deployed `tb277.setup` — expected for this box; none bound |
+| 4 probe | `--read-only`, group B run `.setup`, exit **2 NEEDS-CHECK**: **one** `CHECK_CABLE`, on **eth4** only. 🔴 **Expected and predicted by group A's handover** — port1.0.48 is dot1x-controlled with no supplicant authenticated, so the box's MAC is not in the FDB. eth3's artefact of the morning is **gone** (its MAC is learned again). Nothing moved. `bench-setup/tb277/bench-state.md` regenerated **byte-identical** (`git status` clean) — nothing to restore, nothing committed |
+| 5 run `.setup` | `tb277/x960/authmodes-2026-10-23T1304/tb277-u2.setup`, swi_d only, cut from group A's |
+| 6 preflight | **N/A — no framework script.** All five cases are console + host-traffic cases driven through `tools/tb` |
+| 7 boot baseline | `flash:/x960-tb277.rel` + `flash:/default.cfg`, autoboot disabled — re-read at the group's end |
+| 8 Ask-CK server path | not used |
+| 9 sentinel | `sentinel: parent` — nothing to arm |
+| 10 CLI defaulting | N/A (no framework defaulting step). Each case probes its own commands with `qmark` read-only before sending them |
