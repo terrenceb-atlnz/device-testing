@@ -356,6 +356,140 @@ campaign does.** It is tagged on port1.0.2, the RSTP root port, and the supplica
 port1.0.48; removing it would re-converge the tree through the root port for no gain.
 
 
+## 🔴 GROUP A RIG — the bench setup all four cases inherit, and its EXACT restore recipe
+
+Written by the group A tester (bench-runner) **before the first case**, per the dispatch, so a
+fresh tester can restore the bench if this one dies mid-group. Group B inherits this rig.
+
+### What the rig is
+
+The DUT (`swi_d`, u2) is **both the authenticator and the RADIUS server**. The **supplicant is
+the testbox**, on **eth4 ↔ port1.0.48** (never eth3/port1.0.10 — dot1x blocks a port until
+authentication succeeds, and port1.0.10 carries the vlan10 L3 underlay).
+
+The recipe is **T9032's authored precondition**, which is the gold source. 🔴 **The queue's own
+short form in "The rig — measured" is INCOMPLETE: it omits `radius-server host 127.0.0.1`.**
+The authored precondition has it, and it is load-bearing — `aaa authentication dot1x default
+group radius` sends the NAS to the *RADIUS client* configuration, and with no `radius-server
+host` there is no server for `group radius` to reach, local server or not. Both keys must match.
+
+```
+! --- the DUT as RADIUS CLIENT (what `group radius` dials) ---
+radius-server host 127.0.0.1 key awplus-local-radius-server
+aaa authentication dot1x default group radius
+! --- the DUT as RADIUS SERVER ---
+radius-server local
+ server enable
+ nas 127.0.0.1 key awplus-local-radius-server
+ user <user> password <password>
+ exit
+! --- the authenticator port ---
+interface port1.0.48
+ dot1x port-control auto
+ dot1x control-direction both
+ exit
+```
+
+### 🔴 The trustpoint `local` ALREADY EXISTS — do NOT remove it in teardown
+
+The dispatch warned that `crypto pki trustpoint local` **creates** the object on entry
+(`platforms/x960.md` §7E.8) and said to remove it in teardown. **Measured on this unit, that
+would have destroyed pre-existing device state.** Before this group touched anything:
+
+```
+awplus#show crypto pki trustpoint
+Trustpoint "local"
+   Type                 : Self-signed certificate authority (RSA + ECDSA)
+   Root Certificate     : RSA:  C29CD492 253DF5BD F849819E F12866D8 792C90BE
+                        : ECDSA: 906D4096 FB243C13 F727C758 7F41DF0D CBCF1FB5
+   Local Server (RSA)   : Enrolled with this trustpoint.
+   Local Server (ECDSA) : Enrolled with this trustpoint.
+   Server Key           : RSA: server-default
+                        : ECDSA: server-default-ecdsa
+```
+
+and `show crypto key mypubkey rsa` already lists the RSA key pair `server-default` bound to
+trustpoint `local`. **Yet `show running-config | include crypto` returns NOTHING** — the
+trustpoint and its keys are persistent PKI state on flash, *not* configuration. So:
+
+- entering `crypto pki trustpoint local` on THIS unit **does not create** anything;
+- `no crypto pki trustpoint local` would **delete a pre-existing CA and its key pair**, which no
+  case here asked for. **It is NOT in the restore recipe.** T9032 enrolls a *user* under the
+  existing trustpoint and removes only that user's artefacts.
+
+### The exact restore recipe
+
+🔴 **Nothing in this group runs `write`.** `startup-config` stays `flash:/default.cfg` untouched
+throughout, so **a reload or a (both-outlet) power cut is itself a complete restore**. That is
+the backstop; the CLI recipe below is the normal path.
+
+```
+configure terminal
+ interface port1.0.48
+  no dot1x port-control
+  no dot1x control-direction
+  no auth host-mode
+  no auth max-supplicant
+  no auth dynamic-vlan-creation
+  no auth multi-vlan-session
+  no auth supplicant-mac
+  no auth reauthentication
+  no auth two-step
+  exit
+ no aaa authentication dot1x default
+ no radius-server local
+ no radius-server host 127.0.0.1
+ end
+! certificate artefacts T9032 exports (ONLY these; never the trustpoint itself):
+delete force flash:/localca.cer
+delete force flash:/<user>.p12
+! and on the DUT, if T9032 enrolled a PKI user:
+configure terminal
+ crypto pki trustpoint local
+  no crypto pki enroll local user <user>     ! see T9032's log for the exact negation measured
+  end
+```
+
+**Proof of restore, in this order:** `show auth` must read all three of 802.1X / MAC-based /
+WEB-based **Disabled**; `show radius` must read `No RADIUS servers currently defined`;
+`show radius local-server nas` must be **empty**; `show running-config | include radius|dot1x|aaa`
+must show only the two baseline lines `aaa authentication enable default local` and
+`aaa authentication login default local`; and `show crypto pki trustpoint` must still list
+**all three** trustpoints `default-selfsigned`, `default-system`, `local`.
+
+### The bench baseline this group started from (2026-10-23 13:28–13:32 NZDT, u2)
+
+| thing | value |
+| --- | --- |
+| build | `sin_x96056-20261019-27`, build date Sun Oct 18 23:18:21 UTC 2026 |
+| boot image / config | `flash:/x960-tb277.rel` (exists) / `flash:/default.cfg` (exists), autoboot disabled |
+| uptime at group start | 0 days 00:33:15 — i.e. booted 2026-10-22 23:55 UTC |
+| DUT clock vs box clock | DUT `Fri, 23 Oct 2026 00:28:58 +0000` vs box `Fri 23 Oct 2026 00:29:12 UTC` — agree within the read latency, no offset to correct for |
+| `show auth` / `show dot1x` | 802.1X, MAC-based and WEB-based all **Disabled** |
+| `show radius` | `No RADIUS servers currently defined`; `show radius local-server nas` empty |
+| `show running-config \| include crypto` | **empty** |
+| `show running-config \| include aaa` | `aaa authentication enable default local` / `aaa authentication login default local` |
+| port1.0.48 | `switchport mode access` / `switchport access vlan 48` (vlan48 `ckUNDERLAY-eth4`) |
+| port1.0.10 | `switchport mode access` / `switchport access vlan 10` (vlan10 `ckUNDERLAY-eth3`) |
+| both legs | ping 4/4 each: box eth4 → 10.38.22.66, box eth3 → 10.38.22.34 |
+| spanning tree | root `8000:0000cd423029`, root port port1.0.2 Forwarding; port1.0.10 and port1.0.48 Designated/Forwarding |
+| vlan 60 | present (`ckMGMT-A`, port1.0.2 tagged) — **left alone**, no case here needs it gone |
+
+### Gate record (group A, 2026-10-23 13:27–13:32 NZDT)
+
+| gate | result |
+| --- | --- |
+| 1 occupancy | `tools/tb precheck tb277 u2` → `/dev/u2` **free**; exit 5 for one FOUND item, `ser2net` pid 744 (root, up 42 d) — **the standing adjudication** (maps only ttyS0/ttyS1, holds no USB console; the 2026-10-23 handover lists it as expected). Not touched |
+| 2 console state | probe opened u2 at 115200, banner `awplus`, hostname `awplus`, exec prompt. Not parked in config mode, not at a shell |
+| 3 template path | `tools/tb template tb277` → `/nfsHome not mounted`, **no deployed `tb277.setup`** — expected and correct for this box; never bind one |
+| 4 probe | `--read-only`, run `.setup`, exit **2 NEEDS-CHECK**: 2 × `CHECK_CABLE` on eth3 and eth4. **Both are the known `--read-only` artefact** (the probe may not ping, so the box's MACs had aged out of the DUT's FDB) and **both were disproved immediately**: ping 4/4 on each leg. Nothing moved. `bench-setup/tb277/bench-state.md` was regenerated by the probe and restored with `git checkout --`; **not committed** |
+| 5 run `.setup` | `tb277/x960/dot1x-2026-10-23T1304/tb277-u2.setup`, swi_d only |
+| 6 preflight | **N/A — no framework script in this group.** All four cases are console + host-traffic cases driven through `tools/tb`; `pt_preflight.py` has nothing to check |
+| 7 boot baseline | `flash:/x960-tb277.rel` + `flash:/default.cfg`, autoboot disabled — recorded, to be re-read after the group |
+| 8 Ask-CK server path | not used |
+| 9 sentinel | `sentinel: parent` — nothing to arm |
+| 10 CLI defaulting | N/A (no framework defaulting step). The config-if surface was still probed read-only with `qmark`: `dot1x port-control {auto\|force-authorized\|force-unauthorized}` and `auth host-mode {single-host\|multi-host\|multi-supplicant\|host-plus-voice}` all confirmed present before any of it was sent |
+
 ## Results
 
 | case | title | group | verdict | reason | working log | graded |
