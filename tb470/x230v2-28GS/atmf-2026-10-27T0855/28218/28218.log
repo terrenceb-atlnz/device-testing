@@ -1,0 +1,226 @@
+================================================================================
+TEST 28218 -- ATMF provisioning
+================================================================================
+Run:      2026-10-27 11:01:16-11:15:05 NZDT.  The DUT's clock reads UTC, about 8 s behind
+          tb470, so DUT times below are UTC (NZDT = UTC + 13 h).
+Bench:    tb470, consoles u0,u1 (this case configured u1 only); Test Engineer
+          terrenceb@terrenceb-dl
+Tester:   bench-runner (by hand: tools/tb ckcon, ckyn, ckreload and health on tb470;
+          tools/rcdiff.py compared configs; no framework script)
+Graded:   tester
+Case:     AWPTCM-T28218 (Draft), objective
+          "https://wiki.atlnz.lc/awpwiki/index.php/AMF_Recovery_and_Provisioning_Enhancements_-_Feature_Page",
+          5 steps (ck.db holds them as one text)
+Build:    swi_f awplus_main-20261019-75 (x230v2_28GS-awplus_main-20261019-75.rel, build date
+          Mon Oct 19 08:39:33 UTC 2026), bootloader 6.2.40; licences Base, ACCESS and FULL
+          (AMF-MASTER-20/40/80/120/250 enabled)
+
+x230-28GSv2# show system
+System Status                                           Mon Oct 26 22:02:43 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       706  Base    AT-x230-28GS V2                   A-0   A10783G262900002
+--------------------------------------------------------------------------------
+RAM: Total: 506920 kB Free: 311988 kB
+Flash: 95.6MB Used: 35.1MB Available: 60.6MB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 01:17:05
+Bootloader version : 6.2.40
+
+Current software   : x230v2_28GS-awplus_main-20261019-75.rel
+Software version   : awplus_main-20261019-75
+Build date         : Mon Oct 19 08:39:33 UTC 2026
+
+Current boot config: flash:/tb470-bench.cfg (file exists)
+
+System Name
+ x230-28GSv2
+System Contact
+
+System Location
+Configs:  swi_f.cfg (running-config after setup: `atmf master` added; saved to startup: no)
+
+VERDICT: PASS -- the x230v2-28GS works as an AMF master and provisions a future node on its
+         USB backup media. All 5 steps did what the case says.
+      atmf master (setup) ....................... accepted  (Role Master, Backup Media USB)
+      1 atmf provision node future_node ......... provision mode  (x230-28GSv2[atmf-provision]#)
+      2 create .................................. nodes/future_node/ created on usb:
+      3 copy + configure boot system ............ .rel copied (36747551 B) and set
+      4 copy + configure boot config ............ tb470-bench.cfg copied (2184 B) and set
+      5 show atmf provision nodes ............... future_node, its path, both files "(file exists)"
+CAVEAT:  The node was provisioned without `device x530`. The case says the device type is
+         optional, and there is no x530 on this bench. The backup media is a USB stick in the
+         x230. The case's example output used a file server instead.
+HEALTH:  reboots ......... no new entry during the case (newest stays 2026-10-26 20:45:16
+                           Expected CLI(user request), a restart before this case)
+         exception log ... None -> None
+         log ............. no crash, daemon restart or kernel error. 0 new filtered lines.
+                           port1.0.10 (tb470 eth2) went down at 21:59:49 and up at 22:00:57,
+                           before this case changed anything.
+         CPU ............. busy 1% before -> 1% after (1 s average; show cpu prints busy, not idle)
+         memory .......... free 311992 of 506920 kB before (38.5% used) -> free 310972 kB after
+                           (38.7% used), just after the 36.7 MB copy
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+
+        tb470 /dev/u1 (console only, 115200)
+             |
+             v  CLI only. No traffic.
+    +-----------------------------------------+
+    |  swi_f AT-x230-28GS V2   DUT            |
+    |  AMF master, network Enterprise-AMF     |
+    |  [USB port] -> 31 GB USB stick (usb:)   |  <-- backup media for the provisioned node
+    +-----------------------------------------+
+
+  DUT     : swi_f (AT-x230-28GS V2, hostname x230-28GSv2) console u1 (115200),
+            S/N A10783G262900002, standalone, boot config flash:/tb470-bench.cfg
+  AMF     : atmf network-name Enterprise-AMF, atmf management vlan 3500, atmf domain vlan 1234,
+            atmf group network-A (from tb470-bench.cfg); `atmf master` added for this case.
+            The x230 is the only node (Current ATMF Nodes 1).
+  media   : usb: = "USB3.0 FLASH DRIVE", 28.9G, 28.6G free (show file systems)
+  partner : none used. The AR4050S (swi_e, u0) was not configured and is not in the AMF
+            network.
+  tools   : on tb470, through tools/tb from the repo root:
+            tools/tb ckcon tb470 atmf-1027 u1 115200 [--stop-on-error] "<cmd>" ...   (CKTO=600)
+            tools/tb ckyn tb470 atmf-1027 u1 115200 "configure terminal" "YN?:atmf master" "end"
+            tools/tb health tb470 atmf-1027 u1 115200 --label before | --before <json> --label after
+            python3 tools/rcdiff.py <running-config before the case> <running-config after setup>
+
+STEP 0 -- baseline and setup (x230 becomes the AMF master)                  done
+--------------------------------------------------------------------------------
+x230-28GSv2# show file systems        [11:01:25]   (excerpt)
+  Size(b)  Free(b)  Type   Flags  Prefixes   S/D/V   Lcl/Ntwk  Avail
+  -------------------------------------------------------------------
+    95.6M    60.6M   flash     rw  flash:     static  local      Y
+    28.9G    28.6G   usbstick  rw  usb:       dynamic local      Y   <-- backup media present
+x230-28GSv2# show license brief        [11:01]   (excerpt)
+   AMF-CONTROL-60, AMF-GUEST, AMF-INTERMEDIATE, AMF-MASTER-120, AMF-MASTER-20,
+   AMF-MASTER-250, AMF-MASTER-40, AMF-MASTER-80, AMF-Starter, BASE-AW+, BGP-256,
+                                                       <-- the master role is licensed
+x230-28GSv2# show atmf        [11:01]   (excerpt)
+  Role                  : Member                       <-- not a master before the case
+x230-28GSv2# show atmf provision nodes        [11:01]
+  Backup Media .......... USB (Total 29584.1MB, Free 29284.4MB)   <-- no node provisioned
+x230-28GSv2# configure terminal        [11:06:02]
+  Enter configuration commands, one per line.  End with CNTL/Z.
+x230-28GSv2(config)# atmf master        [11:06:03]
+x230-28GSv2(config)# end        [11:06:04]          <-- no error, no (y/n) question
+x230-28GSv2# show atmf        [11:06:36]
+  ATMF Summary Information:
+
+  ATMF Status           : Enabled
+  Network Name          : Enterprise-AMF
+  Node Name             : x230-28GSv2
+  Role                  : Master                       <-- the x230 is now the master
+  Restricted login      : Disabled
+  Secure Mode           : Disabled
+  Current ATMF Guests   : 0
+  Current ATMF Nodes    : 1
+  Total number of licensed nodes available is 4094
+x230-28GSv2# show atmf nodes        [11:06:38]   (excerpt)
+    Node                 Device             ATMF         Parent              Node
+    Name                 Type               Master  SC   Domain              Depth
+  --------------------------------------------------------------------------------
+  * x230-28GSv2          AT-x230-28GS V2      Y     N    none                  0
+x230-28GSv2# show atmf backup        [11:06:39]   (excerpt)
+  Node Backup ........... Enabled
+  Backup Media .......... USB (Total 29584.1MB, Free 29284.4MB)
+  Current Action ........ Idle
+  (running-config compared with the pre-case copy: the only change is "+atmf master".
+   swi_f.cfg was saved from this running-config.)
+  => STEP 0 done: the x230 has the AMF-MASTER licence and a USB backup media. It accepted
+     `atmf master` and now reports Role Master, AMF master Y, Depth 0.
+
+STEP 1 -- "Enter AMF provisioning mode and set the name to "future_node"     PASS
+          and optionally specify the configuration is for an x530"
+--------------------------------------------------------------------------------
+x230-28GSv2# atmf provision node future_node        [11:07:14]
+x230-28GSv2[atmf-provision]#                          <-- provisioning mode, prompt after 28 s
+  => STEP 1 PASS: the DUT entered AMF provisioning mode for node future_node.
+
+STEP 2 -- "This command sets up an empty directory on the backup media for    PASS
+          use with the provisioned node"
+--------------------------------------------------------------------------------
+x230-28GSv2[atmf-provision]# create        [11:07:42]
+x230-28GSv2[atmf-provision]#                          <-- no error
+x230-28GSv2# dir recursive usb:/atmf/Enterprise-AMF        [11:08:45]   (excerpt)
+  usb:/atmf/Enterprise-AMF/nodes
+       16384 drwx Oct 26 2026 22:07:08  future_node/   <-- created by `create` at 22:07:08
+  usb:/atmf/Enterprise-AMF/info
+          40 -rwx Oct 26 2026 22:07:08  backup_future_node.info
+  (before the case, usb:/atmf/Enterprise-AMF/nodes/ was empty)
+  => STEP 2 PASS: `create` made the directory future_node/ for the node on the USB backup
+     media.
+
+STEP 3 -- "Copy and set release file"                                         PASS
+--------------------------------------------------------------------------------
+x230-28GSv2[atmf-provision]# locate        [11:07:43]
+x230-28GSv2[atmf-provision]#                          <-- working directory = the node's directory
+x230-28GSv2[atmf-provision]# copy flash:/x230v2_28GS-awplus_main-20261019-75.rel ./x230v2_28GS-awplus_main-20261019-75.rel
+  Copying...
+  Successful operation                                 <-- finished by 11:08:31
+x230-28GSv2[atmf-provision]# configure boot system x230v2_28GS-awplus_main-20261019-75.rel        [11:08:33]
+x230-28GSv2[atmf-provision]#                          <-- no error
+x230-28GSv2# dir recursive usb:/atmf/Enterprise-AMF        [11:08:45]   (excerpt)
+  usb:/atmf/Enterprise-AMF/nodes/future_node/flash
+    36747551 -rwx Oct 26 2026 22:07:46  x230v2_28GS-awplus_main-20261019-75.rel
+x230-28GSv2# dir flash:        [11:08:46]   (excerpt)
+    36747551 -rw- Oct 20 2026 07:57:58  x230v2_28GS-awplus_main-20261019-75.rel
+                                                       <-- same size as the source file
+  => STEP 3 PASS: the release file (36747551 bytes) is in the node's flash/ directory on the
+     USB stick, and the node's boot system is set to it.
+
+STEP 4 -- "Copy and set the configuration file"                               PASS
+--------------------------------------------------------------------------------
+x230-28GSv2[atmf-provision]# copy flash:/tb470-bench.cfg ./tb470-bench.cfg        [11:08:37]
+  Copying...
+  Successful operation
+x230-28GSv2[atmf-provision]# configure boot config tb470-bench.cfg        [11:08:40]
+x230-28GSv2[atmf-provision]#                          <-- no error
+x230-28GSv2# dir recursive usb:/atmf/Enterprise-AMF        [11:08:45]   (excerpt)
+  usb:/atmf/Enterprise-AMF/nodes/future_node/flash
+        2184 -rwx Oct 26 2026 22:08:26  tb470-bench.cfg
+x230-28GSv2# dir flash:        [11:08:46]   (excerpt)
+    2184 -rw- Oct 26 2026 20:47:28  tb470-bench.cfg  <-- same size as the source file
+  => STEP 4 PASS: the configuration file (2184 bytes) is in the node's flash/ directory, and
+     the node's boot config is set to it.
+
+STEP 5 -- "show atmf provision nodes"                                         PASS
+--------------------------------------------------------------------------------
+  Expected: the case's example block: Backup Media, Node Name, Date, Provision Path
+            .../nodes/<node>/flash/, Current boot image ... (file exists), Default boot config
+            flash:/default.cfg (file not found), Current boot config ... (file exists).
+x230-28GSv2[atmf-provision]# exit        [11:08:41]
+x230-28GSv2# show atmf provision nodes        [11:08:42]
+  ATMF Provisioned Node Information:
+
+  Backup Media .......... USB (Total 29584.1MB, Free 29249.2MB)   <-- 35.2 MB less free space
+
+  ======================================================
+  Node Name                 : future_node              <-- the provisioned node
+  ======================================================
+  Date                      : 26 Oct 2026 22:07:08
+  Provision Path            : usb:/atmf/Enterprise-AMF/nodes/future_node/flash/
+  Boot configuration :
+    Current boot image      : flash:/x230v2_28GS-awplus_main-20261019-75.rel (file exists)
+    Backup  boot image      : Not Set
+    Default boot config     : flash:/default.cfg (file not found)
+    Current boot config     : flash:/tb470-bench.cfg (file exists)
+    Backup  boot config     : Not Set
+  Software Licenses :
+    Repository file         :
+    Certificate file        :
+x230-28GSv2# show atmf backup        [11:08:43]   (excerpt)
+  --------------------------------------------------------------------------------
+  Node Name                  Date         Time      In ATMF  On Media  Status
+  --------------------------------------------------------------------------------
+  future_node                -            -         No       Yes       Provisioned
+  x230-28GSv2                -            -         Yes      No        -
+  => STEP 5 PASS: the output has the same shape as the case's example. It names future_node,
+     its provision path on usb:, and both the boot image and the boot config as "(file
+     exists)". `show atmf backup` lists future_node as Provisioned on the media.
+================================================================================
