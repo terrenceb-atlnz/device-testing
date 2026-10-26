@@ -71,7 +71,7 @@ Triage answers, 2026-10-27 09:19 NZDT (AskUserQuestion):
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
 | 1 | platform: T31863 (BIST), T31866 (PRBS) | tb470/x230v2-28GS/platform-2026-10-27T0855/ | DONE 09:51 — T31863 UNSUPPORTED, T31866 UNSUPPORTED (bench-runner; restored: running-config identical to pre-run, boot cfg tb470-bench.cfg, u0/u1 logged out) | u1 CLI; no licence reload needed (the unit already booted with FULL at 08:48). Parser offers both, as on 10-09; whether they still refuse is the run's measurement |
-| 2 | mcast: T30403 (static mroutes, IPv4) | tb470/x230v2-28GS/mcast-2026-10-27T0855/ | QUEUED — RUNNABLE AS A RE-GRADE ONLY (triage 09:10) | licence now lists PIM / PIM6 / L3-MC-ROUTE, but after a licensed boot `ip multicast-routing`, `ip mroute`, `ip pim`, `show ip mroute`, `show ip pim` are still `% Unrecognized command`: expect UNSUPPORTED again (~10 min, no device change) |
+| 2 | mcast: T30403 (static mroutes, IPv4) | tb470/x230v2-28GS/mcast-2026-10-27T0855/ | RUNNING since 09:57 (bench-runner RUN; triage 09:10: RUNNABLE AS A RE-GRADE ONLY) | licence now lists PIM / PIM6 / L3-MC-ROUTE, but after a licensed boot `ip multicast-routing`, `ip mroute`, `ip pim`, `show ip mroute`, `show ip pim` are still `% Unrecognized command`: expect UNSUPPORTED again (~10 min, no device change) |
 | 3 | atmf: T28218 (ATMF provisioning, **x230 as master**) | tb470/x230v2-28GS/atmf-2026-10-27T0855/ | BLOCKED (topology, triage 09:10) | licence now carries AMF-MASTER-20…250 and `atmf master` is offered, but the x230 has NO backup media (`usb:` Avail N, no card:, `show atmf provision nodes` → `Backup Media .......... NONE`). Unblock: plug a USB stick (≥ 1 GB, FAT32) into swi_f's (u1, x230v2-28GS) USB port so `show file systems` reads `usb: … Y`; or decide on a remote backup server (see Triage) |
 
 ## Group 1 bench setup and restore recipe (bench-runner RUN, written 09:24 before the first case)
@@ -92,6 +92,21 @@ Triage answers, 2026-10-27 09:19 NZDT (AskUserQuestion):
   question) returns the unit to `flash:/tb470-bench.cfg`; prove it with `show running-config` diffed against the
   pre-case copy (only `exec-timeout 0 0` under `line con 0` may differ before the reload; nothing after it), and
   `show boot` still naming `flash:/tb470-bench.cfg`. Then `exit` u1 to `login:`.
+
+## Group 2 bench setup and restore recipe (bench-runner RUN, written 09:58 before the case)
+
+- **Gate 09:56–09:57:** precheck `tb470 0,1` CLEAR (exit 0); peek u0 `4050-5g login:`, u1 `x230-28GSv2 login:`;
+  `/nfsHome` mounted, `tb470.setup` present; probe `2026-10-26T205715Z` (session facts, `--baud 115200`) **exit 1
+  MISMATCH = the same 2026-10-22 recable** (no Advisories, no USER-CONFLICT); T30403 binds no `.setup` (manual CLI).
+  Box scratch `/tmp/mc-1027/` (transcript `console-u1.log`).
+- **Devices used:** u1 (swi_f, x230v2-28GS, the DUT) only. u0 (4050) is not needed while step 1 cannot be configured;
+  it is only peeked/probed. The 31 GB USB stick in the x230 is group 3's: not touched.
+- **Setup (u1):** none beyond the setup reads (no reload, no config). Step 1 = the case's config forms sent in config
+  mode WITH CR (`ip multicast-routing`, `ip mroute …`, `ip pim …` on an interface), each expected `% ` refused.
+- **Restore recipe (for a fresh tester if this one dies):** on u1, `end`; never `write`. Diff `show running-config`
+  against the pre-case copy `mcast-2026-10-27T0855/30403/work/pre.out` (`python3 tools/rcdiff.py`); any line that
+  landed is removed with its `no` form (or a `reload`, answering `n` to save, returns the unit to
+  `flash:/tb470-bench.cfg`). Prove `show boot` still names `flash:/tb470-bench.cfg`. Then `exit` u1 to `login:`.
 
 ## Results
 
