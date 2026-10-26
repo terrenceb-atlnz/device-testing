@@ -14,15 +14,21 @@ that you do. Another thing that might help you is the test strategy and Software
 
 Three documents, read BEFORE drafting steps or grading anything:
 
-1. **Feature Overview and Configuration Guide** — **from 2026-10-15 the Test Engineer keeps these
-   on the lab home, at the repo root: `claude/device-testing/Feature Overview Guides/`** (DHCP,
-   ACL and Mirroring on day one; one per feature going forward). Read from there FIRST — the
-   agent on a testbox can reach it, and it is NOT in git (several MB of PDF each, gitignored, so
-   the pointer is versioned and the files are not). Repo root, not a product directory, so it
-   survives the archive of `<TB>/<FAMILY>/` ([[product-dirs-archive-to-old-test-runs]]).
-   Anything not yet downloaded is public on alliedtelesis.com, and the AW+ CLI wiki's
-   `introductions/*.md` pages carry the exact link per feature (e.g. mirroring →
-   `alliedtelesis.com/documents/remote-mirroring-feature-overview-and-configuration-guide`).
+1. **Feature Overview and Configuration Guide (FoG)** — **2026-10-27: the local copy is GONE.**
+   `claude/device-testing/Feature Overview Guides/` (repo root, gitignored, kept there from
+   2026-10-15) no longer exists on the share; the Test Engineer is locating the PDFs again.
+   **Until he says they are back, read the FoG from the Allied Telesis website.** The
+   exhaustive list of every AW+ FoG (Test Engineer, 2026-10-27) -- start here to find a
+   feature's guide:
+   `https://www.alliedtelesis.com/nz/en/resource/alliedware-plus-feature-overview-and-configuration-guides/`
+   Each guide has its own resource page, e.g. AMF:
+   `https://www.alliedtelesis.com/nz/en/resource/amf-feature-overview-and-configuration-guide/`
+   (Test Engineer, 2026-10-27). The pattern is
+   `alliedtelesis.com/nz/en/resource/<feature>-feature-overview-and-configuration-guide/`; the
+   AW+ CLI wiki's `introductions/*.md` pages also carry the exact link per feature (e.g.
+   mirroring → `alliedtelesis.com/documents/remote-mirroring-feature-overview-and-configuration-guide`).
+   The site is public, so fetch it from the dev host (WebFetch), not from a testbox. Do not
+   `ls` for the old folder first: on 2026-10-27 that cost the T30403 tester three calls.
 2. **Software TPS** (Target Platform Specification) — the per-product feature support matrix:
    every feature with Yes/No and the reason for a No. This is where an expected UNSUPPORTED is
    read off, instead of inferred from the DUT.

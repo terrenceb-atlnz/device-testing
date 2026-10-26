@@ -27,5 +27,15 @@ metadata:
 - The sentinel session's process died mid-restore (09:33); the tester subagent resumed by name with its context intact
   and only re-verified. The device had taken every restore command: read the box transcript before assuming loss.
 
+**2026-10-27 follow-up: the x230v2 itself as master.** Terrence installed a FULL licence on the x230v2
+(S/N A10783G262900002) and moved the 4050's 31 GB USB stick into it; T28218 then PASSED with the x230 as
+master (`tb470/x230v2-28GS/atmf-2026-10-27T0855/`). Two things that cost care:
+- Provisioning a node name REWRITES `usb:/atmf/<net>/info/backup_<node>.info`, and that file survives
+  `delete` + `rmdir` -- the 10-21 run's leftover was on the stick and was overwritten unread. Read it
+  first; `tools/atmf_provision.py` now prints it before the steps.
+- `tools/atmf_provision.py` (2026-10-27) runs the whole provision + restore in one call; not yet
+  run on hardware.
+The stick is still in the x230 at the 2026-10-27 wrap; the 4050 has no `usb:` until it goes back.
+
 Related: [[ie520-master-ignores-remote-backup-server]], [[atmf-recovery-residue-and-reboots]],
 [[session-restart-leaves-old-copy]], [[campaigns-measured-for-token-waste]].
