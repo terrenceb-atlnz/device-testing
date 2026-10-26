@@ -99,6 +99,7 @@ Triage answers, 2026-10-27 09:19 NZDT (AskUserQuestion):
 | --- | --- | --- | --- | --- |
 
 ## Issues
+| T31863 FactoryRunup-BIST (if supported) | UNSUPPORTED | build -20261019-75 with the FULL licence booted: `platform bist instance all` / `0` / `all full` each `% BIST test not supported.`; `show platform bist` "Not run"; health CLEAN; restored (running-config identical, boot cfg tb470-bench.cfg). Finding: each `show platform bist` logs ~96 `local7.err EXFX … Attempt to access illegal devGroup 99` debug lines | tester | platform-2026-10-27T0855/31863/work/run1.log (c8ce3cc) |
 
 
 ## Triage 2026-10-27 09:10 NZDT (bench-runner, TRIAGE dispatch from the /test-mode sentinel)
