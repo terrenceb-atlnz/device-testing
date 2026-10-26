@@ -28,6 +28,10 @@ Triage answers, 2026-10-27 09:19 NZDT (AskUserQuestion):
 - Go: "Proceed (Recommended)" (option text: "Run groups 1 and 2 now; T28218 waits in the queue as BLOCKED").
 - T28218 backup media: "Move the 4050's stick" (option text: "Move swi_e's USB to the x230; the 4050 loses its usb:/atmf trees from 09-21 and 10-21 while it's away"). The move is physical, so the Test Engineer does it; group 3 is re-triaged when he says it is done.
 
+Test Engineer's answers, 2026-10-27 10:3x NZDT (AskUserQuestion):
+- T28218: "Yes, moved, go" (option text: "Re-triage group 3 (confirm usb: Avail Y on the x230), then run T28218 with the x230 as master (~45 min)"). The 31 GB stick in the x230 is the 4050's; the 4050 has no USB stick while it is away.
+- Health flag on T31866 and T30403 (`HTTP: HTTP server restarted`, a boot line already in the before sample): "Agree, clean" -- both runs stay labelled clean.
+
 ## Rules carried with the queue
 
 - Verdicts, working logs, the `RESULT` line, the results list: [logged-output.md](../../logged-output.md).
