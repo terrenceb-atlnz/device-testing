@@ -66,9 +66,9 @@ this campaign until that holder is gone** (precheck CLEAR); never displace it.
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | platform: T31863 (BIST), T31866 (PRBS) | tb470/x230v2-28GS/platform-2026-10-27T0855/ | QUEUED | u1 CLI; may need a reload if the licence only takes at boot |
-| 2 | mcast: T30403 (static mroutes, IPv4) | tb470/x230v2-28GS/mcast-2026-10-27T0855/ | QUEUED | needs multicast routing on the x230; traffic by scapy from tb470 (§7) with a control flow |
-| 3 | atmf: T28218 (ATMF provisioning, **x230 as master**) | tb470/x230v2-28GS/atmf-2026-10-27T0855/ | QUEUED | only if the licence carries AMF-MASTER; the x230 has no USB stick, so backup media is a triage question |
+| 1 | platform: T31863 (BIST), T31866 (PRBS) | tb470/x230v2-28GS/platform-2026-10-27T0855/ | QUEUED — RUNNABLE (triage 09:10) | u1 CLI; no licence reload needed (the unit already booted with FULL at 08:48). Parser offers both, as on 10-09; whether they still refuse is the run's measurement |
+| 2 | mcast: T30403 (static mroutes, IPv4) | tb470/x230v2-28GS/mcast-2026-10-27T0855/ | QUEUED — RUNNABLE AS A RE-GRADE ONLY (triage 09:10) | licence now lists PIM / PIM6 / L3-MC-ROUTE, but after a licensed boot `ip multicast-routing`, `ip mroute`, `ip pim`, `show ip mroute`, `show ip pim` are still `% Unrecognized command`: expect UNSUPPORTED again (~10 min, no device change) |
+| 3 | atmf: T28218 (ATMF provisioning, **x230 as master**) | tb470/x230v2-28GS/atmf-2026-10-27T0855/ | BLOCKED (topology, triage 09:10) | licence now carries AMF-MASTER-20…250 and `atmf master` is offered, but the x230 has NO backup media (`usb:` Avail N, no card:, `show atmf provision nodes` → `Backup Media .......... NONE`). Unblock: plug a USB stick (≥ 1 GB, FAT32) into swi_f's (u1, x230v2-28GS) USB port so `show file systems` reads `usb: … Y`; or decide on a remote backup server (see Triage) |
 
 ## Results
 
@@ -77,3 +77,111 @@ this campaign until that holder is gone** (precheck CLEAR); never displace it.
 
 ## Issues
 
+
+## Triage 2026-10-27 09:10 NZDT (bench-runner, TRIAGE dispatch from the /test-mode sentinel)
+
+Read-only apart from the probe. No device state changed, no case run. u0 and u1 left at `login:` (logged out with
+`exit`, checked with `peek` 09:10). Box scratch `/tmp/triage-0855/` (transcripts `console-u0.log`, `console-u1.log`).
+
+### Gate
+
+| gate | result |
+| --- | --- |
+| 1 occupancy (`tools/tb precheck tb470 0,1`, 09:03) | **CLEAR** (exit 0): u0, u1 free; Terrence's minicom on u1 gone. Only sshd/bash logins of terrenceb (information) |
+| 2 parked consoles (`peek`, 09:03) | u0 `4050-5g login:`, u1 `x230-28GSv2 login:` — neither parked mid-state |
+| 3 template | `/nfsHome` mounted (nfs4); `/home/st-art/st-art/configs/tb470.setup` exists (685 B, Oct 22 12:44) |
+| 4 probe (`2026-10-26T200411Z`, 09:04, session facts as dispatched) | **exit 1 MISMATCH = exactly the 2026-10-22 recable**: `[portlink] swi_e-swi_f` bench `{port1.0.2-port1.0.1, port1.0.3-port1.0.3}` vs template `port1.0.2-port1.0.1`; `[portlink] tb-swi_f eth2` EXTRA_IN_LIVE `eth2-port1.0.10`. **No Advisories, no USER-CONFLICT.** `apply` remains the Test Engineer's (handover 10-22 OPEN 1). No case in this queue binds `tb470.setup` (all manual CLI), so the MISMATCH blocks nothing here |
+| 5 run `.setup` | not needed: no framework script; manual CLI via `tools/tb ckcon/cfg` on u0/u1 only |
+| 6 preflight | N/A (no script) |
+| 7 boot baseline | u0 `flash:/tb470-bench.cfg (file exists)`, `.rel` AR4050S-awplus_main-20261008-57, up 11 d 18 h; u1 `flash:/tb470-bench.cfg (file exists)`, `.rel` x230v2_28GS-awplus_main-20261019-75, backup image/config Not set |
+| 9 sentinel | `sentinel: parent` |
+| 10 defaulting CLI | N/A (no framework script) |
+| MANUAL-ONLY.md | none of T31863, T31866, T30403, T28218 listed |
+
+### u1 (x230v2-28GS swi_f) licence read, 09:04 (`ckcon`; `show feature` does not exist on this build: `% Invalid input`)
+
+- **The x230 rebooted at 2026-10-26 19:48:04 UTC = 08:48 NZDT** (`show reboot history`: `Expected CLI(user request)`;
+  `show system` uptime 0 d 00:16:18 at 20:04:43 UTC). That is inside Terrence's minicom window (08:46–09:02).
+  The current boot's buffered log has no licence command line (`show log | include icens` lists only this triage's own
+  `show license` commands; `show log permanent | include icens` empty), so the licence was installed **before** that
+  reboot: **the unit has already booted with FULL; no reload is needed for the licence to take effect.**
+- `show license` (Board region Global): index 1 **Base License** (Full, issued 26-Oct-2026: BASE-AW+, BW-UNLIMITED,
+  IPv6Basic, L3-FORWARDING, LAG-FULL, MLDSnoop, No-License-Lock, RADIUS-100, RIP, UFO, VCStack); index 2 **ACCESS**
+  (ATI-EMEA, 16-Oct-2009); index 3 **FULL** (ATL-NZ Internal Use Only, Full, qty 1, issued 11-Feb-2019): 10G_SFP+, ACCESS,
+  AMF-APP-PROXY, AMF-CONTROL-10/30/60, AMF-GUEST, AMF-INTERMEDIATE, **AMF-MASTER-120/20/250/40/80**, AMF-Starter,
+  BASE-AW+, BGP-256/5K/64/FULL, BGP4+, BW-UNLIMITED, CFM, CPU-L3-Route, Continuous POE, DPI_RMT_CLIENT, EPSR-MASTER,
+  FIREWALL, G8032, IPv6-6to4, IPv6Basic, ISIS-FULL, L3-FORWARDING, **L3-MC-ROUTE**, LAG-FULL, LICD Dev, MACSEC,
+  MLDSnoop, MODBUS, MRP, No-License-Lock, No-Tier-Check, OSPF-128/16/256/64/FULL, OSPFv3-256/64/FULL, OpenFlow,
+  **PIM, PIM-100, PIM-1024, PIM6**, POE++, PROFINET, PTP-BOUND/ORD/TRANS, RADIUS-100/3/FULL, RIP, RIP-16/256, RIPNG,
+  RIPNG-256, SES, SFP+, STATIC-128, UDLD, UFO, VCS_Mixed-Mode, VCStack, VLAN-TRANS-FULL/LITE, VPN, VRF-LITE-63/8/FULL,
+  VRRP, VXLAN, VlanDT. "Release licenses on stack member 1:" has no rows (both `show license` and `brief`).
+- `show license brief` → "Current enabled features": the same list as FULL (none reads pending/inactive), with
+  `VRF-LITE-0` where `show license` lists `VRF-LITE-8` (noted, not relevant here).
+- `show license external`: URL Filtering, Application Control, Web Control, IP Reputation … "Currently licensed: Yes";
+  AMF Intermediate Node "Currently licensed: Yes".
+- **The FULL licence is the generic internal all-features licence** (it lists POE++, 10G_SFP+, FIREWALL, VPN, which this
+  unit has no hardware or image for). A listed feature therefore says nothing about platform support: the parser is the test.
+- Raw: dev-host scratchpad of this triage (`u1-lic.out`, `u1-qexec.out`, `u1-qcfg.out`, `u1-amf.out`) and the box
+  transcript `/tmp/triage-0855/console-u1.log`.
+
+### u1 parser checks, 09:05–09:08 (`qmark`, help only, self-test OK; nothing executed; console left at exec, then logged out)
+
+| probe | 2026-10-27 (licensed, booted) | before (10-09/10-13) |
+| --- | --- | --- |
+| exec `show ip ?` | access-list dhcp dhcp-relay dns domain-list domain-name flooding-nexthops forwarding igmp interface irdp name-server prefix-list protocols resolve-via-default rip route sockets source traffic — **no mroute, no pim, no multicast** | same gap |
+| `show ip mroute ?` / `show ip pim ?` / `show ip multicast ?` | `% Unrecognized command` ×3 | absent |
+| config `ip ?` | dhcp … igmp … prefix-list radius resolve-via-default route source tacacs tcp … — **no multicast-routing, mroute, pim** | same gap |
+| config `ip multicast-routing ?` / `ip mroute ?` / `ip pim ?` / `ip multicast ?` | `% Unrecognized command` ×4 | absent |
+| exec `platform ?` | bist, command, eyescan, led, memory, portstorm, prbs | offered then too |
+| `platform bist ?` → `instance ?` | `instance` → `<0-127>`, `all` | same |
+| `platform prbs ?` | `all-fabric`, `internal-fabric` | same (the case's `all` does not exist; 10-09 used `all-fabric`) |
+| config `atmf ?` | includes `master`, `backup`, `recovery-server`, `controller` | (master refused/unlicensed 10-09) |
+| config `atmf master ?` | `<cr>` | — |
+| config `atmf backup ?` → `server ?` | HH:MM, area-masters, bandwidth, default, enable, guests, redundancy, server → `id` | — |
+
+Read-only `show` (ckcon, 09:07): `show atmf` → Status Enabled, Network Name Enterprise-AMF, Node x230-28GSv2, **Role Member**,
+Current ATMF Nodes 1 (the 4050 is not in the AMF network now). `show atmf backup` → `% Error: Device configuration does not
+support ATMF backup commands.` (expected on a non-master). `show atmf provision nodes` → `Backup Media .......... NONE`.
+`show file systems`: flash 95.6M / 60.6M free; debug; nvs; **`usb:` usbstick dynamic Avail N**; `fserver:` dynamic network
+Avail N; no `card:`. `show interface brief`: **admin down = port1.0.7, port1.0.16, port1.0.26 only** (all others admin up;
+running: 1.0.1, 1.0.2, 1.0.3, 1.0.10; vlan1/103/1000 running). Saved shut state held through the 08:48 reboot.
+
+### Summary (STANDING-ORDERS §3): 3 runnable now / 1 blocked by topology / 0 blocked otherwise
+
+**Runnable now, in queue order:**
+1. **T31863 BIST** (group 1). Licence: BIST is not a licensed feature (none in the list); the parser offers
+   `platform bist instance <0-127>|all` exactly as on 10-09, when it refused at run time (`% BIST test not supported.`).
+   Build is now -20261019-75 (10-09 was -20261008-57). Whether it still refuses is the run's measurement. No licence reload
+   needed. The case itself says restart the DUT before and after (reloads allowed; ~165 s each, boots `tb470-bench.cfg`).
+2. **T31866 PRBS** (group 1). Same: not a licensed feature; parser offers `all-fabric|internal-fabric` (the case's
+   `platform prbs all duration 20` has no `all` keyword; 10-09 mapped it to `all-fabric`). Group 1 est. ~30 min with the
+   two restarts.
+3. **T30403 static mroutes** (group 2) — **runnable only as a re-grade**. The licence now carries PIM, PIM-100, PIM-1024,
+   PIM6 and L3-MC-ROUTE, but on a boot that already had the licence, every multicast-routing command is still absent from
+   the parser (table above). Expect **UNSUPPORTED** again, now with the licence as evidence that the gap is the
+   platform/build, not licensing (the x230v2 is x220 hardware, platforms/x230v2-28GS.md §1). A further reload is not
+   expected to change it (the unit booted 08:48 with FULL installed); if the Test Engineer wants that excluded, one reload
+   + the same `qmark` set is ~5 min. Est. ~10 min, no config change. A TPS/Feature-Overview check of x230v2 multicast
+   routing support belongs in the run (memory `review-feature-docs-before-testing`: TPS Yes + DUT lacks it = a finding).
+
+**Blocked by topology:**
+4. **T28218 ATMF provisioning, x230 as master** (group 3). The licence blocker is GONE (AMF-MASTER-20/40/80/120/250
+   present, `atmf master` offered). The new blocker is **backup media**: provisioning's `create` makes the node directory
+   on the master's backup media, and the x230 has none — `usb:` Avail N, no SD/`card:`, `show atmf provision nodes` →
+   `Backup Media .......... NONE`. **Exact change:** plug a USB stick (FAT32, ≥ 1 GB; the file-set needs the 36.7 MB x230
+   `.rel` + `tb470-bench.cfg`) into the USB port of **swi_f, the x230v2-28GS on tb470 console u1** (S/N A10783G262900002),
+   then a re-triage reads `show file systems` → `usb: … Y`. Moving the 4050's stick across also works but leaves the
+   4050 (swi_e) without its USB (it holds `usb:/atmf/…` trees from 09-21 and 10-21): Test Engineer's choice.
+   **Alternative (a decision, not a cable):** a remote backup server — `atmf backup server id 1 <tb470 address on
+   eth1/eth2> username <u> path <dir>` (the parser offers `atmf backup server id`; `fserver:` exists, Avail N). It needs
+   an ssh account + directory on tb470 for the x230 and host-key trust (root / device trust → the Test Engineer), and it is
+   unmeasured whether AMF provisioning accepts a remote server as media (memory `ie520-master-ignores-remote-backup-server`:
+   an IE520 master accepted the server and never mounted it). Recommend the USB stick.
+   Once unblocked, the 10-21 recipe applies with u1 as the master: run-only `atmf master` on u1 (network-name Enterprise-AMF,
+   mgmt vlan 3500, domain vlan 1234 are already the x230's baseline), `show atmf` Role Master, `show atmf backup` →
+   `Backup Media: USB`; steps `atmf provision node future_node` → `create` → `locate` → `copy flash:/x230v2_28GS-awplus_main-20261019-75.rel ./…` →
+   `configure boot system …` → `copy flash:/tb470-bench.cfg ./…` → `configure boot config tb470-bench.cfg` → `exit` →
+   `show atmf provision nodes`; restore: provision `delete`, `rmdir usb:/atmf/Enterprise-AMF/nodes/future_node`,
+   `no atmf master`; a reload if master residue shows (allowed). Est. ~45 min.
+
+**Blocked otherwise:** none.
