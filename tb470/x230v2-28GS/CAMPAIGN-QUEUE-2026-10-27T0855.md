@@ -70,7 +70,7 @@ Triage answers, 2026-10-27 09:19 NZDT (AskUserQuestion):
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | platform: T31863 (BIST), T31866 (PRBS) | tb470/x230v2-28GS/platform-2026-10-27T0855/ | RUNNING — T31863 (bench-runner RUN, from 09:25; setup/restore recipe below) | u1 CLI; no licence reload needed (the unit already booted with FULL at 08:48). Parser offers both, as on 10-09; whether they still refuse is the run's measurement |
+| 1 | platform: T31863 (BIST), T31866 (PRBS) | tb470/x230v2-28GS/platform-2026-10-27T0855/ | RUNNING — T31863 done 09:36 (UNSUPPORTED, committed); T31866 next (setup/restore recipe below) | u1 CLI; no licence reload needed (the unit already booted with FULL at 08:48). Parser offers both, as on 10-09; whether they still refuse is the run's measurement |
 | 2 | mcast: T30403 (static mroutes, IPv4) | tb470/x230v2-28GS/mcast-2026-10-27T0855/ | QUEUED — RUNNABLE AS A RE-GRADE ONLY (triage 09:10) | licence now lists PIM / PIM6 / L3-MC-ROUTE, but after a licensed boot `ip multicast-routing`, `ip mroute`, `ip pim`, `show ip mroute`, `show ip pim` are still `% Unrecognized command`: expect UNSUPPORTED again (~10 min, no device change) |
 | 3 | atmf: T28218 (ATMF provisioning, **x230 as master**) | tb470/x230v2-28GS/atmf-2026-10-27T0855/ | BLOCKED (topology, triage 09:10) | licence now carries AMF-MASTER-20…250 and `atmf master` is offered, but the x230 has NO backup media (`usb:` Avail N, no card:, `show atmf provision nodes` → `Backup Media .......... NONE`). Unblock: plug a USB stick (≥ 1 GB, FAT32) into swi_f's (u1, x230v2-28GS) USB port so `show file systems` reads `usb: … Y`; or decide on a remote backup server (see Triage) |
 
