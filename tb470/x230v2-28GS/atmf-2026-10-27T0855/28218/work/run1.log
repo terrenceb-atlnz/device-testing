@@ -75,3 +75,212 @@ STEP A RE-TRIAGE READS (u1, 11:01:16-11:01:37, ckcon read-only; raw work/triage-
   DUT clock: show clock 22:01:15 UTC sent 11:01:23 NZDT -> DUT ~8 s behind tb470 (as groups 1/2). NZDT = UTC + 13 h.
   -> Step A CLEAR; row RUNNING 11:05.
 
+TOOLS (all through tools/tb from the dev-host repo root; box scratch /tmp/atmf-1027/, transcripts console-u0.log,
+  console-u1.log there)
+  tools/tb precheck tb470 0,1 ; tools/tb scratch tb470 atmf-1027 ; tools/tb template tb470 ; tools/tb peek tb470 atmf-1027 u0|u1 115200
+  tools/tb probe tb470 --consoles u0,u1 --no-prompt --pdu 10.36.150.14 --outlet u0=3,u1=4 --name u0=swi_e,u1=swi_f --baud 115200
+  tools/tb ckcon  tb470 atmf-1027 uN 115200 [--stop-on-error] "<cmd>" ...   (CKTO=600 for the steps pass)
+  tools/tb ckyn   tb470 atmf-1027 u1 115200 "configure terminal" "YN?:atmf master" "end"   (and the restore commands)
+  tools/tb health tb470 atmf-1027 u1 115200 --label before | --before /tmp/atmf-1027/health-u1-20261027T110527.out.json --label after
+  tools/tb ckreload tb470 atmf-1027 u1 115200 400        (y to reboot, n to any save question)
+  python3 tools/rcdiff.py work/pre-uN.out work/<later>.out
+
+DEVICES
+  DUT     swi_f  u1  AT-x230-28GS V2  S/N A10783G262900002  hostname x230-28GSv2  = the AMF MASTER in this run
+  partner swi_e  u0  AR4050S (hostname 4050-5g): NOT configured and NOT in the AMF network (Network Name Not Set,
+                 no USB stick now). The case as written runs entirely on the master. u0 was read (boot, atmf,
+                 running-config before/after), probed and logged out only.
+  Backup media: the AR4050S's 31 GB USB stick ("USB3.0 FLASH DRIVE", sd 0:0:0:0 31.0 GB at the 20:45 UTC boot),
+                 moved into the x230 by the Test Engineer (10:3x).
+  Links / host NICs: none used by this run (no traffic). Links as the probe reads them: tb eth1 -> x230 port1.0.2;
+                 tb eth2 -> x230 port1.0.10; tb eth3 -> 4050 port1.0.1; 4050 port1.0.2 <-> x230 port1.0.1 (x230
+                 side switchport atmf-link; `show atmf links` 1.0.1 Downlink Up OneWay 4050-5g Blocking before and
+                 after); 4050 port1.0.3 <-> x230 port1.0.3.
+  DUT clock ~8 s behind tb470 (see Step A). DUT times below are UTC; NZDT = UTC + 13 h.
+
+SHOW SYSTEM (u1, 11:02:44 NZDT, verbatim; raw work/pre-u1.out)
+  System Status                                           Mon Oct 26 22:02:43 2026
+
+  Board      ID   Bay     Board Name                        Rev   Serial number
+  --------------------------------------------------------------------------------
+  Base       706  Base    AT-x230-28GS V2                   A-0   A10783G262900002
+  --------------------------------------------------------------------------------
+  RAM: Total: 506920 kB Free: 311988 kB
+  Flash: 95.6MB Used: 35.1MB Available: 60.6MB
+  --------------------------------------------------------------------------------
+  Environment Status : Normal
+  Uptime             : 0 days 01:17:05
+  Bootloader version : 6.2.40
+
+  Current software   : x230v2_28GS-awplus_main-20261019-75.rel
+  Software version   : awplus_main-20261019-75
+  Build date         : Mon Oct 19 08:39:33 UTC 2026
+
+  Current boot config: flash:/tb470-bench.cfg (file exists)
+
+  System Name
+   x230-28GSv2
+  System Contact
+
+  System Location
+
+PRE-CASE READS 11:02:44-11:05:16 (raw work/pre-u1.out, work/pre-u0.out)
+  u1 show boot: Current boot image flash:/x230v2_28GS-awplus_main-20261019-75.rel (file exists); Backup Not set;
+     Default boot config flash:/default.cfg; Current boot config flash:/tb470-bench.cfg (file exists).
+  u1 show atmf nodes: * x230-28GSv2 AT-x230-28GS V2 Master N SC N Domain none Depth 255; node count 1.
+  u1 show atmf links: 1.0.1 Downlink Up OneWay 4050-5g 0 Blocking.
+  u1 running-config atmf lines: atmf network-name Enterprise-AMF / atmf management vlan 3500 / atmf domain vlan 1234 /
+     atmf group network-A; port1.0.1 switchport atmf-link. (Full dump in pre-u1.out = the restore baseline.)
+  u0 show boot: flash:/AR4050S-awplus_main-20261008-57.rel (file exists), flash:/tb470-bench.cfg (file exists);
+     show atmf: Network Name Not Set, Node 4050-5g, Role Member, Restricted login Disabled. Full running-config in pre-u0.out.
+
+HEALTH before -- 11:05:27-11:05:44 NZDT; raw work/health-u1-20261027T110527.out; tool exit 0
+  reboots ......... 37 entries, newest 2026-10-26 20:45:16 Expected CLI(user request) (group 1's restore reload)
+  exception log ... None
+  log (filtered) .. 43 lines: 6 echoes, 37 other = the 20:46:28 boot kernel lines (RAMDISK load, boardinfo taint,
+                    the USB stick's sd 0:0:0:0 attach lines)
+  cpu ............. busy 1% / 0% / 0% (1 s / 20 s / 60 s); load 2.08
+  memory .......... free 311992 of 506920 kB
+
+SETUP (u1, 11:05:57-11:06:04, ckyn; raw work/setup-u1.out) -- running-config only, no write
+  x230-28GSv2# configure terminal
+  x230-28GSv2(config)# atmf master            <- no output, no (y/n) prompt
+  x230-28GSv2(config)# end
+  Gate reads 11:06:10-11:06:44 (after a 20 s settle; raw work/setup-gate-u1.out):
+    show atmf: Enabled, Enterprise-AMF, x230-28GSv2, Role Master, Restricted login Disabled (was Enabled as member),
+      Secure Mode Disabled, Guests 0, Nodes 1, "Total number of licensed nodes available is 4094".
+    show atmf nodes: * x230-28GSv2 ... Master Y ... Depth 0.
+    show atmf backup: Node Backup Enabled, Schedule 1 per day starting at 03:00, Next Backup Time 27 Oct 2026 03:00
+      (= 16:00 NZDT; restore completed long before), Backup Media USB (Total 29584.1MB, Free 29284.4MB), Current Action
+      Idle; table: x230-28GSv2 - - Yes No -.
+    show atmf provision nodes: Backup Media .......... USB (Total 29584.1MB, Free 29284.4MB) (no nodes).
+    dir recursive usb:/atmf/Enterprise-AMF: identical to Step A (nodes/ empty).
+    running-config vs pre-u1.out (rcdiff): only "+atmf master".
+  <dev>.cfg saved: 28218/swi_f.cfg (from this running-config, 11:06). No swi_e.cfg: the 4050 is not used by the case.
+
+STEPS (u1, one ckcon --stop-on-error pass, CKTO=600, 11:07:07-11:08:49; raw work/steps-u1.out, prompts from the box
+  transcript in work/steps-transcript-grep.out)
+  STEP 1  Enter AMF provisioning mode and set the name to "future_node" (optionally for an x530)
+    sent:     atmf provision node future_node        (no `device x530`: optional, and an x530 file-set is meaningless here)
+    expected: provisioning mode for node future_node
+    observed: prompt x230-28GSv2[atmf-provision]#, no text; the prompt returned ~28 s after sending (11:07:14 -> 11:07:42).
+    -> PASS
+  STEP 2  This command sets up an empty directory on the backup media for use with the provisioned node
+    sent:     create
+    expected: an empty directory for the node on the backup media
+    observed: no text, prompt back at once; afterwards (dir recursive, 11:08:45) usb:/atmf/Enterprise-AMF/nodes/
+              future_node/ exists, created Oct 26 22:07:08 UTC (absent before: nodes/ was empty). Side effect: the
+              pre-existing 10-21 leftover usb:/atmf/Enterprise-AMF/info/backup_future_node.info (40 B, Oct 20
+              20:29:24) was REWRITTEN at 22:07:08 by this provisioning; content now
+              "PASS 26/10/2026 22:07:08 GMT+0000 0 PROV" (work/info-file.out). Unavoidable with the case's own node
+              name; its earlier content was not read before (unknown).
+    -> PASS
+  STEP 3  Copy and set release file
+    sent:     locate
+              copy flash:/x230v2_28GS-awplus_main-20261019-75.rel ./x230v2_28GS-awplus_main-20261019-75.rel
+              configure boot system x230v2_28GS-awplus_main-20261019-75.rel
+    expected: the release file copied into the node's directory; boot system set
+    observed: locate -> no text; copy -> "Copying..." / "Successful operation" (finished by 11:08:31; file on the
+              STICK usb:/.../future_node/flash/x230v2_28GS-awplus_main-20261019-75.rel 36747551 B = the flash file's
+              size; x230 flash unchanged, 60.6M free); configure boot system -> no text.
+    -> PASS
+  STEP 4  Copy and set the configuration file
+    sent:     copy flash:/tb470-bench.cfg ./tb470-bench.cfg
+              configure boot config tb470-bench.cfg
+    expected: the config file copied into the node's directory; boot config set
+    observed: "Copying..." / "Successful operation"; usb:/.../future_node/flash/tb470-bench.cfg 2184 B (= flash file);
+              configure boot config -> no text.
+    -> PASS
+  STEP 5  show atmf provision nodes
+    sent:     exit ; show atmf provision nodes
+    expected: (case's example) Backup Media line, Node Name, Date, Provision Path .../nodes/<node>/flash/, Current
+              boot image ... (file exists), Default boot config flash:/default.cfg (file not found), Current boot
+              config ... (file exists), Software Licenses block
+    observed (verbatim, 11:08:42):
+      ATMF Provisioned Node Information:
+
+      Backup Media .......... USB (Total 29584.1MB, Free 29249.2MB)
+
+      ======================================================
+      Node Name                 : future_node
+      ======================================================
+      Date                      : 26 Oct 2026 22:07:08
+      Provision Path            : usb:/atmf/Enterprise-AMF/nodes/future_node/flash/
+      Boot configuration :
+        Current boot image      : flash:/x230v2_28GS-awplus_main-20261019-75.rel (file exists)
+        Backup  boot image      : Not Set
+        Default boot config     : flash:/default.cfg (file not found)
+        Current boot config     : flash:/tb470-bench.cfg (file exists)
+        Backup  boot config     : Not Set
+      Software Licenses :
+        Repository file         :
+        Certificate file        :
+    also: show atmf backup table "future_node - - No Yes Provisioned" / "x230-28GSv2 - - Yes No -"; free space fell
+          29284.4 -> 29249.2 MB (35.2 MB = the .rel + cfg).
+    -> PASS (same shape as the case's example; Backup Media is USB here where the example used FILE SERVER 1)
+
+HEALTH after -- 11:09:21-11:09:43 NZDT; raw work/health-u1-20261027T110921.out; tool exit 0, VERDICT CLEAN
+  reboots ......... no new entry (newest stays 2026-10-26 20:45:16 Expected CLI(user request))
+  exception log ... None -> None
+  log (filtered) .. 0 new non-echo lines
+  log tail 150 .... 135 echoes; others: 5x 21:03:27 "IMISH[2860]: Command [end] failed" and 1x each "Command [ip
+                    multicast] / [ip pim sparse-mode] / [show ip mroute] failed" 21:00 (group 2's T30403 run);
+                    NSM port1.0.10 down 21:59:49 (x2) / up 22:00:57 (x2) UTC = 10:59:57 / 11:01:05 NZDT -- tb470 eth2's
+                    link, before this run's first device change (11:05:57) and not caused by it (nothing in this run
+                    touches eth2; the pre-run probe at 11:00:56 therefore did not list the eth2 edge, the post-run
+                    probe does).
+  cpu ............. 1% -> 1% (1 s busy); load 3.01 (copy just finished)
+  memory .......... free 311992 -> 310972 kB (-1020; one case cannot show a leak)
+  -> run clean (not confounded).
+
+RESTORE (u1; u0 never configured)
+  11:09:59-11:10:04 (ckyn; work/restore1-u1.out): atmf provision node future_node / delete / exit -- no (y/n), no text.
+    Read 11:10:12 (work/restore1-read-u1.out): future_node STILL listed by show atmf provision nodes (Date only) and in
+    show atmf backup "No Yes Provisioned"; usb: nodes/future_node/ remains EMPTY (flash/ and both files gone). Same as
+    10-21 on the 4050: `delete` leaves the node directory behind.
+  11:10:26-11:10:33 (ckyn; work/restore2-u1.out): rmdir usb:/atmf/Enterprise-AMF/nodes/future_node -> "Successful
+    operation"; configure terminal / no atmf master / end -- no prompt, no text.
+  Read 11:10:56 (work/restore2-read-u1.out, after 15 s settle): show atmf Role Member, Nodes 1, but Restricted login
+    still Disabled (Enabled before master) = master residue; show atmf nodes Master N, Depth 255; show atmf links as
+    before; show atmf provision nodes Backup Media USB, no nodes; show atmf backup "% Error: Device configuration does
+    not support ATMF backup commands." (as before). usb: tree = the Step A tree (nodes/ empty), except nodes/ mtime now
+    22:10:24 and the rewritten info/backup_future_node.info (above). Running-config (work/restore2-rc-u1.out) vs
+    pre-u1.out: rcdiff exit 0 IDENTICAL; show boot flash:/tb470-bench.cfg (file exists).
+  11:11:34-11:14:26 reload u1 for the Restricted-login residue (allowed; memory atmf-recovery-residue-and-reboots):
+    ckreload: "reboot system? (y/n):" -> y; no save question; login after 169 s (work/reload1.out). Reboot history
+    entry 2026-10-26 22:11:30 Expected CLI(user request) = this reload.
+  Post-reload reads 11:14:34-11:15:05 (work/post-u1.out, post-u0.out):
+    u1 show atmf: Enterprise-AMF, Role Member, Restricted login Enabled (= pre-run); nodes Master N Depth 255;
+       provision nodes: Backup Media USB, none; show boot Current boot config flash:/tb470-bench.cfg (file exists).
+    u1 running-config vs pre-u1.out: rcdiff exit 0 IDENTICAL. u0 running-config vs pre-u0.out: rcdiff exit 0
+       IDENTICAL; u0 show boot flash:/tb470-bench.cfg (file exists); show atmf Not Set / Member / Restricted login
+       Disabled (= pre-run).
+    u1 dir flash: unchanged set and sizes; tb470-bench.cfg mtime moved 20:47:28 -> 22:13:45 (during the boot, 2184 B
+       both times; no write was sent). `show startup-config` (work/post-u1-startup.out) == running-config except its
+       header "Startup-config saved on Mon Oct 26 19:48:01 2026 +0000 by manager via con0 (ttyS0)" -> content
+       unchanged; the boot touches the file's mtime (the 20:47:28 seen at Step A matches group 1's 20:45 reload).
+  USB stick: everything this run created is gone (nodes/future_node/ and its flash/ files); nothing pre-existing was
+    deleted. Changed and left: info/backup_future_node.info rewritten at 22:07:08 (was a 10-21 leftover; content now
+    "PASS 26/10/2026 22:07:08 GMT+0000 0 PROV"), nodes/ directory mtime. Left there deliberately (not ours to delete).
+
+AFTER THE RUN
+  Post-run probe 2026-10-26T222010Z (11:20:09, same session facts): exit 1 MISMATCH -- [portlink] swi_e-swi_f
+    {port1.0.2-port1.0.1, port1.0.3-port1.0.3} vs port1.0.2-port1.0.1 and [portlink] tb-swi_f EXTRA_IN_LIVE
+    eth2-port1.0.10 = exactly groups 1/2's MISMATCH (the 2026-10-22 recable). The pre-run probe lacked the eth2 line
+    only because port1.0.10 was down 21:59:49-22:00:57 UTC. No Advisories, no USER-CONFLICT. Raw work/probe-post.out.
+  Consoles: the probe left both at '#'; `exit` on each; peek 11:24 u0 '4050-5g login:', u1 'x230-28GSv2 login:'
+    (u1 transcript tail: "x230-28GSv2 login:" / "closed /dev/u1 at 2026-10-27 11:24:02"). u2 never opened.
+  No tool of ours left running on tb470 (`tools/tb ps tb470 atmf-1027` empty). No write on either unit; no PDU cycle;
+  one reload of u1 (restore).
+
+FINDINGS / NOTES (not defects of the case)
+  - `atmf provision node <n>` / `delete` removes the node's flash/ contents but leaves an empty nodes/<n>/ directory,
+    and the node keeps listing in `show atmf provision nodes` / `show atmf backup` ("Provisioned") until that
+    directory is rmdir'd -- reproduced on the x230 master (10-21: same on the AR4050S master).
+  - The info/backup_<n>.info file survives `delete` + rmdir (that is how the 10-21 file was still on the stick).
+  - After `no atmf master`, "Restricted login" stays Disabled until a reload (master residue); config is identical.
+
+VERDICT: PASS -- with the x230v2-28GS as AMF master (FULL licence, AMF-MASTER present) and the USB stick as backup
+  media, all 5 steps did what the case says: future_node provisioned, its directory created on usb:, the x230's own
+  .rel and tb470-bench.cfg copied there and set, and `show atmf provision nodes` shows node, path and both boot
+  entries "(file exists)"; health clean; restored (running-config identical on both units, boot cfg tb470-bench.cfg).
