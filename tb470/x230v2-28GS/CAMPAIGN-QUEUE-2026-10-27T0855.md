@@ -24,6 +24,10 @@ Constraints: "Reloads allowed (Recommended)" (option text: "The x230 and the 405
 At 08:46 Terrence opened `minicom --wrap -D /dev/u1 -c off` (PID 309802) on tb470 (installing the licence). **u1 is not opened by
 this campaign until that holder is gone** (precheck CLEAR); never displace it.
 
+Triage answers, 2026-10-27 09:19 NZDT (AskUserQuestion):
+- Go: "Proceed (Recommended)" (option text: "Run groups 1 and 2 now; T28218 waits in the queue as BLOCKED").
+- T28218 backup media: "Move the 4050's stick" (option text: "Move swi_e's USB to the x230; the 4050 loses its usb:/atmf trees from 09-21 and 10-21 while it's away"). The move is physical, so the Test Engineer does it; group 3 is re-triaged when he says it is done.
+
 ## Rules carried with the queue
 
 - Verdicts, working logs, the `RESULT` line, the results list: [logged-output.md](../../logged-output.md).
