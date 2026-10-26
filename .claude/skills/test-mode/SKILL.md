@@ -298,6 +298,16 @@ For each runnable group, in order:
    - **the same session block as §5**;
    - the queue file and **this group's rows only**; in a `Driver: ask-ck` campaign, each row's
      kind and, for a script case, its script path (§1);
+   - **the queue's line ranges to read, never "read the queue"** (2026-10-27: by group 3 the
+     queue had grown past 20 KB and each tester read 20-24 KB of it, review
+     `tb470/x230v2-28GS/atmf-2026-10-27T0855/REVIEW.md`). Before dispatching, run
+     `grep -n '^## \|^| [0-9]' <queue>` and give the ranges of: Session facts, Rules, the
+     triage section for this group, this group's row, and the setup / restore recipe of an
+     earlier group only if this one reuses it. Say "read only these ranges";
+   - **from the second group of a campaign on, what the earlier testers already settled**, in
+     two or three lines, so the next one does not re-derive it: e.g. "manual-CLI case; the
+     bench-runner quick kit covers the tools; DUT clock ~8 s behind tb470 (UTC); u1 boots
+     tb470-bench.cfg in ~168 s; health.py's pre-existing boot lines are not DIRTY";
    - "follow logged-output.md §2: per case, save the `<dev>.cfg` files after setup, keep
      `work/run<N>.log`, commit, and send me the `RESULT` line. Do NOT write the final log. Hand
      back when the group is done or every remaining row is BLOCKED; if you stop for any other

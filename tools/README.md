@@ -178,7 +178,13 @@ quiet gap, and refuses the forced password-change dialog.
 ### `ckcon.py`
 Runs a list of CLI commands on one console and prints each with its output. With
 `--stop-on-error` it stops at the first `% ` line that is not a known advisory (`console.ADVISORY`, the list `cfg.py` uses; since 2026-10-22, when `remote-diff all show running-config` -- whose `% Comparing ...` / `% Results are identical` lines are its report -- stopped the T17509 restore read before its `show running-config`).
-- **Run:** `ckcon.py <tty> <baud> <transcript> [--stop-on-error] CMD [CMD ...]`. Env `CKTO` sets the per-command timeout in seconds (default 90)
+- **Run:** `ckcon.py <tty> <baud> <transcript> [--stop-on-error] [--verbatim] CMD [CMD ...]`. Env `CKTO` sets the per-command timeout in seconds (default 90)
+- **`--verbatim` (2026-10-27):** prints each reply as the console showed it: `<prompt><command>`,
+  then every output line with its leading spaces. Use it whenever a refusal is the evidence: the
+  `^` under a `% Invalid input` keeps its column, so the final log can quote it from the saved
+  output (T30403's carets were only in the box's tmpfs transcript). It sends one bare CR first
+  to learn the prompt. Verified 2026-10-27 on tb470 u1 (x230v2-28GS): `show ip mroute` and
+  `(config)#ip mroute ...` refusals with the caret under the first unknown word.
 - **Where:** testbox; **needs:** pyserial
 - **Imports:** console
 - **Limits:**
@@ -260,6 +266,12 @@ with counts and one example each, CPU and memory before -> after) and a CLEAN / 
   review, 2026-10-22: the 10-20 stack-merge snapshots sat in every member's exception log and
   were not that run's doing). A before sample alone still reports it, so the Test Engineer can
   `clear exception log` before a campaign if they want a None baseline.
+  The same rule for log lines (2026-10-27): a `kernel|exception|crash|restart|Unexpected` line
+  in the after sample's tail that the before sample already held (its filtered lines or tail)
+  is listed as "pre-existing" and does NOT make the run DIRTY. Before this, the boot-time
+  `HTTP: HTTP server restarted` line made two clean runs read DIRTY (T31866, T30403).
+  Verified 2026-10-27 on tb470 u1 (x230v2-28GS): before + after samples 1 min apart, the boot's
+  `HTTP server restarted` line listed as pre-existing, verdict CLEAN, exit 0.
 - **Limits:**
   - `show cpu` on AW+ prints BUSY averages (1 s / 20 s / 60 s), never idle; the summary says so.
   - A memory difference across one case is printed as a number and never called a leak.
@@ -575,6 +587,56 @@ From a console already at `#`, it sends `reload`. It answers `y` only to the reb
   - It does not log in; log in first, for example with `ckcon.py`.
   - The 720 s default boot wait was measured on IE520; other products may need another value.
 - **Status:** verified on tb470 u3, 2026-10-02 (reboot question only, `y`; login after 189 s; running-config unchanged); also on tb470 u0, x230v2-28GS at 115200, 2026-10-09 (5 reloads, login after 163-168 s; no save-config question asked)
+- **After a reload:** `startjobs.py` (below) summarises the boot's start jobs from the same transcript.
+
+### `startjobs.py`
+Summarises the systemd start jobs of every boot in a console transcript (console.py / ckcon
+transcript, or a framework `swi_*.log`): per boot, each job's longest "A start job is running
+for <job> (<elapsed> / <limit>)" sighting, its limit, how it ended (`OK Finished`, `OK Started`,
+`FAILED ...`, `TIME ...`), and whether a login prompt followed. A name systemd truncated
+("TPM2 Acc…ement Daemon", "…gement Daemon") is resolved against the "Starting <name>..." lines,
+preferring the jobs still running; an unresolvable one is shown as printed with `(?)`.
+- **Run:** `startjobs.py <console-log> [--from-line N] [--to-line M] [--boot REGEX] [--all]`;
+  on a testbox `tools/tb tool <TB> <run> startjobs /tmp/<run>/console-uN.log`
+- **Where:** anywhere the file is; **needs:** nothing beyond Python
+- **Imports:** none
+- **Why:** the 2026-10-27 group 1 tester rebuilt a grep/awk pipeline for each of four x230
+  reloads (review `tb470/x230v2-28GS/platform-2026-10-27T0855/REVIEW.md`).
+- **Limits:** a boot starts at `--boot` (default: `Bootloader N loaded`, `BootROM`, `U-Boot N`,
+  `Starting kernel`, `Booting Linux`); a transcript with no such line is read as one boot.
+- **Status:** verified 2026-10-27 on tb470 `/tmp/plat-1027/console-u1.log` (4 x230v2 reloads:
+  poefw 54-58 s no limit, TPM2 Access Broker to 1 min 17-22 s of ~2 min 45 s, ATMF SSHD 739 ms,
+  matching the hand-built tables) and on the 2026-10-06 framework log
+  `tb470/x230v2-28GS/bootloader-6.2.40/5700_x230v2-28GS_6.2.40_run2/swi_a_2001.log` (3 boots)
+
+### `atmf_provision.py`
+Provisions a future AMF node on the AMF master and undoes it, in one call (the AWPTCM-T28218
+sequence): `atmf provision node NAME [device TYPE]`, `create`, `locate`, copy and set the
+release file and the config file, `exit`, `show atmf provision nodes`, `show atmf backup`,
+`dir recursive` of the node's directory; then the restore: `delete` (answers `y` if asked),
+`rmdir` of the node directory `delete` leaves behind (the node stays listed as Provisioned until
+it goes), and a final `show atmf provision nodes`. Before the steps it prints any existing
+`<media>/atmf/<net>/info/backup_<NAME>.info`: provisioning REWRITES that file (2026-10-27
+review, 28218-review.md).
+- **Run:** `atmf_provision.py <tty> <baud> <transcript> --node NAME [--device TYPE] [--rel FILE]
+  [--cfg FILE] [--set-master] [--keep | --restore-only]`; on a testbox
+  `CKTO=600 tools/tb atmf_provision <TB> <run> <uN> <baud> --node future_node --rel <x.rel> --cfg <x.cfg>`
+- **Where:** testbox; **needs:** pyserial
+- **Imports:** console, awlogin
+- **Options:** `--set-master` configures `atmf master` if needed and `no atmf master` at the end
+  (only if it set it); `--keep` leaves the node provisioned; `--restore-only` removes a node a
+  cut-short run left behind.
+- **Exit codes:** 0 ok; 3 a `% ` CLI error (the restore still runs if the steps had started);
+  4 not master / no backup media; 7 no privileged prompt; 2 usage.
+- **Limits:**
+  - It does not reload. After `no atmf master`, "Restricted login" stays Disabled until a reload
+    (memory `atmf-recovery-residue-and-reboots`); use `ckreload.py` if the case needs it.
+  - The `info/backup_<NAME>.info` file survives `delete` and `rmdir`; the tool shows it but does
+    not delete it (it may predate the run).
+- **Status:** NOT yet run on hardware (written 2026-10-27 from the T28218 run1 transcript of that
+  day: same commands, prompts and outputs). Argument parsing and the `show atmf` /
+  `show atmf provision nodes` field parsing were checked offline against that run's saved output.
+  The first run that uses it should confirm it end to end and update this line.
 
 ### `flash_copy.py`
 Copies a file from any AW+ path into flash, then checks with `dir` that it landed at the right
@@ -829,8 +891,10 @@ Prints a test case's authored text (objective, precondition, steps) from the Ask
 Lookup order: `zephyr_cases` keyed on the AWPTCM id exactly as the Test Engineer writes it
 (`AWPTCM-T43870`), then `testlink_cases` joined on `--title` for the legacy `AWP-nnnn` corpus.
 - **Run:** `ckcase.py <KEY> [KEY ...] [--db PATH] [--title TEXT] [--columns] [--raw-steps]`
-- **Where:** a testbox (ck.db is on the lab NFS home; a dev host cannot reach it);
-  **needs:** nothing beyond Python
+- **Where:** a testbox, or a dev host that mounts the lab home. With no `--db` it takes the
+  first ck.db it finds: `$CK_DB`, the Test-cases checkout beside this repo (from the tool's own
+  path), then `~/claude/Test-cases/ask-ck/db/ck.db` (2026-10-27: every dev-host campaign
+  first failed without `--db`). **needs:** nothing beyond Python
 - **Imports:** none
 - **Limits:**
   - It opens the database read-only (`file:...?mode=ro`); never open it read-write while the CK

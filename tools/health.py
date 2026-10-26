@@ -10,7 +10,8 @@ log), writes a machine summary to <json>, and prints only the summary:
   AFTER sample (--before <the before sample's .json>): the same plus `show log tail N`
       (N = --tail, default 150; 0 = skip), and a HEALTH-DIFF block against the before sample:
       new reboot entries, exception log change, new non-echo filtered lines, the tail's line
-      signatures, cpu and memory before -> after, and a CLEAN / DIRTY verdict.
+      signatures, cpu and memory before -> after, and a CLEAN / DIRTY verdict. A matching tail
+      line that the before sample already held is listed as pre-existing, not flagged.
 Exit: 0 clean, 4 DIRTY (a new reboot entry, an exception log that is not None, or a new
 kernel / crash / daemon-restart line -- report it to the sentinel as NEEDS TEST ENGINEER and
 label the run confounded), 7 no privileged prompt, 2 usage.
@@ -161,7 +162,13 @@ if before:
     new_reb = list((collections.Counter(reboots) - collections.Counter(before.get("reboots", []))).elements())
     b_exc = before.get("exception", "?")
     new_other = [l for l in filt_other if l not in set(before.get("filtered_other", []))]
-    flagged = [l for l in new_other + tail if not is_echo(l) and FLAG.search(l)]
+    # A tail line the before sample already held (a boot-time "HTTP server restarted", say) is
+    # not this run's doing: flagging it made two clean runs read DIRTY (2026-10-27 review, T31866
+    # and T30403). Flag only lines new since the before sample; list the old ones separately.
+    known = set(before.get("filtered", [])) | set(before.get("tail", []))
+    candidates = [l for l in dict.fromkeys(new_other + tail) if not is_echo(l) and FLAG.search(l)]
+    flagged = [l for l in candidates if l not in known]
+    preexisting = [l for l in candidates if l in known]
     print("HEALTH-DIFF %s vs %s (%s%s)" % (name, os.path.basename(opts["before"]), before.get("start", "?"),
                                           (" " + before["label"]) if before.get("label") else ""))
     if new_reb:
@@ -193,6 +200,10 @@ if before:
         dirty.append("%d kernel/crash/restart line(s)" % len(flagged))
         print("  !! flagged ...... %d line(s) matching kernel|exception|crash|restart|Unexpected (not an echo):" % len(flagged))
         for l in flagged[:10]:
+            print("      %s" % l)
+    if preexisting:
+        print("  pre-existing .... %d matching line(s) already in the before sample (not this run's):" % len(preexisting))
+        for l in preexisting[:5]:
             print("      %s" % l)
     bc, bm = before.get("cpu"), before.get("memory")
     print("  cpu ............. %s -> %s  (1 s busy average)" % (("%d%%" % bc[0]) if bc else "?", ("%d%%" % cpu[0]) if cpu else "?"))

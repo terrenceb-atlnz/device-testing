@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Print a test case's authored text from the Ask-CK database (ck.db).
 
-Run it ON A TESTBOX: ck.db lives on the lab NFS home and a dev host cannot reach it.
+It runs on a testbox or on a dev host that mounts the lab home: with no --db it uses the
+first ck.db it finds among $CK_DB, the Test-cases checkout beside this repo (found from this
+file's own path), and ~/claude/Test-cases/... (2026-10-27: the dev host needed --db every
+time, which cost a failed call per campaign).
 
 Lookup order (first hit wins):
   1. `zephyr_cases`, keyed on `key` = the AWPTCM id exactly as the Test Engineer gives it
@@ -13,16 +16,24 @@ Lookup order (first hit wins):
 Usage:
   ckcase.py <KEY> [KEY ...] [--db PATH] [--title TEXT] [--columns] [--raw-steps]
 
-  --db PATH     override the database (default: /home/terrenceb/claude/Test-cases/ask-ck/db/ck.db)
+  --db PATH     override the database (default: the first of DB_CANDIDATES that exists)
   --title TEXT  also search `testlink_cases.title` for this substring
   --columns     just print each table's column list and exit
   --raw-steps   also dump the raw `steps` column (usually HTML/JSON), unmodified
 """
 import argparse
+import os
 import sqlite3
 import sys
 
-DEFAULT_DB = "/home/terrenceb/claude/Test-cases/ask-ck/db/ck.db"
+_REL = os.path.join("Test-cases", "ask-ck", "db", "ck.db")
+DB_CANDIDATES = [p for p in (
+    os.environ.get("CK_DB"),
+    # <lab home>/claude/device-testing/tools/ckcase.py -> <lab home>/claude/Test-cases/...
+    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), _REL),
+    os.path.join(os.path.expanduser("~"), "claude", _REL),
+) if p]
+DEFAULT_DB = next((p for p in DB_CANDIDATES if os.path.isfile(p)), DB_CANDIDATES[-1])
 
 
 def connect(path):

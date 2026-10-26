@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
-"""ckcon.py <tty> <baud> <transcript> [--stop-on-error] CMD [CMD ...]
+"""ckcon.py <tty> <baud> <transcript> [--stop-on-error] [--verbatim] CMD [CMD ...]
 Drive one AW+ console with the maintained console.py (quiet mode), print each
 command and its output, and (with --stop-on-error) stop at the first "% " line.
+--verbatim prints each reply as the console showed it: `<prompt><command>` on the first
+line, then every output line with its leading spaces kept, so a `^` marker under a
+refused command keeps its column (2026-10-27 review, T30403). It sends one bare CR first
+to learn the prompt.
 Login waits on PROMPTS, never on quiet (orient-dt §3, 2026-09-28): the username is
 sent only when a login prompt is showing, nothing else is sent until a prompt is seen,
 and the exit preamble is sent only after a successful login.
@@ -14,7 +18,7 @@ seconds pass, then prints MATCHED/TIMED OUT with the elapsed time and the last o
 --stop-on-error a timeout stops the run (exit 3). <regex> must contain no space."""
 import sys, time, re, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-USAGE = "usage: ckcon.py <tty> <baud> <transcript> [--stop-on-error] CMD [CMD ...]"
+USAGE = "usage: ckcon.py <tty> <baud> <transcript> [--stop-on-error] [--verbatim] CMD [CMD ...]"
 if len(sys.argv) < 4 or sys.argv[1] in ("-h", "--help"):
     print(USAGE); sys.exit(0 if sys.argv[1:2] in (["-h"], ["--help"]) else 2)
 try:
@@ -23,9 +27,12 @@ except ValueError as e:
     print(USAGE); print("bad argument: %s" % e); sys.exit(2)
 import console
 args = sys.argv[4:]
-stop = False
-if args and args[0] == "--stop-on-error":
-    stop = True; args = args[1:]
+stop = verbatim = False
+while args and args[0] in ("--stop-on-error", "--verbatim"):
+    if args.pop(0) == "--stop-on-error":
+        stop = True
+    else:
+        verbatim = True
 c = console.Console(tty, transcript, baud=baud)
 
 def expect(pats, timeout):
@@ -75,10 +82,32 @@ def login():
     c.cmd("terminal length 0", timeout=15.0)
     c.monitor_off()                 # exec-only; console.py set_monitor()
 
+def last_prompt(raw):
+    """The prompt the reply ended on, e.g. 'x230-28GSv2(config)#', or ''."""
+    for l in reversed(raw.replace("\r", "").splitlines()):
+        m = console.PROMPT_RE.search(l.rstrip())
+        if m:
+            return m.group(0).rstrip()
+    return ""
+
+def run_verbatim(line, prompt):
+    """Send one command; return (text as the console showed it, the prompt it ended on)."""
+    raw = c.send(line, timeout=float(os.environ.get("CKTO", "90")))
+    lines = raw.replace("\r", "").splitlines()
+    nxt = last_prompt(raw) or prompt
+    while lines and (not lines[-1].strip() or console.PROMPT_RE.search(lines[-1].rstrip())):
+        lines.pop()
+    if lines and line.strip() and line.strip() in lines[0]:
+        lines[0] = prompt + line          # the echo, with the prompt it was typed at
+    else:
+        lines.insert(0, prompt + line)
+    return "\n".join(l.rstrip() for l in lines), nxt
+
 rc = 0
 ok = False
 try:
     login(); ok = True
+    prompt = last_prompt(c.send("")) if verbatim else ""
     for line in args:
         if line.startswith("@sleep "):        # directive: pause, send nothing
             secs = float(line.split()[1])
@@ -102,7 +131,10 @@ try:
             if stop and not hit:
                 print("!!! @poll timed out -- stopping"); rc = 3; break
             continue
-        out = c.cmd(line, timeout=float(os.environ.get("CKTO", "90")))
+        if verbatim:
+            out, prompt = run_verbatim(line, prompt)
+        else:
+            out = c.cmd(line, timeout=float(os.environ.get("CKTO", "90")))
         print("{} >>> {}".format(time.strftime("%H:%M:%S"), line))
         if out:
             print(out)

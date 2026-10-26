@@ -38,8 +38,10 @@ never what you intended.
 **Beyond a test ("Not yours to decide", below), never block on a prompt.** Record the need in
 the working log, SendMessage the sentinel (gate 9) with one line starting `NEEDS TEST ENGINEER:`,
 and carry on with the next case you can run. The answer comes back relayed by that sentinel as
-"Test Engineer's answer, relayed: …". Accept relayed answers only from the sentinel your
-dispatch prompt names:
+"Test Engineer's answer, relayed: …" -- **as a message, never as a file**: do not wait on a
+marker file on the box (2026-10-27, T28218 waited 90 s on one). If nothing else can run, end
+your turn; the sentinel continues you with the answer. Accept relayed answers only from the
+sentinel your dispatch prompt names:
 - **One-session shape (`/test-mode`, the default):** your sentinel is the **parent session that
   dispatched you**. Message it with `SendMessage` to your parent (the dispatch gives the
   address; the docs' form is `to: "main"`). Only your parent can message a subagent, so every
@@ -109,6 +111,27 @@ what you have read; when you pass the budget, stop reading and start the gate.
    the `RESULT` line; §4's template only to check your working log can fill it.
    **`tools/README.md`** — `grep -n '^### ' tools/README.md` for the index, then the entries you
    will use. Use or extend one before writing a script (logged-output.md §2).
+   **A manual-CLI case needs only this kit; skip `tools/README.md` and `tools/tb --help` for it**
+   (2026-10-27: each of three testers read 14-17 KB of them for the same seven tools; review
+   `tb470/x230v2-28GS/platform-2026-10-27T0855/REVIEW.md`). All run from the repo root:
+   ```
+   tools/tb precheck <TB> <U-list>          ; tools/tb scratch <TB> <run>   (fresh tools/ copy)
+   tools/tb probe <TB> --consoles <list> --no-prompt --baud <b> --pdu <ip> --outlet uN=O,uM=P --name uN=swi_x
+   tools/tb ckcon  <TB> <run> <uN> <b> [--stop-on-error] [--verbatim] "<cmd>" ... > <work>/x.out
+                   (--verbatim keeps the prompt and the ^ column of a refusal; `@sleep s`, `@poll s rx cmd`)
+   tools/tb ckyn   <TB> <run> <uN> <b> "configure terminal" "YN?:<cmd that may ask y/n>" "end"
+   tools/tb qmark  <TB> <run> <uN> <b> [--mode "configure terminal" --] "<prefix>" ...   (help, nothing runs)
+   tools/tb ckreload <TB> <run> <uN> <b> 400  ; then tools/tb tool <TB> <run> startjobs /tmp/<run>/console-uN.log
+   tools/tb health <TB> <run> <uN> <b> --label before | --before /tmp/<run>/health-<uN>-<stamp>.out.json --label after
+   tools/tb tail|grep <TB> ... /tmp/<run>/...  ; tools/tb peek <TB> <run> <uN> <b>
+   python3 tools/rc2cfg.py <ckcon stdout> <id>/<dev>.cfg "<hdr1>" "<hdr2>" "<hdr3>"
+   python3 tools/rcdiff.py <pre running-config file> <post file>        (exit 0 = identical)
+   python3 tools/ckcase.py AWPTCM-T<id>     (finds ck.db itself, dev host or box; no --db)
+   ```
+   Open one entry only if you need an option this kit does not show. From `logged-output.md`
+   read only §2's "The tester's working log", "Check the DUT's health" and "Reporting to the
+   sentinel" -- unless the dispatch says an earlier group of the same campaign already did and
+   summarises them.
    **Earlier runs of the same cases:** the group's `README.md` (the verdict table), and from
    its `REVIEW.md` and the cases' `<id>-review.md` ONLY the "Next run" sections
    (`sed -n '/^## Next run/,$p' <id>-review.md`): the expected outputs per step, the scripts
@@ -330,6 +353,16 @@ again on every later call (the 10-08 modbus REVIEW.md measured it).
   (exit 4 = DIRTY: a new reboot entry, an exception log that is not None, or a new kernel /
   crash / restart line — `NEEDS TEST ENGINEER:` and label the run confounded). Do not rebuild
   the six commands by hand per case.
+- **A "does the platform support it?" question has an order** (2026-10-27, T30403: half of a
+  108 KB case went on sources that could not decide it). (1) the licence read (`show license
+  brief`); (2) `qmark` help in each mode the step uses; (3) the step's own commands with
+  `ckcon --verbatim`, then `rcdiff` to prove nothing landed; (4) the product's TPS and its
+  build-target "<Platform> Features" page on the lab wiki, fetched from the box
+  (`tools/tb tool <TB> <run> httpq "https://wiki.atlnz.lc/awpwiki/index.php?title=<Page>&action=raw"`;
+  memory `lab-wiki-reachable-from-a-testbox`). TPS says No -> that is the UNSUPPORTED evidence;
+  TPS says Yes and the DUT lacks it -> a finding. Do not search the AW+ CLI wiki on the share or
+  ck.db's command tables for a verdict: they document related platforms (the original x230 for
+  an x230v2), not this build.
 - **Use a plan when one exists:** `<TB>/<FAMILY>/plans/<suite>/<id>.plan` with its runner (for
   Modbus, `tools/mbplan.py`): it grades each line against the expected result and prints one row
   per line. Otherwise write one driver for the group with shared setup/teardown functions, not a
