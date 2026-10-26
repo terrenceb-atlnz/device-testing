@@ -70,9 +70,28 @@ Triage answers, 2026-10-27 09:19 NZDT (AskUserQuestion):
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| 1 | platform: T31863 (BIST), T31866 (PRBS) | tb470/x230v2-28GS/platform-2026-10-27T0855/ | QUEUED — RUNNABLE (triage 09:10) | u1 CLI; no licence reload needed (the unit already booted with FULL at 08:48). Parser offers both, as on 10-09; whether they still refuse is the run's measurement |
+| 1 | platform: T31863 (BIST), T31866 (PRBS) | tb470/x230v2-28GS/platform-2026-10-27T0855/ | RUNNING — T31863 (bench-runner RUN, from 09:25; setup/restore recipe below) | u1 CLI; no licence reload needed (the unit already booted with FULL at 08:48). Parser offers both, as on 10-09; whether they still refuse is the run's measurement |
 | 2 | mcast: T30403 (static mroutes, IPv4) | tb470/x230v2-28GS/mcast-2026-10-27T0855/ | QUEUED — RUNNABLE AS A RE-GRADE ONLY (triage 09:10) | licence now lists PIM / PIM6 / L3-MC-ROUTE, but after a licensed boot `ip multicast-routing`, `ip mroute`, `ip pim`, `show ip mroute`, `show ip pim` are still `% Unrecognized command`: expect UNSUPPORTED again (~10 min, no device change) |
 | 3 | atmf: T28218 (ATMF provisioning, **x230 as master**) | tb470/x230v2-28GS/atmf-2026-10-27T0855/ | BLOCKED (topology, triage 09:10) | licence now carries AMF-MASTER-20…250 and `atmf master` is offered, but the x230 has NO backup media (`usb:` Avail N, no card:, `show atmf provision nodes` → `Backup Media .......... NONE`). Unblock: plug a USB stick (≥ 1 GB, FAT32) into swi_f's (u1, x230v2-28GS) USB port so `show file systems` reads `usb: … Y`; or decide on a remote backup server (see Triage) |
+
+## Group 1 bench setup and restore recipe (bench-runner RUN, written 09:24 before the first case)
+
+- **Gate 09:20–09:22:** precheck `tb470 0,1` CLEAR (exit 0); peek u0 `4050-5g login:`, u1 `x230-28GSv2 login:`;
+  `/nfsHome` mounted, `tb470.setup` present; probe `2026-10-26T202129Z` (session facts, `--baud 115200`) **exit 1
+  MISMATCH = the same 2026-10-22 recable as triage** (no Advisories, no USER-CONFLICT); no case here binds a `.setup`.
+  Box scratch `/tmp/plat-1027/` (transcripts `console-u1.log`, `console-u0.log`).
+- **Devices used:** u1 (swi_f, x230v2-28GS, the DUT) only. u0 (4050) is NOT touched by either case (standalone DUT,
+  "no loopbacks"); it is opened only to confirm it is logged out at the end.
+- **Baseline (09:22, u1):** `Current boot config: flash:/tb470-bench.cfg (file exists)`, boot image
+  `flash:/x230v2_28GS-awplus_main-20261019-75.rel`; `show running-config` == `show startup-config` (only the
+  startup header differs; saved 2026-10-26 19:48 UTC by manager via con0), so a reload loses nothing.
+  port1.0.7/1.0.16/1.0.26 are saved `shutdown`.
+- **Setup per case (u1):** `reload` (no save) → login → `configure terminal` / `line con 0` / `exec-timeout 0` / `end`
+  (running only) → `exit` + fresh login → the case's command → `show platform bist|prbs` → `reload` (no save).
+- **Restore recipe (for a fresh tester if this one dies):** on u1, never `write`. A `reload` (answer `n` to any save
+  question) returns the unit to `flash:/tb470-bench.cfg`; prove it with `show running-config` diffed against the
+  pre-case copy (only `exec-timeout 0 0` under `line con 0` may differ before the reload; nothing after it), and
+  `show boot` still naming `flash:/tb470-bench.cfg`. Then `exit` u1 to `login:`.
 
 ## Results
 
