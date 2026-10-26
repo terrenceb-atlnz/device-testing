@@ -76,7 +76,7 @@ Test Engineer's answers, 2026-10-27 10:3x NZDT (AskUserQuestion):
 | --- | --- | --- | --- | --- |
 | 1 | platform: T31863 (BIST), T31866 (PRBS) | tb470/x230v2-28GS/platform-2026-10-27T0855/ | DONE 09:51 — T31863 UNSUPPORTED, T31866 UNSUPPORTED (bench-runner; restored: running-config identical to pre-run, boot cfg tb470-bench.cfg, u0/u1 logged out) | u1 CLI; no licence reload needed (the unit already booted with FULL at 08:48). Parser offers both, as on 10-09; whether they still refuse is the run's measurement |
 | 2 | mcast: T30403 (static mroutes, IPv4) | tb470/x230v2-28GS/mcast-2026-10-27T0855/ | DONE 10:08 — T30403 UNSUPPORTED (bench-runner; nothing accepted, running-config identical to pre-case, boot cfg tb470-bench.cfg, post probe = pre probe, u0/u1 logged out; X220 Software TPS: Multicast Routing PIM-SM/DM/SSM = NO; x230v2 target `mcast-ip-cmd = no`) | licence now lists PIM / PIM6 / L3-MC-ROUTE, but after a licensed boot `ip multicast-routing`, `ip mroute`, `ip pim`, `show ip mroute`, `show ip pim` are still `% Unrecognized command`: expect UNSUPPORTED again (~10 min, no device change) |
-| 3 | atmf: T28218 (ATMF provisioning, **x230 as master**) | tb470/x230v2-28GS/atmf-2026-10-27T0855/ | HOLD 10:58 — re-triage (Step A) paused at gate 1: precheck `tb470 0,1` exit 5 FOUND `process 384135 (terrenceb, up 00:06): minicom --wrap -D /dev/u2 -c off` (u2 is outside this session; u0/u1 free). `NEEDS TEST ENGINEER:` sent; no console opened, no probe. Box scratch `/tmp/atmf-1027/` made; working log started `atmf-2026-10-27T0855/28218/work/run1.log`. (Was: BLOCKED (topology, triage 09:10); the stick move is done, "Yes, moved, go") | licence now carries AMF-MASTER-20…250 and `atmf master` is offered, but the x230 has NO backup media (`usb:` Avail N, no card:, `show atmf provision nodes` → `Backup Media .......... NONE`). Unblock: plug a USB stick (≥ 1 GB, FAT32) into swi_f's (u1, x230v2-28GS) USB port so `show file systems` reads `usb: … Y`; or decide on a remote backup server (see Triage) |
+| 3 | atmf: T28218 (ATMF provisioning, **x230 as master**) | tb470/x230v2-28GS/atmf-2026-10-27T0855/ | RUNNING 11:05 — re-triage CLEAR: Test Engineer 11:00 (relayed) on the precheck FOUND (minicom on /dev/u2): *"dont touch u2, its irrelevant"* → proceed on u0/u1 only. Peek u0/u1 `login:`; probe `2026-10-26T220056Z` exit 1 MISMATCH = the 2026-10-22 recable only (no Advisories/USER-CONFLICT); u1 11:01: `usb:` usbstick 28.9G/28.6G free **Avail Y**, AMF-MASTER-20/40/80/120/250 in `show license brief`, `show atmf` Enterprise-AMF Member nodes 1, `show atmf provision nodes` Backup Media USB (Total 29584.1MB, Free 29284.4MB), boot cfg `flash:/tb470-bench.cfg (file exists)` (bench-runner) |
 
 ## Group 1 bench setup and restore recipe (bench-runner RUN, written 09:24 before the first case)
 
@@ -111,6 +111,34 @@ Test Engineer's answers, 2026-10-27 10:3x NZDT (AskUserQuestion):
   against the pre-case copy `mcast-2026-10-27T0855/30403/work/pre.out` (`python3 tools/rcdiff.py`); any line that
   landed is removed with its `no` form (or a `reload`, answering `n` to save, returns the unit to
   `flash:/tb470-bench.cfg`). Prove `show boot` still names `flash:/tb470-bench.cfg`. Then `exit` u1 to `login:`.
+
+## Group 3 bench setup and restore recipe (bench-runner RUN, written 11:05 before the first device change)
+
+- **Gate 10:58–11:01:** precheck `tb470 0,1` exit 5 FOUND = Terrence's `minicom --wrap -D /dev/u2 -c off` (PID 384135) only;
+  Test Engineer (relayed 11:00): *"dont touch u2, its irrelevant"*. u0/u1 free; peek u0 `4050-5g login:`, u1 `x230-28GSv2 login:`;
+  `/nfsHome` mounted, `tb470.setup` present; probe `2026-10-26T220056Z` exit 1 MISMATCH = the 2026-10-22 recable only.
+  No `.setup` bound (manual CLI). Box scratch `/tmp/atmf-1027/` (transcripts `console-u0.log`, `console-u1.log`).
+- **Devices used:** u1 (swi_f, x230v2-28GS) = the AMF MASTER and the only unit configured. u0 (4050, no USB stick now,
+  no `atmf network-name`) is NOT configured: the case as written runs entirely on the master, so no member is needed.
+  u0 is only read (running-config before/after) and logged out.
+- **USB stick before the run (u1 11:01, `dir recursive usb:/atmf`):** `usb:/` = `atmf/`, three IE520 `.rel`, one `.kwb`;
+  `usb:/atmf/tb470/` (Sep 21 tree: x230-10GP, IE520-stk, 4050-5g nodes); `usb:/atmf/Enterprise-AMF/{nodes,info,logs,areas,guests/{info,logs,nodes}}`
+  from 10-21, `nodes/` EMPTY, `info/backup_future_node.info` (40 B, Oct 20 20:29 UTC, a 10-21 leftover). All of that stays
+  exactly as it is; only what this run adds is removed.
+- **Setup (u1, running-config only, no `write`):** `configure terminal` / `atmf master` / `end` (network-name Enterprise-AMF,
+  mgmt vlan 3500, domain vlan 1234 are already the x230's baseline). Gate: `show atmf` Role Master; `show atmf backup` /
+  `show atmf provision nodes` → Backup Media USB.
+- **Steps (u1):** `atmf provision node future_node` → `create` → `locate` → `copy flash:/x230v2_28GS-awplus_main-20261019-75.rel
+  ./x230v2_28GS-awplus_main-20261019-75.rel` (36.7 MB to the STICK; x230 flash 60.6 MB free is not written) → `configure boot
+  system x230v2_28GS-awplus_main-20261019-75.rel` → `copy flash:/tb470-bench.cfg ./tb470-bench.cfg` → `configure boot config
+  tb470-bench.cfg` → `exit` → `show atmf provision nodes`.
+- **Restore recipe (u1; for a fresh tester if this one dies):** `atmf provision node future_node` / `delete` (answer y if asked)
+  / `exit`; `dir recursive usb:/atmf` and compare with the list above: `rmdir` only what is new (10-21 left an empty
+  `nodes/future_node/` after `delete`); `configure terminal` / `no atmf master` / `end`; never `write`. Then `show atmf`:
+  if master/depth residue shows, `reload` u1 (answer `n` to any save question; boots `flash:/tb470-bench.cfg`, ~165 s).
+  Prove: `tools/rcdiff.py` of `show running-config` against `atmf-2026-10-27T0855/28218/work/pre-u1.out` (and u0 against
+  `pre-u0.out`, which must be identical untouched), `show boot` both `flash:/tb470-bench.cfg (file exists)`. `exit` both
+  consoles to `login:`.
 
 ## Results
 
