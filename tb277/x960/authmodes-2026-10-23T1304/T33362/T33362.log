@@ -1,0 +1,498 @@
+================================================================================
+TEST T33362 -- (201) Authentication&Security_DynamicVlan - Multiple Dynamic VLAN (Un-tag)
+================================================================================
+Run:      2026-10-23 16:12-16:26 NZDT.  Two clients on one port were given two
+          different VLANs by the RADIUS server, and the separation was measured in the
+          dataplane with a two-by-two matrix of ARP legs.
+          The DUT's clock reads UTC, 13 hours behind the NZDT times in this log.
+Bench:    tb277, consoles u2 (swi_d); Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T33362.  The test-case database holds no steps for this case.  The
+          objective used was: two clients on the SAME port must receive DIFFERENT
+          VLANs from the RADIUS server, untagged, and the VLAN assignment must be
+          proved in the dataplane, not only in `show auth supplicant`.  The product
+          support list row 199 "Multiple Dynamic VLAN(Un-tag)" reads Yes.
+Build:    swi_d AT-x960-56YSQ, software sin_x96056-20261019-27 (boot image
+          flash:/x960-tb277.rel, build date Sun Oct 18 23:18:21 UTC 2026)
+
+          Captured on this bench at 02:18:41 UTC, before this case started. This case's
+          health read shows no reboot since, so the build below is the build it ran on.
+
+          The DUT's own `show system`:
+
+awplus# show system
+System Status                                           Fri Oct 23 02:18:41 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B       
+PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU 
+PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S 
+Fan module 730  FAN1    AT-FAN19                          -     -               
+Fan module 730  FAN2    AT-FAN19                          -     -               
+--------------------------------------------------------------------------------
+RAM: Total: 8092132 kB Free: 7466488 kB
+Flash: 14.3GB Used: 171.8MB Available: 14.1GB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 02:22:57
+Bootloader version : Unknown
+
+Current software   : x960-tb277.rel
+Software version   : sin_x96056-20261019-27
+Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+Current boot config: flash:/default.cfg (file exists)
+
+System Name
+ awplus
+System Contact
+
+System Location
+
+          `show boot`: boot image flash:/x960-tb277.rel (file exists), boot config
+          flash:/default.cfg (file exists), autoboot disabled.  That was the state at
+          the start and at the end of this case.
+Configs:  swi_d.cfg (running-config read at the end of the case; saved to startup: no)
+
+VERDICT: PASS -- two clients on one port received two different RADIUS-assigned VLANs,
+         untagged, and the separation holds in the dataplane.
+      two different VLANs, one port .... YES    (020d.b900.3362 in VID 362 and
+                                                 020d.b900.3363 in VID 363)
+      both untagged .................... YES    (`show vlan brief` lists port1.0.48 as
+                                                 an untagged `(u)` member of 362 AND
+                                                 363, and taggedVlansupplicantNum is 0)
+      proved in the dataplane .......... YES    (each client got 3 of 3 ARP replies
+                                                 from its own VLAN's gateway and 0 from
+                                                 the other client's)
+      the OFF baseline differs ......... YES    (with the feature off both clients
+                                                 landed in VID 48 and the server's VLAN
+                                                 attribute was ignored)
+      a client leaves its old VLAN ..... YES    (the first client reached 10.38.22.66
+                                                 in vlan 48 3 of 3 times before, and 0
+                                                 of 3 times after it moved)
+      `type single` is the opposite .... YES    (it refuses the second, different VLAN
+                                                 with EAP-Failure at 0.039 s against the
+                                                 normal 1.037 s success)
+      the refusal is the DUT's ......... YES    (its RADIUS server counted ckdv2
+                                                 Successes 4, Failures 0, while its log
+                                                 says `VLAN is not valid for given
+                                                 supplicant`)
+FINDING: `auth dynamic-vlan-creation rule permit|deny` cannot be combined with
+         `type multi` in any host-mode, and the two refusal messages contradict each
+         other.  Used on its own, `rule` silently replaces `type multi` and returns the
+         port to single dynamic VLAN.  STEP 3 holds the proof.
+CAVEAT:  This run did not prove that the setting survives a reboot.  Proving that needs
+         `write`, and this run deliberately left startup-config untouched.  The run
+         proved instead that the lines appear in and disappear from
+         `show running-config`.  A tagged dynamic VLAN was not measured: the case title
+         says untagged, and `taggedVlansupplicantNum` read 0 throughout.  The
+         `Egress-VLANID` and `Egress-VLAN-Name` group settings were left unset.  The
+         VLAN came from the DUT's own local RADIUS server, not from an external server
+         sending a Tunnel-Private-Group-ID attribute.  `rule permit|deny` could not be
+         configured, so its behaviour was not measured.
+HEALTH:  before 16:12:47 NZDT, after 16:26:05 NZDT, compared as a difference.
+         reboots ......... no new entry (newest stays 2026-10-22 23:55:56 Unexpected
+                           System reboot, which is older than this run)
+         exception log ... not None, but unchanged since before.  The entry is
+                           "2026 Oct 22 23:49:18 ... Process snmpd (PID:1841) signal 11,
+                           core dumped", which is older than this run.
+         log ............. 0 new non-echo lines.  No crash, no daemon restart, no
+                           kernel error.  The `VLAN is not valid for given supplicant`
+                           lines are the product correctly reporting the STEP 2
+                           refusal.  They appear only in the `type single` legs and
+                           never in a `type multi` leg.
+         CPU ............. 0% -> 0% busy (`show cpu` prints busy averages, not idle);
+                           load 0.00
+         memory .......... free 7453328 -> 7451436 kB of 8092132 kB total
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  One port, two crafted client MACs at the same time, and two VLANs built for this case
+  so that each client has a gateway of its own to reach.  The DUT is both the
+  authenticator and the RADIUS server, so no second switch and no external server took
+  part.
+
+        tb277  eth4   -- S1 02:0d:b9:00:33:62 as ckdv1, sender IP 10.38.100.50
+             |           S2 02:0d:b9:00:33:63 as ckdv2, sender IP 10.38.101.50
+             |           EAPOL from tools/eapol.py, ARP from tools/arpleg.py
+             |
+             |  (down)  EAPOL frames, then ARP requests for one VLAN's gateway
+             |  (up)    ARP replies, but only from the client's own assigned VLAN
+             v
+    +--------------------------------------------------------+
+    |  swi_d   AT-x960-56YSQ                       <-- DUT   |
+    |  port1.0.48: dot1x port-control auto,                  |
+    |              auth host-mode multi-supplicant,          |
+    |              auth dynamic-vlan-creation type multi,    |
+    |              auth multi-vlan-session                   |
+    |                                                        |
+    |  interface vlan362 10.38.100.1/24   <-- S1's gateway   |
+    |  interface vlan363 10.38.101.1/24   <-- S2's gateway   |
+    |  interface vlan48  10.38.22.66/27   <-- the port's own |
+    |                                         access VLAN    |
+    |         |                                              |
+    |         +--> radius-server local, 127.0.0.1            |
+    |                group ckdvg1 -> vlan 362 -> user ckdv1  |
+    |                group ckdvg2 -> vlan 363 -> user ckdv2  |
+    +--------------------------------------------------------+
+             ^
+             |  console, 115200 baud
+        tb277  /dev/u2
+
+  DUT     : swi_d (AT-x960-56YSQ) console u2 at 115200 baud, S/N A2WQS700B,
+            software sin_x96056-20261019-27.  Not a stack.
+  server  : the DUT's own local RADIUS server.  `radius-server local`, NAS 127.0.0.1.
+            The local server has no per-user `vlan` keyword, so the VLAN is carried by
+            a group: `group <name>` then `vlan <id>`, with the user placed in the group.
+  link    : tb277 eth4 <-> swi_d port1.0.48 (access port in vlan 48; the DUT's vlan 48
+            address is 10.38.22.66/27, MAC e0:1a:ea:d4:70:43)
+  clients : S1 MAC 02:0d:b9:00:33:62, identity ckdv1, group ckdvg1, VLAN 362
+            S2 MAC 02:0d:b9:00:33:63, identity ckdv2, group ckdvg2, VLAN 363
+  probe   : the dataplane probe is 3 ARP requests for one VLAN's gateway address, sent
+            with a sender IP inside that same subnet.  So the only thing that differs
+            between a leg that reaches and a leg that is blocked is which VLAN the
+            untagged frame landed in.  The measurement is how many ARP replies come
+            back.
+  tools   : tools/eapol.py and tools/arpleg.py on tb277; tools/tb ckcon for the
+            console; tools/qmark.py for the read-only help probe; tools/tb health for
+            the two health reads
+
+  Built for this case and removed again at the end: vlan 362 `ckDYNVLAN-A` with
+  `interface vlan362 10.38.100.1/24`; vlan 363 `ckDYNVLAN-B` with
+  `interface vlan363 10.38.101.1/24`; local RADIUS groups ckdvg1 and ckdvg2; local
+  RADIUS users ckdv1 and ckdv2.  Both subnets were unused.  vlan 60, vlan 10 and
+  vlan 48 were not touched.
+
+  Two clients on one port need `auth host-mode multi-supplicant`.  Sending that command
+  changed `dot1x control-direction both` to `dot1x control-direction in`, with no
+  warning and no `% ` line.  The setting was restored explicitly at the end of the case
+  and read back.
+
+  Every leg below was preceded by `dot1x initialize interface port1.0.48`.
+
+STEP A -- read the command surface, without running anything                 done
+--------------------------------------------------------------------------------
+  Method: tools/qmark.py sends `?` and then Ctrl-U, so no command is executed.
+
+awplus(config-if)# auth dynamic-vlan-creation ?
+  rule  VLAN assignment rule
+  type  VLAN assignment type
+  <cr>
+awplus(config-if)# auth dynamic-vlan-creation type ?
+  multi   Multiple Dynamic vlan VLAN
+  single  Single Dynamic VLAN
+awplus(config-if)# auth dynamic-vlan-creation type multi rule ?
+  deny    Deny different assigned vlan id
+  permit  Permit different assigned vlan id
+awplus(config-if)# auth multi-vlan-session ?
+  <cr>
+awplus(config-radsrv)# user ckdv1 password ckdv1pw ?
+  group   Specify the group for user
+  reject  Reject authentication for user
+  <cr>
+awplus(config-radsrv-group)# vlan ?
+  WORD  VLAN information string
+
+  The rig this built, read back before any step:
+
+awplus# show radius local-server user
+User-Name                                     Group             Vlan
+--------------------------------------------------------------------------------
+ckdv1                                         ckdvg1            362
+ckdv2                                         ckdvg2            363
+
+awplus# show radius local-server group
+Group-Name       Vlan             Egress-VLANID  Egress-VLAN-Name
+---------------------------------------------------------------------
+ckdvg1           362              -              -
+ckdvg2           363              -              -
+
+STEP 0 -- the OFF baseline: the VLAN attribute exists and is ignored         PASS
+--------------------------------------------------------------------------------
+  Port state: `auth host-mode multi-supplicant` is set and
+  `dynamicVlanCreation: disabled`.  Both clients use the same identities and the same
+  groups that carry VLANs 362 and 363.
+
+pcap -> /tmp/authm1304/T33362-S0.pcap (12 EAPOL frames)
+     1.030 02:0d:b9:00:33:62 <- EAP-Success id=2     expected success, got success -- MATCH
+     1.032 02:0d:b9:00:33:63 <- EAP-Success id=2     expected success, got success -- MATCH
+RESULT T33362-S0-dynvlan-OFF: 2/2 supplicant(s) matched their expectation -- MATCH
+
+awplus# show auth supplicant interface port1.0.48 brief
+  totalSupplicantNum: 2   authorizedSupplicantNum: 2   dot1xAuthenticationSupplicantNum: 2
+Interface   VID  Mode MAC Address    Status            Username
+port1.0.48  48   D    020d.b900.3362 Authenticated     ckdv1      <-- VID 48, not 362
+port1.0.48  48   D    020d.b900.3363 Authenticated     ckdv2      <-- VID 48, not 363
+
+  Five dataplane legs:
+
+  | source MAC     | ARP target             | sender IP    | replies |
+  | -------------- | ---------------------- | ------------ | ------- |
+  | 020d.b900.3362 | 10.38.100.1 (vlan 362) | 10.38.100.50 | 0       |
+  | 020d.b900.3362 | 10.38.101.1 (vlan 363) | 10.38.101.50 | 0       |
+  | 020d.b900.3363 | 10.38.100.1 (vlan 362) | 10.38.100.50 | 0       |
+  | 020d.b900.3363 | 10.38.101.1 (vlan 363) | 10.38.101.50 | 0       |
+  | 020d.b900.3362 | 10.38.22.66 (vlan 48)  | 10.38.22.72  | 3 of 3  |
+
+  => STEP 0 PASS: both clients authenticate and both land in VID 48, which is the
+     port's static access VLAN, although their RADIUS groups carry 362 and 363.  With
+     `dynamicVlanCreation: disabled` the server's VLAN attribute is simply ignored.
+     The fifth leg is the instrument control for the whole case.  It is the same
+     `arpleg.py` command with only the source MAC and the addresses changed, and it
+     returned 3 of 3.  So every zero in this log is a measurement and not a dead
+     capture.
+
+STEP 1 -- `type multi`: two clients, two different VLANs, both untagged      PASS
+--------------------------------------------------------------------------------
+awplus# configure terminal
+awplus(config)# interface port1.0.48
+awplus(config-if)# auth dynamic-vlan-creation type multi
+awplus(config-if)# auth multi-vlan-session
+awplus(config-if)# end
+
+awplus# show running-config interface port1.0.48
+ switchport
+ switchport mode access
+ switchport access vlan 48
+ dot1x port-control auto
+ dot1x control-direction in
+ auth host-mode multi-supplicant
+ auth dynamic-vlan-creation type multi
+ auth multi-vlan-session
+
+pcap -> /tmp/authm1304/T33362-S1.pcap (12 EAPOL frames)
+     1.045 02:0d:b9:00:33:62 <- EAP-Success id=2     expected success, got success -- MATCH
+     1.051 02:0d:b9:00:33:63 <- EAP-Success id=2     expected success, got success -- MATCH
+RESULT T33362-S1-dynvlan-type-multi: 2/2 supplicant(s) matched their expectation -- MATCH
+
+awplus# show auth supplicant interface port1.0.48 brief
+  totalSupplicantNum: 2        authorizedSupplicantNum: 2
+  untaggedVlansupplicantNum: 3  taggedVlansupplicantNum: 0
+  dot1xAuthenticationSupplicantNum: 2
+Interface   VID  Mode MAC Address    Status            Username
+port1.0.48  362  D    020d.b900.3362 Authenticated     ckdv1      <-- its own VLAN
+port1.0.48  363  D    020d.b900.3363 Authenticated     ckdv2      <-- its own VLAN
+
+awplus# show vlan brief
+362     ckDYNVLAN-A      STATIC  ACTIVE  port1.0.48(u)      <-- untagged member
+363     ckDYNVLAN-B      STATIC  ACTIVE  port1.0.48(u)      <-- untagged member
+
+  The dataplane, five legs.  Nothing changed between them but the source MAC and the
+  address asked for.
+
+  | source MAC                | assigned VLAN | ARP 10.38.100.1 (vlan 362) | ARP 10.38.101.1 (vlan 363) | ARP 10.38.22.66 (vlan 48) |
+  | ------------------------- | ------------- | -------------------------- | -------------------------- | ------------------------- |
+  | 020d.b900.3362 (ckdv1)    | 362           | 3 replies                  | 0                          | 0 (was 3 in STEP 0)       |
+  | 020d.b900.3363 (ckdv2)    | 363           | 0                          | 3 replies                  | not run                   |
+
+LEG T33362-S1-62-A  cap 9 frames:
+    x3  ARP-REQ   who-has 10.38.100.1 tell 10.38.100.50 [eth 02:0d:b9:00:33:62 -> ff:ff:ff:ff:ff:ff]
+    x3  ARP-REPLY 10.38.100.1 is-at e0:1a:ea:d4:70:43   [eth e0:1a:ea:d4:70:43 -> 02:0d:b9:00:33:62]
+LEG T33362-S1-62-B  cap 4 frames: requests only, 0 replies
+LEG T33362-S1-63-A  cap 3 frames: requests only, 0 replies
+LEG T33362-S1-63-B  cap 6 frames:
+    x3  ARP-REQ   who-has 10.38.101.1 tell 10.38.101.50 [eth 02:0d:b9:00:33:63 -> ff:ff:ff:ff:ff:ff]
+    x3  ARP-REPLY 10.38.101.1 is-at e0:1a:ea:d4:70:43   [eth e0:1a:ea:d4:70:43 -> 02:0d:b9:00:33:63]
+LEG T33362-S1-62-V48 cap 3 frames: requests only, 0 replies
+
+  The DUT's log for the move:
+  NSM[909]: Port down notification received for vlan48
+  NSM[909]: Port up notification received for vlan362
+  NSM[909]: port1.0.48 port mode access updated VLAN
+
+  => STEP 1 PASS, and the diagonal of the matrix is the result.  Each client reaches
+     only the gateway of its own assigned VLAN.  The two empty cells are the controls.
+     They were measured in the same configuration, with the same instrument, within
+     ninety seconds of the two full cells.  The untagged part of the case title is
+     proved by `show vlan brief`: the same physical port is an untagged `(u)` member of
+     both 362 and 363 at the same time, and `taggedVlansupplicantNum` is 0.
+     The third column is an extra control that the design did not plan.  Client
+     020d.b900.3362 could reach 10.38.22.66 in vlan 48 three times out of three in
+     STEP 0, and zero times out of three here.  So the client did not only gain a VLAN.
+     It also left the port's static access VLAN.  A test that only checked gateway
+     reachability would not have shown that.
+
+STEP 2 -- `type single` refuses the second, different VLAN                   PASS
+--------------------------------------------------------------------------------
+  Method: this is the one change that separates Multiple Dynamic VLAN from ordinary
+  dynamic VLAN assignment.  The leg was run twice.  The second run declared ckdv2
+  `--expect failure`, so that the instrument states the outcome.  Both runs have the
+  same shape.
+
+awplus# configure terminal
+awplus(config)# interface port1.0.48
+awplus(config-if)# auth dynamic-vlan-creation type single
+awplus(config-if)# end
+awplus# show auth interface port1.0.48 | include dynamicVlan
+  dynamicVlanCreation: single-dynamic-vlan
+
+pcap -> /tmp/authm1304/T33362-S2b.pcap (12 EAPOL frames)
+
+     0.002 02:0d:b9:00:33:62 -> EAPOL-Start
+     0.010 02:0d:b9:00:33:62 <- EAP-Request/Identity id=1 len=0
+     0.014 02:0d:b9:00:33:62 -> EAP-Response/Identity "ckdv1"
+     0.021 02:0d:b9:00:33:62 <- EAP-Request/MD5-Challenge id=2 len=17
+     0.024 02:0d:b9:00:33:62 -> EAP-Response/MD5-Challenge digest=3629d934dde3a282148d6c29026d93fe
+     1.037 02:0d:b9:00:33:62 <- EAP-Success id=2       <-- the normal server round trip
+  02:0d:b9:00:33:62  expected success, got success -- MATCH  (1.04 s)
+
+     0.006 02:0d:b9:00:33:63 -> EAPOL-Start
+     0.016 02:0d:b9:00:33:63 <- EAP-Request/Identity id=1 len=0
+     0.019 02:0d:b9:00:33:63 -> EAP-Response/Identity "ckdv2"
+     0.025 02:0d:b9:00:33:63 <- EAP-Request/MD5-Challenge id=2 len=17
+     0.028 02:0d:b9:00:33:63 -> EAP-Response/MD5-Challenge digest=45dfdfd06ae185350b6bebbc4e124fc2
+     0.039 02:0d:b9:00:33:63 <- EAP-Failure id=2       <-- 26 times faster than a success
+  02:0d:b9:00:33:63  expected failure, got failure -- MATCH  (0.04 s)
+RESULT T33362-S2b-type-single-rerun: 2/2 supplicant(s) matched their expectation -- MATCH
+
+awplus# show auth supplicant interface port1.0.48 brief
+  authorizedSupplicantNum: 1
+port1.0.48  362  D    020d.b900.3362 Authenticated     ckdv1
+port1.0.48  362  D    020d.b900.3363 Held              --        <-- VID 362, not its own 363
+awplus# show vlan brief
+362     ckDYNVLAN-A      STATIC  ACTIVE  port1.0.48(u)
+363     ckDYNVLAN-B      STATIC  ACTIVE                           <-- no member ports
+
+awplus# show radius local-server statistics
+  ckdv2    Successes 4    Failures 0        <-- the credentials passed every time
+
+  DUT log:
+  802.1X[1094]: VLAN is not valid for given supplicant. Interface = port1.0.48,
+                MAC address = 020d.b900.3363
+  802.1X[1094]: 802.1X Authentication failed (retry=0) for ckdv2@020d.b900.3363
+
+  => STEP 2 PASS, and it proves two things.  First, `type single` admits the first VLAN
+     and refuses the second, with an explicit EAP-Failure frame.  `show vlan brief`
+     shows port1.0.48 removed from 363 completely.  Second, the refusal comes from the
+     switch and not from the server, and the timing says so before the log does.
+     ckdv1's EAP-Success arrives at 1.037 s, which is the normal RADIUS round trip.
+     ckdv2's EAP-Failure arrives at 0.039 s, which is 26 times faster.  Two more
+     sources confirm it: the DUT's own RADIUS server recorded ckdv2 with 4 successes
+     and 0 failures, so the credentials passed; and the DUT's log says the VLAN was not
+     valid for that client.  So a client whose credentials the server accepted was
+     refused by the authenticator's own VLAN policy, and was told it was an ordinary
+     authentication failure.
+
+STEP 3 -- the `rule permit|deny` option cannot be used with `type multi`     PASS
+--------------------------------------------------------------------------------
+  Method: `rule permit|deny` is part of this case's subject and the help text offers
+  it.  It could not be made to work, and how it fails is itself a result.  Every line
+  below is a command that was sent and the device's own reply.
+
+  First, `type multi` and `rule` cannot be combined in any host-mode, and the two
+  refusals contradict each other:
+
+awplus(config-if)# auth host-mode multi-supplicant
+awplus(config-if)# auth dynamic-vlan-creation type multi rule deny
+% port1.0.48: Vlan assignment rule is not configured on assignment-per-user port
+awplus(config-if)# auth dynamic-vlan-creation type multi rule permit
+% port1.0.48: Vlan assignment rule is not configured on assignment-per-user port
+
+awplus(config-if)# auth host-mode multi-host
+awplus(config-if)# auth dynamic-vlan-creation type multi rule deny
+% port1.0.48: Vlan assignment per user is not configured on single supplicant port
+
+awplus(config-if)# auth host-mode single-host
+awplus(config-if)# auth dynamic-vlan-creation type multi rule deny
+% port1.0.48: Vlan assignment per user is not configured on single supplicant port
+
+  Second, `rule` on its own is accepted, and it silently discards `type multi`.  Two
+  commands, each with a read after it, nothing else changed:
+
+awplus(config-if)# auth dynamic-vlan-creation type multi
+  show auth interface | include dynamicVlan  ->  dynamicVlanCreation: multiple-dynamic-vlan
+  show running-config ...                    ->  auth dynamic-vlan-creation type multi
+
+awplus(config-if)# auth dynamic-vlan-creation rule permit
+  show auth interface | include dynamicVlan  ->  dynamicVlanCreation: single-dynamic-vlan
+  show running-config ...                    ->  auth dynamic-vlan-creation rule permit
+
+  => STEP 3 PASS, and this is a finding.  Under `multi-supplicant` the device says the
+     rule is not available because the port does per-user assignment.  Under the other
+     two host-modes it says per-user assignment is not configured.  Those two messages
+     cannot both describe a configuration that can be reached, and no host-mode accepts
+     the combination.
+     Then, when `rule` is used on its own, no warning is printed and no `% ` line
+     appears.  The `type multi` line has gone from the running-config and the port is
+     back to single dynamic VLAN.  As STEP 2 measured, that means the second client's
+     different VLAN is now refused.  An operator who adds a VLAN assignment rule to a
+     working multiple-dynamic-VLAN port turns the feature off and is not told.
+     What this run does not establish: whether `rule permit|deny` can be reached at all
+     on this software, and under what configuration.  Both error messages are specific
+     enough to have been written for a real condition, and no combination tried reaches
+     it.  That needs the command reference or a developer.
+
+STEP 4 -- restore the port, the server and the VLANs to how they were found  done
+--------------------------------------------------------------------------------
+awplus# configure terminal
+awplus(config)# interface port1.0.48
+awplus(config-if)#  no auth dynamic-vlan-creation
+awplus(config-if)#  no auth multi-vlan-session
+awplus(config-if)#  no auth host-mode
+awplus(config-if)#  dot1x control-direction both
+awplus(config-if)#  exit
+awplus(config)# radius-server local
+awplus(config-radsrv)#  no user ckdv1
+awplus(config-radsrv)#  no user ckdv2
+awplus(config-radsrv)#  no group ckdvg1
+awplus(config-radsrv)#  no group ckdvg2
+awplus(config-radsrv)#  exit
+awplus(config)# interface vlan362
+awplus(config-if)#  no ip address
+awplus(config-if)#  exit
+awplus(config)# interface vlan363
+awplus(config-if)#  no ip address
+awplus(config-if)#  exit
+awplus(config)# vlan database
+awplus(config-vlan)#  no vlan 362
+awplus(config-vlan)#  no vlan 363
+awplus(config-vlan)#  exit
+awplus(config)# end
+
+  One teardown line does not work, and is recorded so that nobody tries it again:
+
+awplus(config)# no interface vlan362
+% Removal of interface not allowed
+
+  A VLAN interface goes away when its VLAN is deleted in `vlan database`.  Negating the
+  interface does not remove it.
+
+  Read back:
+
+awplus# show running-config interface port1.0.48
+!
+interface port1.0.48
+ switchport
+ switchport mode access
+ switchport access vlan 48
+ dot1x port-control auto
+ dot1x control-direction both           <-- restored
+!
+awplus# show radius local-server user
+Total users: 4  (ckmulti1 ckmulti2 ckpeap cktls)
+awplus# show radius local-server group
+(empty; ckdvg1 and ckdvg2 have gone)
+awplus# show vlan brief
+1 default / 10 ckUNDERLAY-eth3 / 48 ckUNDERLAY-eth4 / 60 ckMGMT-A   (362 and 363 have gone)
+awplus# show auth interface port1.0.48
+portStatus Unauthorized, reAuthenticate disabled, reAuthPeriod 3600,
+CD adminControlledDirections: both, dynamicVlanCreation disabled,
+multiVlanSession disabled, hostMode single-host, authMac disabled, authWeb disabled,
+twoStepAuthentication disabled, supplicantMac none
+awplus# show spanning-tree brief
+Root Id 8000:0000cd423029, Bridge Id 8000:e01aead47043
+port1.0.2  Rootport   Forwarding
+port1.0.10 Designated Forwarding
+port1.0.48 Disabled   Discarding
+
+  The spanning tree is exactly as it was before the case, so creating and deleting two
+  VLANs moved nothing.  port1.0.48 reading `Disabled / Discarding` is 802.1X doing its
+  job with no client authenticated, not a fault.
+
+  No `write` was run.  The boot config is still flash:/default.cfg and the boot image is
+  still flash:/x960-tb277.rel.  vlan 60, vlan 10 and vlan 48 were not touched.  Every
+  supplicant and ARP process ended on its own and printed its own counts.
+================================================================================

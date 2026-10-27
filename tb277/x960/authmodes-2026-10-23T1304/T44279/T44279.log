@@ -1,0 +1,499 @@
+================================================================================
+TEST T44279 -- (218) Authentication&Security - Tri-Authentication
+================================================================================
+Run:      2026-10-23 16:29-16:38 NZDT.  Three authentication methods were driven on one
+          port and were all authenticated at the same moment, each one confirmed in the
+          dataplane against a client that qualified for none of them.
+          The DUT's clock reads UTC, 13 hours behind the NZDT times in this log.
+Bench:    tb277, consoles u2 (swi_d); Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T44279, objective "Confirm that dot1,MAC authentications is possible.",
+          no authored steps.  The title names three methods and the objective names two.
+          Both were covered: all three methods were measured.  The product support list
+          row 216 "Tri-Authentication" reads Yes.
+Build:    swi_d AT-x960-56YSQ, software sin_x96056-20261019-27 (boot image
+          flash:/x960-tb277.rel, build date Sun Oct 18 23:18:21 UTC 2026)
+
+          Captured on this bench at 02:18:41 UTC, before this case started. This case's
+          health read shows no reboot since, so the build below is the build it ran on.
+
+          The DUT's own `show system`:
+
+awplus# show system
+System Status                                           Fri Oct 23 02:18:41 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B       
+PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU 
+PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S 
+Fan module 730  FAN1    AT-FAN19                          -     -               
+Fan module 730  FAN2    AT-FAN19                          -     -               
+--------------------------------------------------------------------------------
+RAM: Total: 8092132 kB Free: 7466488 kB
+Flash: 14.3GB Used: 171.8MB Available: 14.1GB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 02:22:57
+Bootloader version : Unknown
+
+Current software   : x960-tb277.rel
+Software version   : sin_x96056-20261019-27
+Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+Current boot config: flash:/default.cfg (file exists)
+
+System Name
+ awplus
+System Contact
+
+System Location
+
+          `show boot`: boot image flash:/x960-tb277.rel (file exists), boot config
+          flash:/default.cfg (file exists), autoboot disabled.  That was the state at
+          the start and at the end of this case.
+Configs:  swi_d.cfg (running-config read at the end of the case; saved to startup: no)
+
+VERDICT: PASS -- all three authentication methods worked at the same time on one port.
+      MAC authentication ............... YES    (Mode M, Authenticated, 4 of 4 echo
+                                                 replies)
+      802.1X ........................... YES    (Mode D, Authenticated, 4 of 4 echo
+                                                 replies, EAP-Success)
+      web authentication ............... YES    (Mode W, Authenticated, 4 of 4 ping)
+      all three at the same instant .... YES    (one `show auth supplicant brief` lists
+                                                 all three, with macBased, dot1x and
+                                                 webBased counters each reading 1 and
+                                                 authorizedSupplicantNum 3)
+      a control in the same window ..... YES    (a fourth client with bad credentials
+                                                 for both methods sat at 0 of 4)
+      web auth has its own control ..... YES    (a wrong password, run FIRST, left the
+                                                 client Mode W Connecting with
+                                                 webBasedAuthenticationSupplicantNum 0)
+      removing web auth is real ........ YES    (sessions cleared, host ping 4 of 4 ->
+                                                 0 of 4, and the HTTP GET timed out)
+      the authored objective is met .... YES    (802.1X and MAC both authenticated, and
+                                                 the third method the title implies was
+                                                 measured as well, so no caveat is
+                                                 needed for it)
+CAVEAT:  This run did not prove that the settings survive a reboot.  Proving that needs
+         `write`, and this run deliberately left startup-config untouched.  The run
+         proved instead that the lines appear in and disappear from
+         `show running-config`.  Web authentication was driven over HTTP only.  The
+         HTTPS path (`auth-web-server ssl`, intercept port 443, a trustpoint) was not
+         measured.  `auth-web-server redirect-url`, `session-keep`, `login-url`, `page`,
+         `auth-web idle-timeout`, `auth-web max-auth-fail` and `auth-web-server dhcp`
+         were not used.  Only one wrong password was sent, so `max-auth-fail` (default
+         3) never engaged and no client was put in the HELD state.  This case gave each
+         method its own MAC, so it did not measure what happens when one MAC is
+         eligible for two methods at once.
+HEALTH:  before 16:29:46 NZDT, after 16:37:43 NZDT, compared as a difference.
+         reboots ......... no new entry (newest stays 2026-10-22 23:55:56 Unexpected
+                           System reboot, which is older than this run)
+         exception log ... not None, but unchanged since before.  The entry is
+                           "2026 Oct 22 23:49:18 ... Process snmpd (PID:1841) signal 11,
+                           core dumped", which is older than this run.
+         log ............. 0 new non-echo lines.  No crash and no kernel error.  Two
+                           lines are discussed in STEP 6: `IMI[953]: AAA: failed to
+                           update method-list default (unknown type 7).`  The local
+                           RADIUS daemon changed process id during the case, which
+                           STEP 6 also covers; it is a restart, not a crash.
+         CPU ............. 0% -> 0% busy (`show cpu` prints busy averages, not idle);
+                           load 0.07 before
+         memory .......... free 7450760 -> 7451584 kB of 8092132 kB total
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  One port carries four clients.  Three of them authenticate, each by a different
+  method.  The fourth is the control and qualifies for none of them.  The DUT is both
+  the authenticator and the RADIUS server, so no second switch and no external server
+  took part.
+
+        tb277  eth4  00:0d:b9:55:77:0f  10.38.22.65/27
+             |
+             |  MAC X 02:0d:b9:00:42:79, 10.38.22.73  -> MAC authentication
+             |  MAC Y 02:0d:b9:00:42:7a               -> 802.1X as ckmulti1
+             |  MAC Z 02:0d:b9:00:42:7b, 10.38.22.75  -> the CONTROL, bad credentials
+             |  the NIC's own MAC and address         -> web authentication as ckweb
+             |
+             |  (down)  EAPOL frames, ICMP echo requests, and one HTTP POST
+             |  (up)    EAP frames, ICMP echo replies when authorised, HTTP responses
+             v
+    +--------------------------------------------------------+
+    |  swi_d   AT-x960-56YSQ                       <-- DUT   |
+    |  port1.0.48: auth-mac enable,                          |
+    |              auth-web enable,                          |
+    |              dot1x port-control auto,                  |
+    |              auth host-mode multi-supplicant,          |
+    |              auth forward arp / dhcp / dns             |
+    |                                                        |
+    |  auth-web-server ipaddress 10.38.22.66, HTTP port 80   |
+    |         |                                              |
+    |         +--> radius-server local, 127.0.0.1:1812       |
+    |                users 02-0d-b9-00-42-79 and ckweb       |
+    |                added for this case, plus ckmulti1      |
+    +--------------------------------------------------------+
+             ^
+             |  console, 115200 baud
+        tb277  /dev/u2
+
+  DUT     : swi_d (AT-x960-56YSQ) console u2 at 115200 baud, S/N A2WQS700B,
+            software sin_x96056-20261019-27.  Not a stack.  vlan 48 address
+            10.38.22.66/27, MAC e0:1a:ea:d4:70:43.
+  server  : the DUT's own local RADIUS server.  `radius-server local`, NAS 127.0.0.1.
+            This case added the local users `02-0d-b9-00-42-79` (the MAC credential)
+            and `ckweb` (the web credential), and the method lists
+            `aaa authentication auth-mac default group radius` and
+            `aaa authentication auth-web default group radius`.  All were removed at
+            the end.
+  link    : tb277 eth4 <-> swi_d port1.0.48 (access port in vlan 48)
+  probe   : the dataplane probe in this case is an ICMP echo request to 10.38.22.66,
+            not an ARP request.  See the note below.
+  tools   : tools/eapol.py (802.1X), tools/arpleg.py with `--icmp` (the dataplane
+            probe), tools/httpq.py (the web login POST), tools/tb ping, tools/tb ckcon
+            for the console, tools/qmark.py for the read-only help probe, and
+            tools/tb health for the two health reads
+
+  Why the probe is ICMP and not ARP.  `auth-web enable` adds `auth forward arp`,
+  `auth forward dhcp` and `auth forward dns` to the port by itself, and they are
+  visible in the running-config.  Web authentication cannot work without them: a client
+  that has not logged in yet must be able to ARP for the gateway, get an address and
+  resolve a name before it can reach a login page.  With `auth forward arp` in force,
+  ARP is forwarded for clients that have not authenticated, so an ARP probe can no
+  longer tell the two states apart.  Every dataplane measurement in this case therefore
+  uses ICMP echo, which is not in the forward list and is blocked until the client is
+  authorised.  `arpleg.py --icmp` was run with `--gw-mac e0:1a:ea:d4:70:43` and
+  `--answer`, so the DUT can resolve the sender.  The numbers in this log come from a
+  different probe than the ARP counts used elsewhere.
+
+  Second rig fact: the DUT tries MAC authentication for every new MAC before it tries
+  802.1X.  STEP 2 measures what that costs.
+
+STEP A -- read the command surface, without running anything                 done
+--------------------------------------------------------------------------------
+  Method: tools/qmark.py sends `?` and then Ctrl-U, so no command is executed.
+
+awplus(config-if)# auth-web ?
+  accounting / authentication / enable / forward / idle-timeout / max-auth-fail / method
+awplus(config)# auth-web-server ?
+  dhcp / host-name / intercept-port / ip-conflict-prefer-newer-supplicant / ipaddress /
+  login-url / page / ping-poll / port / redirect-delay-time / redirect-url / session-keep /
+  ssl / trustpoint
+
+STEP B -- build the three-method rig                                         done
+--------------------------------------------------------------------------------
+awplus# configure terminal
+awplus(config)# aaa authentication auth-mac default group radius
+awplus(config)# aaa authentication auth-web default group radius
+awplus(config)# auth-web-server ipaddress 10.38.22.66
+awplus(config)# radius-server local
+awplus(config-radsrv)#  user 02-0d-b9-00-42-79 password 02-0d-b9-00-42-79
+awplus(config-radsrv)#  user ckweb password ckwebpw
+awplus(config-radsrv)#  exit
+awplus(config)# interface port1.0.48
+awplus(config-if)#  auth host-mode multi-supplicant
+awplus(config-if)#  auth-mac enable
+awplus(config-if)#  auth-web enable
+awplus(config-if)# end
+
+awplus# show auth
+802.1X Port-Based Authentication: Enabled
+MAC-based Port Authentication   : Enabled (Mode:Dynamic)
+WEB-based Port Authentication   : Enabled
+  RADIUS server address (auth): 127.0.0.1:1812,
+
+awplus# show running-config interface port1.0.48
+ switchport
+ switchport mode access
+ switchport access vlan 48
+ auth-mac enable
+ auth-web enable
+ dot1x port-control auto
+ auth host-mode multi-supplicant
+ auth forward arp          <-- the DUT added these three lines itself
+ auth forward dhcp         <--
+ auth forward dns          <--
+
+awplus# show auth-web-server
+  Server status: enabled        Server address: 10.38.22.66    Server protocol: HTTP
+  HTTP Intercept Port No: 80    HTTPS Intercept Port No: 443   Redirect delay time: 5
+  Certification: default        DHCP server: disabled          Session keep: disabled
+
+  All three methods read Enabled at once.  That is the configuration the case needs.
+
+STEP 0 -- the control first: an unauthenticated MAC cannot pass ICMP         PASS
+--------------------------------------------------------------------------------
+LEG T44279-S0-CONTROL-unauth-icmp   (MAC Z, 4 x ICMP echo to 10.38.22.66)
+  cap: 4 frame(s)
+    x4  ICMP t8/c0 10.38.22.75 -> 10.38.22.66 [ours] [eth 02:0d:b9:00:42:7b -> e0:1a:ea:d4:70:43]
+  echo replies: 0
+
+awplus# show auth supplicant interface port1.0.48 brief
+  totalSupplicantNum: 1   authorizedSupplicantNum: 0
+port1.0.48  48   D    020d.b900.427b Connecting        10.38.22.75     --
+
+  => STEP 0 PASS: the probe tells the two states apart.  A client that has not
+     authenticated gets 0 echo replies out of 4.  The IP Address column is filled in
+     (10.38.22.75) even though the client is not authorised, because the web
+     authentication address audit learns the address from the forwarded ARP.  That is
+     what lets web authentication redirect the client later.
+
+STEP 1 -- method one: MAC authentication                                     PASS
+--------------------------------------------------------------------------------
+LEG T44279-S1-MACAUTH   (MAC X, 4 x ICMP)
+  answerer sent 1 ARP reply
+  cap: 9 frame(s)
+    x4  ICMP t8/c0 10.38.22.73 -> 10.38.22.66 [eth 02:0d:b9:00:42:79 -> e0:1a:ea:d4:70:43]
+    x3  ICMP t0/c0 10.38.22.66 -> 10.38.22.73 [eth e0:1a:ea:d4:70:43 -> 02:0d:b9:00:42:79]
+    x1  ARP-REQ  who-has 10.38.22.73 tell 10.38.22.66   (the DUT resolving us)
+    x1  ARP-REPLY 10.38.22.73 is-at 02:0d:b9:00:42:79
+
+LEG T44279-S1b-MACAUTH-settled   (same MAC, repeated once the session was up)
+  cap: 8 frame(s)   x4 echo request, x4 echo reply      <-- 4 of 4
+
+awplus# show auth supplicant interface port1.0.48 brief
+  totalSupplicantNum: 2   authorizedSupplicantNum: 1
+    macBasedAuthenticationSupplicantNum: 1
+port1.0.48  48   M    020d.b900.4279 Authenticated     10.38.22.73     02-0d...
+port1.0.48  48   D    020d.b900.427b Connecting        10.38.22.75     --
+
+  DUT log: 802.1X[1094]: MAC Authentication successful for 02-0d-b9-00-42-79@020d.b900.4279
+           on port1.0.48
+  Server:  radiusd: (1) Login OK: [02-0d-b9-00-42-79]
+
+  => STEP 1 PASS: the first method works.  The client is listed with Mode M and status
+     Authenticated, and it got 4 echo replies out of 4.  The control MAC sat beside it
+     on the same port at 0.
+
+STEP 2 -- method two: 802.1X, with its control in the SAME packet window     PASS
+--------------------------------------------------------------------------------
+  Method: both clients were put in one `eapol.py` run, so the refusal and the
+  acceptance share one window.
+
+pcap -> /tmp/authm1304/T44279-S2.pcap (12 EAPOL frames)
+     3.028 02:0d:b9:00:42:7a <- EAP-Success id=2    expected success, got success -- MATCH
+     3.032 02:0d:b9:00:42:7b <- EAP-Failure id=2    expected failure, got failure -- MATCH
+RESULT T44279-S2-dot1x-plus-CONTROL: 2/2 supplicant(s) matched their expectation -- MATCH
+
+LEG T44279-S2-dot1x-dataplane      (MAC Y)  cap 10 frames: x4 echo request, x4 echo REPLY
+LEG T44279-S2-CONTROL-dataplane    (MAC Z)  cap  4 frames: x4 echo request, 0 replies
+
+  Why EAP-Success arrives at 3.028 s here, where other 802.1X legs on this bench land
+  at 1.02 to 1.05 s.  The DUT's own log gives the reason:
+
+  radiusd: (2) Login incorrect (No Auth-Type found: rejecting the user via
+           Post-Auth-Type = Reject): [02-0d-b9-00-42-7a]
+
+  With `auth-mac enable` on the port the DUT tries MAC authentication first for every
+  new MAC.  MAC Y has no MAC user, so that attempt is rejected, and only then does the
+  802.1X exchange run.  The extra 2 seconds is the cost of that first attempt, not a
+  slow server.  The same line appears for MAC Z.
+
+  => STEP 2 PASS: the second method works.  802.1X admitted MAC Y with 4 echo replies
+     out of 4 and refused MAC Z with an explicit EAP-Failure and 0 out of 4, in the same
+     window.  The MAC-authenticated client from STEP 1 kept its session throughout.
+
+STEP 3 -- method three: web authentication                                   PASS
+--------------------------------------------------------------------------------
+  Method: interception was measured first.  A plain GET from the unauthenticated host
+  returns the DUT's own page:
+
+host# GET http://10.38.22.66/   -> HTTP 200 OK, body contains:
+<meta http-equiv="refresh" content="3;URL=http://10.38.22.66/index.cgi?authenticating=1">
+
+  That is the web authentication server answering, not the management HTTP server,
+  which on this unit answers `/` with 404.
+
+  The login page at `index.cgi?authenticating=1` holds exactly this:
+
+<FORM action="http://10.38.22.66/index.cgi" autocomplete="off" target="_self" name="AUTH" method="POST">
+<INPUT size="30" type="text"     maxlength="64" name="USERNAME" tabindex="0">
+<INPUT size="30" type="password" maxlength="64" name="PASSWORD" tabindex="0">
+<INPUT class="btncolor" type="submit" name="ACTION" value="login" tabindex="0">
+
+  There is no cookie, no session token, no CSRF token and no JavaScript in the submit
+  path.  So the whole login protocol is one form POST, and `tools/httpq.py` drove it
+  without any change.  No HTTP client had to be written.
+
+  The control was run FIRST, so that it cannot be an effect of an earlier success:
+
+host# POST http://10.38.22.66/index.cgi
+        USERNAME=ckweb&PASSWORD=WRONGPASSWORD9&ACTION=login
+  HTTP 200 OK -- the body refreshes back to index.cgi?authenticating=1 (the login page)
+
+awplus# show auth supplicant interface port1.0.48 brief
+  authorizedSupplicantNum: 2     webBasedAuthenticationSupplicantNum: 0
+port1.0.48  48   W    000d.b955.770f Connecting        10.38.22.65     --
+
+  Then the same request with the correct password.  Nothing else changed:
+
+host# POST http://10.38.22.66/index.cgi
+        USERNAME=ckweb&PASSWORD=ckwebpw&ACTION=login
+  HTTP 200 OK
+
+awplus# show auth supplicant interface port1.0.48 brief
+  totalSupplicantNum: 3   authorizedSupplicantNum: 3
+    macBasedAuthenticationSupplicantNum: 1
+    dot1xAuthenticationSupplicantNum: 1
+    webBasedAuthenticationSupplicantNum: 1
+    otherAuthenticationSupplicantNum: 0
+Interface   VID  Mode MAC Address    Status            IP Address      Username
+=========== ==== ==== ============== ================= =============== ========
+port1.0.48  48   M    020d.b900.4279 Authenticated     10.38.22.73     02-0d...
+port1.0.48  48   D    020d.b900.427a Authenticated     --              ckmulti1
+port1.0.48  48   W    000d.b955.770f Authenticated     10.38.22.65     ckweb
+
+tb277$ tools/tb ping tb277 eth4 10.38.22.66 4
+4 packets transmitted, 4 received, 0% packet loss   rtt min/avg/max 0.316/0.433/0.625 ms
+
+  => STEP 3 PASS: the third method works, and its control ran in the same minute.  The
+     wrong password left the host's MAC with Mode W and status Connecting, and
+     `webBasedAuthenticationSupplicantNum` at 0.  The correct password moved it to
+     Authenticated with the user name `ckweb`, and the host's own NIC went from 0 of 4
+     to 4 of 4.
+
+STEP 4 -- three methods, three clients, one port, one instant               PASS
+--------------------------------------------------------------------------------
+  Method: with all three sessions up, the control was measured again so that the
+  negative result sits in the same window as the full three-method state.
+
+LEG T44279-S4-CONTROL-same-window   (MAC Z, 4 x ICMP)
+  cap 4 frames: x4 echo request, 0 replies
+
+awplus# show auth supplicant interface port1.0.48 brief
+  totalSupplicantNum: 4   authorizedSupplicantNum: 3
+    macBasedAuthenticationSupplicantNum: 1
+    dot1xAuthenticationSupplicantNum:    1
+    webBasedAuthenticationSupplicantNum: 1
+    otherAuthenticationSupplicantNum:    0
+Interface   VID  Mode MAC Address    Status            IP Address      Username
+port1.0.48  48   M    020d.b900.4279 Authenticated     10.38.22.73     02-0d...   <- MAC
+port1.0.48  48   D    020d.b900.427a Authenticated     --              ckmulti1   <- 802.1X
+port1.0.48  48   W    000d.b955.770f Authenticated     10.38.22.65     ckweb      <- WEB
+port1.0.48  48   D    020d.b900.427b Connecting        10.38.22.75     --         <- CONTROL
+
+  | client         | method                  | Mode | DUT status  | dataplane            |
+  | -------------- | ----------------------- | ---- | ----------- | -------------------- |
+  | 020d.b900.4279 | MAC                     | M    | Authenticated | 4 of 4 echo replies |
+  | 020d.b900.427a | 802.1X                  | D    | Authenticated | 4 of 4 echo replies |
+  | 000d.b955.770f | web                     | W    | Authenticated | 4 of 4 ping         |
+  | 020d.b900.427b | none, both credentials bad | D | Connecting  | 0 of 4              |
+
+  => STEP 4 PASS: this one read is the whole point of the case.  Three different
+     authentication methods are active at the same moment on one port.  Each has its own
+     counter reading 1.  Each is confirmed in the dataplane.  A fourth client that
+     qualifies for none of the three sits at zero on the same port at the same moment.
+     The authored objective, "Confirm that dot1,MAC authentications is possible", is
+     met, and the third method named in the title is met as well.
+
+STEP 5 -- removal of the web limb                                            PASS
+--------------------------------------------------------------------------------
+awplus# configure terminal
+awplus(config)# interface port1.0.48
+awplus(config-if)# no auth-web enable
+awplus(config-if)# end
+
+  | check after `no auth-web enable`      | result                                              |
+  | ------------------------------------- | --------------------------------------------------- |
+  | show auth supplicant ... brief         | totalSupplicantNum: 0 -- every session on the port cleared |
+  | host eth4 ping 10.38.22.66             | 0 of 4 (was 4 of 4)                                 |
+  | GET http://10.38.22.66/                | TRANSPORT FAILED: <urlopen error timed out>         |
+
+  One reporting inconsistency was measured.  Straight after `no auth-web enable`, with
+  the port already behaving as above, the global summary still read:
+
+awplus# show auth
+WEB-based Port Authentication   : Enabled
+
+  It only changed to `Disabled` once `no auth-web-server ipaddress` was also removed.
+
+  => STEP 5 PASS: the removal is real at three levels at once.  The sessions are gone,
+     the dataplane is blocked again, and the intercepting server no longer answers.
+     The global `show auth` WEB line follows the global server configuration, not
+     whether any port still has `auth-web enable`.  It is not wrong about the server,
+     but it is a poor way to read a port's state.  Anyone who read only `show auth`
+     after disabling web authentication on the last port would think the feature was
+     still active there.  This is why the case was graded on the wire and on the
+     per-client table.
+
+STEP 6 -- two observations recorded, neither changing the verdict            done
+--------------------------------------------------------------------------------
+  1. A command that worked, and logged an internal error about it.
+
+  Two `user.err` lines appeared at 03:37:14 UTC:
+
+  IMI[953]: AAA: failed to update method-list default (unknown type 7).
+
+  That is exactly when the teardown ran `no aaa authentication auth-mac default` and
+  `no aaa authentication auth-web default`: two errors for two commands.  Both commands
+  took effect.  `show running-config | include aaa` afterwards holds only the three
+  baseline lines, and both method lists are gone.  So the operation succeeded and the
+  device logged an internal error that the operator never sees at the command line.
+  Nothing was printed on the console; the lines are only in `show log`.  The cause needs
+  a developer.
+
+  2. The local RADIUS daemon restarted during this case.
+
+  `radiusd` ran as process 6457 earlier on this unit and as process 14569 in this
+  case's log lines.  This is not a crash.  `show exception log` is unchanged from the
+  state read before the case, there is no new core file and no reboot, and the server
+  answered the MAC, 802.1X and web authentications of this case correctly throughout.
+  The likely trigger is the local server being reconfigured when
+  `aaa authentication auth-web default group radius` and `auth-web-server ipaddress`
+  were added, because adding a user alone did not restart it.  Recorded because a
+  process id change is cheap to note now and impossible to reconstruct later.
+
+STEP 7 -- restore the port and the server to how they were found             done
+--------------------------------------------------------------------------------
+awplus# configure terminal
+awplus(config)# interface port1.0.48
+awplus(config-if)#  no auth-mac enable
+awplus(config-if)#  no auth host-mode
+awplus(config-if)#  no auth forward arp
+awplus(config-if)#  no auth forward dhcp
+awplus(config-if)#  no auth forward dns
+awplus(config-if)#  dot1x control-direction both
+awplus(config-if)#  exit
+awplus(config)# no auth-web-server ipaddress
+awplus(config)# no aaa authentication auth-mac default
+awplus(config)# no aaa authentication auth-web default
+awplus(config)# radius-server local
+awplus(config-radsrv)#  no user 02-0d-b9-00-42-79
+awplus(config-radsrv)#  no user ckweb
+awplus(config-radsrv)#  exit
+awplus(config)# end
+
+  `dot1x control-direction both` was only accepted once `auth-mac` and `auth-web` were
+  both off.
+
+  Read back:
+
+awplus# show auth
+802.1X Port-Based Authentication: Enabled
+MAC-based Port Authentication   : Disabled
+WEB-based Port Authentication   : Disabled
+
+awplus# show running-config interface port1.0.48
+!
+interface port1.0.48
+ switchport
+ switchport mode access
+ switchport access vlan 48
+ dot1x port-control auto
+ dot1x control-direction both                       <-- restored
+!
+awplus# show running-config | include aaa        ->  the three baseline lines only
+awplus# show running-config | include auth-web   ->  (empty)
+awplus# show radius local-server user            ->  Total users: 4 (ckmulti1 ckmulti2 ckpeap cktls)
+awplus# show auth interface port1.0.48
+portStatus Unauthorized, reAuthenticate disabled, reAuthPeriod 3600,
+CD adminControlledDirections: both, hostMode single-host, authMac disabled,
+authWeb disabled, twoStepAuthentication disabled, dynamicVlanCreation disabled,
+multiVlanSession disabled, supplicantMac none
+
+  No `write` was run.  The boot config is still flash:/default.cfg and the boot image is
+  still flash:/x960-tb277.rel.  No VLAN was added or removed; vlan 60, vlan 10 and
+  vlan 48 were not touched.  Every supplicant and probe process ended on its own and
+  printed its own counts.
+================================================================================

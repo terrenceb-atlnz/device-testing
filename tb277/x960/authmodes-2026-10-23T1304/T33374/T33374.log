@@ -1,0 +1,454 @@
+================================================================================
+TEST T33374 -- (216) Authentication&Security - Re-authentication option
+================================================================================
+Run:      2026-10-23 15:20-15:38 NZDT.  802.1X re-authentication was measured on the
+          wire at four settings of the period, plus its removal.
+          The DUT's clock reads UTC, 13 hours behind the NZDT times in this log.
+          Device time 02:18:43 UTC was read against box time 02:18:57 UTC, so the two
+          clocks agree and their times can be compared directly.
+Bench:    tb277, consoles u2 (swi_d); Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T33374.  The test-case database holds no steps for this case.  The
+          objective used was: prove that re-authentication really happens at the
+          configured period, and that it stops when the feature is removed.  The
+          product support list row 215 "Re-authentication option" reads Yes.
+Build:    swi_d AT-x960-56YSQ, software sin_x96056-20261019-27 (boot image
+          flash:/x960-tb277.rel, build date Sun Oct 18 23:18:21 UTC 2026)
+
+          The DUT's own `show system`, taken at 02:18:41 UTC:
+
+awplus# show system
+System Status                                           Fri Oct 23 02:18:41 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B       
+PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU 
+PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S 
+Fan module 730  FAN1    AT-FAN19                          -     -               
+Fan module 730  FAN2    AT-FAN19                          -     -               
+--------------------------------------------------------------------------------
+RAM: Total: 8092132 kB Free: 7466488 kB
+Flash: 14.3GB Used: 171.8MB Available: 14.1GB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 02:22:57
+Bootloader version : Unknown
+
+Current software   : x960-tb277.rel
+Software version   : sin_x96056-20261019-27
+Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+Current boot config: flash:/default.cfg (file exists)
+
+System Name
+ awplus
+System Contact
+
+System Location
+
+          `show boot`: current boot image flash:/x960-tb277.rel (file exists),
+          default and current boot config flash:/default.cfg (file exists), autoboot
+          disabled.  That was the state at the start and at the end of this case.
+Configs:  swi_d.cfg (running-config read at the end of the case; saved to startup: no)
+
+VERDICT: PASS -- the DUT re-authenticates the supplicant at the configured period, on
+         time, and stops when the feature is removed.
+      re-authentication happens ........ YES    (26 frames in 139 s at period 30, against
+                                                 6 frames in 106 s with the feature off)
+      the period is honoured ........... YES    (30 s -> 30.049 / 30.044 / 30.048 /
+                                                 30.049 s; 60 s -> 60.070 / 60.068 s;
+                                                 15 s -> six authentications at 15.03 s)
+      the DUT starts each cycle ........ YES    (every cycle opens with an
+                                                 EAP-Request/Identity sent by the DUT)
+      it is a full EAP exchange ........ YES    (new challenge and new EAP id each cycle)
+      the session stays up ............. YES    (port Authorized at four reads spanning
+                                                 the window)
+      a second instrument agrees ....... YES    (the DUT's own RADIUS server counted
+                                                 +6 Successes for 6 authentications)
+      removal works .................... YES    (6 frames in 76 s with the period still
+                                                 set to 15)
+CAVEAT:  This run did not prove that the setting survives a reboot.  Proving that needs
+         `write`, and this run deliberately left startup-config untouched.  The run
+         proved instead that the two lines appear in and disappear from
+         `show running-config`.  The older `dot1x reauthentication` and
+         `dot1x timeout re-authperiod` spellings were not used.
+HEALTH:  before 15:20:30 NZDT, after 15:37:42 NZDT, compared as a difference.
+         reboots ......... no new entry (newest stays 2026-10-22 23:55:56 Unexpected
+                           System reboot, which is older than this run)
+         exception log ... not None, but unchanged since before.  The entry is
+                           "2026 Oct 22 23:49:18 local7.debug awplus corehandler :
+                           Process snmpd (PID:1841) signal 11, core dumped to
+                           /flash/snmpd-...-1841.tgz", which is older than this run.
+         log ............. 0 new non-echo lines.  No crash, no daemon restart, no
+                           kernel error.
+         CPU ............. 0% -> 0% busy (`show cpu` prints busy averages, not idle);
+                           load 0.00
+         memory .......... free 7458376 -> 7453344 kB of 8092132 kB total
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  One port, one supplicant.  The DUT is both the authenticator and the RADIUS server,
+  so no second switch and no external server took part.
+
+        tb277  eth4   -- supplicant, tools/eapol.py, MAC 02:0d:b9:00:33:74
+             |
+             |  EAPOL frames, both directions.  tcpdump on eth4,
+             v  filter `ether proto 0x888e`.
+    +-----------------------------------------------+
+    |  swi_d   AT-x960-56YSQ              <-- DUT   |
+    |  port1.0.48: dot1x port-control auto,         |
+    |              dot1x control-direction both     |
+    |         |                                     |
+    |         +--> radius-server local, 127.0.0.1   |
+    +-----------------------------------------------+
+             ^
+             |  console, 115200 baud
+        tb277  /dev/u2
+
+  DUT     : swi_d (AT-x960-56YSQ) console u2 at 115200 baud, S/N A2WQS700B,
+            software sin_x96056-20261019-27.  Not a stack.
+  server  : the DUT's own local RADIUS server.  `radius-server local`, NAS 127.0.0.1,
+            `radius-server host 127.0.0.1`, `aaa authentication dot1x default group
+            radius`.  Users ckmulti1, ckmulti2, ckpeap, cktls.  Methods MAC, EAP-MD5,
+            EAP-TLS, EAP-PEAP.  EAP trustpoint `local`.
+  link    : tb277 eth4 <-> swi_d port1.0.48 (access port in vlan 48; the DUT's vlan 48
+            address is 10.38.22.66/27)
+  host    : tb277 eth4 sends EAPOL frames as MAC 02:0d:b9:00:33:74 and captures on the
+            same interface
+  tools   : tools/eapol.py (supplicant and EAPOL capture) on tb277; tools/tb ckcon for
+            the console; tools/qmark.py for the read-only help probe; tools/tb health
+            for the two health reads
+
+  Port state before step 1, from `show auth interface port1.0.48`:
+  reAuthenticate: disabled, reAuthPeriod: 3600, hostMode single-host,
+  CD adminControlledDirections: both, portStatus: Unauthorized, everything else disabled.
+
+STEP A -- read the command surface, without running anything                 done
+--------------------------------------------------------------------------------
+  Method: tools/qmark.py sends `?` and then Ctrl-U, so no command is executed.  Its own
+  self-test was run first and passed.
+
+awplus(config-if)# auth reauthentication ?
+  <cr>
+awplus(config-if)# auth timeout reauth-period ?
+  <1-4294967295>  Seconds
+awplus(config-if)# auth timeout ?
+  connect-timeout  Supplicant connect timeout (default 30 sec)
+  quiet-period     Quiet period in the HELD state (default 60 sec)
+  reauth-period    Seconds between reauthorization attempts (default 3600 sec)
+  server-timeout   Authentication server response timeout (default 30 sec)
+  supp-timeout     Supplicant response timeout (default 30 sec)
+
+  Both commands exist.  The period accepts 1 second upwards and defaults to 3600 seconds.
+
+STEP 0 -- the control: feature OFF, one authentication, then 105 seconds of silence  PASS
+--------------------------------------------------------------------------------
+  Method: `reAuthenticate` is disabled.  The supplicant authenticates once, then the
+  capture is left open for 105 more seconds.  This fixes the frame count that the
+  later steps have to beat.
+
+tb277$ tools/tb ckcon tb277 authm1304 u2 115200 'dot1x initialize interface port1.0.48'
+tb277$ tools/tb sudotool tb277 authm1304 eapol eth4 \
+           --supplicant 02:0d:b9:00:33:74:ckmulti1:ckmulti1pw:success \
+           --timeout 120 --settle 105 --label T33374-S0-BASELINE-reauth-OFF \
+           --pcap /tmp/authm1304/T33374-S0.pcap --json /tmp/authm1304/T33374-S0.json
+
+pcap -> /tmp/authm1304/T33374-S0.pcap (6 EAPOL frames)
+
+     0.003 02:0d:b9:00:33:74 -> EAPOL-Start
+     0.009 02:0d:b9:00:33:74 <- EAP-Request/Identity id=1 len=0
+     0.014 02:0d:b9:00:33:74 -> EAP-Response/Identity "ckmulti1"
+     0.018 02:0d:b9:00:33:74 <- EAP-Request/MD5-Challenge id=2 len=17
+     0.021 02:0d:b9:00:33:74 -> EAP-Response/MD5-Challenge digest=c84c40956447fc8c19328ee424693c9a
+     1.026 02:0d:b9:00:33:74 <- EAP-Success id=2     <-- one authentication, at t=0
+  02:0d:b9:00:33:74  expected success, got success -- MATCH  (1.03 s)
+RESULT T33374-S0-BASELINE-reauth-OFF: 1/1 supplicant(s) matched their expectation -- MATCH
+
+  => STEP 0 PASS: 6 EAPOL frames in 106 seconds.  The DUT authenticated the supplicant
+     once and then sent nothing for the remaining 105 seconds.  This also proves the
+     supplicant tool does not create periodic traffic of its own.  6 is the number the
+     next steps must change.
+
+STEP 1 -- feature ON at reauth-period 30                                     PASS
+--------------------------------------------------------------------------------
+awplus# configure terminal
+awplus(config)# interface port1.0.48
+awplus(config-if)# auth reauthentication
+awplus(config-if)# auth timeout reauth-period 30
+awplus(config-if)# end
+
+awplus# show running-config interface port1.0.48
+interface port1.0.48
+ switchport
+ switchport mode access
+ switchport access vlan 48
+ dot1x port-control auto
+ dot1x control-direction both
+ auth reauthentication               <-- both new lines are present
+ auth timeout reauth-period 30
+
+awplus# show auth interface port1.0.48 | include reAuth
+  reAuthenticate: enabled
+  reAuthPeriod: 30
+
+tb277$ tools/tb sudotool tb277 authm1304 eapol eth4 \
+           --supplicant 02:0d:b9:00:33:74:ckmulti1:ckmulti1pw:success \
+           --timeout 150 --settle 138 --label T33374-S1-reauth-ON-period-30 \
+           --pcap /tmp/authm1304/T33374-S1.pcap --json /tmp/authm1304/T33374-S1.json
+
+pcap -> /tmp/authm1304/T33374-S1.pcap (26 EAPOL frames)
+
+     0.003 02:0d:b9:00:33:74 -> EAPOL-Start
+     0.008 02:0d:b9:00:33:74 <- EAP-Request/Identity id=1 len=0
+     0.011 02:0d:b9:00:33:74 -> EAP-Response/Identity "ckmulti1"
+     0.015 02:0d:b9:00:33:74 <- EAP-Request/MD5-Challenge id=2 len=17
+     0.018 02:0d:b9:00:33:74 -> EAP-Response/MD5-Challenge digest=9c9f2bf669f5189e4c30cce60c023738
+     1.023 02:0d:b9:00:33:74 <- EAP-Success id=2
+    30.049 02:0d:b9:00:33:74 <- EAP-Request/Identity id=3 len=0    <-- the DUT starts cycle 2
+    30.053 02:0d:b9:00:33:74 -> EAP-Response/Identity "ckmulti1"
+    30.056 02:0d:b9:00:33:74 <- EAP-Request/MD5-Challenge id=4 len=17
+    30.060 02:0d:b9:00:33:74 -> EAP-Response/MD5-Challenge digest=d128cea21f755703942f1c91a3b7ae70
+    31.065 02:0d:b9:00:33:74 <- EAP-Success id=4
+    60.093 02:0d:b9:00:33:74 <- EAP-Request/Identity id=5 len=0
+    60.098 02:0d:b9:00:33:74 -> EAP-Response/Identity "ckmulti1"
+    60.103 02:0d:b9:00:33:74 <- EAP-Request/MD5-Challenge id=6 len=17
+    60.107 02:0d:b9:00:33:74 -> EAP-Response/MD5-Challenge digest=10f92e87c9850a5a5ae8a2b74f26cc34
+    61.112 02:0d:b9:00:33:74 <- EAP-Success id=6
+    90.141 02:0d:b9:00:33:74 <- EAP-Request/Identity id=7 len=0
+    90.146 02:0d:b9:00:33:74 -> EAP-Response/Identity "ckmulti1"
+    90.150 02:0d:b9:00:33:74 <- EAP-Request/MD5-Challenge id=8 len=17
+    90.155 02:0d:b9:00:33:74 -> EAP-Response/MD5-Challenge digest=041d6cbfdffa1fcb52669664d2d6ce9a
+    91.159 02:0d:b9:00:33:74 <- EAP-Success id=8
+   120.190 02:0d:b9:00:33:74 <- EAP-Request/Identity id=9 len=0
+   120.194 02:0d:b9:00:33:74 -> EAP-Response/Identity "ckmulti1"
+   120.198 02:0d:b9:00:33:74 <- EAP-Request/MD5-Challenge id=10 len=17
+   120.201 02:0d:b9:00:33:74 -> EAP-Response/MD5-Challenge digest=686e48fa0d2d43b6a491fafe1170d417
+   121.205 02:0d:b9:00:33:74 <- EAP-Success id=10
+RESULT T33374-S1-reauth-ON-period-30: 1/1 supplicant(s) matched their expectation -- MATCH
+
+  The four re-authentications, read from the frame times above:
+
+  | re-auth | EAP-Request/Identity at | gap from the one before |
+  | ------- | ----------------------- | ----------------------- |
+  | #1      | 30.049 s                | 30.049 s                |
+  | #2      | 60.093 s                | 30.044 s                |
+  | #3      | 90.141 s                | 30.048 s                |
+  | #4      | 120.190 s               | 30.049 s                |
+
+  => STEP 1 PASS: the DUT re-authenticated the supplicant four times.  Every gap is
+     within 49 milliseconds of the configured 30 seconds.  Three further things are
+     proved by the same frame list.  First, the DUT starts each cycle: every cycle opens
+     with an EAP-Request/Identity from the DUT, and the supplicant sent no EAPOL-Start
+     after t=0.003 s.  The timer belongs to the DUT.  Second, each cycle is a full EAP
+     exchange, not a keepalive: the challenge is different every time (four different
+     digests) and the EAP id pair is new every time (3/4, 5/6, 7/8, 9/10), so the RADIUS
+     server is asked again on every cycle.  Third, the server round trip is 1.00 s on
+     every cycle, measured from the MD5 response to the EAP-Success.
+
+STEP 2 -- change the period to 60 and the gap changes with it                PASS
+--------------------------------------------------------------------------------
+  Method: only `auth timeout reauth-period` was changed.  Everything else is the same
+  as STEP 1.  This separates "re-authentication happens" from "the configured value is
+  what drives it".
+
+awplus# configure terminal
+awplus(config)# interface port1.0.48
+awplus(config-if)# auth timeout reauth-period 60
+awplus(config-if)# end
+awplus# show auth interface port1.0.48 | include reAuth
+  reAuthenticate: enabled
+  reAuthPeriod: 60
+
+pcap -> /tmp/authm1304/T33374-S2.pcap (16 EAPOL frames)
+     0.010 <- EAP-Request/Identity id=1       1.025 <- EAP-Success id=2
+    60.080 <- EAP-Request/Identity id=3      61.096 <- EAP-Success id=4
+   120.148 <- EAP-Request/Identity id=5     121.164 <- EAP-Success id=6
+RESULT T33374-S2-reauth-ON-period-60: 1/1 supplicant(s) matched their expectation -- MATCH
+
+  The four settings measured in this case, on one otherwise identical leg:
+
+  | reauth-period                     | window | EAPOL frames | authentications | gaps measured            |
+  | --------------------------------- | ------ | ------------ | --------------- | ------------------------ |
+  | OFF (`no auth reauthentication`)  | 106 s  | 6            | 1               | none                     |
+  | 60 s                              | 139 s  | 16           | 3               | 60.070, 60.068           |
+  | 30 s                              | 139 s  | 26           | 5               | 30.049, 30.044, 30.048, 30.049 |
+  | 15 s (STEP 3)                     | 88 s   | 31           | 6               | 15.013 .. 15.030         |
+
+  => STEP 2 PASS: the gaps are 60.070 s and 60.068 s, within 70 milliseconds of the
+     configured 60 seconds.  The frame count follows the configured period and nothing
+     else.  Four points on one curve cannot happen by accident.
+
+STEP 3 -- at period 15, the DUT's own records agree with the wire            PASS
+--------------------------------------------------------------------------------
+  Method: `auth timeout reauth-period 15`.  The supplicant run was started in the
+  background first, then the console was read several times during its window.  A
+  console read issued beside the change, in the same call, would have seen nothing.
+
+awplus# show auth interface port1.0.48 | include reAuth
+  reAuthenticate: enabled
+  reAuthPeriod: 15
+
+pcap -> /tmp/authm1304/T33374-S4.pcap (31 EAPOL frames)
+
+     0.002 02:0d:b9:00:33:74 -> EAPOL-Start
+     0.008 02:0d:b9:00:33:74 <- EAP-Request/Identity id=1 len=0
+     0.012 02:0d:b9:00:33:74 -> EAP-Response/Identity "ckmulti1"
+     0.015 02:0d:b9:00:33:74 <- EAP-Request/MD5-Challenge id=2 len=17
+     0.019 02:0d:b9:00:33:74 -> EAP-Response/MD5-Challenge digest=59e03acb2a89bc03deaa0680c7cf2605
+     1.024 02:0d:b9:00:33:74 <- EAP-Success id=2
+    15.037 02:0d:b9:00:33:74 <- EAP-Request/Identity id=3 len=0
+    15.042 02:0d:b9:00:33:74 -> EAP-Response/Identity "ckmulti1"
+    15.045 02:0d:b9:00:33:74 <- EAP-Request/MD5-Challenge id=4 len=17
+    15.048 02:0d:b9:00:33:74 -> EAP-Response/MD5-Challenge digest=323f48a81eb8600e759f0fc7706896bd
+    16.053 02:0d:b9:00:33:74 <- EAP-Success id=4
+    30.064 02:0d:b9:00:33:74 <- EAP-Request/Identity id=5 len=0
+    30.069 02:0d:b9:00:33:74 -> EAP-Response/Identity "ckmulti1"
+    30.072 02:0d:b9:00:33:74 <- EAP-Request/MD5-Challenge id=6 len=17
+    30.074 02:0d:b9:00:33:74 -> EAP-Response/MD5-Challenge digest=6a64e32c1a9fae7b33f0a57b0971308d
+    31.079 02:0d:b9:00:33:74 <- EAP-Success id=6
+    45.093 02:0d:b9:00:33:74 <- EAP-Request/Identity id=7 len=0
+    45.097 02:0d:b9:00:33:74 -> EAP-Response/Identity "ckmulti1"
+    45.101 02:0d:b9:00:33:74 <- EAP-Request/MD5-Challenge id=8 len=17
+    45.104 02:0d:b9:00:33:74 -> EAP-Response/MD5-Challenge digest=d14ce464fe6e220e1467cf46d969130e
+    46.108 02:0d:b9:00:33:74 <- EAP-Success id=8
+    60.121 02:0d:b9:00:33:74 <- EAP-Request/Identity id=9 len=0
+    60.126 02:0d:b9:00:33:74 -> EAP-Response/Identity "ckmulti1"
+    60.129 02:0d:b9:00:33:74 <- EAP-Request/MD5-Challenge id=10 len=17
+    60.134 02:0d:b9:00:33:74 -> EAP-Response/MD5-Challenge digest=c7ddc68c52158c6b5f6f85ecedc27001
+    61.138 02:0d:b9:00:33:74 <- EAP-Success id=10
+    75.151 02:0d:b9:00:33:74 <- EAP-Request/Identity id=11 len=0
+    75.155 02:0d:b9:00:33:74 -> EAP-Response/Identity "ckmulti1"
+    75.159 02:0d:b9:00:33:74 <- EAP-Request/MD5-Challenge id=12 len=17
+    75.161 02:0d:b9:00:33:74 -> EAP-Response/MD5-Challenge digest=cec244bb8d055985a409532c4bffe868
+    76.166 02:0d:b9:00:33:74 <- EAP-Success id=12
+  02:0d:b9:00:33:74  expected success, got success -- MATCH  (76.17 s)
+RESULT T33374-S4-reauth-period-15-DUT-side: 1/1 supplicant(s) matched their expectation -- MATCH
+
+  Six authentications, at 0.0, 15.037, 30.064, 45.093, 60.121 and 75.151 s.  The gaps
+  are 15.037, 15.027, 15.029, 15.028 and 15.030 s.
+
+  The console was read four times while those frames were on the wire:
+
+15:33:48 awplus# show auth supplicant interface port1.0.48
+Interface port1.0.48
+  authenticationMethod: dot1x
+  totalSupplicantNum: 1
+  authorizedSupplicantNum: 1
+  untaggedVlansupplicantNum: 1
+  taggedVlansupplicantNum: 0
+    macBasedAuthenticationSupplicantNum: 0
+    dot1xAuthenticationSupplicantNum: 1
+    webBasedAuthenticationSupplicantNum: 0
+    otherAuthenticationSupplicantNum: 0
+
+  Supplicant name: ckmulti1
+  Supplicant address: 020d.b900.3374
+    authenticationMethod: 802.1X
+    portStatus: Authorized - currentId: 5          <-- id 5 matches the wire's EAP ids
+    abort:F fail:F start:F timeout:F success:T
+    PAE: state: Authenticated - portMode: Auto
+    PAE: reAuthCount: 0 - rxRespId: 0
+    PAE: quietPeriod: 60 - maxReauthReq: 2
+    BE: state: Idle - reqCount: 0 - idFromServer: 4
+    CD: adminControlledDirections: both - operControlledDirections: both
+    CD: bridgeDetected: false
+    KR: rxKey: false
+    KT: keyAvailable: false - keyTxEnabled: false
+    RADIUS server group (auth): radius
+    RADIUS server (auth): 127.0.0.1
+    Session timeout enabled: No
+15:33:50 awplus# show auth interface port1.0.48 | include portStatus
+portStatus: Authorized
+15:34:11 awplus# show auth supplicant interface port1.0.48 brief
+Interface   VID  Mode MAC Address    Status            IP Address      Username
+=========== ==== ==== ============== ================= =============== ========
+port1.0.48  48   D    020d.b900.3374 Authenticated     --              ckmulti1
+15:34:32 awplus# show auth supplicant interface port1.0.48 brief
+Interface   VID  Mode MAC Address    Status            IP Address      Username
+=========== ==== ==== ============== ================= =============== ========
+port1.0.48  48   D    020d.b900.3374 Authenticated     --              ckmulti1
+15:34:53 awplus# show auth interface port1.0.48 | include portStatus
+portStatus: Authorized
+
+  The DUT's own RADIUS server, read just before and just after that window:
+
+  | counter                     | before | after | change |
+  | --------------------------- | ------ | ----- | ------ |
+  | server total Successes      | 31     | 37    | +6     |
+  | user ckmulti1 Successes     | 16     | 22    | +6     |
+  | Failed Logins               | 12     | 12    | 0      |
+
+  => STEP 3 PASS: six re-authentications on the wire at 15.03 s spacing, and the DUT's
+     own RADIUS server counted exactly +6 Successes for the same six.  Two separate
+     instruments agree to the unit.  The session was never broken: the port read
+     Authorized and the supplicant read Authenticated at all four console reads, which
+     span four re-authentications.  The `currentId` field advances in step with the EAP
+     ids on the wire.
+
+STEP 4 -- removal: `no auth reauthentication` stops it                       PASS
+--------------------------------------------------------------------------------
+  Method: the period was deliberately left at 15 seconds.  So this step tests the
+  enable command alone, not the clearing of the period.
+
+awplus# configure terminal
+awplus(config)# interface port1.0.48
+awplus(config-if)# no auth reauthentication
+awplus(config-if)# end
+
+awplus# show running-config interface port1.0.48
+!
+interface port1.0.48
+ switchport
+ switchport mode access
+ switchport access vlan 48
+ dot1x port-control auto
+ dot1x control-direction both
+ auth timeout reauth-period 15        <-- the period is still configured
+!
+awplus# show auth interface port1.0.48 | include reAuth
+  reAuthenticate: disabled
+  reAuthPeriod: 15                    <-- still 15
+
+pcap -> /tmp/authm1304/T33374-S3.pcap (6 EAPOL frames)
+     0.003 02:0d:b9:00:33:74 -> EAPOL-Start
+     0.008 02:0d:b9:00:33:74 <- EAP-Request/Identity id=1 len=0
+     0.012 02:0d:b9:00:33:74 -> EAP-Response/Identity "ckmulti1"
+     0.015 02:0d:b9:00:33:74 <- EAP-Request/MD5-Challenge id=2 len=17
+     0.018 02:0d:b9:00:33:74 -> EAP-Response/MD5-Challenge digest=1c4a48a326ec506c154cd4787a6a5dcd
+     1.023 02:0d:b9:00:33:74 <- EAP-Success id=2
+  02:0d:b9:00:33:74  expected success, got success -- MATCH  (1.02 s)
+RESULT T33374-S3-REMOVED-no-auth-reauthentication: 1/1 matched -- MATCH
+
+  => STEP 4 PASS: 6 EAPOL frames in 76 seconds.  That is the same count as the STEP 0
+     control, in a window that would have carried five re-authentications if the timer
+     were still armed.  The period value 15 was still configured the whole time.  So
+     the enable command arms the timer; the period on its own does nothing.
+
+STEP 5 -- restore the port to how it was found                               done
+--------------------------------------------------------------------------------
+awplus# configure terminal
+awplus(config)# interface port1.0.48
+awplus(config-if)# no auth timeout reauth-period
+awplus(config-if)# end
+
+awplus# show running-config interface port1.0.48
+interface port1.0.48
+ switchport
+ switchport mode access
+ switchport access vlan 48
+ dot1x port-control auto
+ dot1x control-direction both
+
+  `show auth interface port1.0.48` is back to the state read before STEP 1 in every
+  field: portStatus Unauthorized, reAuthenticate disabled, reAuthPeriod 3600,
+  quietPeriod 60, hostMode single-host, CD adminControlledDirections both,
+  dynamicVlanCreation, multiVlanSession, twoStepAuthentication, authMac and authWeb all
+  disabled, supplicantMac none.
+
+  No `write` was run.  The boot config is still flash:/default.cfg and the boot image is
+  still flash:/x960-tb277.rel.  No VLAN was added or removed.  `auth host-mode` was not
+  touched.  Every supplicant process ended on its own and printed its own RESULT line.
+================================================================================
