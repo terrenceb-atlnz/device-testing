@@ -133,10 +133,10 @@ crypto pki export local pkcs12 <user> flash:/<user>.p12   # the supplicant certi
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| A | T33354 EAP-Notification; T44270 EAP-PEAP; T33360 Multiple Authentication; T9032 EAP-TLS | `dot1x-2026-10-23T1304` | **DONE — 3 PASS, 1 PARTIAL** | The EAP / encryption-type family. **Build the local RADIUS server + supplicant rig ONCE as group setup** and let all four inherit it. T33354 is likely a desk UNSUPPORTED (`Not Support`) — confirm against the TPS, do not assume. T9032 is the redesign; use its authored precondition for the RADIUS and certificate recipe |
+| A | T33354 EAP-Notification; T44270 EAP-PEAP; T33360 Multiple Authentication; T9032 EAP-TLS | `dot1x-2026-10-23T1304` | **DONE — 3 PASS, 1 PARTIAL**; 🔁 **T9032 RE-OPENED 2026-10-28 (run 2)** | The EAP / encryption-type family. **Build the local RADIUS server + supplicant rig ONCE as group setup** and let all four inherit it. T33354 is likely a desk UNSUPPORTED (`Not Support`) — confirm against the TPS, do not assume. T9032 is the redesign; use its authored precondition for the RADIUS and certificate recipe |
 | B | T33369 Two-step (MAC then 802.1X); T44279 Tri-Authentication; T44277 Supplicant MAC; T33374 Re-authentication option; T33362 Multiple Dynamic VLAN (un-tag) | `authmodes-2026-10-23T1304` | **DONE — 5 PASS** | Authentication modes and dynamic VLAN. Inherits group A's rig. 🔴 **T44277 "Supplicant MAC" may need the DUT to act as SUPPLICANT toward an authenticator** — that is the one case here most likely to need a partner switch, so it is the one most likely to hit the credential gate. Decide that at triage and say so. T33362 needs **two** dynamic VLANs assigned from RADIUS to different supplicants, untagged |
 | C | T33368 SMTP server authentication | `smtp-2026-10-23T1304` | **DONE — 1 PASS** | A different subsystem: the DUT authenticating to an **SMTP server**, not 802.1X. Needs an SMTP listener that requires AUTH. **tb277 almost certainly does not run one** — establish at triage what exists before designing, and grade on the SMTP dialogue on the wire (the `AUTH` verb and the server's reply), never on `show`. Starting a service on the box is a root change (STANDING-ORDERS §4) |
-| D | T44287 CryptSecureMode | `securemode-2026-10-23T1304` | **DONE — 1 PARTIAL** (safe half measured; enable limb NOT RUN, still blocked to an attended window) | 🔴 **Test Engineer's decision: this case runs after every other row is DONE or BLOCKED**, so a DUT that comes back awkward costs nothing already measured. On AW+ secure mode disables telnet, SNMPv1/v2, most privilege levels and weak crypto, **needs a reboot, and can drop configuration**. **Before enabling anything, write the exact recovery steps into this file.** If recovery cannot be stated with confidence, report **BLOCKED** rather than risk an unrecoverable unit — the window is unattended |
+| D | T44287 CryptSecureMode | `securemode-2026-10-23T1304` | **DONE — 1 PARTIAL**; 🔁 **RE-OPENED 2026-10-28 — the enable limb, in an attended window** | 🔴 **Test Engineer's decision: this case runs after every other row is DONE or BLOCKED**, so a DUT that comes back awkward costs nothing already measured. On AW+ secure mode disables telnet, SNMPv1/v2, most privilege levels and weak crypto, **needs a reboot, and can drop configuration**. **Before enabling anything, write the exact recovery steps into this file.** If recovery cannot be stated with confidence, report **BLOCKED** rather than risk an unrecoverable unit — the window is unattended |
 
 Groups run **sequentially**: there is one DUT console. A, B, C, then D last.
 
@@ -1380,3 +1380,77 @@ privilege 1-and-15, weak-algorithm rejection, `show run unencrypted`, NVS from I
 move, the `radius-server local` withdrawal, TACACS+ groups, licensing, FIPS provider,
 `security_banner`, and console login afterwards — plus unknowns U1 (does it reboot?) and U2
 (what happens to startup-config?), which no read-only measurement reached.
+
+---
+
+## 🔁 RE-OPENED 2026-10-28 — the two PARTIALs, in an attended window
+
+The campaign closed 2026-10-23 at 11 of 11 (9 PASS, 2 PARTIAL) and was never wrapped and never
+had `/create-logs` run. On 2026-10-28 the Test Engineer re-opened the two PARTIAL rows after
+reading why each fell short.
+
+### Session facts — 2026-10-28, ADDED, not replacing the 2026-10-23 block above
+
+Test Engineer: bidhanc@bidhanc-dl
+Testbox: tb277 (unchanged)
+Consoles: **u2 = swi_d (the DUT) only.** u3 and u5 are not needed by either row; the credential
+          gate above still governs if that ever changes.
+PDU: 10.36.230.212 outlets **u2=1 AND u2=8** — swi_d has two PSUs and a single-outlet cycle is a
+     proven no-op (T44287 §6.6c). Both must be cycled together.
+Baud: **u2 is 115200.** Recorded here because omitting it from a dispatch on 2026-10-23 cost 85
+      seconds that read exactly like a dead DUT (see Issues).
+Constraints, verbatim: *"go ahead - I will be at the bench for 8-9 hours today but I wont be
+      constantly looking at the screen, so if it is stuck or something just tell me what to do"*
+
+**So the window is ATTENDED-INTERMITTENT**, not unattended and not watched:
+- the Test Engineer is present for recovery for ~8–9 hours from 2026-10-28 morning;
+- they are **not** watching the screen, so nothing may sit silently waiting on them;
+- anything blocking is surfaced by the sentinel as **NEEDS YOU** with the **exact action to
+  take**, in plain words, not a diagnosis;
+- everything not blocked keeps running meanwhile (STANDING-ORDERS §5).
+
+This is the attended window T44287's UNBLOCK asked for. It is **not** a licence to skip that
+case's de-risking sequence: the recovery ladder in `T44287/work/run1.log` §8 is followed as
+written.
+
+### Order, and why it is not negotiable
+
+**T9032 run 2 FIRST, then T44287.** Secure mode moves the PKI store `/flash/.certs → /nvs/.certs`
+and withdraws `radius-server local` — the two things T9032's measurement is built on. Running
+T44287 first would destroy T9032's rig and make its re-run cost a full rebuild. The 2026-10-23
+decision that T44287 runs last therefore still stands, unchanged.
+
+### Row A re-open — T9032 EAP-TLS, run 2
+
+**What is being attempted, and nothing more:** UNBLOCK option 1 from `T9032/work/run1.log` §Verdict
+— present a **leaf-only** client credential instead of the DUT-exported PKCS#12, which carries
+the CA as well as the leaf and is what makes the client flight 2141 bytes and therefore two
+fragments. The control's single 1224-byte certificate was one fragment and concluded normally.
+
+- **No root, no DUT change, no install.** Split the p12; pass `client_cert` and `private_key`
+  separately to `wpa_supplicant`.
+- **Hypothesis, not a certainty.** If the leaf-only flight is still more than one fragment, or
+  `wpa_supplicant` 2.6 still declares Done early, the case stays PARTIAL and the next unblock
+  (wpa_supplicant 2.10+, a root install) is the Test Engineer's — surfaced as NEEDS YOU, not
+  attempted.
+- **The authored 15 Internet Explorer steps remain unfollowable** (no Windows PC on tb277) and
+  the MANUAL-ONLY row stands. Even a conclusive run 2 is graded on the authored **objective**,
+  and run 2's log says so as plainly as run 1's did.
+- Run 1's log, verdict and artefacts are **not** edited or deleted. Run 2 is `work/run2.log`.
+- Carry forward as method: `dot1x initialize interface port1.0.48` before every leg, and check
+  `wpasup.py`'s JSON against its printed RESULT (run 1 found them disagreeing once).
+
+### Row D re-open — T44287 Crypt Secure-mode, the enable limb
+
+Run 1 measured the safe half with **zero device state changed**. Run 2 runs N1–N15 of its §8
+table. Preconditions 2, 3 and 4 are already measured and satisfied; **precondition 1 is the first
+action of the window**: `copy running-config flash:/pre-securemode.cfg`, then `dir` it to prove
+it landed. Then the enable, reading the device's own prompt **verbatim before answering**, and
+the recovery ladder exactly as §8 writes it.
+
+🔴 **One open question only this run can settle:** `crypto secure-mode-selftest` does not exist
+in exec on this build (`% Unrecognized command`) although the wiki promises it. Either it
+registers only in secure mode, or it is unimplemented on the x960. Re-read `?` in secure mode.
+
+Reboots: expected, and the Test Engineer is present for them. `reboot-heavy-runs-after-hours`
+does not apply — they chose this window themselves.
