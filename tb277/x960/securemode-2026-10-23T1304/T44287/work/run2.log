@@ -1,0 +1,449 @@
+AWPTCM-T44287 — CryptSecureMode — working log, run 2
+====================================================
+
+Run label: set at the end (§13).
+
+Run 2 is the SECOND HALF of a PARTIAL. Run 1 (2026-10-23, unattended) measured the safe,
+read-only half and changed no device state. Run 2 runs **N1–N15 of run 1's §8 table** — the
+`crypto secure-mode` enable step and everything downstream — in the attended window of
+2026-10-28. Run 1's log and artefacts are untouched.
+
+
+1. SESSION FACTS
+----------------
+
+Test Engineer : bidhanc@bidhanc-dl
+Testbox       : tb277
+Consoles      : u2 = swi_d (AT-x960-56YSQ, the DUT) ONLY. u3 and u5 were never opened.
+Baud          : u2 = 115200 (given in the dispatch; omitting it on 2026-10-23 cost 85 s of
+                silence that read like a dead DUT)
+PDU           : 10.36.230.212, outlets **1 AND 8**. swi_d has two PSUs; a single-outlet cycle
+                is a measured no-op (platforms/x960.md §7J.7). Cycle both or neither.
+Names         : u2 = swi_d
+Group         : D — `securemode-2026-10-23T1304`
+Stamp         : 2026-10-23T1304  (the group stamp is kept; this is run 2 within it)
+Dispatch mode : RUN, sentinel = parent (`/test-mode`, one-session shape)
+Constraints   : **ATTENDED-INTERMITTENT, 2026-10-28, until ~18:00 NZDT.** The Test Engineer is
+                at the bench for recovery but is not watching the screen. Reboots are expected
+                and approved — this window was chosen for exactly this case. Nothing may sit
+                silently waiting; anything blocking goes to the sentinel as
+                `NEEDS TEST ENGINEER:` with the exact action.
+Run .setup    : `tb277/x960/securemode-2026-10-23T1304/tb277-u2.setup` (swi_d only)
+Box scratch   : `/tmp/secmode2/` on tb277 (tools copy, console transcript, health samples)
+
+
+2. THE CASE
+-----------
+
+Case id    : AWPTCM-T44287
+Title      : `(228) ..._CyptSecureMode - Disable Telnet, SNMPv1/v2, all privilege levels except
+             1 and 15, weak crypto (MD5, RSA1, DSA)`
+Authored   : **none.** `ck.db` carries no objective, no precondition and no steps for this case
+             (`has_objective = 0`). Quoted from the campaign queue's case table, which was read
+             from `ck.db` on tb277 at triage on 2026-10-23. Unchanged for run 2.
+TPS        : row **226 "Crypt Secure-mode" = Yes**. (NOT row 129, a different feature.) The
+             product claims this feature, so there is no desk UNSUPPORTED.
+
+Because the case has no authored steps, run 2's steps are **N1–N15 of run 1's §8 table**, which
+is the campaign's own enumeration of what the title's four clauses require. Each N gets its own
+verdict and its own evidence (§7). The four title clauses map onto N4 (telnet), N5 (SNMPv1/v2),
+N6 (privilege levels) and N7 (weak crypto: MD5, RSA1, DSA).
+
+
+3. WHAT CHANGED BETWEEN RUN 1 AND RUN 2 — read before the evidence
+-------------------------------------------------------------------
+
+Four deltas were given in the dispatch and all four were re-measured here, not assumed.
+
+**3a. The group A 802.1X rig is GONE.** T9032 run 2 (2026-10-28, commit `f154abc`) ran group
+A's restore recipe: `radius-server host`/`radius-server local`, `aaa authentication dot1x`,
+`dot1x port-control` on port1.0.48 and the four local RADIUS users are all removed. Confirmed
+here in §5: the pre-run `show running-config` has no `radius-server` line of any kind and no
+`dot1x` line. **So N12 — "`radius-server local` withdrawn by secure mode" — had nothing to
+withdraw.** What run 2 did about that is in §6f and §7-N12: a **minimal local RADIUS server was
+rebuilt** (server + one NAS + one user), which gives N12 a real subject at the wire level via
+`radsend.py`. The **802.1X half** of N12 (a supplicant on port1.0.48 that authenticated before
+and should fail after) was deliberately **not** rebuilt — see §7-N12 for the split.
+
+**3b. One piece of PKI state is pre-existing residue, not secure mode's doing.** The enrolment
+`cktls` under trustpoint `local` was created by T9032 run 1; there is no CLI to un-enroll on
+this build and removing it would mean deleting trustpoint `local`, which the queue forbids.
+**A FRESH PKI inventory was therefore taken before the enable** (§5d) and that fresh inventory —
+not run 1's five-day-old §6.6d copy — is what N11 compares against.
+
+**3c. swi_d carries a dirty health baseline** — two unattributed unexpected reboots and an
+snmpd SIGSEGV from the morning of 2026-10-23 (UTC 2026-10-22 23:49–23:55). Every case that week
+graded CLEAN *against* that baseline. Run 2 adds deliberate reboots of its own, so §12 separates
+the reboots this run caused from anything it did not.
+
+**3d. The bench starts clean.** The pre-run probe is exit **0 MATCH** (§4), where run 1's was
+exit 2 NEEDS-CHECK with two `CHECK_CABLE` lines. Both have cleared: T9032 run 2's traffic
+refreshed the box MAC in the FDB on both eth3/port1.0.10 and eth4/port1.0.48.
+
+
+4. PRE-RUN GATE
+---------------
+
+1. **Occupancy** — `tools/tb precheck tb277 u2` → `/dev/u2 (/dev/ttyUSB2): free`, exit 5 with
+   ONE item: `process 744 (root, up 46-22:20:58): /usr/sbin/ser2net -c /etc/ser2net.conf`.
+   The dispatch pre-cleared pid 744 as the box's standing daemon, not a console holder.
+   `tools/tb scratch tb277 secmode2` → `/tmp/secmode2/tools refreshed (84 files)`.
+2. **No console parked mid-state** — the probe opened /dev/u2 and read
+   `ok baud=115200 banner=awplus hostname=awplus`, i.e. a normal exec banner, not a
+   `[root@... ~]#` shell and not `(config)#`.
+3. **Template path** — `tools/tb template tb277` → `no deployed tb277.setup`. Expected and
+   correct: the run .setup's own header records that this box has no deployed template and
+   that none may ever be bound. The run .setup in the group directory is used instead.
+4. **Probe, before** (the full session facts, `--read-only`, `--baud 115200`, `--template` the
+   run .setup):
+
+       tools/tb probe tb277 --consoles u2 --no-prompt --pdu 10.36.230.212 --outlet u2=1 \
+            --name u2=swi_d --read-only --baud 115200 \
+            --template /home/bidhanc/claude/device-testing/tb277/x960/securemode-2026-10-23T1304/tb277-u2.setup
+
+       MATCH -- the bench equals the template.                    exit 0
+
+   ⚠️ **Method note for the next tester.** The `--template` path is resolved **on the box**,
+   not on the dev host. The same tree is `/media/bidhanc/mnt/testbox_home/claude/device-testing`
+   here and `/home/bidhanc/claude/device-testing` there. Passing the dev-host path gives
+   `no template at <path> -- diff skipped` and **still exits 0**, which looks exactly like a
+   MATCH and is not one. Two probe runs were spent on this. Pass the box-side path.
+   `--outlet` takes one outlet per unit, so outlet 8 cannot be expressed here; it is driven by
+   hand in §11 if the power rung is ever reached.
+5. **Run .setup** — `tb277-u2.setup`, swi_d only, unchanged from run 1.
+6. **Offline preflight** — **N/A, and that is not a skip.** This case is manual-CLI: there is
+   no framework script, no `pt_exec` run and no `.py` to preflight. Nothing in run 2 can
+   trigger the framework's post-failure power cycle, because no TestCase runs.
+7. **Boot config baseline** — `show boot` before:
+
+       Current software   : x960-tb277.rel
+       Current boot image : flash:/x960-tb277.rel (file exists)
+       Backup  boot image : Not set
+       Default boot config: flash:/default.cfg
+       Current boot config: flash:/default.cfg (file exists)
+       Backup  boot config: Not set
+       Autoboot status    : disabled
+
+   **`flash:/default.cfg` is run 2's declared baseline** and §11 verifies the unit returns to it.
+8. **Ask-CK server run path** — not used; manual-CLI case.
+9. **Sentinel** — `sentinel: parent`. The dispatching session is the sentinel; nothing to arm.
+10. **Script CLI defaulting** — N/A, no script.
+
+
+5. SETUP READS — taken fresh, before step 1
+--------------------------------------------
+
+All reads below are from one console batch at 09:36–09:39 NZDT 2026-10-28, console u2 at
+115200. Raw: `work/setup-reads-run2.out`, `work/baselines-run2.out`.
+
+**5a. PRECONDITION 1 — the recovery file, the FIRST action of the window.** Run 1 deliberately
+did not do this because it changed nothing. It is the first thing run 2 did, before any read
+and long before `crypto secure-mode` was typed:
+
+    09:36:35 >>> copy running-config flash:/pre-securemode.cfg
+    Copying...
+    Successful operation
+    awplus#
+    09:36:35 >>> dir flash:/pre-securemode.cfg
+          1687 -rw- Oct 27 2026 20:36:34  flash:/pre-securemode.cfg
+
+**Proved on flash, 1687 bytes.** This file holds the CLEAN pre-case configuration — the state
+run 2 must return to — because it was taken before run 2 added any of its own precondition
+config (§6). That is deliberate: recovery rung 2 (§11) must restore the clean baseline, not
+this run's scaffolding.
+
+Preconditions 2, 3 and 4 were re-read fresh rather than trusted from run 1 (§5c/§5d/§5e).
+
+**5b. The DUT's `show system`, verbatim and in full** (STANDING-ORDERS; the final log's header
+quotes this):
+
+    System Status                                           Tue Oct 27 20:36:56 2026
+
+    Board      ID   Bay     Board Name                        Rev   Serial number
+    --------------------------------------------------------------------------------
+    Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+    PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+    PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+    Fan module 730  FAN1    AT-FAN19                          -     -
+    Fan module 730  FAN2    AT-FAN19                          -     -
+    --------------------------------------------------------------------------------
+    RAM: Total: 8092132 kB Free: 7455440 kB
+    Flash: 14.3GB Used: 171.7MB Available: 14.1GB
+    --------------------------------------------------------------------------------
+    Environment Status : Normal
+    Uptime             : 4 days 20:41:13
+    Bootloader version : Unknown
+
+    Current software   : x960-tb277.rel
+    Software version   : sin_x96056-20261019-27
+    Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+    Current boot config: flash:/default.cfg (file exists)
+
+    System Name
+     awplus
+    System Contact
+
+    System Location
+
+Two PSU bays, both populated — this is the §7J.7 unit, so both outlets 1 and 8 are needed for
+a real power cut. **Uptime 4 days 20:41:13** at 09:36 NZDT is the pre-enable reference for N2.
+
+**5c. Clocks** (recorded once for this group, per logged-output §2):
+
+    box  2026-10-28 09:36:51 NZDT
+    DUT  UTC Time:   Tue, 27 Oct 2026 20:36:55 +0000   Timezone: UTC   Offset +00:00
+
+The DUT runs on **UTC**; the box on **NZDT (+13)**. Every DUT log line in this log is UTC and
+every box-side timestamp is NZDT. They differ by 13 hours and that is correct, not drift.
+
+**5d. PKI inventory and hostkey fingerprints — taken FRESH (§3b).**
+
+    Trustpoint "default-selfsigned"
+       Type                 : Self-signed certificate authority (RSA + ECDSA)
+       Root Certificate     : RSA:  084B6549 62DB51AD 493DD993 4353370C FC88C5DD
+                            : ECDSA: 59915621 05FBC4FB D1D63A5E 3AAE2EE2 2D40E6C6
+       Local Server (RSA)   : Enrolled with this trustpoint.
+       Local Server (ECDSA) : Enrolled with this trustpoint.
+       Server Key           : RSA: default-selfsigned
+                            : ECDSA: default-selfsigned_ecdsa
+       Applications         : auth-web,cwm,http,stoat
+    Trustpoint "default-system"
+       Type                 : Non-authenticated trustpoint
+    Trustpoint "local"
+       Type                 : Self-signed certificate authority (RSA + ECDSA)
+       Root Certificate     : RSA:  C29CD492 253DF5BD F849819E F12866D8 792C90BE
+                            : ECDSA: 906D4096 FB243C13 F727C758 7F41DF0D CBCF1FB5
+       Local Server (RSA)   : Enrolled with this trustpoint.
+       Local Server (ECDSA) : Enrolled with this trustpoint.
+       Server Key           : RSA: server-default
+                            : ECDSA: server-default-ecdsa
+
+    Type       Bits  Fingerprint
+    ---------------------------------------------------------------
+    rsa        3072  SHA256:iWG4XK1CWjkpR9bQM5MBAuYtiyt/PyBvY3yollNf54E
+    ecdsa       384  SHA256:oer/uwNjbwLIMUamUN5UW92BuJA81Cyh6ScF/x6RSrc
+    ed25519     256  SHA256:VhI6K5ajJHpjKXJ/vCsQSZPvEnlxxrOeMkrZRDXMgq4
+
+🔴 **One real difference from run 1's §6.6d, and it is OURS, not secure mode's.** In run 1
+trustpoint `local` carried `Applications : RADIUS`. It does **not** now — because T9032 run 2
+removed `radius-server local` (§3a). The trustpoint itself, its two root-certificate
+fingerprints and all three hostkey fingerprints are **byte-identical** to run 1. This is the
+fresh baseline N11 compares against.
+
+The `cktls` residue (§3b) is visible only as the last block of
+`show crypto pki certificates local`, and it is present before the enable:
+
+    Local RADIUS server user enrollments ready for export
+       cktls
+
+**It is pre-existing. If it is still there after the enable, that is not a finding.**
+
+**5e. PSU outlets** — not re-cycled, only the two-PSU fact re-confirmed from `show system`
+(§5b). Run 1 measured both outlets `on: True` read-only; nothing since could have changed that,
+and the power rung is the last resort in §11 anyway.
+
+**5f. The starting point for every title clause** (from the pre-run `show running-config`,
+captured whole to `work/rc-before-run2.out`):
+
+| clause | state before run 2 |
+| --- | --- |
+| telnet | `no service telnet` — **already off**, so it must be turned ON first (§6a) |
+| SNMP | `snmp-server` Enabled, engine ID `0x80001f88808e3cab4244f4d83800000000`, **no community string configured** — so a v2c community must be added first (§6b) |
+| privilege levels | only `username manager privilege 15`; `security-password minimum-length 8` and `security-password history 1` are set; **no `enable password` line at all** |
+| weak crypto | hostkeys rsa/ecdsa/ed25519 only; **no rsa1, no dsa**; no NTP authentication key |
+| RADIUS | **no `radius-server` line of any kind** (§3a) |
+| banner | `no banner motd` — clean, so an added `security_banner` would be unmistakable |
+
+**5g. HEALTH — sample 1 of 2, before step 1.** `tools/tb health tb277 secmode2 u2 115200
+--label before`; raw saved on the box at `/tmp/secmode2/health-u2-20261028T093807.out` (+ .json):
+
+    HEALTH u2 09:38:07-09:38:24 before
+      reboots ......... 100 entries, newest 2026-10-22 23:55:56 Unexpected System reboot
+      exception log ... 2026 Oct 22 23:49:18 local7.debug awplus corehandler : Process snmpd
+                        (PID:1841) signal 11, core dumped to /flash/snmpd-swmrvl_armv8-
+                        sin_x96056-20261019-27-1-1792712958-1841.tgz
+      log (filtered) .. 12 lines: 12 echoes of our own commands, 0 other
+      cpu ............. 0% / 0% / 0%  (show cpu prints BUSY averages 1s/20s/60s, not idle);
+                        load 0.00
+      memory .......... free 7454696 of 8092132 kB (buffers 2144)
+
+🔴 **This is the dirty baseline of §3c, and it is unchanged from the week of 2026-10-23.** The
+newest reboot (UTC 2026-10-22 23:55:56) and the snmpd SIGSEGV core predate run 2 by five days.
+Run 2 grades its health diff **against this**, and §12 names every reboot it caused itself.
+
+
+6. STEP 0 — the normal-mode BASELINES, each driven, not merely shown
+---------------------------------------------------------------------
+
+STANDING-ORDERS §7 and the dispatch's grading rule: *"a feature that was never configured
+proves nothing by being absent."* So every restriction secure mode is supposed to impose was
+first **turned on and driven in normal mode**. Everything in this section is run 2's own
+scaffolding and is removed in §11.
+
+**6a. Telnet turned ON** (`tools/tb cfg`, 09:42:59):
+
+    >>> service telnet ip
+    % Warning: Telnet is insecure and deprecated. Please use SSH.
+    awplus(config)#
+
+The `% ` line is the documented advisory of `platforms/x960.md` §7F.3, already in
+`console.ADVISORY`; `cfg.py` continued and exited 0. Stored exactly as §7F.1 predicts — the
+running-config holds `service telnet` **plus** `no service telnet ipv6`, not `service telnet ip`.
+
+**6b. An SNMPv1/v2c community AND an SNMPv3 user configured** (09:43:00–09:43:03), all accepted:
+
+    snmp-server community cktest ro
+    snmp-server view ckview 1.3.6.1 included
+    snmp-server group ckgrp priv read ckview
+    snmp-server user ckv3 ckgrp auth sha ckauthpass1 priv aes ckprivpass1
+
+**6c. A privilege-7 user accepted in normal mode** (the N6 baseline):
+
+    >>> username ckp7 privilege 7 password ckPriv7pass
+    awplus(config)#
+
+Accepted with no error. Stored as
+`username ckp7 privilege 7 password 8 $5$o8/iulS8Cg5389J0$UEXN...`.
+
+**6d. An NTP MD5 authentication key accepted in normal mode** (the N7 baseline):
+
+    >>> ntp authentication-key 10 md5 ckntpkey1
+    awplus(config)#
+
+⚠️ Worth recording on its own: this line is stored in the running-config **in cleartext**
+(`ntp authentication-key 10 md5 ckntpkey1`) while every other secret added in this section is
+stored encrypted. That is a normal-mode observation, not a secure-mode one.
+
+**6e. The normal-mode CLI surface, probed read-only with `qmark` (never `<cmd>` + CR).** These
+are the exact strings N6/N7/N13 compare against after the enable:
+
+    (config)# crypto key generate hostkey ?
+      ecdsa    ECDSA crypto algorithm
+      ed25519  ED25519 crypto algorithm
+      rsa      RSA crypto algorithm
+
+    (config)# ntp authentication-key 1 ?
+      md5             Use MD5 of provided key
+      sha1            Use SHA1 of provided Key
+      sha1-encrypted  sha1-encrypted
+
+    (config)# aaa group server ?
+      ldap    Configure LDAP server group
+      radius  Configure RADIUS server group
+
+    (config)# username test7 privilege ?
+      <0-15>  User privilege level
+
+    (config)# service telnet ?
+      ip    IP telnet server
+      ipv6  IPv6 telnet server
+      <cr>
+
+    (config)# snmp-server user ckv3 ckgrp auth ?
+      md5      MD5 Message Digest Algorithms
+      sha      SHA-1 Secure Hash Algorithm
+      sha-256  SHA-256 Secure Hash Algorithm
+
+    (config)# snmp-server user ckv3 ckgrp auth sha ckauthpass1 priv ?
+      aes  AES Advanced Encryption Standards
+      des  DES Data Encryption Standard
+
+    awplus# license ?
+      WORD          License name or key
+      certificate   Install from a certificate
+      delete        Delete external license
+      redistribute  Redistribute external license feature entitlements within the stack
+      update        Update external license database
+
+    awplus# crypto ?
+      key          Key management
+      pki          Public Key Infrastructure (PKI) Commands
+      random       Generate a random byte sequence
+      secure-mode  Secure mode
+
+    awplus# crypto secure-mode ?
+      delete  Remove key material
+
+🔴 **Two of the wiki's fifteen rows are already NOT DISCRIMINABLE on this build, before secure
+mode is touched** — and only a normal-mode baseline could show that:
+
+- **`crypto key generate hostkey ?` offers only ecdsa, ed25519 and rsa in NORMAL mode.**
+  There is **no rsa1 and no dsa keyword at all** on `sin_x96056-20261019-27`. The wiki row
+  *"rsa1 and dsa keys are not supported in secure-mode"* therefore has nothing to withdraw
+  here. It cannot be confirmed as a secure-mode difference on this unit; the title's "RSA1,
+  DSA" clause is satisfied **at all times**, which is a different statement.
+- **`aaa group server ?` offers only ldap and radius in NORMAL mode.** There is **no `tacacs+`
+  keyword**, matching `platforms/x960.md` §7E.7. The wiki row *"TACACS+ groups NOT allowed"*
+  likewise has nothing to withdraw.
+
+**6f. A minimal local RADIUS server rebuilt, so N12 has a subject** (§3a). Not the full group A
+802.1X rig — a server, one NAS (the testbox) and one user:
+
+    (config)# radius-server local
+    (config-radsrv)# server enable
+    (config-radsrv)# nas 10.38.22.33 key ckradsecret1
+    (config-radsrv)# user ckrad password ckradpass1
+
+    awplus# show radius local-server user
+    Total users: 1
+    User-Name                                     Group             Vlan
+    --------------------------------------------------------------------------------
+    ckrad
+
+    awplus# show radius local-server nas
+    Total NAS: 2
+    NAS-Address      Shared-Key (encrypted)                            Authenticator
+    --------------------------------------------------------------------------------
+    10.38.22.33      +gqfn7cOnp83ulC8akPX/9XuVpItdisbnaoeOBiSfYs=               auto
+    127.0.0.1        dbSQ8EDlsS3xUeNxNmelt3ya+mDgdWCOegX15FooG8E=           optional
+
+⚠️ The `127.0.0.1` NAS appeared by itself. It was **not** configured by run 2 and was not in the
+pre-run running-config; entering `radius-server local` re-creates it as a default. Noted so the
+next reader does not read it as leftover group A state.
+
+**6g. The four driven BEFORE measurements** — this is the evidence a `show` cannot give.
+All four were run from the testbox / the DUT's own client, not read off a `show`:
+
+| # | instrument | command | result BEFORE secure mode |
+| --- | --- | --- | --- |
+| N4 server | `netlogin.py` | `--proto telnet --host 10.38.22.34 --user manager` | `LOGIN RESULT: USER proto=telnet seconds=0.2`, exit 1, and the session returned `Secure mode is disabled` |
+| N4 client | `devclient.py` | `--proto telnet --family ip --target 10.38.22.34` driven on u2 | `CLIENT RESULT: USER proto=telnet target=10.38.22.34 seconds=6.9 prompt=awplus>`, exit 1 |
+| N5 v2c | `snmpq.py` | `get 10.38.22.34 1.3.6.1.2.1.1.1.0 --v2c --community cktest` | `RESULT VALUE -- .1.3.6.1.2.1.1.1.0 = STRING: Allied Telesis router/switch, Software (AlliedWare Plus) Version sin_x96056-20261019-27`, exit 0 |
+| N5 v3 | `snmpq.py` | `--v3 --user ckv3 --level authPriv --auth-proto SHA --priv-proto AES` | `RESULT VALUE -- ... sin_x96056-20261019-27`, exit 0 |
+| N12 | `radsend.py` | `10.38.22.34 --secret ckradsecret1 --user ckrad` | `<- Access-Accept id=21 in 0.001s authenticator=VALID (responder holds the secret)`, exit 0 |
+
+(An AW+ login lands at privilege 1, so `USER` / exit 1 **is** the success for both telnet legs —
+`platforms/x960.md` §7E.6.)
+
+**6h. `show running-config unencrypted` executes in normal mode** (the N8 baseline). It returned
+the whole configuration; exec help confirms the keyword exists —
+`unencrypted  Show passwords and keys in cleartext`.
+
+**6i. NVS is reachable in normal mode** (the N9 baseline). This unit has real NVS:
+
+    awplus# dir nvs:
+          1024 drwx Oct 22 2026 23:56:28  dhcp/
+          4888 -rw- Oct 22 2026 23:55:56  reboot.log
+           211 -rw- Oct 22 2026 23:55:52  fsck.log
+           211 -rw- Oct 22 2026 23:53:12  fsck_last.log
+            42 -rw- Oct 21 2026 23:43:50  chrony.drf
+             0 -rw- Oct 21 2026 23:43:50  chrony.drf.TEMP
+
+**6j. Licences present before the enable** (the N13 baseline): two Full feature licences,
+`Base License` (issued 22-Oct-2026) and `atlnz` (ATL-NZ Internal Use Only, 25-Mar-2026).
+🔴 **No licence will be installed or removed by this run** — that is the Test Engineer's
+(STANDING-ORDERS §4). The licensing row is graded on the **CLI surface** of `license ?` only,
+and §7-N13 says so explicitly.
+
+**6k. The rig captured.** `show running-config` with all of §6 in place was saved to
+`flash:/pre-sm-rig.cfg` (2373 bytes, proved with `dir`) and to this case's
+`swi_d.cfg` (3 header + 126 config lines), which per logged-output.md §2 is the post-setup
+capture for run 2. Run 1's `swi_d.cfg` (the clean baseline) is preserved in git at commit
+`c354205` and was not deleted — only superseded in the working tree.
+
+🔴 **Two files are now on flash and they are NOT the same:**
+- `flash:/pre-securemode.cfg` (1687 B) = the **clean** pre-case config → this is the recovery
+  target in §11.
+- `flash:/pre-sm-rig.cfg` (2373 B) = clean **plus** run 2's §6 scaffolding → diagnostic only,
+  so that if the enable discards configuration it can be seen exactly what was discarded.
