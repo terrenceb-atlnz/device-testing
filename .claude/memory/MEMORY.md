@@ -58,6 +58,8 @@
 - [tb277 x960 Management campaign 2026-10-20](tb277-x960-management-campaign-2026-10-20.md) — 14 cases, 12 PASS/1 FAIL; factory password warns nobody, hw-monitoring trap ignores its own enable command, AW+ eats a chained `| exclude`
 - [tb277 x960 Management campaign 2026-10-21](tb277-x960-management-campaign-2026-10-21.md) — 14 cases, 10 PASS; 7 persistence limbs measured at last; numbered ACL silently keeps ONE rule; a 180 s timeout nearly became a false defect report
 - [tb277 x960 Management campaign 2026-10-22](tb277-x960-management-campaign-2026-10-22.md) — last 4 cases, 4 PASS, DUT-only because the partner wasn't needed; `log host ... facility` is a FILTER, not an override
+- [tb277 x960 Auth & Security campaign 2026-10-23](tb277-x960-auth-security-campaign-2026-10-23.md) — 11 cases, 11 PASS (done 10-28); 4 auth commands SILENTLY discard a setting; secure mode vs its docs
+- [EAP-TLS needs a TLS 1.2 supplicant](eap-tls-needs-tls12-supplicant.md) — wpa_supplicant 2.6 discards TLS 1.3's RFC 9190 commitment; fix = per-process OPENSSL_CONF, no root; leaf-only is a false lead
 - [Console driver retries are lockout generators](console-driver-retries-are-lockout-generators.md) — AW+ locks at 5 failures and each one re-arms the timer. FIXED 10-22 (fdaded7): a credential is submitted ONCE
 - [The CLI surface is not the device's surface](cli-surface-is-not-the-device-surface.md) — Test Engineer 10-20: NOT MEASURABLE from an exhaustive CLI probe was WRONG; `start-shell` reaches sysfs. hwmon nodes differ per platform; prove restore with `od -c`
 - [Act on Terrence-stated live faults](act-on-terrence-stated-live-faults.md) — "there is a loop, just fix it": shut a leg and configure, verify AFTER; run literal commands literally
