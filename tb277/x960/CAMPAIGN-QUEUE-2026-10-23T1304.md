@@ -1514,3 +1514,61 @@ registers only in secure mode, or it is unimplemented on the x960. Re-read `?` i
 
 Reboots: expected, and the Test Engineer is present for them. `reboot-heavy-runs-after-hours`
 does not apply — they chose this window themselves.
+
+#### ✅ Row D OUTCOME — run 2 ran 2026-10-28 09:35–10:13 NZDT: **PASS**
+
+Working log `securemode-2026-10-23T1304/T44287/work/run2.log`; commits `dd8fba4` (baselines
+before the enable) and `ca9179a` (the case). Run 1's log and artefacts untouched.
+
+**The campaign is now 11 of 11 with no PARTIAL rows left.**
+
+| | |
+| --- | --- |
+| the four title clauses | **all driven and confirmed** against normal-mode controls: telnet server refused on the wire (TCP RST where a login worked), SNMPv1/v2c GET stopped answering, privilege 7 refused by name while privilege 1 was accepted in the same breath, MD5 refused in two features with SHA controls accepted |
+| the open question | 🟢 **SETTLED.** `crypto secure-mode-selftest ?` is `% Unrecognized command` **in secure mode too**, and `crypto ?` gains no sub-command — it is **unimplemented on this build**, not secure-mode-gated. `show post` adds a `SECURE-MODE POST` heading with **nothing under it**, so neither documented route to the cryptographic self-test exists |
+| U1 does it reboot? | **No.** No prompt either. `% Save the config and restart the system for this change to take effect.` — `write` and `reload` are the tester's to issue |
+| U2 startup-config | At the secure-mode boot the device **announces** every line it refuses (`WARNING: Failed to execute the following commands:`) and logs each at `local6.warning` with the startup-config line number and the reason. 🔴 Those lines do **not** come back on disabling: a `write` in secure mode makes the loss permanent |
+| U3 the PKI move | 🟢 **REVERSIBLE.** All three hostkey fingerprints and all three trustpoints byte-identical after the round trip. ⚠️ A PKI read taken *inside* secure mode describes the secure-mode store and looks exactly like catastrophic loss — this run raised a false alarm on that and corrected it |
+| U4 console login | **Unaffected.** Ten logins in secure mode, privilege 15 confirmed |
+| recovery | **stopped at rung 1.** `no crypto secure-mode` → write → reload. Rungs 2 and 3 never needed. Restored config differs from run 1's `swi_d.cfg` only by the group A 802.1X lines T9032 run 2 removed before this window. Both flash files deleted and proved gone |
+| bench after | probe **exit 0 MATCH**; console logged out at `awplus login:`; u3/u5 never opened |
+| health | DIRTY by the tool, **clean on attribution**: two reboots, both mine, both `Expected CLI(user request)`; the 34 "kernel" lines are ordinary boot messages; no unexpected reboot |
+
+**Eight findings (run2.log §9).** Four are product deviations worth a developer's time:
+
+1. 🔴 **CR-84010 is not implemented — the telnet CLIENT still runs in secure mode** (it opened a
+   socket and took a RST from the far end).
+2. 🔴 **Secure mode is stricter than its own documentation: SHA-1 is refused for SNMPv3**, not
+   just MD5 and DES. Only SHA-256 is accepted, so a conforming `auth sha` user built per the
+   wiki is silently deleted at the next restart.
+3. 🔴 **The CLI help surface reflects NO secure-mode restriction at all** — every probed prefix
+   returns byte-identical completions in both modes, and the parser then rejects what the help
+   offered.
+4. 🔴 **Neither route to the cryptographic self-test exists** (the open question, above).
+
+Plus `show secure-mode` reading "enabled" before the restart while only telnet is actually
+stopped; a refused `radius-server local` still entering `(config-radsrv)`; and one benign:
+🟢 **a secure-mode round trip deletes the `cktls` enrolment that no CLI could remove**, while
+trustpoint `local` and both certificate chains come back intact. swi_d is cleaner than before.
+
+**Not confirmed:** `security_banner` was **not** configured on first enable; licence activation
+showed no change in its CLI surface.
+**Not discriminable on this build:** rsa1/dsa and TACACS+ groups are absent in *normal* mode
+too, and `enable password` ≥ 8 is already enforced by a pre-existing
+`security-password minimum-length 8`.
+**Not measurable from this bench:** an SNMPv3 GET under secure mode — net-snmp 5.7.3 accepts
+only `MD5|SHA` and pysnmp's hlapi will not load (`Cryptodome.Cipher._raw_ecb`). ⚠️ **An
+instrument limit, not a DUT result: the DUT ACCEPTED the SHA-256/AES user at the CLI.**
+**Not run, with reason:** N12's 802.1X supplicant half (the rig was gone before the window; the
+wire-level RADIUS measurement substitutes and is the stronger instrument), DES-alone as a
+privacy protocol, and licence activation itself (STANDING-ORDERS §4).
+**Deliberately not run:** `crypto secure-mode delete hostkey` — key material, never a smoke test.
+
+**Two items for the Test Engineer, neither blocking and neither actioned by this run:**
+- `tools/snmpq.py` graded a **net-snmp usage error** as `RESULT VALUE` **exit 0** — a false PASS
+  available to any case that passes a protocol name the local net-snmp does not know. Recorded,
+  deliberately not fixed mid-run.
+- `bench-setup/tb277/bench-state.md` was already reduced to swi_d-only in HEAD by `f154abc`
+  (T9032 run 2, ~09:26 this morning). Restored from `494813c` in a **separate** commit `8d16e0b`,
+  on the standing decision to keep the three-unit record — this run never opened u3 or u5 and
+  did not measure those lines.
