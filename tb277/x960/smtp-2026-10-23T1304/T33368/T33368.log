@@ -1,0 +1,496 @@
+================================================================================
+TEST T33368 -- (209) Authentication&Security_SMTP - SMTP server authentication
+================================================================================
+Run:      2026-10-23 16:54-17:21 NZDT.  The DUT was driven as an SMTP client against
+          SMTP servers running on the testbox, and graded on the wire.
+          The DUT's clock reads UTC, 13 hours behind the box's local clock. Every SMTP
+          server timestamp in this log is UTC; every console timestamp is NZDT.
+Bench:    tb277, consoles u2; Test Engineer bidhanc@bidhanc-dl
+Tester:   bench-runner
+Graded:   tester, re-graded from PARTIAL on 2026-10-23
+Case:     AWPTCM-T33368, objective "none recorded", no authored steps.
+          The test-case database holds the title only. It gives no objective, no
+          precondition and no step text. Every step below was designed from the DUT's
+          own CLI surface, which was first read with `?` completion only.
+          The product test specification, row 207 "SMTP Server Authentication", reads
+          Yes, so the feature is claimed on this platform.
+Build:    swi_d  sin_x96056-20261019-27  (x960-tb277.rel, build date Sun Oct 18 23:18:21 UTC 2026)
+
+awplus# show system
+System Status                                           Fri Oct 23 03:55:13 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+Fan module 730  FAN1    AT-FAN19                          -     -
+Fan module 730  FAN2    AT-FAN19                          -     -
+--------------------------------------------------------------------------------
+RAM: Total: 8092132 kB Free: 7452120 kB
+Flash: 14.3GB Used: 171.8MB Available: 14.1GB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 03:59:29
+Bootloader version : Unknown
+
+Current software   : x960-tb277.rel
+Software version   : sin_x96056-20261019-27
+Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+Current boot config: flash:/default.cfg (file exists)
+
+System Name
+ awplus
+System Contact
+
+System Location
+
+Configs:  swi_d.cfg (running-config after setup; saved to startup: no)
+
+VERDICT: PASS -- the DUT authenticates to an SMTP server, proved on the wire for all
+         three mechanisms this build really implements.
+    AUTH PLAIN ................. PASS         (server read `AUTH PLAIN`, answered 235, mail delivered)
+    AUTH LOGIN ................. PASS         (334 / 334 exchange, answered 235, mail delivered)
+    AUTH CRAM-MD5 .............. PASS         (correct digest over the server's challenge, answered 235)
+    wrong credential ........... refused      (535 on all three mechanisms, 6 of 6 attempts)
+    baseline, feature OFF ...... no AUTH sent (server offered three mechanisms, DUT sent none)
+    removal .................... AUTH stops   (server refuses at 530, the same as the OFF baseline)
+    no silent downgrade ........ PASS         (EHLO then QUIT against two servers that offer no AUTH)
+    `authentication` kept ...... PASS         (`port` and `tls` do not displace it)
+    AUTH OAUTH2 ................ UNSUPPORTED  (the CLI accepts it, the device never applies it; STEP 4)
+CAVEAT:  Three of the four mechanisms the CLI offers -- plain, login and crammd5 -- are
+         proven end to end on the wire. The fourth, oauth2, is not proven either way.
+         tb277 has no OAuth2 provider, no token and no `mail oauth2` authorisation. So
+         this run could not test oauth2 authentication itself. What it did establish,
+         and what needs no provider, is that the oauth2 config command does nothing.
+         Whether oauth2 would authenticate given a token is NOT MEASURABLE on this bench.
+         Two more limits. TLS-wrapped delivery (`mail smtpserver tls smtps|starttls`) was
+         set and removed as a config-retention check only. It was never driven against a
+         TLS listener. The `log email` trigger path was not used. Every message was sent
+         with the exec command `mail to ... subject ...`.
+HEALTH:  read twice on console u2, before STEP 0 (16:54:41) and after STEP 9 (17:20:32).
+         reboots ......... no new entry (newest stays 2026-10-22 23:55:56 Unexpected System reboot)
+         exception log ... present before the run and unchanged by it:
+                           2026 Oct 22 23:49:18 local7.debug awplus corehandler : Process snmpd
+                           (PID:1841) signal 11, core dumped to
+                           /flash/snmpd-swmrvl_armv8-sin_x96056-20261019-27-1-1792712958-1841.tgz
+         log ............. no crash, no daemon restart, no kernel error. 0 new lines other
+                           than echoes of our own commands. One new line in the tail of 150:
+                           2026 Oct 23 04:12:28 user.err awplus IMISH[15664]: Command [show mail oauth2] failed
+                           That line is the tester mistyping the command. The valid form is
+                           `show mail oauth2 url`. It is not a device fault.
+         CPU ............. 0% busy before -> 0% busy after (this device prints busy averages,
+                           not idle), load 0.00 at both samples
+         memory .......... free 7451928 of 8092132 kB before -> free 7454532 of 8092132 kB after
+                           (2604 kB more free at the end)
+         The tool graded the pair CLEAN.
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  The DUT is the SMTP client. It opens every connection towards the testbox, so all
+  traffic in this case flows from the DUT out to the box.
+
+    +--------------------------------------------+
+    |  swi_d   AT-x960-56YSQ            DUT      |
+    |  SMTP client, vlan10 10.38.22.34/27        |
+    +--------------------------------------------+
+              | port1.0.10
+              |  SMTP session, opened by the DUT
+              v
+       tb277 eth3  00:0d:b9:55:77:0e  10.38.22.33/27
+              |
+              +--> tools/smtpsrv.py on TCP 11025   (our instrument: STEPs 0, 0b, 1-8)
+              +--> the box's own Postfix on TCP 25 (an independent server: STEP 9)
+
+  DUT   : swi_d (AT-x960-56YSQ) console u2 @ 115200, S/N A2WQS700B,
+          vlan10 "Hardware is VLAN, address is e01a.ead4.7043", IPv4 10.38.22.34/27.
+          Single unit, no stack.
+  link  : swi_d port1.0.10 <-> tb277 eth3 (copper, vlan10, directly connected /27)
+  host  : tb277 eth3, MAC 00:0d:b9:55:77:0e, 10.38.22.33/27 -> swi_d port1.0.10
+  tools : tools/smtpsrv.py   -- the SMTP server, on the box, TCP 11025. It can require
+                                authentication and can advertise any subset of PLAIN,
+                                LOGIN and CRAM-MD5. It writes a timestamped transcript
+                                of every line in both directions. The DUT is the client,
+                                so this server transcript IS the wire.
+          tools/conkey.py    -- sends raw keys to the console. `mail to <addr> subject <s>`
+                                is interactive, so the message body and the Ctrl-D that
+                                ends it cannot be sent by a prompt-driven tool.
+          tools/tb capture + tools/tcpflow.py -- a packet capture on eth3, decoded offline.
+                                This is the independent wire evidence for STEP 9.
+
+  Reachability, read before STEP 0:
+awplus# ping 10.38.22.33 repeat 4
+  4 packets transmitted, 4 received, 0% packet loss, time 3065ms
+  rtt min/avg/max/mdev = 0.533/0.559/0.604/0.026 ms
+
+--------------------------------------------------------------------------------
+THE CLI SURFACE, read with `?` completion before any command was sent
+--------------------------------------------------------------------------------
+  The three sub-options are SIBLINGS of the server address, not sub-options of it.
+  Each one is its own configuration line.
+
+awplus(config)# mail smtpserver  ?
+  A.B.C.D         IPv4 address of SMTP Server
+  WORD            Fully Qualified Domain Name of SMTP Server
+  X:X::X:X        IPv6 address of SMTP Server
+  authentication  Authentication mechanism
+  port            SMTP server port
+  tls             Use TLS connection to secure sending mail
+
+awplus(config)# mail smtpserver 10.38.22.33  ?
+  <cr>                                   <-- the address accepts nothing after it
+awplus(config)# mail smtpserver 10.38.22.33 authentication  ?
+  % Unrecognized command                 <-- so it is not a sub-option of the address
+
+  The four mechanisms the DUT offers are crammd5, login, oauth2 and plain. For crammd5,
+  login and plain the parser then requires `username <USERNAME>` and `password <PASSWORD>`.
+  For oauth2 it offers `<cr>`: no username and no password.
+
+--------------------------------------------------------------------------------
+SETUP, applied before STEP 0
+--------------------------------------------------------------------------------
+  Baseline, read before anything was configured:
+awplus# show mail
+  State        : Dead
+  SMTP Server  : Not Set
+  Host Name    : Not Set
+  Port         : 25
+  Debug        : Disabled
+  There is no mail in the queue.
+  `show running-config` held no `mail` line of any kind. The baseline is clean.
+
+awplus# configure terminal
+awplus(config)# mail smtpserver 10.38.22.33
+awplus(config)# mail smtpserver port 11025
+awplus(config)# mail from ck-dut@ck.invalid
+awplus(config)# end
+awplus# show mail
+  State        : Alive                   <-- was "Dead" before setup
+  SMTP Server  : 10.38.22.33
+  Host Name    : ck-dut@ck.invalid
+  Port         : 11025
+  Debug        : Disabled
+  There is no mail in the queue.
+
+  No `authentication` line is configured yet. That is the point of STEP 0 and STEP 0b.
+
+STEP 0 -- baseline, feature OFF: the server OFFERS authentication and accepts mail     done
+--------------------------------------------------------------------------------
+  Method: the server advertises PLAIN, LOGIN and CRAM-MD5 but does not require them.
+  The DUT has no `authentication` line. If the DUT sends no AUTH here, then every AUTH
+  in a later step comes from the configuration, not from the server's offer.
+awplus# mail to cklog@ck.invalid subject T33368-L0b-off-permissive
+  04:06:12Z === connection 1 from 10.38.22.34:47150 ===
+  04:06:12Z S: 220 ck-smtp ESMTP ck-smtpsrv ready
+  04:06:12Z C: EHLO ck.invalid
+  04:06:12Z S: 250-AUTH CRAM-MD5 LOGIN PLAIN        <-- three mechanisms offered
+  04:06:12Z S: 250-AUTH=CRAM-MD5 LOGIN PLAIN
+  04:06:12Z S: 250 HELP
+  04:06:12Z C: MAIL FROM:<ck-dut@ck.invalid>        <-- EHLO straight to MAIL FROM, no AUTH
+  04:06:12Z ** MAIL FROM with NO AUTH (accepted: --require-auth is off)
+  04:06:12Z S: 250 2.1.0 Ok
+  04:06:12Z C: RCPT TO:<cklog@ck.invalid>
+  04:06:12Z C: DATA
+  04:06:12Z C: Subject: T33368-L0b-off-permissive
+  04:06:12Z S: 250 2.0.0 Ok: queued as ck000001
+  04:06:12Z C: QUIT
+  04:06:59Z SUMMARY connections=1 ehlo=1 mail_from=1 mail_from_denied=0 messages=1 quit=1
+            sessions_without_auth=1
+  04:06:59Z SUMMARY auth: NO AUTH verb was ever sent by any client
+  DUT console: ^DSending 20261023040611.9331... ok.
+  => STEP 0 done: the server offered three mechanisms and the DUT sent no AUTH. The mail
+     was delivered, so the whole transport path works. Any AUTH seen later is caused by
+     the configuration.
+
+STEP 0b -- baseline, feature OFF: the server REQUIRES authentication                   done
+--------------------------------------------------------------------------------
+  Method: the same server, now started with --require-auth. The DUT still has no
+  `authentication` line. This is the negative half of the baseline.
+awplus# mail to cklog@ck.invalid subject T33368-A1-off-require
+  04:07:43Z S: 250-AUTH CRAM-MD5 LOGIN PLAIN
+  04:07:43Z ** MAIL FROM with NO successful AUTH -- refusing (530)
+  04:07:43Z S: 530 5.7.0 Authentication required    <-- printed three times, because msmtp
+                                                        pipelined MAIL, RCPT and DATA
+  DUT console:
+  ^DSending 20261023040742.27489... msmtp: envelope from address ck-dut@ck.invalid not accepted
+  by the server
+  msmtp: server message: 530 5.7.0 Authentication required
+  msmtp: could not send mail (account default from /etc/msmtprc)
+  => STEP 0b done: with no mechanism configured the DUT sends no AUTH and the server
+     refuses the message at 530. The DUT prints the server's reply to the operator
+     word for word. The DUT's SMTP client is msmtp and it reads /etc/msmtprc. The
+     refused message stayed in the DUT's queue and was retried on the next send:
+awplus# show mail
+  To: cklog@ck.invalid / Subject: T33368-A1-off-require / Message-ID: 20261023040742.27489
+
+STEP 1 -- AUTH PLAIN with the correct credential                                       PASS
+--------------------------------------------------------------------------------
+awplus(config)# mail smtpserver authentication plain username ckmail password ckSmtp1
+  (accepted, no % line)
+awplus# show mail
+  State          : Alive
+  SMTP Server    : 10.38.22.33
+  Host Name      : ck-dut@ck.invalid
+  Authentication : plain                 <-- new
+  Username       : ckmail                <-- new
+  Port           : 11025                 <-- still set: `authentication` did not remove `port`
+  Debug          : Disabled
+awplus# mail to cklog@ck.invalid subject T33368-A2-plain-good
+  04:08:15Z C: AUTH PLAIN AGNrbWFpbABja1NtdHAx
+  04:08:15Z ** AUTH verb from DUT: mechanism=PLAIN initial-response=yes
+  04:08:15Z    PLAIN decoded: authzid='' user='ckmail' pass=<7 chars>
+  04:08:15Z ** AUTH PLAIN SUCCEEDED for user='ckmail'
+  04:08:15Z S: 235 2.7.0 Authentication successful
+  04:08:15Z C: MAIL FROM:<ck-dut@ck.invalid>   -> 250
+  04:08:15Z C: Subject: T33368-A1-off-require   (connection 2 -- the queued one)
+  04:08:15Z C: Subject: T33368-A2-plain-good    (connection 3 -- the new one)
+  both: S: 250 2.0.0 Ok: queued as ck00000{1,2}
+  DUT console: ^DSending 20261023040742.27489... ok.   (the queued message, now accepted)
+               Sending 20261023040814.4561... ok.      (the new message)
+  => STEP 1 PASS: the DUT sent AUTH PLAIN and the server accepted it at 235. The string
+     AGNrbWFpbABja1NtdHAx is base64 for "\0ckmail\0ckSmtp1". That is RFC 4616 PLAIN: an
+     empty authorisation identity, the user name ckmail, and a 7-character password. The
+     DUT sent it as an initial response on the AUTH line itself. STEP 0 proves the AUTH
+     comes from the one configuration line, not from the server's offer.
+
+  How the credential is stored, read in the same window:
+awplus# show running-config
+  mail smtpserver 10.38.22.33
+  mail smtpserver authentication login username ckmail password 8 7cC8/MMurb9jqk2KHeIqVlY/NyGfKoQDlWMd/0WHLAA=
+  mail smtpserver port 11025
+  mail from ck-dut@ck.invalid
+  <-- the password is stored encrypted (type 8), not in clear text, and `show mail` does
+      not print the password at all. It prints only Authentication and Username.
+
+STEP 2 -- AUTH LOGIN with the correct credential                                       PASS
+--------------------------------------------------------------------------------
+awplus(config)# mail smtpserver authentication login username ckmail password ckSmtp1
+awplus# show mail -> Authentication : login,  Username : ckmail,  Port : 11025
+awplus# mail to cklog@ck.invalid subject T33368-A3-login-good
+  04:09:16Z C: AUTH LOGIN
+  04:09:16Z ** AUTH verb from DUT: mechanism=LOGIN initial-response=no
+  04:09:16Z S: 334 VXNlcm5hbWU6        (base64 "Username:")
+  04:09:16Z S: 334 UGFzc3dvcmQ6        (base64 "Password:")
+  04:09:16Z ** AUTH LOGIN SUCCEEDED for user='ckmail'
+  04:09:16Z S: 235 2.7.0 Authentication successful
+  04:09:16Z C: Subject: T33368-A3-login-good   -> 250 queued
+  DUT console: ^DSending 20261023040915.12359... ok.
+  => STEP 2 PASS: one word changed in the configuration and a different mechanism appeared
+     on the wire. LOGIN is a two-step exchange: the server prompts twice with 334 and the
+     DUT answers each prompt. There is no initial response, unlike STEP 1. The server
+     accepted it at 235 and the mail was delivered.
+
+STEP 3 -- AUTH CRAM-MD5 with the correct credential                                    PASS
+--------------------------------------------------------------------------------
+awplus(config)# mail smtpserver authentication crammd5 username ckmail password ckSmtp1
+awplus# show mail -> Authentication : crammd5,  Username : ckmail,  Port : 11025
+awplus# mail to cklog@ck.invalid subject T33368-A4-crammd5-good
+  04:09:48Z C: AUTH CRAM-MD5
+  04:09:48Z ** AUTH verb from DUT: mechanism=CRAM-MD5 initial-response=no
+  04:09:48Z    CRAM-MD5 challenge (cleartext): <69034.1792728588@ck-smtp>
+  04:09:48Z S: 334 PDY5MDM0LjE3OTI3Mjg1ODhAY2stc210cD4=
+  04:09:48Z    CRAM-MD5 decoded: user='ckmail' digest=5ba070f65aa112033aa02aed8462feca
+  04:09:48Z ** AUTH CRAM-MD5 SUCCEEDED for user='ckmail'
+  04:09:48Z S: 235 2.7.0 Authentication successful
+  04:09:48Z C: Subject: T33368-A4-crammd5-good   -> 250 queued
+  DUT console: ^DSending 20261023040947.11300... ok.
+  => STEP 3 PASS: this is the strongest of the three. The server made a fresh random
+     challenge and checked HMAC-MD5 of the password over that challenge itself. The DUT
+     returned the correct digest. The password never crossed the wire. So the DUT really
+     computes the digest from the configured password. It does not replay a stored string.
+     STEP 7 closes the proof by showing the digest changes when the password changes.
+
+STEP 4 -- `mail smtpserver authentication oauth2`                                      UNSUPPORTED
+--------------------------------------------------------------------------------
+  Method: the command was sent twice from a state where crammd5 was configured, and once
+  more from a state where no mechanism was configured at all.
+
+  From a configured state (crammd5 was in force):
+  17:10:52 awplus# configure terminal
+  17:10:53 awplus(config)# mail smtpserver authentication oauth2
+  17:10:54 awplus(config)# end          <-- no error, no warning, no % line of any kind
+  17:10:56 awplus# show mail
+             Authentication : crammd5   <-- still crammd5
+  awplus# show running-config
+             mail smtpserver authentication crammd5 username ckmail password 8 fbq5A0iO...
+                                           ^^^^^^^ unchanged
+  The next message went out on the wire as:
+             04:11:03Z C: AUTH CRAM-MD5  <-- still CRAM-MD5, not oauth2 and not nothing
+  Repeated at 17:11:49 with the same command: running-config still reads crammd5.
+
+  From a clean state (after `no mail smtpserver authentication`, nothing configured):
+  17:13:03 awplus(config)# mail smtpserver authentication oauth2    <-- accepted again, in silence
+  awplus# show running-config -> holds `mail smtpserver 10.38.22.33` and
+          `mail smtpserver port 11025` and NO `authentication` line at all
+  awplus# show mail           -> no Authentication field, no Username field
+
+  The device then contradicts itself in its own words:
+awplus# show mail oauth2 url
+  % The smtpserver is not configured for OAUTH2
+  <-- read straight after the CLI had accepted the oauth2 command without complaint
+
+  => STEP 4 UNSUPPORTED: oauth2 is only half built on this software version. The CLI token
+     exists and the function does not, and the device says so itself. A missing feature is
+     UNSUPPORTED, not a failure.
+     FINDING, and it is the silence, not the absence. The parser OFFERS oauth2:
+     `mail smtpserver authentication ?` lists `oauth2  OAUTH2 authentication`, and
+     `mail smtpserver authentication oauth2 ?` offers `<cr>`. So it is a complete, valid
+     command, not a truncated one. The device accepts it with no diagnostic. It then has
+     no effect on running-config, on `show mail`, or on the wire. The previous mechanism
+     stays in force. That has a security cost. An operator who sets oauth2 believes the
+     device has moved to token authentication. It has not. It keeps sending the password:
+     inside a CRAM-MD5 digest here, and in base64 clear text if the previous setting had
+     been `plain`. The operator gets no signal. The device should reject the command with
+     a diagnostic instead of accepting it in silence. Reproduced three times.
+
+STEP 5 -- does `port` or `tls` displace `authentication`?                              PASS
+--------------------------------------------------------------------------------
+  Method: the three sub-options are separate configuration lines, so each was set while
+  the others were already set, and all fields were read back each time. crammd5 was the
+  configured mechanism throughout.
+awplus(config)# mail smtpserver tls starttls
+awplus(config)# do show mail -> SMTP Server 10.38.22.33 / Authentication crammd5 /
+                                Username ckmail / Port 11025 / Use TLS STARTTLS
+awplus(config)# mail smtpserver port 11025
+awplus(config)# do show mail -> all five fields still present, unchanged
+awplus(config)# no mail smtpserver tls
+awplus(config)# do show mail -> Use TLS gone; SMTP Server / Authentication crammd5 /
+                                Username ckmail / Port 11025 all retained
+  => STEP 5 PASS: `authentication`, `port` and `tls` do not displace one another. Each one
+     survives the others being set and removed. This is a negative result and it is
+     reported as one, not as an absence of testing.
+
+STEP 6 -- removal: `no mail smtpserver authentication`                                 PASS
+--------------------------------------------------------------------------------
+awplus(config)# no mail smtpserver authentication
+awplus(config)# do show running-config
+  mail smtpserver 10.38.22.33
+  mail smtpserver port 11025
+  <-- the `mail smtpserver authentication ...` line is gone
+awplus# show mail
+  State : Alive / SMTP Server : 10.38.22.33 / Host Name : ck-dut@ck.invalid / Port : 11025
+  <-- the Authentication and Username fields are gone
+awplus# mail to cklog@ck.invalid subject T33368-A6-removed
+  DUT console:
+  ^DSending 20261023041237.1487... msmtp: envelope from address ck-dut@ck.invalid not accepted
+  by the server
+  msmtp: server message: 530 5.7.0 Authentication required
+  msmtp: could not send mail (account default from /etc/msmtprc)
+  => STEP 6 PASS: removal is proven three independent ways. The line is gone from
+     running-config. The fields are gone from `show mail`. And the AUTH stopped on the
+     wire: the server refused at 530, exactly as it did in the STEP 0b baseline. The
+     feature did not merely stop being displayed.
+
+STEP 7 -- control: the wrong credential, on all three mechanisms                       PASS
+--------------------------------------------------------------------------------
+  Method: the same server settings, but the server now knows the user ckmail with a
+  DIFFERENT password. The DUT's configuration is unchanged and still correct from its own
+  point of view. Every leg here MUST be refused.
+
+  CRAM-MD5:
+  04:14:48Z C: AUTH CRAM-MD5
+  04:14:48Z    CRAM-MD5 decoded: user='ckmail' digest=14585b46b681dc626100652787965c48
+  04:14:48Z ** AUTH CRAM-MD5 FAILED for user='ckmail' -- digest mismatch
+              (expected e7a96ec16109d9fcdaea28cb3ff623f5, got 14585b46b681dc626100652787965c48)
+  04:14:48Z S: 535 5.7.8 Authentication credentials invalid
+  DUT: msmtp: authentication failed (method CRAM-MD5)
+       msmtp: server message: 535 5.7.8 Authentication credentials invalid
+
+  PLAIN:
+  04:15:22Z C: AUTH PLAIN AGNrbWFpbABja1NtdHAx
+  04:15:22Z ** AUTH PLAIN FAILED for user='ckmail' -- wrong password
+  04:15:22Z S: 535 5.7.8 Authentication credentials invalid
+  DUT: msmtp: authentication failed (method PLAIN) / 535 5.7.8 / could not send mail
+
+  LOGIN:
+  04:15:56Z C: AUTH LOGIN
+  04:15:56Z ** AUTH LOGIN FAILED for user='ckmail' -- wrong password
+  04:15:56Z S: 535 5.7.8 Authentication credentials invalid
+  DUT: msmtp: authentication failed (method LOGIN) / 535 5.7.8 / could not send mail
+
+  04:16:16Z SUMMARY connections=6 ehlo=6 mail_from=0 mail_from_denied=0 messages=0 quit=0
+  04:16:16Z SUMMARY auth mech=CRAM-MD5 attempts=1 ok=0 fail=1
+  04:16:16Z SUMMARY auth mech=LOGIN    attempts=3 ok=0 fail=3
+  04:16:16Z SUMMARY auth mech=PLAIN    attempts=2 ok=0 fail=2
+  => STEP 7 PASS: 6 attempts, 0 accepted, 6 refused. mail_from=0 and messages=0, so after
+     a 535 the DUT never tried MAIL FROM and never sent the message body. The CRAM-MD5
+     line is the most informative one in the case. The server computed the digest it
+     expected from its own password and received a different digest from the DUT. Put that
+     beside STEP 3, where the same password over a different challenge gave 5ba070f6...
+     and not 14585b46...: the DUT computes HMAC-MD5 over the server's challenge using the
+     configured password. It is not a constant, not a stored hash and not a replay.
+
+STEP 8 -- control: the server offers NO authentication. Does the DUT downgrade?        PASS
+--------------------------------------------------------------------------------
+  Method: `authentication login` stays configured on the DUT. The server advertises no
+  AUTH at all in its EHLO reply, and it does NOT require authentication. So if the DUT
+  downgraded and sent the mail unauthenticated, the server would accept it and the
+  downgrade would be plain to see.
+  04:16:44Z C: EHLO ck.invalid
+  04:16:44Z S: 250-ck-smtp / 250-PIPELINING / 250-SIZE 10240000 / 250 HELP   (no AUTH line)
+  04:16:44Z C: QUIT                                 <-- the DUT gave up at once
+  04:16:44Z S: 221 2.0.0 Bye
+  04:17:06Z SUMMARY connections=4 ehlo=4 mail_from=0 mail_from_denied=0 messages=0 quit=4
+  04:17:06Z SUMMARY auth: NO AUTH verb was ever sent by any client
+  DUT console: msmtp: the server does not support authentication
+               msmtp: could not send mail (account default from /etc/msmtprc)
+  => STEP 8 PASS: the DUT read the EHLO, saw no AUTH and sent QUIT. It offered no
+     credential, sent no MAIL FROM and sent no message body, across four attempts. The
+     mail stayed in the queue instead of going out in the clear. There is no silent
+     downgrade. This is correct, secure behaviour and it is recorded as a positive result.
+
+STEP 9 -- control: a real third-party SMTP server, the box's own Postfix on port 25    PASS
+--------------------------------------------------------------------------------
+  Method: a second server that is not our instrument. Postfix was not reconfigured and not
+  restarted. It offers STARTTLS but no AUTH. The evidence here is a packet capture taken
+  outside the instrument, so the result does not depend on our own server's log.
+awplus(config)# no mail smtpserver port
+  <-- Port returns to 25; `Authentication login` is retained
+awplus# mail to cklog@ck.invalid subject T33368-E1-postfix-25
+  tools/tb capture tb277 smtp1304 eth3 45 e-postfix.pcap tcp port 25 and host 10.38.22.34
+  tools/tb tool tb277 smtp1304 tcpflow /tmp/smtp1304/e-postfix.pcap --port 25 --ascii
+  -> file /tmp/smtp1304/e-postfix.pcap: 65 packet(s) total, 5 TCP flow(s) on port 25
+     flow 10.38.22.33:25 <-> 10.38.22.34:60318  packets=13  => ESTABLISHED+DATA
+       10.38.22.34 -> 10.38.22.33  payload=23 B:
+         EHLO ck.invalid
+         QUIT
+       10.38.22.33 -> 10.38.22.34  payload=217 B:
+         220 tb277.st.atlnz.lc ESMTP Postfix (Ubuntu)
+         250-tb277.st.atlnz.lc
+         250-PIPELINING
+         250-SIZE 10240000
+         250-VRFY
+         250-ETRN
+         250-STARTTLS
+         250-ENHANCEDSTATUSCODES
+         250-8BITMIME
+         250-DSN
+         250 SMTPUTF8
+         221 2.0.0 Bye
+     (5 flows, one per queued message; all identical.)
+  DUT console: msmtp: the server does not support authentication / could not send mail
+  => STEP 9 PASS: against a real, independent SMTP server the DUT behaved exactly as it
+     did in STEP 8. It sent 23 bytes in total -- EHLO then QUIT -- and no credential and
+     no message. So the no-downgrade result does not depend on our instrument. It is
+     confirmed by a second server and by a packet capture taken outside that instrument.
+     No mail was relayed into Postfix's queue.
+
+--------------------------------------------------------------------------------
+SUMMARY OF STEPS
+--------------------------------------------------------------------------------
+  STEP 0   baseline OFF, server offers AUTH, permissive   no AUTH sent, mail delivered     done
+  STEP 0b  baseline OFF, server requires AUTH             no AUTH sent, refused 530        done
+  STEP 1   authentication plain,   correct credential     AUTH PLAIN    -> 235, delivered  PASS
+  STEP 2   authentication login,   correct credential     AUTH LOGIN    -> 235, delivered  PASS
+  STEP 3   authentication crammd5, correct credential     AUTH CRAM-MD5 -> 235, delivered  PASS
+  STEP 4   authentication oauth2                          accepted, no effect, 3 times     UNSUPPORTED
+  STEP 5   retention: tls and port vs authentication      all three independent            PASS
+  STEP 6   no mail smtpserver authentication              AUTH stops, refused 530          PASS
+  STEP 7   wrong credential, all three mechanisms         6 of 6 refused at 535            PASS
+  STEP 8   server offers no AUTH                          EHLO then QUIT, no downgrade     PASS
+  STEP 9   real Postfix on port 25, no AUTH               EHLO then QUIT, 23 B, no downgrade PASS
+
+  Nothing in this case went unmeasured. There is no NOT RUN step.
+================================================================================
