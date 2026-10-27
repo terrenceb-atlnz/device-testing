@@ -1,0 +1,931 @@
+# AWPTCM-T9032 (EAP-TLS) — run 2 — working log
+
+Tester: the `bench-runner` subagent, dispatched by the `/test-mode` sentinel (this session's
+parent). Written as the case ran, 2026-10-28. **Re-run of a PARTIAL; run 1 (2026-10-23) stands
+unedited beside this file as `work/run1.log`.**
+
+## 🔴 THE AUTHORED PROCEDURE WAS NOT FOLLOWED. Read this first.
+
+Exactly as run 1 said, and it has not changed. `AWPTCM-T9032`, `src=xml` (the legacy corpus),
+status **Approved**, folder `/Interop/Windows_IO/802.1x`. Its **15 authored steps are a person
+driving Internet Explorer's certificate-import wizard on a Windows PC**, verbatim:
+
+> Prepare Route and the Supplicant certificate before the test. … They are copied onto
+> Supplicant. Start the Internet Explorer on Supplicant. 1) Click Tool button. 2) Click Internet
+> option. 3) Click Contents tab. 4) Click Certificate button. ■ Certificate screen 5) Click
+> Import button. … 13) Click Finish button. 14) Check that the certificate was added. 15) The
+> route certificate is similarly added.  Should be success. See and check the packet sequence.
+> When PC and switch are connected, certificate tab is opened. Packet sequence is correct.
+
+and the precondition names the environment outright: `Environment: Windows PC`.
+
+**Why they were not followed.** **There is no Windows PC on tb277, and no GUI of any kind.** The
+bench is a Linux testbox driving serial consoles. Steps 1–15 are mouse clicks in a browser that
+does not exist here. A **step-level MANUAL-ONLY row already exists** for the certificate-import
+limb and still stands after this run.
+
+**What is graded instead, on the Test Engineer's 2026-10-23 decision** to redesign the case with
+`wpa_supplicant` on tb277: the authored **objective**, quoted in full because it is the thing
+being graded —
+
+> **"Confirm that an authenticator exchanges authentication messages between the supplicant and
+> Radius server."**
+
+**Nothing in this log should be read as a claim that the authored steps were executed.**
+
+## What run 2 is, and what it is NOT
+
+Run 1 reached **PARTIAL**. **The DUT behaved correctly at every observed step** — every frame it
+sent was a correct RFC 5216 EAP-TLS frame, and it refused a rogue certificate with an EAP-Failure
+in 1.045 s. What run 1 could not show was an EAP-TLS authentication **concluding** in EAP-Success.
+
+Run 2 is therefore **not a DUT re-test.** It tests **one hypothesis about our own supplicant**,
+written as UNBLOCK option 1 in run 1's verdict:
+
+> The PKCS#12 the DUT exports carries the **CA as well as the leaf**, so wpa_supplicant sends
+> both in the client's TLS Certificate message. That makes the client flight 2141 bytes and
+> therefore TWO EAP-TLS fragments. `wpa_supplicant` 2.6 predates TLS 1.3 and RFC 9190 while
+> OpenSSL 1.1.1 beneath it negotiates TLS 1.3, so it declares the EAP method `Done` with 743
+> bytes unsent and DISCARDs the DUT's correct empty ACK. Run 1's control used a single
+> certificate, its flight was 1224 bytes in ONE fragment, and that exchange concluded normally.
+
+**So: split the PKCS#12 and present a leaf-only client credential** — `client_cert` and
+`private_key` passed separately, the CA kept out of the client chain but still used as
+`ca_cert` to validate the SERVER. Target: a one-fragment client flight and **EAP-Success**, with
+port1.0.48 reaching Authorized.
+
+No root, no package install, no DUT configuration change beyond the PKI/RADIUS rig run 1 used.
+
+## Session facts (from the dispatch; given, not measured)
+
+- **box:** tb277 — **consoles:** **u2 ONLY** = swi_d (AT-x960-56YSQ, S/N `A2WQS700B`), the DUT.
+  u3 and u5 were not opened and are not needed.
+- **baud:** u2 = **115200** (given in the dispatch; passed to every console call).
+- **pdu:** 10.36.230.212, outlets u2 = **1 AND 8** (swi_d has two PSUs; a single-outlet cycle is
+  a measured no-op). **No power cycle was performed in this run.**
+- **names:** u2 = swi_d — **Test Engineer:** bidhanc@bidhanc-dl
+- **constraints:** **ATTENDED-INTERMITTENT** window, 2026-10-28, ~8–9 h. The Test Engineer is at
+  the bench for recovery but is not watching the screen, so nothing may sit waiting on them.
+- **session dir:** `tb277/x960/`, **stamp:** `2026-10-23T1304`, **group dir:**
+  `dot1x-2026-10-23T1304`, **case:** T9032.
+- **run `.setup`:** `tb277/x960/dot1x-2026-10-23T1304/tb277-u2.setup` (swi_d only), unchanged
+  from run 1.
+
+## The case, as authored — the rest of the record
+
+- **key:** AWPTCM-T9032 — **title:** `EAP-TLS` — **status:** Approved — **src:** `xml`
+- **num_steps:** 3 (grouped), `has_objective = 1`
+- **TPS:** row **192**, EAP-TLS under IEEE 802.1X, reads **Yes**.
+
+## Pre-run gate
+
+| gate | result |
+| --- | --- |
+| 1. occupancy, no console opened (`tools/tb precheck tb277 u2`) | `/dev/u2: free`. Exit 5 FOUND listed exactly one item: `process 744 (root) /usr/sbin/ser2net -c /etc/ser2net.conf` — the box's standing console daemon, which the dispatch names as not a holder. Nothing displaced. |
+| 2. no console parked mid-state | the probe's first read returned `banner=awplus hostname=awplus` at an exec prompt. Not a `[root@… ~]#` shell and not `(config…)#`. |
+| 3. box template path | `tools/tb template tb277` → **`tb: no deployed tb277.setup`**. Expected and recorded in the run `.setup` itself: tb277 has never had a deployed framework template, and this case runs no framework script. (`/nfsHome not mounted` in the same output is a tb470-only check and does not apply to tb277.) |
+| 4. probe with the session facts | see below |
+| 5. the run `.setup` | reused unchanged from run 1 — `tb277/x960/dot1x-2026-10-23T1304/tb277-u2.setup`, declaring **only** swi_d. |
+| 6. offline preflight | **not applicable** — this case runs no framework `.py` script. It is driven entirely from `tools/` (console + supplicant + capture). |
+| 7. boot config baseline | `show boot` → `Current boot config: flash:/default.cfg (file exists)`, `Autoboot status: disabled`, `Current boot image: flash:/x960-tb277.rel`. Re-read after the run. |
+| 8. Ask-CK server run path | not used. |
+| 9. sentinel | `sentinel: parent` — the dispatching `/test-mode` session is the sentinel. Nothing to arm. |
+| 10. the script's CLI defaulting step | not applicable (no framework script). Every CLI command sent is listed in this log with its output. |
+
+### Gate 4 — the probe
+
+```
+tools/tb probe tb277 --consoles u2 --no-prompt --pdu 10.36.230.212 --outlet u2=1 \
+     --name u2=swi_d --read-only --baud 115200 \
+     --template /home/bidhanc/claude/device-testing/tb277/x960/dot1x-2026-10-23T1304/tb277-u2.setup
+```
+
+`--read-only` because tb277 is a shared box (no `lldp run`, no host-NIC pings from the probe).
+`--baud 115200` because the dispatch gives it.
+
+**Exit 2 — NEEDS-CHECK, one item:**
+
+```
+  [portlink] tb-swi_d eth4
+      CHECK_CABLE      NIC has link but its MAC was not learned on any switch port
+      bench    = (absent)
+      template = eth4-port1.0.48
+```
+
+🔴 **Resolved by measurement, not by assumption, before any leg ran.** eth4 had simply been idle
+since 2026-10-23, so its MAC had aged out of the DUT's table. Three ARP/ICMP probes were sent out
+of eth4 (`tools/tb ping tb277 eth4 10.38.22.66 3`) and the DUT's own table was then read:
+
+```
+awplus#show mac address-table | include 770f
+48   port1.0.48   000d.b955.770f   discard       static
+```
+
+That is the box's eth4 MAC `00:0d:b9:55:77:0f`, learned **on port1.0.48, in vlan 48** — the
+cabling the run `.setup` declares, confirmed from the DUT's side. `discard static` is not a
+fault: it is how AW+ marks a MAC on a dot1x-controlled port that is still **Unauthorized**, which
+port1.0.48 was. The link is also up and has been for the whole interval:
+`Link is UP, administrative state is UP … current duplex full, current speed 1000 …
+Time since last state change: 4 days 20:12:10`.
+
+**So the probe's one NEEDS-CHECK is a stale-MAC artefact of an idle port, not a bench change.**
+No `NEEDS TEST ENGINEER:` was raised for it.
+
+## 🔴 Bench state as FOUND — the group A rig was never torn down
+
+This is a finding in its own right and is reported to the sentinel.
+
+The DUT's uptime is **4 days 20:12:48**, i.e. it has not rebooted since before the 2026-10-23
+campaign, and **the whole group A rig is still in its running-config**, five days after that
+campaign ended:
+
+```
+awplus#show running-config | include radius
+radius-server host 127.0.0.1 key dbSQ8EDlsS3xUeNxNmelt3ya+mDgdWCOegX15FooG8E= encrypted
+aaa authentication dot1x default group radius
+radius-server local
+awplus#show running-config | include dot1x
+aaa authentication dot1x default group radius
+ dot1x port-control auto
+ dot1x control-direction both
+awplus#show auth
+802.1X Port-Based Authentication: Enabled
+MAC-based Port Authentication   : Disabled
+WEB-based Port Authentication   : Disabled
+  RADIUS server address (auth): 127.0.0.1:1812,
+    Last radius message id: 0
+awplus#show radius local-server user
+
+Total users: 4
+Maximum users allowed by license: 5000
+
+User-Name                                     Group             Vlan
+--------------------------------------------------------------------------------
+ckmulti1
+ckmulti2
+ckpeap
+cktls
+```
+
+The group A **restore recipe** in the queue (`CAMPAIGN-QUEUE-2026-10-23T1304.md`, "GROUP A RIG")
+says the pre-campaign baseline was: `show auth` all three **Disabled**, `show radius` →
+`No RADIUS servers currently defined`, `show radius local-server nas` **empty**,
+`show running-config | include radius|dot1x|aaa` showing only the two baseline lines
+`aaa authentication enable default local` and `aaa authentication login default local`.
+**None of that is true today.** The 2026-10-23 campaign therefore closed without running its own
+restore recipe. Nothing was written to `startup-config` (it is still `flash:/default.cfg`), so
+the leftovers are volatile and a reboot alone would clear them — but no reboot has happened.
+
+**What run 2 did about it, under STANDING-ORDERS §1 as widened on 2026-10-23** (*"If you have to
+remove vlan or change config on a switch because you need to execute the test, please dont ask
+me - just go ahead and do it"*):
+
+- **Run 2 inherited the rig rather than rebuilding it.** It is exactly the rig this case needs,
+  it is byte-for-byte the recipe the queue documents, and rebuilding it would have changed more
+  device state than reusing it.
+- **Run 2 ran the group A restore recipe at the end**, returning the DUT to the documented
+  pre-campaign baseline. See "Teardown and restore" below for exactly what was removed and the
+  read-backs that prove it. This is recorded here so it is never mistaken for run 2 having
+  destroyed something it should have left.
+
+## Devices, links and clocks
+
+| thing | value |
+| --- | --- |
+| DUT | **swi_d**, console **u2** at **115200**, AT-x960-56YSQ, S/N **A2WQS700B**, hostname `awplus` |
+| build | `sin_x96056-20261019-27`, build date Sun Oct 18 23:18:21 UTC 2026 |
+| DUT role | **both the authenticator AND the RADIUS server** (`radius-server local`, nas 127.0.0.1) |
+| supplicant | **the testbox itself** — `/sbin/wpa_supplicant 2.6` (`wpasupplicant 2:2.6-15ubuntu2.8`), `-D wired` on **eth4** |
+| supplicant leg | box **eth4** `00:0d:b9:55:77:0f` (10.38.22.65/27) ↔ swi_d **port1.0.48** (vlan48, DUT SVI 10.38.22.66) |
+| DUT port MAC | `e0:1a:ea:d4:70:43` (the SVI MAC all x960 SVIs share) |
+| other leg, not used by any leg of run 2 | box eth3 `00:0d:b9:55:77:0e` (10.38.22.33/27) ↔ port1.0.10 (vlan10) |
+| capture | `tcpdump` on eth4, **always filtered `ether proto 0x888e`** (tb277 runs loop protection at 1 LDF/s across 57 instances; an unfiltered capture drowns) |
+| DUT clock vs box clock | DUT `show clock` → `Tue, 27 Oct 2026 20:08:33 +0000` (UTC); the console transcript stamps NZDT (UTC+13), so DUT `20:19:20` == transcript `09:19:20`. **No offset to correct for.** All DUT log times below are UTC. |
+
+### `show system`, verbatim and in full (setup read, before step 1)
+
+```
+09:08:35 >>> show system
+awplus#show system
+System Status                                           Tue Oct 27 20:08:32 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       721  Base    AT-x960-56YSQ                     A-0   A2WQS700B
+PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104S052CU
+PSU        683  PSU2    AT-PWRSYS4                        D-0   6L6L20104S0526S
+Fan module 730  FAN1    AT-FAN19                          -     -
+Fan module 730  FAN2    AT-FAN19                          -     -
+--------------------------------------------------------------------------------
+RAM: Total: 8092132 kB Free: 7458428 kB
+Flash: 14.3GB Used: 171.8MB Available: 14.1GB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 4 days 20:12:48
+Bootloader version : Unknown
+
+Current software   : x960-tb277.rel
+Software version   : sin_x96056-20261019-27
+Build date         : Sun Oct 18 23:18:21 UTC 2026
+
+Current boot config: flash:/default.cfg (file exists)
+
+System Name
+ awplus
+System Contact
+
+System Location
+```
+
+### Health, BEFORE step 1 (STANDING-ORDERS §8)
+
+`tools/tb health tb277 t9032r2 u2 115200 --label before`
+Raw output kept at `work/health-u2-run2-before.out` (and on the box at
+`/tmp/t9032r2/health-u2-20261028T090921.out`).
+
+```
+HEALTH u2 09:09:21-09:09:38 before
+  reboots ......... 100 entries, newest 2026-10-22 23:55:56 Unexpected System reboot
+  exception log ... 2026 Oct 22 23:49:18 local7.debug awplus corehandler : Process snmpd (PID:1841)
+                    signal 11, core dumped to /flash/snmpd-swmrvl_armv8-sin_x96056-20261019-27-1-1792712958-1841.tgz
+  log (filtered) .. 10 lines: 10 echoes of our own commands, 0 other
+  cpu ............. 0% / 0% / 0%  (show cpu prints BUSY averages 1 s / 20 s / 60 s, not idle); load 0.00
+  memory .......... free 7454048 of 8092132 kB (buffers 2032)
+```
+
+⚠️ **The exception log is not None, and that is NOT this run's doing.** Both entries —
+the `Unexpected System reboot` of 2026-10-22 23:55:56 and the snmpd core of 2026-10-22 23:49:18 —
+**predate the 2026-10-23 campaign** and are byte-for-byte the same two lines run 1 recorded in
+its own before-sample (`work/health-u2-before.out`). They are a pre-existing condition of this
+unit, not a run-2 event. The after-sample below confirms neither moved.
+
+## The rig
+
+**Nothing was configured.** The group A rig was already on the device (see "Bench state as
+FOUND" above) and is exactly what this case needs:
+
+```
+radius-server host 127.0.0.1 key <encrypted>        ! the DUT as RADIUS CLIENT
+aaa authentication dot1x default group radius
+radius-server local                                  ! the DUT as RADIUS SERVER
+ server enable
+ nas 127.0.0.1 key <encrypted>
+ user cktls encrypted password <encrypted>
+interface port1.0.48                                 ! the authenticator port
+ dot1x port-control auto
+ dot1x control-direction both
+```
+
+The PKI side was also already provisioned by run 1 and was reused, not rebuilt:
+
+```
+awplus#show crypto pki certificates local
+...
+Local RADIUS server user enrollments ready for export
+   cktls
+```
+
+**Run 2 enrolled no new PKI user and exported nothing new from the device.** It reused run 1's
+`/tftproot/cktls.p12` (still on the box; the box has been up 46 days) and run 1's CA PEM, which
+is in this repo as `work/localca-rsa.cer` and was copied back to the box for this run.
+
+The DUT's running configuration as the legs saw it is saved as
+`tb277/x960/dot1x-2026-10-23T1304/T9032/swi_d.cfg`.
+
+## Measurement
+
+Five legs, all on port1.0.48, all captured at frame level, all in one window.
+**`dot1x initialize interface port1.0.48` was sent on the DUT before EVERY leg** (run 1's
+lesson: a superseded EAP session's response is rejected by the NAS and the leg fails for a
+reason that has nothing to do with the thing being tested).
+
+### What the credential actually contains — measured, not assumed
+
+A new generic helper, **`tools/p12split.py`**, splits a PKCS#12 and prints the DER size of
+every certificate in it, so the client's flight size is arithmetic instead of a guess:
+
+```
+$ tools/tb tool tb277 t9032r2 p12split /tftproot/cktls.p12 --passwd ckbench2026 \
+      --out-dir /tmp/t9032r2 --name cktls
+bundle: /tftproot/cktls.p12
+  LEAF    867 bytes DER  subject=O = AlliedWare Plus, CN = cktls
+                        issuer =O = "Allied Telesis, Inc.", CN = AlliedWarePlusCAA2WQS700B  notAfter=Oct 22 01:35:41 2031 GMT
+  CA[0]   874 bytes DER  subject=O = "Allied Telesis, Inc.", CN = AlliedWarePlusCAA2WQS700B
+                        issuer =O = "Allied Telesis, Inc.", CN = AlliedWarePlusCAA2WQS700B  notAfter=Oct 14 06:32:24 2031 GMT
+  predicted TLS Certificate payload: leaf-only 876 bytes, whole chain 1753 bytes
+wrote:
+  client_cert  /tmp/t9032r2/cktls-leaf.pem
+  private_key  /tmp/t9032r2/cktls-key.pem   (mode 0600)
+  chain (record only, NOT for client_cert)  /tmp/t9032r2/cktls-chain.pem
+```
+
+**Run 1's premise is confirmed:** the DUT's PKCS#12 does carry the issuing CA (874 bytes DER)
+beside the leaf (867 bytes DER). The leaf is issued by `AlliedWarePlusCAA2WQS700B` — this very
+unit's serial inside the CN — so the credential demonstrably came from this DUT.
+
+### The five legs
+
+| leg | credential | supplicant TLS | client flight | fragments | result |
+| --- | --- | --- | --- | --- | --- |
+| **R2-A** | whole PKCS#12 (leaf **+** CA) | 1.3 (default) | **2141 B** | **2**, flags `0xc0 LM` | timeout — stall reproduced |
+| **R2-B** | leaf-only `client_cert` + `private_key`, **`ca_cert` = DUT CA** | 1.3 (default) | **2141 B** | **2**, flags `0xc0 LM` | timeout — **the hypothesis as written did NOT work** |
+| **R2-C** | leaf-only, **no `ca_cert`** | 1.3 (default) | **1262 B** | **1**, flags `0x00` | timeout — fragmentation fixed, **still no conclusion** |
+| **R2-D** | leaf-only, `ca_cert` = DUT CA | **1.2** (capped) | **2154 B** | **2**, flags `0xc0 LM` | 🟢 **EAP-Success at 1.0471 s, port Authorized** |
+| **R2-E** | **control:** a certificate the DUT's CA did not issue | **1.2** (capped) | 1239 B | 1 | 🟢 **EAP-Failure at 1.0363 s, port Unauthorized** |
+
+**For every leg the tool's `--json` file was checked against its printed RESULT** (run 1 saw
+them disagree once). They agreed on all five, so no leg needed re-running:
+
+```
+R2A json: label=R2-A-full-p12          expect=success verdict=timeout eapol_frames=17 success_frame=False failure_frame=False
+R2B json: label=R2-B-leaf-only         expect=success verdict=timeout eapol_frames=17 success_frame=False failure_frame=False
+R2C json: label=R2-C-leaf-only-nostore expect=success verdict=timeout eapol_frames=17 success_frame=False failure_frame=False
+R2D json: label=R2-D-tls12-leaf-only   expect=success verdict=success eapol_frames=18 success_frame=True  failure_frame=False
+R2E json: label=R2-E-control-rogue-cert expect=failure verdict=failure eapol_frames=14 success_frame=False failure_frame=True
+```
+
+### Leg R2-A — reproduce run 1's stall in TODAY's window, with the whole PKCS#12
+
+```
+tools/tb sudotool tb277 t9032r2 wpasup eth4 --method tls --identity cktls \
+    --private-key /tftproot/cktls.p12 --private-key-passwd ckbench2026 \
+    --ca-cert /tmp/t9032r2/localca-rsa.cer \
+    --expect success --timeout 45 --label R2-A-full-p12 \
+    --pcap /tmp/t9032r2/T9032-R2A.pcap --json /tmp/t9032r2/T9032-R2A.json
+```
+
+The tail of the exchange, from the tool's own frame table:
+
+```
+  0.0417   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   7    TLS    522    0x80 L msglen=2520
+  0.0616   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  7    TLS    1408   0xc0 LM msglen=2141
+  0.0626   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   8    TLS    6      0x00 -  <- EMPTY ACK
+  30.0292  e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   8    TLS    6      0x00 -  <- EMPTY ACK
+```
+
+and the supplicant's own reason, from `work/T9032-R2A-wpa_supplicant.log`:
+
+```
+SSL: 2141 bytes left to be sent out (of total 2141 bytes)
+SSL: sending 1398 bytes, more fragments will follow
+EAP-TLS: Done
+EAP: Received EAP-Request id=8 method=13 vendor=0 vendorMethod=0
+EAP: EAP entering state DISCARD
+```
+
+**Identical to run 1 to the byte** (`msglen=2141`, 17 frames, two empty ACKs 30 s apart).
+Run 1's finding reproduces exactly five days later. **Leg R2-A is the baseline every other leg
+below is compared against.**
+
+### Leg R2-B — the dispatched hypothesis, exactly as written. **It did not work.**
+
+```
+tools/tb sudotool tb277 t9032r2 wpasup eth4 --method tls --identity cktls \
+    --client-cert /tmp/t9032r2/cktls-leaf.pem --private-key /tmp/t9032r2/cktls-key.pem \
+    --ca-cert /tmp/t9032r2/localca-rsa.cer \
+    --expect success --timeout 45 --label R2-B-leaf-only \
+    --pcap /tmp/t9032r2/T9032-R2B.pcap --json /tmp/t9032r2/T9032-R2B.json
+```
+
+The CA was out of the client credential: `client_cert` is a PEM holding **exactly one**
+certificate (checked on the box — one `BEGIN CERTIFICATE` line), and the supplicant log confirms
+it took the key from a PEM, not from a bundle:
+
+```
+OpenSSL: tls_use_private_key_file (PEM) --> loaded
+SSL: Private key loaded successfully
+```
+
+**And the client flight was still 2141 bytes, to the byte, in two fragments, with the same
+stall.** 17 frames, `msglen=2141`, same `EAP-TLS: Done` with 743 bytes unsent, same DISCARD.
+
+🔴 **Why — and this is the finding that run 1 could not have seen.** Removing the CA from
+`client_cert` is **not enough**, because OpenSSL puts it back. OpenSSL 1.1.1 builds the client's
+certificate chain **automatically from the verify store** when no explicit chain is set, and
+`ca_cert` is exactly what loads the DUT's CA into that store. So asking wpa_supplicant to
+validate the server with the DUT's CA silently re-attaches that same CA to the *client's* own
+chain. **The CA has to leave the verify store too, not just `client_cert`.** Leg R2-C proves
+that by removing it.
+
+### Leg R2-C — leaf-only AND an empty verify store: the fragmentation IS fixed
+
+```
+tools/tb sudotool tb277 t9032r2 wpasup eth4 --method tls --identity cktls \
+    --client-cert /tmp/t9032r2/cktls-leaf.pem --private-key /tmp/t9032r2/cktls-key.pem \
+    --expect success --timeout 45 --label R2-C-leaf-only-nostore \
+    --pcap /tmp/t9032r2/T9032-R2C.pcap --json /tmp/t9032r2/T9032-R2C.json
+```
+
+(no `--ca-cert`; the tool's banner says on every such run that the server certificate is then
+accepted **without** validation. That is why this leg is a diagnostic and **not** the leg the
+verdict rests on — R2-D below validates the server properly.)
+
+```
+SSL: 1262 bytes left to be sent out (of total 1262 bytes)
+EAP-TLS: Done
+```
+
+The line **`sending 1398 bytes, more fragments will follow` is gone.** On the wire:
+
+| | leg R2-A / R2-B | leg R2-C |
+| --- | --- | --- |
+| client response id=7 | 1426 B frame, flags **`0xc0 LM`**, `msglen=2141` | 1286 B frame, flags **`0x00`** |
+| DUT's next frame (id=8) | 60 B, flags **`0x00`** — an **empty ACK**, asking for the missing fragment | 60 B, flags **`0x80 L`** — **length-included, it carries TLS payload** |
+
+**2141 − 1262 = 879 bytes = the CA's 874 DER bytes + 5 bytes of TLS framing** (3-byte
+certificate-list entry length + 2-byte per-entry extensions field that TLS 1.3 adds). The
+arithmetic closes exactly, which is the proof that the extra certificate in the flight was the
+CA and nothing else.
+
+🔴 **But the exchange still did not conclude**, and the reason is now a *different* one. With
+nothing left to fragment, the DUT's id=8 frame is no longer an ACK — it carries data
+(flags `0x80 L`). Under TLS 1.3, EAP-TLS (RFC 9190) requires the server to send a protected
+**commitment message** after the client's Finished, before EAP-Success. wpa_supplicant 2.6 has
+no idea what that is: it has already marked the method `Done` and discards it, twice, 30 s apart:
+
+```
+EAP: method process -> ignore=FALSE methodState=DONE decision=UNCOND_SUCC
+EAP: Received EAP-Request id=8 method=13 vendor=0 vendorMethod=0
+EAP: EAP entering state DISCARD
+```
+
+**So the dispatched hypothesis is REFUTED as a cause, and replaced by a sharper one.** The
+two-fragment flight was a *symptom of* TLS 1.3, not the cause of the stall. The cause is TLS 1.3
+itself, in two separate ways: it makes the client flight bigger (encrypted Certificate +
+CertificateVerify + Finished all in the client's half), and it requires a post-Finished
+commitment message that a 2016 supplicant cannot answer. Leg R2-D removes the cause.
+
+### 🟢 Leg R2-D — hold the supplicant at TLS 1.2. **EAP-Success.**
+
+wpa_supplicant 2.6 has no `tls_disable_tlsv1_3` network field (it predates it; adding one makes
+2.6 reject the whole config file). The TLS ceiling therefore has to come from OpenSSL. It was
+set **for this one child process only**, with `OPENSSL_CONF` pointing at a file in the box's
+`/tmp` scratch — **no root, no package install, `/etc/ssl/openssl.cnf` untouched, and no other
+user of tb277 affected.** `tools/wpasup.py` gained a generic `--env VAR=VALUE` for this.
+
+`/tmp/t9032r2/openssl-tls12.cnf` (kept as `work/openssl-tls12.cnf`):
+
+```
+openssl_conf = ck_conf
+[ck_conf]
+ssl_conf = ck_ssl
+[ck_ssl]
+system_default = ck_ssl_default
+[ck_ssl_default]
+MinProtocol = TLSv1.2
+MaxProtocol = TLSv1.2
+CipherString = DEFAULT@SECLEVEL=1
+```
+
+```
+tools/tb sudotool tb277 t9032r2 wpasup eth4 --method tls --identity cktls \
+    --client-cert /tmp/t9032r2/cktls-leaf.pem --private-key /tmp/t9032r2/cktls-key.pem \
+    --ca-cert /tmp/t9032r2/localca-rsa.cer \
+    --env OPENSSL_CONF=/tmp/t9032r2/openssl-tls12.cnf \
+    --expect success --timeout 45 --label R2-D-tls12-leaf-only \
+    --pcap /tmp/t9032r2/T9032-R2D.pcap --json /tmp/t9032r2/T9032-R2D.json
+```
+
+The whole exchange, 18 frames, 1.05 s end to end:
+
+```
+  t(s)     src               dst               eapol        eap       id   method         eaplen tls
+  0.0      00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAPOL-Start  -         -    -              -
+  0.0003   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   1    Identity       5
+  0.0008   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  1    Identity       10
+  0.0019   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   2    MD5-Challenge  22
+  0.0023   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  2    Legacy-Nak     6
+  0.0033   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   3    TLS            6      0x20 S
+  0.006    00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  3    TLS            196    0x00 -
+  0.0119   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   4    TLS            1014   0xc0 LM msglen=2339
+  0.0125   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  4    TLS            6      0x00 -  <- EMPTY ACK
+  0.0134   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   5    TLS            1014   0xc0 LM msglen=2339
+  0.0138   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  5    TLS            6      0x00 -  <- EMPTY ACK
+  0.0146   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   6    TLS            341    0x80 L msglen=2339
+  0.0391   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  6    TLS            1408   0xc0 LM msglen=2154
+  0.04     e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   7    TLS            6      0x00 -  <- EMPTY ACK
+  0.0403   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  7    TLS            762    0x00 -
+  0.0427   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   8    TLS            61     0x80 L msglen=51
+  0.0439   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  8    TLS            6      0x00 -  <- EMPTY ACK
+  1.0471   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Success   8    -              4
+
+  EAP-Success frame on the wire: True
+RESULT R2-D-tls12-leaf-only: expected success, got success (from wpa_supplicant events) -- MATCH
+```
+
+**Read what the DUT did here, because it answers the authored objective directly:**
+
+- it **initiated** the exchange (`EAP-Request/Identity` 0.3 ms after EAPOL-Start);
+- it **offered** MD5-Challenge, accepted the supplicant's Legacy-Nak, and **offered TLS**;
+- it **fragmented its own 2339-byte flight into three** (`0xc0 LM`, `0xc0 LM`, `0x80 L`) and
+  waited for each empty ACK;
+- it **reassembled the supplicant's two-fragment 2154-byte flight** — `0xc0 LM msglen=2154`
+  then a 762-byte `0x00` remainder — and **ACKed the first fragment correctly**. 🔴 **So a
+  two-fragment client flight is handled perfectly by both ends. Fragmentation was never the
+  problem**, which is what makes R2-B's negative result worth keeping;
+- it ran the RADIUS exchange against its own local server and sent **EAP-Success**.
+
+**The server's certificate chain was validated against the CA exported from this very unit**
+(this leg has `--ca-cert`, unlike R2-C):
+
+```
+CTRL-EVENT-EAP-PEER-CERT depth=1 subject='/O=Allied Telesis, Inc./CN=AlliedWarePlusCAA2WQS700B'
+                                 hash=e9db87ae6a2d8e562e85bcb974d8e513e1721f188057a0af5bd3480b0f34d352
+CTRL-EVENT-EAP-PEER-CERT depth=0 subject='/O=Allied-Telesis/CN=AlliedwarePlusSystem/serialNumber=NULL'
+                                 hash=e973031b8cc0520d74438d6185d11475fe8773f5bea203c8bd79f86e7260c01d
+CTRL-EVENT-EAP-SUCCESS EAP authentication completed successfully
+```
+
+#### The DUT's own view — the port reached Authorized
+
+Read from the DUT immediately after the leg, not inferred from the supplicant:
+
+```
+awplus#show dot1x interface port1.0.48
+  portStatus: Authorized
+  ...
+  hostMode: single-host
+
+awplus#show auth supplicant
+Interface port1.0.48
+  authenticationMethod: dot1x
+  totalSupplicantNum: 1
+  authorizedSupplicantNum: 1
+    dot1xAuthenticationSupplicantNum: 1
+
+  Supplicant name: cktls
+  Supplicant address: 000d.b955.770f
+    authenticationMethod: 802.1X
+    portStatus: Authorized - currentId: 9
+    abort:F fail:F start:F timeout:F success:T
+    PAE: state: Authenticated - portMode: Auto
+    CD: adminControlledDirections: both - operControlledDirections: both
+    RADIUS server group (auth): radius
+    RADIUS server (auth): 127.0.0.1
+```
+
+**And the dataplane changed with it** — the same MAC entry that read `discard` before the leg
+now reads `forward`:
+
+```
+awplus#show mac address-table | include 770f
+48   port1.0.48   000d.b955.770f   forward       static        <- after R2-D   (was: discard)
+```
+
+**And the RADIUS client's server status flipped from `Unknown` to `Alive`**, which is the DUT
+saying it really talked to the RADIUS server rather than skipping it:
+
+```
+Server Host/IP       Auth  Acct             Auth           Acct
+Address              Port  Port  VRF        Status         Status
+-------------------------------------------------------------------------
+127.0.0.1            1812  1813             Alive          Unknown
+```
+
+**The DUT's own log records both halves of the objective** — the RADIUS server's decision and
+the authenticator's action, as two separate daemons:
+
+```
+2026 Oct 27 20:19:20 daemon.notice awplus radiusd[14932]: (28) Login OK: [cktls] (from client 127.0.0.1 port 5048 cli 00-0d-b9-55-77-0f)
+2026 Oct 27 20:19:20 user.notice  awplus 802.1X[1094]: 802.1X Authentication successful for cktls@000d.b955.770f on port1.0.48
+2026 Oct 27 20:19:42 daemon.notice awplus MSTP[1102]: CIST port1.0.48 now forwarding, propagating TC to other ports
+```
+
+### 🟢 Leg R2-E — the CONTROL, in the same window, same settings
+
+A success with no control is not a result (STANDING-ORDERS §7). The control is a certificate the
+DUT's CA **did not** issue — a self-signed RSA-2048 certificate generated on the box with
+`openssl req -x509` during run 1 and still valid — presented with the **same identity**,
+the **same port**, and the **same TLS 1.2 cap**. It must be refused.
+
+```
+tools/tb sudotool tb277 t9032r2 wpasup eth4 --method tls --identity cktls \
+    --client-cert /tmp/dot1x1304/rogue.crt --private-key /tmp/dot1x1304/rogue.key \
+    --ca-cert /tmp/t9032r2/localca-rsa.cer \
+    --env OPENSSL_CONF=/tmp/t9032r2/openssl-tls12.cnf \
+    --expect failure --timeout 45 --label R2-E-control-rogue-cert \
+    --pcap /tmp/t9032r2/T9032-R2E.pcap --json /tmp/t9032r2/T9032-R2E.json
+```
+
+```
+  0.0153   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Request   6    TLS   341    0x80 L msglen=2339
+  0.0335   00:0d:b9:55:77:0f 01:80:c2:00:00:03 EAP-Packet   Response  6    TLS   1239   0x00 -
+  1.0363   e0:1a:ea:d4:70:43 00:0d:b9:55:77:0f EAP-Packet   Failure   6    -     4
+
+  EAP-Success frame on the wire: False
+  EAP-Failure frame on the wire: True
+RESULT R2-E-control-rogue-cert: expected failure, got failure (from wpa_supplicant events) -- MATCH
+```
+
+**EAP-Failure in 1.036 s**, and the DUT's own view afterwards:
+
+```
+awplus#show auth supplicant interface port1.0.48
+  totalSupplicantNum: 1
+  authorizedSupplicantNum: 0
+  Supplicant name: -
+  Supplicant address: 000d.b955.770f
+    portStatus: Unauthorized - currentId: 7
+    abort:F fail:T start:F timeout:F success:F
+    PAE: state: Held - portMode: Auto
+
+awplus#show mac address-table | include 770f
+48   port1.0.48   000d.b955.770f   discard       static        <- back to discard
+```
+
+```
+2026 Oct 27 20:20:19 user.notice awplus 802.1X[1094]: port1.0.48: Supplicant cktls unauthorized, Mac 000d.b955.770f
+2026 Oct 27 20:20:27 user.notice awplus 802.1X[1094]: 802.1X Authentication failed (retry=0) for cktls@000d.b955.770f on port1.0.48
+```
+
+**The pair is what carries the verdict:** the same supplicant, same identity, same port, same
+TLS settings, 90 seconds apart — Authorized with a certificate this DUT's CA issued, Held and
+Unauthorized with one it did not. The DUT is not admitting everybody.
+
+## Health, AFTER the last step and before teardown (STANDING-ORDERS §8)
+
+`tools/tb health tb277 t9032r2 u2 115200 --label after --before /tmp/t9032r2/health-u2-20261028T090921.out.json`
+Raw output kept at `work/health-u2-run2-after.out`.
+
+```
+HEALTH u2 09:21:42-09:22:04 after
+  reboots ......... 100 entries, newest 2026-10-22 23:55:56 Unexpected System reboot
+  exception log ... 2026 Oct 22 23:49:18 local7.debug awplus corehandler : Process snmpd (PID:1841) signal 11, core dumped ...
+  log (filtered) .. 12 lines: 12 echoes of our own commands, 0 other
+  cpu ............. 0% / 0% / 0%; load 0.00
+  memory .......... free 7450940 of 8092132 kB (buffers 2040)
+
+HEALTH-DIFF u2 vs 09:09:21 before
+  reboots ......... no new entry (newest stays 2026-10-22 23:55:56 Unexpected System reboot)
+  exception log ... not None, but UNCHANGED since before (pre-existing entries, not this run's)
+  log (filtered) .. 0 new non-echo lines
+  log tail 150 .... 150 lines, 135 echoes of our own commands; other lines by signature:
+        7 x  2026 Oct 23 04:46:16 user.err  awplus IMISH[19464]: Command [end] failed
+        1 x  2026 Oct 23 04:46:40 user.err  awplus IMISH[19464]: Command [show mac address-table interface port1.0.10] failed
+        1 x  2026 Oct 23 04:56:40 user.crit awplus IMISH[19464]: Console connection timed out.
+        1 x  2026 Oct 27 20:19:20 daemon.notice awplus radiusd[14932]: (28) Login OK: [cktls] (from client 127.0.0.1 port 5048 cli 00-0d-b9-55-77-0f)
+        1 x  2026 Oct 27 20:19:20 user.notice  awplus 802.1X[1094]: 802.1X Authentication successful for cktls@000d.b955.770f on port1.0.48
+        1 x  2026 Oct 27 20:19:42 user.notice  awplus MSTP[1102]: CIST port1.0.48 now forwarding, propagating TC to other ports
+  cpu ............. 0% -> 0%  (1 s busy average)
+  memory .......... free 7454048 -> 7450940 kB (-3108; one case cannot show a leak)
+  VERDICT ......... CLEAN
+```
+
+**CLEAN.** No new reboot, no new exception, no kernel/crash/restart line. The three
+`Command [...] failed` and `Console connection timed out` lines are dated **2026 Oct 23** —
+they are run 1's, still inside the 150-line tail window, not this run's. The only new non-echo
+lines are the three that record this run's own successful authentication. Memory moved by
+3.1 MB of 8.1 GB across the case; **one case cannot show a leak** and nothing is claimed.
+
+**The run is CLEAN, not confounded.**
+
+## Teardown and restore
+
+🔴 **Run 2 ran the group A restore recipe that the 2026-10-23 campaign never ran** (see "Bench
+state as FOUND"). It removed the leftover rig and **nothing else**. It did **not** touch the
+pre-existing trustpoint `local`, which the queue is explicit about.
+
+```
+awplus#configure terminal
+awplus(config)#interface port1.0.48
+awplus(config-if)#no dot1x port-control
+awplus(config-if)#no dot1x control-direction
+awplus(config-if)#exit
+awplus(config)#no aaa authentication dot1x default
+awplus(config)#no radius-server local
+awplus(config)#no radius-server host 127.0.0.1
+awplus(config)#end
+```
+
+Every line was accepted; no `% ` line anywhere, and no (y/n) prompt appeared
+(`tools/tb ckyn`, which stops on either).
+
+### Proof of restore — by reading, not by absence of error
+
+Exactly the four read-backs the queue's restore recipe names, plus `show boot`:
+
+```
+awplus#show auth
+802.1X Port-Based Authentication: Disabled
+MAC-based Port Authentication   : Disabled
+WEB-based Port Authentication   : Disabled
+
+awplus#show radius
+Server Host/IP       Auth  Acct             Auth           Acct
+Address              Port  Port  VRF        Status         Status
+-------------------------------------------------------------------------
+No RADIUS servers currently defined
+
+awplus#show radius local-server nas
+                                             <- empty
+
+awplus#show running-config | include radius
+                                             <- empty
+awplus#show running-config | include dot1x
+                                             <- empty
+awplus#show running-config | include aaa
+aaa authentication enable default local      <- the two baseline lines, and only those
+aaa authentication login default local
+
+awplus#show crypto pki trustpoint
+Trustpoint "default-selfsigned"   ... present
+Trustpoint "default-system"       ... present
+Trustpoint "local"                ... present, Root Certificate RSA: C29CD492 253DF5BD F849819E F12866D8 792C90BE
+                                      (unchanged), keys server-default / server-default-ecdsa intact
+
+awplus#show boot
+Current boot image : flash:/x960-tb277.rel (file exists)
+Default boot config: flash:/default.cfg
+Current boot config: flash:/default.cfg (file exists)
+Autoboot status    : disabled
+```
+
+All four restore conditions met, all three trustpoints still present, and the **gate-7 boot
+baseline is unchanged**.
+
+### running-config diff, rig vs restored
+
+`show running-config` was captured before teardown (that capture is also `swi_d.cfg`) and again
+after. The diff is **exactly the rig and nothing else**:
+
+```
+< radius-server host 127.0.0.1 key <encrypted>
+< aaa authentication dot1x default group radius
+< radius-server local
+<  server enable
+<  nas 127.0.0.1 key <encrypted>
+<  user ckmulti1 encrypted password <encrypted>
+<  user ckmulti2 encrypted password <encrypted>
+<  user ckpeap   encrypted password <encrypted>
+<  user cktls    encrypted password <encrypted>
+<  dot1x port-control auto
+<  dot1x control-direction both
+```
+
+No other line differs in either direction. **Nothing was written to `startup-config`**, which
+remains `flash:/default.cfg`, exactly as the group A rig note requires.
+
+### Two things that are LEFT, deliberately, and why
+
+1. **The PKI user enrolment `cktls` under trustpoint `local` remains**, as run 1 left it:
+
+   ```
+   awplus#show crypto pki certificates local
+   ...
+   Local RADIUS server user enrollments ready for export
+      cktls
+   ```
+
+   **Run 2 did not create it and found no CLI that removes it.** `crypto pki` is exec-only on
+   this build and exec offers only `authenticate / enroll / export / import` — there is no
+   un-enroll, and the config-mode form that the queue's recipe guesses at
+   (`no crypto pki enroll local user <user>`) cannot exist, because `crypto pki enroll` is not a
+   configuration command here. The enrolment is persistent PKI state on flash, invisible to
+   `show running-config`. Removing it is not something run 2 can do without deleting the
+   trustpoint, which the queue forbids. **Reported to the sentinel; not acted on.**
+
+2. **Trustpoint `local` no longer lists `Applications : RADIUS`.** Before teardown it did; after
+   `no radius-server local` it does not. That is the correct and expected consequence of
+   withdrawing the local RADIUS server — the application binding goes with it, the trustpoint,
+   its root certificate fingerprint and its key pairs are all unchanged — and it would come back
+   the moment `radius-server local` is configured again. It is written down here only so the
+   next reader does not mistake it for damage.
+
+   **Platform fact worth keeping:** on the x960, `show crypto pki trustpoint`'s `Applications`
+   line is derived live from what is configured, not stored with the trustpoint.
+
+### Bench re-probe
+
+```
+tools/tb probe tb277 --consoles u2 --no-prompt --pdu 10.36.230.212 --outlet u2=1 \
+     --name u2=swi_d --read-only --baud 115200 --template .../tb277-u2.setup
+  MATCH -- the bench equals the template.
+PROBE EXIT=0
+```
+
+**Exit 0 MATCH.** The first re-probe returned NEEDS-CHECK for *both* `eth3` and `eth4`, for the
+same stale-MAC reason as the pre-run probe: `no dot1x port-control` had just removed eth4's
+static dot1x MAC entry, and eth3 had been idle long enough to age out. Two pings — which also
+**prove the restore from the other side**, since the vlan48 SVI 10.38.22.66 did **not** answer
+before teardown (`control-direction both` blocked the DUT's own egress on an Unauthorized port)
+and answers now —
+
+```
+--- 10.38.22.66 ping statistics ---   (box eth4 -> DUT vlan48)
+2 packets transmitted, 2 received, 0% packet loss
+--- 10.38.22.34 ping statistics ---   (box eth3 -> DUT vlan10)
+2 packets transmitted, 2 received, 0% packet loss
+
+awplus#show mac address-table | include 770e|770f
+10   port1.0.10   000d.b955.770e   forward       dynamic
+48   port1.0.48   000d.b955.770f   forward       dynamic      <- `forward dynamic` now, not `discard static`
+```
+
+— and the re-probe then returned **MATCH, exit 0**.
+
+### Console and processes
+
+- **u2 only.** u3 and u5 were never opened. No other `/dev/uN` was touched.
+- Console u2 was left with `terminal no monitor` sent at the exec prompt and then logged out.
+  **Final state read from the box's transcript, not from a tool's stdout**
+  (`tools/tb tail tb277 /tmp/t9032r2/console-u2.log`):
+
+  ```
+  >>> terminal no monitor
+  terminal no monitor
+  awplus#
+  >>> exit
+  exit
+
+  awplus login:
+  ===== closed /dev/u2 at 2026-10-28 09:26:23 =====
+  ```
+
+- Nothing was left running. `wpasup.py` starts `tcpdump` and `wpa_supplicant` as children and
+  reaps both before it prints its RESULT; the only `wpa_supplicant` on the box is pid 606,
+  `/sbin/wpa_supplicant -u -s -O /run/wpa_supplicant`, the box's own system daemon started
+  2026-09-11 — not ours, and not touched.
+- **No power cycle was performed.** The two-outlet rule for swi_d was never exercised.
+
+## Files this run saved
+
+| file | what it is |
+| --- | --- |
+| `tb277/x960/dot1x-2026-10-23T1304/T9032/swi_d.cfg` | the DUT's running-config as the legs saw it, captured after setup and before teardown. **Re-run 2 overwrote run 1's copy**, which is what logged-output.md §2 requires; git history keeps run 1's. |
+| `.../T9032/work/run2.log` | this file |
+| `.../work/health-u2-run2-before.out`, `.../work/health-u2-run2-after.out` | the two raw §8 health samples (run 1's two are beside them, untouched) |
+| `.../work/T9032-R2{A,B,C,D,E}.json` | the five legs' full machine-readable records, frame tables included |
+| `.../work/T9032-R2{A,B,C,D,E}-wpa_supplicant.log` | the supplicant's own `-d -t` output for each leg — the only place the TLS-level reason is visible |
+| `.../work/cktls-leaf.pem` | the leaf-only client certificate the split produced |
+| `.../work/openssl-tls12.cnf` | the per-process OpenSSL ceiling used by legs R2-D and R2-E |
+| `tools/p12split.py` + its `tools/README.md` entry | **new**: split a PKCS#12 and measure each certificate's DER size |
+| `tools/wpasup.py` + its README entry | **changed**: new `--env VAR=VALUE`, per-process environment for the supplicant child |
+
+pcaps stay on the box, all filtered `ether proto 0x888e`:
+`/tmp/t9032r2/T9032-R2A.pcap` … `T9032-R2E.pcap` (tmpfs; they do not survive a box reboot).
+
+## What run 2 adds to the record
+
+1. 🔴 **The dispatched hypothesis is REFUTED, and that is the most useful thing here.** A
+   leaf-only `client_cert` alone changes nothing: the flight stayed at 2141 bytes to the byte,
+   because **OpenSSL rebuilds the client's chain from the verify store**, and `ca_cert` is what
+   puts the DUT's CA in that store. Anyone trying UNBLOCK option 1 as written will measure
+   exactly what run 1 measured and conclude, wrongly, that the diagnosis was bad.
+2. 🔴 **Fragmentation was never the cause.** Leg R2-D authenticated successfully with a
+   **two-fragment, 2154-byte client flight**. Both ends fragment and reassemble correctly in
+   both directions. Run 1's "2141 bytes → two fragments → the stall" chain had the right
+   observation and the wrong link.
+3. 🔴 **The real cause is TLS 1.3 alone, and its second limb is the one that matters.** With the
+   flight reduced to one fragment (R2-C) the exchange *still* stalls, and the DUT's next frame
+   is no longer an empty ACK but a length-included data frame — the RFC 9190 **commitment
+   message**, which wpa_supplicant 2.6 discards because it has already marked the method Done.
+4. 🟢 **A supplicant held at TLS 1.2 authenticates, and no root was needed to do it.**
+   `OPENSSL_CONF` on the child process alone, a file in the box's `/tmp`. The 2.10+ upgrade in
+   run 1's UNBLOCK option 2 — a root install — **is no longer needed for this case.**
+5. **The x960's local RADIUS server speaks EAP-TLS over TLS 1.2 correctly**, end to end:
+   initiates, offers, fragments, reassembles, validates the client certificate against its own
+   CA, accepts a good one and refuses a rogue one, both in about 1.04 s.
+6. **The 2026-10-23 campaign left its rig on the device.** Found and restored; see above.
+
+## Verdict
+
+The authored objective — *"Confirm that an authenticator exchanges authentication messages
+between the supplicant and Radius server"* — **is met, on the wire, and now with the exchange
+concluding**:
+
+- the authenticator initiates, offers EAP-TLS, fragments its own 2339-byte flight into three and
+  reassembles the supplicant's two-fragment 2154-byte flight per RFC 5216;
+- the supplicant validates the DUT's server certificate chain against a CA exported from this
+  very unit (the unit's own serial `A2WQS700B` is inside the CA's CN);
+- the authenticator relays the exchange to the RADIUS server, which logs `Login OK: [cktls]`,
+  and the authenticator then logs `802.1X Authentication successful` and sends **EAP-Success**;
+- **port1.0.48 reaches `portStatus: Authorized`, `PAE: state: Authenticated`,** and the
+  dataplane follows (`discard` → `forward`, MSTP brings the port to forwarding);
+- and the **control** in the same window — a certificate the DUT's CA did not issue, same
+  identity, same port — is refused with **EAP-Failure in 1.036 s**, leaving the port
+  `Unauthorized`, `PAE: state: Held`.
+
+**Everything run 1 listed as NOT RUN is now measured**, except the authored GUI steps:
+
+**NOT RUN:** the **15 authored Internet Explorer certificate-import steps**. There is no Windows
+PC and no GUI on tb277. The MANUAL-ONLY row for that limb stands unchanged, and no part of this
+run should be read as having performed them.
+
+**Run 1's UNBLOCK list, resolved:**
+
+| run 1's unblock | outcome |
+| --- | --- |
+| 1. leaf-only client credential | **tried, and it is NOT sufficient on its own** (leg R2-B) — OpenSSL re-adds the CA from the verify store. It *is* sufficient to make the flight one fragment once the CA leaves the store too (leg R2-C), but that alone still does not conclude |
+| 2. wpa_supplicant 2.10+ (a root install) | **no longer needed for this case.** Capping the supplicant's OpenSSL at TLS 1.2 for one process (`OPENSSL_CONF`) achieves the same outcome with no root. It remains the only way to test EAP-TLS **over TLS 1.3** on this bench — which is a different case from this one, and is offered to the Test Engineer, not assumed |
+| 3. cap TLS at 1.2 | **done, and without the root change run 1 thought it needed.** Not `/etc/ssl/openssl.cnf`; a per-process `OPENSSL_CONF` in the box's `/tmp`. No other user of tb277 is affected and nothing persists |
+
+**Remaining gap, stated plainly:** EAP-TLS **over TLS 1.3** (RFC 9190) is still not measurable
+on tb277, because the only supplicant on the box is wpa_supplicant 2.6. The DUT's server does
+negotiate TLS 1.3 and behaves correctly up to the commitment message. Measuring that limb needs
+`wpa_supplicant` 2.10+, which is a root install and therefore the Test Engineer's
+(STANDING-ORDERS §4). **That is a separate case, not this one's objective.**
+
+Run label: **clean** (health CLEAN before and after; the two pre-existing 2026-10-22 entries are
+unchanged and predate the campaign).
+
+VERDICT: PASS -- the authored objective is met on the wire AND the exchange now concludes: with the supplicant held at TLS 1.2, EAP-TLS authenticates in 1.047 s (18 EAPOL frames, EAP-Success), the server chain validates against a CA exported from this unit, and port1.0.48 reaches Authorized / PAE Authenticated with the MAC entry moving discard -> forward; the control in the same window, a certificate this DUT's CA did not issue, is refused with EAP-Failure in 1.036 s leaving the port Unauthorized / Held. The dispatched hypothesis was REFUTED and replaced: a leaf-only client_cert alone leaves the flight at 2141 bytes because OpenSSL rebuilds the chain from the ca_cert verify store, and fragmentation was never the cause -- the successful leg carried a TWO-fragment 2154-byte client flight. The real blocker was TLS 1.3 alone, whose RFC 9190 commitment message wpa_supplicant 2.6 discards; it was removed with a per-process OPENSSL_CONF, no root. The 15 authored Internet Explorer steps were NOT followed: there is no Windows PC on this bench, and the MANUAL-ONLY row stands. EAP-TLS over TLS 1.3 remains not measurable here and needs wpa_supplicant 2.10+ (root, the Test Engineer's).

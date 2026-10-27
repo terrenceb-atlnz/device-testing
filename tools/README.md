@@ -1783,11 +1783,56 @@ supplicant MACs on one wire.
   frames, EAP-Success), wrong-password control and unknown-identity control (22 frames each,
   EAP-Failure), all five legs matching `--expect`. T9032: EAP-TLS negotiated and fragmented
   correctly, rogue-certificate control refused with EAP-Failure in 1.045 s.
-- ⚠️ **Known bench limit for `--method tls`:** wpa_supplicant 2.6 (tb277) predates TLS 1.3 and
-  RFC 9190 while OpenSSL 1.1.1 beneath it negotiates TLS 1.3, so on a client flight that needs
-  more than one fragment it marks the EAP method Done with a fragment unsent and discards the
-  authenticator's ACK. A leaf-only client credential (one fragment) avoids it; a supplicant 2.10
-  or newer fixes it.
+- 🔴 **`--method tls` on wpa_supplicant 2.6: use `--env OPENSSL_CONF=<file>` to cap it at TLS
+  1.2.** CORRECTED 2026-10-28 (T9032 run 2); the earlier wording here was wrong in two ways and
+  cost a run to find out.
+  - 2.6 predates RFC 9190 while OpenSSL 1.1.1 beneath it negotiates TLS 1.3. Under TLS 1.3 it
+    marks the EAP method `Done` as soon as OpenSSL says "Handshake finished" and then DISCARDs
+    everything the authenticator sends after that.
+  - **Fragmentation is NOT the cause.** A TWO-fragment, 2154-byte client flight authenticated
+    perfectly once the supplicant was held at TLS 1.2. What 2.6 cannot answer is the TLS 1.3
+    **commitment message** the server sends after the client's Finished -- a length-included
+    (`0x80 L`) data frame, not an empty ACK.
+  - **A leaf-only `client_cert` alone does NOT shrink the flight.** OpenSSL rebuilds the
+    client's chain from the **verify store**, and `--ca-cert` is what loads the CA into it, so
+    the CA goes back on the wire and the flight is unchanged to the byte. Dropping `--ca-cert`
+    too does shrink it to one fragment -- and the exchange still does not conclude, which is how
+    the commitment message was found.
+  - **The fix, no root:** write an OpenSSL config with `MaxProtocol = TLSv1.2` under
+    `[ssl_sect] system_default`, put it in the box's `/tmp` scratch, and pass
+    `--env OPENSSL_CONF=/tmp/<scratch>/openssl-tls12.cnf`. It applies to the wpa_supplicant
+    child only; `/etc/ssl/openssl.cnf` is untouched and no other user of the box is affected.
+    `tools/p12split.py` writes the leaf/key pair if a PKCS#12 is what you were given.
+  - A supplicant 2.10 or newer is still the ONLY way to test EAP-TLS **over TLS 1.3** here, and
+    installing one is root (STANDING-ORDERS §4).
+- **`--env VAR=VALUE` (2026-10-28, repeatable)** sets an environment variable for the
+  wpa_supplicant process only, and echoes it. Never put a secret in it.
+- **Status, run 2:** verified 2026-10-28 on tb277, x960-56YSQ (T9032): EAP-TLS **EAP-Success** in
+  1.047 s (18 frames, port Authorized) with `--env OPENSSL_CONF=...`, rogue-certificate control
+  refused with EAP-Failure in 1.036 s in the same window. The `--json` file agreed with the
+  printed RESULT on all five legs, so the 2026-10-23 discrepancy above did not recur.
+
+### `p12split.py`
+Splits a PKCS#12 bundle into the pieces an EAP-TLS supplicant needs, and **measures** each one,
+so a client certificate flight's size is arithmetic rather than a guess. A switch that enrols a
+user against its own CA (`crypto pki enroll local user <u>`) exports a bundle carrying the CA
+**beside** the leaf, and wpa_supplicant sends the whole chain.
+- **Run:** `p12split.py <bundle.p12> --passwd P [--out-dir D] [--name N] [--no-chain]`
+- **Where:** testbox (`tools/tb tool`), no root; **needs:** the `openssl` CLI (it deliberately
+  shells out rather than importing `cryptography`, which is not on every bench host)
+- **Imports:** none from `tools/`
+- **Writes:** `<name>-leaf.pem` (the client certificate alone -> `wpa_supplicant client_cert`),
+  `<name>-key.pem` (the key, unencrypted, mode 0600 -> `private_key`), and `<name>-chain.pem`
+  (every other certificate in the bundle, for the record -- **not** for `client_cert`).
+- **Prints** the DER size, subject, issuer and expiry of every certificate, then the predicted
+  TLS Certificate payload leaf-only and whole-chain, against the ~1398-byte EAP-TLS fragment.
+- ⚠️ **Splitting the bundle is only half the job.** OpenSSL re-adds the CA to the client's chain
+  from the verify store, so a leaf-only `client_cert` with `ca_cert` still set sends the same
+  bytes as the bundle did. See the `wpasup.py` entry above.
+- **Status:** verified 2026-10-28 on tb277 (T9032 run 2) against the x960's own
+  `crypto pki export local pkcs12` output: leaf 867 B DER, CA 874 B DER, and the 879-byte
+  difference it predicted between a leaf-only and a whole-chain flight was then measured on the
+  wire to the byte (2141 -> 1262).
 
 ### `eapol.py`
 A scapy 802.1X supplicant that can be SEVERAL supplicants at once on one wire, each with its own

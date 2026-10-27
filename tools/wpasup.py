@@ -201,6 +201,14 @@ def main():
     ap.add_argument('--phase1', default=None, help='raw wpa_supplicant phase1 string')
     ap.add_argument('--extra', action='append',
                     help='raw extra line for the network block (repeatable)')
+    ap.add_argument('--env', action='append', metavar='VAR=VALUE',
+                    help='set an environment variable for the wpa_supplicant PROCESS only '
+                         '(repeatable). Its real use is OPENSSL_CONF=<file>, which caps the '
+                         'TLS version for this one process without touching '
+                         '/etc/ssl/openssl.cnf -- no root, nothing else on the box affected. '
+                         'wpa_supplicant 2.6 has no tls_disable_tlsv1_3 network field, so this '
+                         'is the only way to hold a 2.6 supplicant at TLS 1.2 (T9032 run 2, '
+                         '2026-10-28). Never put a secret here: the value is echoed.')
     ap.add_argument('--eapol-version', type=int, default=2)
     ap.add_argument('--fast-reauth', action='store_true')
     ap.add_argument('--timeout', type=float, default=45.0,
@@ -274,9 +282,17 @@ def main():
     # 2. the supplicant.
     cmd = [wpa, '-D', 'wired', '-i', args.iface, '-c', conf_path,
            '-dd' if args.wpa_debug else '-d', '-t']
+    sup_env = dict(os.environ)
+    for item in args.env or []:
+        if '=' not in item:
+            log('ERROR: --env wants VAR=VALUE, got %r' % item)
+            return 2
+        var, _, val = item.partition('=')
+        sup_env[var] = val
+        log('  env for this process only: %s=%s' % (var, val))
     log('  $ %s' % ' '.join(cmd))
     sup = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                           bufsize=1, universal_newlines=True)
+                           bufsize=1, universal_newlines=True, env=sup_env)
 
     events = []
     supout = []            # every line wpa_supplicant printed, for the mismatch diagnosis
