@@ -1,10 +1,14 @@
 ---
 name: bench-cannot-open-tcp-to-office-pcs
-description: "Nothing on the lab side (tb470's own 10.36.201.215 or the bench 10.38.215.0/24) can open a TCP connection to the office subnet (dev PC 10.33.22.17). ICMP passes, so ping lies. A bench device cannot use the dev PC as an SSH/file server; put such servers on tb470."
+description: "Nothing on the lab side (tb470's own 10.36.201.215 or the bench 10.38.215.0/24) can open a TCP connection to the office subnet (dev PC terrenceb-dl, 10.33.22.13 since the 2026-10-23 rebuild; 10.33.22.17 when measured). ICMP passes, so ping lies. A bench device cannot use the dev PC as an SSH/file server; put such servers on tb470."
 metadata:
   node_type: memory
   type: project
 ---
+
+> **Address note (2026-10-27):** the dev PC was `10.33.22.17` when this was measured; its
+> DHCP lease moved to **`10.33.22.13`** with the 2026-10-23 host rebuild. The finding is about
+> the lab→office subnet (10.33.22.0/24), so it stands; only the address below is historical.
 
 Measured 2026-09-23 while pointing the IE520 stack's AMF backup server at the dev PC
 (`10.33.22.17`) for ATMF 38474/38475:
