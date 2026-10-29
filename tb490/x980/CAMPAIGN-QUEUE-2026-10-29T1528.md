@@ -121,11 +121,12 @@ Every runnable case is therefore run from its title (as T33366/T33357/T33375 wer
 | T44274 | (204) Authentication&Security_WebAuthentication - Multiple Authentication | none | **RUNNABLE now** (group A). Read as several auth methods and supplicants on one port: port1.0.81 multi-supplicant with auth-web + auth-mac + dot1x (and `auth priority` if wanted); eth6 web-auth with a ck user, eth6 dot1x via `wpasup --method md5/peap`, and MAC-auth of the existing RADIUS MAC users 02-00-5e-00-01-02..05 from fake-MAC frames (`vsend`/`hostsim`, sudotool, no host change). Grade on `show auth supplicant brief` (Mode W/M/D per MAC). Interpretation note in D1 |
 | T44275 | (207) Authentication&Security_WebAuthentication - Proxy Server for Web Authentication | none | **RUNNABLE now** (group A). Unauthenticated eth6 (after `dot1x initialize interface port1.0.81`) sends an HTTP proxy request (absolute-URI GET) to 8.8.8.8:8080 via the approved `hostnet route-add`; `auth-web-server intercept-port 8080` must return the DUT's login page from the DUT's MAC, and NOT without it (control). Login, then restore with a ck user and delete it (10-29 pattern); `hostnet route-del`, proved |
 | T44276 | (208) Authentication&Security_WebAuthentication - DHCP Server for Web Authentication | none | **RUNNABLE now** (group A). `auth-web-server dhcp ipaddress <net>` + `lease`; unauthenticated client = `sudotool dhcp4 client eth6 --mac <eth6 MAC>` (crafted at L2, changes no host IP): grade the OFFER/ACK address, lease (opt 51) and server; login from eth6's own MAC (web-auth binds the MAC). A second client on a jm MAC (02-00-5e-00-01-0N) via `dhcp4 --mac` covers multi-supplicant DHCP. The full "client then browses with the leased address" leg from a second MAC needs D2 |
+| T33355 | (192) Authentication&Security_IEEE 802.1X - IEEE 802.1X-2004 | B | PASS | "Pass" — already tested and finished, stated by the Test Engineer 2026-10-29 15:5x; not run in this campaign | — | Test Engineer |
 | T33358 | (195) Authentication&Security_IEEE 802.1XEncryptionType - EAP-TTLS | none | **BLOCKED (decision D3)**: the DUT's local RADIUS has no EAP-TTLS (measured). The authenticator part is method-agnostic, so the case needs an EXTERNAL RADIUS server that speaks TTLS. `wpasup --method ttls` exists |
-| T44271 | (197) Authentication&Security_IEEE 802.1XEncryptionType - EAP-LEAP | none | **BLOCKED (D3)**: no LEAP on the local RADIUS. Needs an external server with LEAP (FreeRADIUS has it); `wpasup.py` needs a `leap` method added (a tools change, mine to make) |
-| T44272 | (198) Authentication&Security_IEEE 802.1XEncryptionType - EAP-OTP | none | **BLOCKED (D3)**: no OTP on the local RADIUS, and stock FreeRADIUS has no EAP-OTP module either (it has GTC, which is NOT a substitute). Needs a server that speaks EAP-OTP (type 5); `wpasup.py` needs an `otp` method |
+| T44271 | (197) Authentication&Security_IEEE 802.1XEncryptionType - EAP-LEAP | C | UNSUPPORTED | "Not Supported" — already tested and finished, stated by the Test Engineer 2026-10-29 15:5x; not run in this campaign (the DUT's local RADIUS offers MAC/MD5/TLS/PEAP only, measured at triage) | — | Test Engineer |
+| T44272 | (198) Authentication&Security_IEEE 802.1XEncryptionType - EAP-OTP | C | UNSUPPORTED | "Not Supported" — already tested and finished, stated by the Test Engineer 2026-10-29 15:5x; not run in this campaign (no EAP-OTP on the local RADIUS, measured at triage) | — | Test Engineer |
 | T33355 | (192) Authentication&Security_IEEE 802.1X - IEEE 802.1X-2004 | none | **RUNNABLE now** (group B). `dot1x eapol-version 2` on port1.0.81 vs default 1; supplicant `wpasup --eapol-version 1|2 --method md5` (and peap) on eth6 against the local RADIUS with a ck user; grade the EAPOL protocol-version byte in both directions from the pcap and the outcome; restore eth6's web session |
-| T33354 | (191) Authentication&Security_IEEE 802.1X - EAP-Notification | objective: **"Not Support"** | **BLOCKED (decision D4)**: the author records it as not supported. It can be measured: `radeap.py --notify` (no root, port >= 1024) on **tb490 eth1 10.38.235.1**, which reaches the DUT's eth0 (10.38.235.3) without crossing the controlled port; DUT `radius-server host 10.38.235.1 auth-port <N> key ...` in a ck server group for dot1x; supplicant `wpasup --method md5` on eth6; grade whether the EAP-Request/Notification reaches eth6 |
+| T33354 | (191) Authentication&Security_IEEE 802.1X - EAP-Notification | C | PASS | "Pass" — already tested and finished, stated by the Test Engineer 2026-10-29 15:5x; not run in this campaign | — | Test Engineer |
 | T44277 | (214) Authentication&Security - Supplicant MAC | none | **RUNNABLE now** (group B). `auth supplicant-mac <mac>` per-MAC overrides on port1.0.81 (e.g. `port-control force-authorized` / `force-unauthorized` / `auto` for eth6 `0090.0b2a.11c3` and a fake jm MAC); grade `show auth supplicant` and the dataplane (ICMP from eth6 / fake-MAC frames), with the port's own control as the contrast; `no auth supplicant-mac` restores |
 
 **Summary: 5 runnable now, 0 blocked by topology, 4 blocked otherwise.**
@@ -171,12 +172,16 @@ because none can run on the local RADIUS server.
 - D4 (T33354): **"i'll deal with it "**: BLOCKED, NOT TESTED; the Test Engineer handles it.
 - T44276's second-MAC browse leg (needs D2, root on tb5) was not asked; that leg is out of scope unless the Test Engineer opens D2.
 
+- **15:5x — already tested and finished (Test Engineer, verbatim): "T33355 Pass, T44271 Not Supported, T44272 Not Supported, T33354 Pass".**
+  Not run in this campaign; recorded in Results as the Test Engineer's verdicts, with no working log here. T33355 removed from group B,
+  so B = T44277 only. T33358 (EAP-TTLS) stays NOT TESTED (D3).
+
 ## Queue
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
 | A | T44274 (204) Multiple Authentication; T44275 (207) Proxy Server for Web Auth; T44276 (208) DHCP Server for Web Auth | `webauth-2026-10-29T1528` | RUNNABLE | triage 15:41: all three runnable now; T44274 reading = D1 |
-| B | T33355 (192) IEEE 802.1X-2004; T44277 (214) Supplicant MAC | `dot1x-2026-10-29T1528` | RUNNABLE | regrouped at triage |
+| B | T44277 (214) Supplicant MAC | `dot1x-2026-10-29T1528` | RUNNABLE | regrouped at triage; T33355 removed 15:5x (already PASS, Test Engineer) |
 | C | T33358 (195) EAP-TTLS; T44271 (197) EAP-LEAP; T44272 (198) EAP-OTP; T33354 (191) EAP-Notification | `eap-2026-10-29T1528` | BLOCKED | D3 "don't test these right now" (needs an external RADIUS with TTLS/LEAP/OTP; local RADIUS has MAC/MD5/TLS/PEAP only); D4 T33354 "i'll deal with it " (Test Engineer) |
 
 ## Results
