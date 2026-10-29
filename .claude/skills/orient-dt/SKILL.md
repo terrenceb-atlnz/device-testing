@@ -438,7 +438,11 @@ Six traps, each of which cost a run:
    `dev.console.mode('#')` first.**
 2. **Credentials are the framework's, not the `.setup`'s.** A generated `<TB>.setup` declares
    `username: None, password: None` and that is fine: the default user is `manager` and the
-   password list is `['friend', 'P@ssw0rd', 'awplus']`. Do not add credentials to a `.setup` to
+   framework walks a default password LIST. **It is not just `friend`:** since 2026-10-19 it is five
+   passwords (`ATDrivers/ATSwitch.py` `__resolve_username_and_password()`; re-read it there, the copy in
+   memory `awplus-default-password-list` can go stale). Five tries is AW+'s lockout threshold, so a unit
+   on none of them is locked by one pass: pass a known non-default per console (`CK_PASSWORD_U<n>`) and
+   never walk the list on a unit whose password is unknown. Do not add credentials to a `.setup` to
    "fix" a login failure — see trap 1 for the real cause.
 3. **`powerOn` defaults to `True`, and it switches the PDU outlet on.** Pass `powerOn=False` for
    anything read-only on this shared bench.

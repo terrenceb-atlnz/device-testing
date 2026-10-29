@@ -43,7 +43,8 @@ generated test does. Four traps, all measured on tb470 and written up in `TESTBO
 §2a: `init_swi()`/`init_stk()` do **not** establish the session (call `dev.console.mode('#')`
 first, or every command is typed into a `login:` prompt and returns `Login incorrect`, which
 looks exactly like a dead device); credentials come from the framework, not the `.setup`
-(`manager` + `['friend','P@ssw0rd','awplus']`); `powerOn` defaults **True** and switches the
+(`manager` + a default password LIST — five passwords since 2026-10-19, no longer just `friend`; the list,
+its source and the lockout rule are in [[awplus-default-password-list]]); `powerOn` defaults **True** and switches the
 PDU outlet on, so pass `powerOn=False` for anything read-only; and `Stack.members` is a
 `set`, so "any member" is nondeterministic. The framework-driver probe that showed all this was
 deleted on 2026-09-23; today's `claude/device-testing/bench-setup/bench_probe.py` (2026-09-25) is

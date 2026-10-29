@@ -213,3 +213,9 @@ dev eth6` and jm links up.
   absent, jm1-jm5 DOWN (never brought up). Re-probe tb490 MATCH, tb5 MATCH. Consoles tb490 u2 and tb5 u0/u1/u2
   logged out (`login:` in each transcript); the tb5 u2 ckcon again kept running after logout and was killmine'd
   (pid 19458), as at triage. `lldp run` (triage probe) is still in the running-config: it is part of the baseline.
+- **Wrap, 2026-10-29 14:53–15:08 NZDT:** `lldp run` REVERTED (Test Engineer: "Revert it (no lldp run)") —
+  swi_dut and swi_x950 by the tester (`no lldp run`, re-read empty in running and startup, no `write`; done again
+  after the wrap probes, which turn it back on); swi_x530 by the Test Engineer ("x530 no lldp run is done"). The
+  line above that calls it "part of the baseline" is superseded. swi_x530 took 5 failed logins at 14:51 (its
+  password is not a default); it was not probed at the wrap. Sentinel stood down. Handover:
+  `tb490/x980/SESSION-HANDOVER-2026-10-29.md`.

@@ -44,8 +44,12 @@ prepending to it, so a forwarded secret swallowed the password being piped behin
 - **An explicitly supplied password is tried ONCE.** Never loop a credential. `bench_probe.py`'s
   `creds_for()` does this: when a per-console `CK_PASSWORD_U<n>` is set it is the **only**
   password tried, deliberately, so a unit with a non-default password costs no failed attempt on
-  any other console. Omitting the variable is worse than useless — the fallback tries three
-  defaults, so **forgetting an environment variable triples the lockout exposure.**
+  any other console. Omitting the variable is worse than useless — the fallback walks the default
+  list, so **forgetting an environment variable multiplies the lockout exposure.** Since 2026-10-19 the
+  framework's default list is FIVE passwords — exactly the lockout threshold — so walking it against a
+  unit on none of them locks it in one pass ([[awplus-default-password-list]]). 2026-10-29, tb5 u1: one
+  `ckcon` open against a unit whose password was not `friend` made 5 failed logins in 39 s (console.py
+  sends `friend`, then CRs at `Password:`, and each CR counts).
 - **At a login or password prompt the only safe keystroke is the protocol escape.** Any recovery
   that sends text there is silently making authentication attempts.
 - **Re-send a truncated-echo username only after proving the echo**, never by restarting the

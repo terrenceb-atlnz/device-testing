@@ -60,7 +60,7 @@
 - [tb277 x960 Management campaign 2026-10-22](tb277-x960-management-campaign-2026-10-22.md) — last 4 cases, 4 PASS, DUT-only because the partner wasn't needed; `log host ... facility` is a FILTER, not an override
 - [tb277 x960 Auth & Security campaign 2026-10-23](tb277-x960-auth-security-campaign-2026-10-23.md) — 11 cases, 11 PASS (done 10-28); 4 auth commands SILENTLY discard a setting; secure mode vs its docs
 - [EAP-TLS needs a TLS 1.2 supplicant](eap-tls-needs-tls12-supplicant.md) — wpa_supplicant 2.6 discards TLS 1.3's RFC 9190 commitment; fix = per-process OPENSSL_CONF, no root; leaf-only is a false lead
-- [Console driver retries are lockout generators](console-driver-retries-are-lockout-generators.md) — AW+ locks at 5 failures and each one re-arms the timer. FIXED 10-22 (fdaded7): a credential is submitted ONCE
+- [Console driver retries are lockout generators](console-driver-retries-are-lockout-generators.md) — AW+ locks at 5 failures and each one re-arms the timer. FIXED 10-22 (fdaded7): a credential is submitted ONCE; default list is now 5 = threshold
 - [The CLI surface is not the device's surface](cli-surface-is-not-the-device-surface.md) — Test Engineer 10-20: NOT MEASURABLE from an exhaustive CLI probe was WRONG; `start-shell` reaches sysfs. hwmon nodes differ per platform; prove restore with `od -c`
 - [Act on Terrence-stated live faults](act-on-terrence-stated-live-faults.md) — "there is a loop, just fix it": shut a leg and configure, verify AFTER; run literal commands literally
 - [Bench cannot open TCP to office PCs](bench-cannot-open-tcp-to-office-pcs.md) — lab→10.33.22.x TCP is dropped (ping passes); servers the bench connects TO go on tb470, never the dev PC; test the transport first
@@ -102,3 +102,5 @@
 - [/test-mode takeover after a dead session](test-mode-takeover-after-dead-session.md) — 2026-10-22: the dead sentinel takes its tester; prove no copy lives, `/test-mode --resume` here, rebuild rows from the repo row files
 - [CR drafts live in CR-gen/](cr-drafts-in-cr-gen.md) — Jira CRs as paste-ready wiki-markup field blocks; NEVER fill RCA (company AI analysis), no root-cause guesses; real show system only
 - [ER-3353 guest VLAN = hw-forwarding](er-3353-guest-vlan-is-hw-forwarding.md) — 'Suppress unicast flooding' TFS only specifies hw-forwarding + S3353.1.6/1.7 subnet rules; no unknown-unicast blocking; read the TFS, not the folder name
+- [Two-box campaign: DUT and client on different testboxes](two-box-campaign-dut-and-client-on-different-testboxes.md) — tb490 DUT + tb5 client side 2026-10-29: each box its own bench; client NIC on the far box; sentinel BOX = DUT box
+- [AW+ default password list](awplus-default-password-list.md) — NOT just manager/friend: framework list is 5 passwords since 2026-10-19; 5 = lockout threshold, never walk it on an unknown unit

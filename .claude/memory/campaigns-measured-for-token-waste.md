@@ -66,3 +66,10 @@ is dispatched. The Phase C dispatch carries a short brief (Phase record lines, r
 "read the queue top to bottom" (§6), and bench-runner reads the queue by section (its Read-first item 4). Tools:
 `longrun.py --report` (grading tables), `ixtcl.py pair` (control + positive in one call, unverified on hardware),
 `health.py --before` no longer labels a run DIRTY for an exception log that is byte-identical to the before sample.
+
+**2026-10-29, tb490 x980 auth (4 cases): the per-case split can be silently WRONG.** `case_tokens.py` starts a
+case at its first tool call into `<group>/<id>/`. The T33365 tester created `T33365/work/` only after its STEP 5,
+so ~15 calls of real T33365 work landed in T33375's row and overhead. Before trusting the per-case rows, check
+each case's first call into its folder against its first real step; better, have bench-runner create
+`<id>/work/` (and start `run1.log`) before step 0. Cache read was 97% of all tokens here too (23.2 M, overhead
+11.2 M); writing a tool mid-group (`hostnet.py`, 4 doc lookups) lifted every later call's cost (T33366 2.8× T33365).
