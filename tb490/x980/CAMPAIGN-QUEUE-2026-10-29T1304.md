@@ -136,7 +136,7 @@ T33375 was run on IE520 before (`IE520/auth-2026-09-22/33375.log`).
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| A | T33365 Web Auth – Public…; T33366 Web Auth – Promis…; T33357 802.1X EncryptionType…; T33375 MAC Auth/Web Auth | `auth-2026-10-29T1304` | RUNNING (bench-runner 13:25): T33375 PASS; T33365 PASS; T33366 PASS; T33357 PASS; group restore next | One group, one DUT console (tb490 u2); client NIC tb5 eth6. T33366 also waits on D2. See Triage. |
+| A | T33365 Web Auth – Public…; T33366 Web Auth – Promis…; T33357 802.1X EncryptionType…; T33375 MAC Auth/Web Auth | `auth-2026-10-29T1304` | RUNNING (bench-runner 13:25): T33375 PASS; T33365 PASS; T33366 PASS; DONE 14:13 NZDT: 4/4 PASS, restored, re-probe MATCH both boxes | One group, one DUT console (tb490 u2); client NIC tb5 eth6. T33366 also waits on D2. See Triage. |
 
 ### Group A — bench setup and restore recipe (bench-runner RUN, written 2026-10-29 13:3x NZDT, before the first case)
 
@@ -200,3 +200,16 @@ dev eth6` and jm links up.
 
 - **eth6 restore:** tb5 eth6 held a live web-auth session as `webuser` (not static-authorised as triage said). Answer: "Test user, then delete it" — re-authenticate eth6 with a ck test user at restore, then remove that user.
 - **Root helper for D2:** `tools/tb` refuses root route changes by design. Answer: "Yes, add the narrow helper" — only `ip route add/del 8.8.8.0/24 via 192.168.50.1 dev eth6` and `ip link set jm1-jm5 up/down`, under sudotool, for T33366, removal proved.
+
+- **2026-10-29 14:08, left for the Test Engineer (root on tb5):** `tb5:/tftpboot/cktls.p12`, written by
+  in.tftpd (user tftp) when T33357 exported the user's PKCS#12. It holds a client certificate signed by
+  swi_dut's `local` CA (the DUT-side enrollment was removed). Test Engineer: "I'll delete it myself". Not touched.
+- tb5 `/tmp/auth1304/` (tmpfs scratch) still holds the T33357 leaf + key split (`cktls-leaf.pem`, `cktls-key.pem`
+  mode 0600, `p12chk/`), the rogue test key, and the ck-web CA; `tools/tb` has no delete action. Cleared at reboot.
+- **Restore, 2026-10-29 14:09-14:13 NZDT:** swi_dut running-config = baseline (rcdiff: only the echoed command
+  line); `show boot` image flash:/x980-tb490.rel, config flash:/x980-autoorder.cfg; eth6 web-authenticated as
+  `ckrestore`, then the user was deleted, so the session persists under a deleted user (Test Engineer: "Test
+  user, then delete it"), not `webuser`; eth6 ping 3/4 afterwards (first echo lost). tb5: route 8.8.8.0/24
+  absent, jm1-jm5 DOWN (never brought up). Re-probe tb490 MATCH, tb5 MATCH. Consoles tb490 u2 and tb5 u0/u1/u2
+  logged out (`login:` in each transcript); the tb5 u2 ckcon again kept running after logout and was killmine'd
+  (pid 19458), as at triage. `lldp run` (triage probe) is still in the running-config: it is part of the baseline.

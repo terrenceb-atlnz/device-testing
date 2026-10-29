@@ -1,6 +1,6 @@
 # tb5 — bench state
 
-> **Generated 2026-10-29T002512Z by `bench_probe.py`** from `captures/2026-10-29T002512Z/` on tb5. Measured state only;
+> **Generated 2026-10-29T010941Z by `bench_probe.py`** from `captures/2026-10-29T010941Z/` on tb5. Measured state only;
 > nothing here is hand-written. Regenerate with `./bench_probe.py --box tb5 run` on tb5. The
 > `setup` fence at the end IS `tb5.setup`; `./bench_probe.py apply` writes it to the box.
 > Names and PDU outlets come from `tb5.static`; platform mechanics live in the orient-dt
@@ -32,7 +32,7 @@
 ## tb5.setup
 
 ```setup
-### GENERATED 2026-10-29T002512Z by bench_probe.py from a console capture -- DO NOT HAND-EDIT.
+### GENERATED 2026-10-29T010941Z by bench_probe.py from a console capture -- DO NOT HAND-EDIT.
 ### Source: claude/device-testing/bench-setup/bench-state.md (regenerate with
 ### `bench_probe.py run` on tb5; `bench_probe.py apply` writes this file).
 ### Names and PDU outlets come from bench-setup/tb5/tb5.static.
@@ -76,5 +76,5 @@ eth6 up swi_x530:port1.0.16
 ```
 
 ```probe-meta
-capture 2026-10-29T002512Z
+capture 2026-10-29T010941Z
 ```
