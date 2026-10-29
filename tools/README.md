@@ -1500,12 +1500,15 @@ status line, the response headers and the (optionally truncated) body.
   dependency to the box.
 - **Run:** `httpq.py <url> [--method M] [--user U --password P] [--data STR]
   [--header 'K: V']... [--timeout S] [--max-body N] [--verify] [--head-only]
-  [--cafile CA.pem] [--no-hostname-check] [--peer-cert]`, or
+  [--cafile CA.pem] [--no-hostname-check] [--peer-cert] [--proxy HOST:PORT]`, or
   `tools/tb tool <TB> <scratch> httpq <url> ...`
 - **Where:** testbox (it must reach the device's management address); **needs:** nothing
   beyond Python
 - **Imports:** none (urllib from the standard library)
 - **Exit:** 0 a response arrived, whatever its status; 4 the transport failed; 6 usage
+- **`--proxy HOST:PORT`** (http:// only, added 2026-10-29 for tb490 T44275): the request goes to the proxy
+  with an absolute-URI request line (`GET http://8.8.8.8/ HTTP/1.1`), exactly as a browser set to use a proxy
+  sends it. That is the frame a web-auth `intercept-port <proxy port>` must catch.
 - **Limits and traps:**
   - **TLS verification is OFF by default**, because device certificates are self-signed
     (`O = Allied-Telesis, CN = AlliedwarePlusDefault`). Pass `--verify` to turn it on.

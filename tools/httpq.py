@@ -49,6 +49,9 @@ def main():
     ap.add_argument("--peer-cert", action="store_true",
                     help="https only: first print the certificate the server presents "
                          "(subject, issuer, SAN, validity, SHA-256), read without verification")
+    ap.add_argument("--proxy", default=None, metavar="HOST:PORT",
+                    help="http:// URLs only: send the request to this proxy with an absolute-URI "
+                         "request line (GET http://host/path), as a browser configured with a proxy does")
     args = ap.parse_args()
 
     method = args.method.upper()
@@ -63,6 +66,11 @@ def main():
             return 6
         k, v = h.split(":", 1)
         req.add_header(k.strip(), v.strip())
+    if args.proxy:
+        if not args.url.lower().startswith("http://"):
+            print("httpq: --proxy is for http:// URLs only")
+            return 6
+        req.set_proxy(args.proxy, "http")
     if args.user is not None:
         token = base64.b64encode(
             ("%s:%s" % (args.user, args.password or "")).encode()).decode()
@@ -85,7 +93,7 @@ def main():
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
 
-    print("=== %s %s ===" % (method, args.url))
+    print("=== %s %s%s ===" % (method, args.url, " via proxy %s" % args.proxy if args.proxy else ""))
     print("TLS: %s" % ("chain verified against %s%s" % (args.cafile or "the system store",
                                                         ", hostname NOT checked" if args.no_hostname_check else "")
                        if args.verify else "NOT verified"))
