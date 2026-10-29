@@ -191,3 +191,8 @@ dev eth6` and jm links up.
 | --- | --- | --- | --- | --- | --- | --- |
 
 ## Issues
+
+### Test Engineer's answers — 2026-10-29 13:3x NZDT (to the RUN tester's NEEDS TEST ENGINEER)
+
+- **eth6 restore:** tb5 eth6 held a live web-auth session as `webuser` (not static-authorised as triage said). Answer: "Test user, then delete it" — re-authenticate eth6 with a ck test user at restore, then remove that user.
+- **Root helper for D2:** `tools/tb` refuses root route changes by design. Answer: "Yes, add the narrow helper" — only `ip route add/del 8.8.8.0/24 via 192.168.50.1 dev eth6` and `ip link set jm1-jm5 up/down`, under sudotool, for T33366, removal proved.
