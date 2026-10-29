@@ -163,17 +163,29 @@ because none can run on the local RADIUS server.
   group on the DUT, removed by the teardown).
 - **Info — load-release**: see "swi_dut after ... load-release" above: no change to build, boot or flash.
 
+### Test Engineer's answers to the triage — 2026-10-29 15:4x NZDT
+
+- Proceed: **"Proceed with the 5 (Recommended)"**: run A then B; C waits BLOCKED.
+- D1 (T44274): **"Several methods, one port (Recommended)"**: web + MAC + 802.1X and several supplicants on port1.0.81, graded per MAC. D2 is not needed for T44274.
+- D3 (T33358, T44271, T44272): **"don't test these right now"**: BLOCKED, NOT TESTED.
+- D4 (T33354): **"i'll deal with it "**: BLOCKED, NOT TESTED; the Test Engineer handles it.
+- T44276's second-MAC browse leg (needs D2, root on tb5) was not asked; that leg is out of scope unless the Test Engineer opens D2.
+
 ## Queue
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
 | A | T44274 (204) Multiple Authentication; T44275 (207) Proxy Server for Web Auth; T44276 (208) DHCP Server for Web Auth | `webauth-2026-10-29T1528` | RUNNABLE | triage 15:41: all three runnable now; T44274 reading = D1 |
 | B | T33355 (192) IEEE 802.1X-2004; T44277 (214) Supplicant MAC | `dot1x-2026-10-29T1528` | RUNNABLE | regrouped at triage |
-| C | T33358 (195) EAP-TTLS; T44271 (197) EAP-LEAP; T44272 (198) EAP-OTP; T33354 (191) EAP-Notification | `eap-2026-10-29T1528` | BLOCKED | D3 (external RADIUS with TTLS/LEAP/OTP; local RADIUS has MD5/TLS/PEAP only); D4 (T33354 authored "Not Support") |
+| C | T33358 (195) EAP-TTLS; T44271 (197) EAP-LEAP; T44272 (198) EAP-OTP; T33354 (191) EAP-Notification | `eap-2026-10-29T1528` | BLOCKED | D3 "don't test these right now" (needs an external RADIUS with TTLS/LEAP/OTP; local RADIUS has MAC/MD5/TLS/PEAP only); D4 T33354 "i'll deal with it " (Test Engineer) |
 
 ## Results
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
+| T33358 | (195) Authentication&Security_IEEE 802.1XEncryptionType - EAP-TTLS | C | NOT TESTED | BLOCKED D3: needs an external RADIUS with EAP-TTLS (the DUT's local RADIUS offers MAC/MD5/TLS/PEAP only); Test Engineer: "don't test these right now" | — | Test Engineer |
+| T44271 | (197) Authentication&Security_IEEE 802.1XEncryptionType - EAP-LEAP | C | NOT TESTED | BLOCKED D3: needs an external RADIUS with LEAP; Test Engineer: "don't test these right now" | — | Test Engineer |
+| T44272 | (198) Authentication&Security_IEEE 802.1XEncryptionType - EAP-OTP | C | NOT TESTED | BLOCKED D3: needs a RADIUS with EAP-OTP (not in stock FreeRADIUS); Test Engineer: "don't test these right now" | — | Test Engineer |
+| T33354 | (191) Authentication&Security_IEEE 802.1X - EAP-Notification | C | NOT TESTED | BLOCKED D4: authored objective "Not Support"; Test Engineer: "i'll deal with it " | — | Test Engineer |
 
 ## Issues
