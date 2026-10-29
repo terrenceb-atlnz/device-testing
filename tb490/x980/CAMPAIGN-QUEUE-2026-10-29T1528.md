@@ -282,3 +282,5 @@ tb5 eth6 no longer holds 192.168.50.10/24 (now 10.37.5.129/27; tb5 up since 2026
 "mine, you have approval to re-add the route". route60-add cannot install without 192.168.50.10 on eth6 (gateway
 192.168.50.1 not on-link). eth6 is NOT web-authenticated on port1.0.81 any more (run 3's dot1x initialize ended the
 ckrestore session; re-login needs 192.168.50.10 back). DUT itself is at baseline (rcdiff 0).
+
+Test Engineer 08:2x: "I'll re-add the address" (192.168.50.10/24 on tb5 eth6, theirs). Then T44276 run 4 = route60 + the login leg only, and eth6's web session restored. HOLD until they say it is back.
