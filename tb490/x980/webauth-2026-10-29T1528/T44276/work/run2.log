@@ -1,0 +1,123 @@
+T44276 run 2 -- working log (bench-runner), 2026-10-29 16:28-16:38 NZDT
+
+Why a run 2: run 1 (work/run1.log, FAIL) never enabled `service dhcp-server`; the baseline running-config has
+`no service dhcp-server`. The sentinel pointed this out (memory awplus-service-gated-routing-daemons). Run 1's
+FAIL is withdrawn: it was a missing enable step, not the feature failing. Run 1's measurements still stand as
+measurements (no OFFER in 5 configurations without the service; the refusal of dhcp ipaddress = host address).
+
+== SESSION FACTS, GATE, DEVICES == as T44274/work/run1.log.  == CASE, references, help == as run1.log of this case.
+Additional finding: `service dhcp-server` is REQUIRED for the web-auth DHCP service; neither the command reference
+page of `auth-web-server dhcp ipaddress` nor AAA guide p.42-43 says so, and `show auth-web-server` reports
+"DHCP server: enabled" without it.
+
+== HEALTH BEFORE (tools/tb health tb490 wa1528 u2 115200 --label T44276-run2-before) ==
+HEALTH u2 16:27:24-16:27:40 T44276-run2-before  saved /tmp/wa1528/health-u2-20261029T162724.out  json /tmp/wa1528/health-u2-20261029T162724.out.json
+  reboots ......... 29 entries, newest 2026-10-28 21:19:45 Expected   CLI(user request)
+  exception log ... None
+  log (filtered) .. 30 lines: 30 echoes of our own commands, 0 other
+  cpu ............. 1% / 0% / 0%  (show cpu prints BUSY averages 1 s / 20 s / 60 s, not idle); load 1.20
+  memory .......... free 15375148 of 16033676 kB (buffers 32)
+
+== DUT show system (verbatim, run 2 setup reads) ==
+  | x980-CDQ#show system
+  | System Status                                           Thu Oct 29 03:27:31 2026
+  | 
+  | Board      ID   Bay     Board Name                        Rev   Serial number
+  | --------------------------------------------------------------------------------
+  | Base       688  Base    AT-x980-16CDQ                     X2-0  A10732A263200035
+  | Expansion  616  Bay1    AT-XEM3-12YS                      X1-0  A10599A232800007
+  | Expansion  617  Bay2    AT-XEM3-8CQ                       X3-0  A10534A241600051
+  | PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104R3027Q
+  | Fan module 715  FAN1    AT-FAN18                          A-0   A12345A12345678
+  | Fan module 715  FAN2    AT-FAN18                          A-0   A12345A12345678
+  | Fan module 715  FAN3    AT-FAN18                          A-0   A12345A12345678
+  | Fan module 715  FAN4    AT-FAN18                          A-0   A12345A12345678
+  | Fan module 715  FAN5    AT-FAN18                          A-0   A12345A12345678
+  | --------------------------------------------------------------------------------
+  | RAM: Total: 16033676 kB Free: 15371304 kB
+  | Flash: 127.9GB Used: 271.6MB Available: 126.6GB
+  | --------------------------------------------------------------------------------
+  | Environment Status : Normal
+  | Uptime             : 0 days 06:07:23
+  | Bootloader version : 260616
+  | BIOS version       : B7E3R911
+  | 
+  | Current software   : x980-tb490.rel
+  | Software version   : awplus_main-20261029-90
+  | Build date         : Wed Oct 28 20:43:01 UTC 2026
+  | 
+  | Current boot config: flash:/x980-autoorder.cfg (file exists)
+  | 
+  | System Name
+  |  x980-CDQ
+  | System Contact
+  | 
+  | System Location
+
+== SETUP (16:28) (raw work/run2-setup.out) ==
+  | x980-CDQ(config)#service dhcp-server
+  | x980-CDQ(config)#no auth-web-server ipaddress
+  | x980-CDQ(config)#auth-web-server dhcp ipaddress 192.168.60.1/24
+  | x980-CDQ(config-radsrv)#user ckdhcp password <pw>
+  | x980-CDQ#dot1x initialize interface port1.0.81
+  No `%`. show auth-web-server: Server address: 192.168.60.1/24, DHCP server: enabled, DHCP lease time: 20.
+  (192.168.50.1/24, the host address, is refused: run 1 step 2a. The inherited `auth-web-server ipaddress
+  192.168.50.1` must be removed first.) Saved T44276/swi_dut.cfg (run 2; overwrites run 1's).
+
+STEP 1 -- control, service off: no OFFER                         PASS -- run 1 step 1 and step 2a-2g
+STEP 2 -- built-in DHCP serves an unauthenticated supplicant     PASS
+  16:29 dhcp4 client eth6 --mac 00:90:0b:2a:11:c3 --wait 10 -> OFFER: NONE (first DISCOVER after enabling)
+  16:30 dhcp4 client eth6 --mac 00:90:0b:2a:11:c3 --clients 3 --wait 12 (pcap /tmp/wa1528/t76r2b.pcap):
+  | 00:90:0b:2a:11:c3 -> offer 192.168.60.2 ack ACK 192.168.60.2
+  | 00:90:0b:2a:11:c4 -> offer None ack None
+  | 00:90:0b:2a:11:c5 -> offer None ack None
+  dhcp4 decode t76r2b.pcap (the DUT's frames):
+  | OFFER 00:90:0b:2a:11:c3 yiaddr 192.168.60.2 eth e0:1a:ea:d5:04:56 -> ff:ff:ff:ff:ff:ff ip 192.168.60.1 -> 255.255.255.255 {'server_id': '192.168.60.1', 'subnet_mask': '255.255.255.0', 'lease_time': 20, 'renewal_time': 10, 'rebinding_time': 12, 'router': '192.168.60.1', 'name_server': '192.168.60.1'}
+  | ACK 00:90:0b:2a:11:c3 yiaddr 192.168.60.2 eth e0:1a:ea:d5:04:56 -> ff:ff:ff:ff:ff:ff ip 192.168.60.1 -> 255.255.255.255 {'server_id': '192.168.60.1', 'subnet_mask': '255.255.255.0', 'lease_time': 20, 'renewal_time': 10, 'rebinding_time': 12, 'router': '192.168.60.1', 'name_server': '192.168.60.1'}
+  Default lease is 20 s (opt 51 = 20, T1 10, T2 12), matching `show auth-web-server` "DHCP lease time: 20";
+  the AAA guide p.43 says 30 s: documentation difference, noted.
+  The same-subnet variant (auth-web-server dhcp ipaddress 192.168.50.254/24, service on, 16:31) got 0/3 offers.
+
+STEP 3 -- configured lease (auth-web-server dhcp lease 45)       PASS
+  | x980-CDQ(config)#auth-web-server dhcp lease 45      -> show: DHCP lease time: 45
+  02:00:5e:c0:ff:21 try a -> OFFER NONE; try b -> OFFER 192.168.60.2 lease_time=45, ACK 192.168.60.2
+  show auth supplicant brief: port1.0.81  1    W    0200.5ec0.ff21 Connecting        192.168.60.2    --
+
+STEP 4 -- several supplicants, addresses allocated incrementally  PASS
+  16:33:21-16:34:00, dhcp4 client eth6 --mac M --wait 8, 3 tries per MAC:
+  | 00:90:0b:2a:11:c3 try1 OFFER: NONE
+  | 00:90:0b:2a:11:c3 try2 OFFER: 192.168.60.3    lease_time=45 renewal=10 rebinding=12
+  | 00:90:0b:2a:11:c3 try3 OFFER: 192.168.60.4    lease_time=45 renewal=10 rebinding=12
+  | 02:00:5e:c0:ff:22 try1 OFFER: NONE
+  | 02:00:5e:c0:ff:22 try2 OFFER: 192.168.60.5    lease_time=45 renewal=10 rebinding=12
+  | 02:00:5e:c0:ff:22 try3 OFFER: 192.168.60.6    lease_time=45 renewal=10 rebinding=12
+  Observations: (a) a MAC's first DISCOVER (no supplicant entry yet, or after its entry aged out) is not
+  answered; eth6 also missed twice at 16:31-16:32 (run2-s4c/s4d) while listed as W Connecting; (b) each
+  DISCOVER gets the next address, also from the same MAC (incremental allocation, as the CR's usage note
+  describes); (c) T1/T2 stay 10/12 with lease 45.
+
+STEP 5 -- login from the client with its LEASED address           NOT MEASURED (bench: root on tb5)
+  With the server at 192.168.60.1, the DUT no longer answers eth6 (static 192.168.50.10):
+  httpq http://192.168.50.1/ -> TRANSPORT FAILED timed out; POST /index.cgi -> closed without response;
+  with the approved `hostnet route-add` (8.8.8.0/24 via 192.168.50.1): GET http://8.8.8.8/ timed out,
+  POST closed (removed again: route-del RESULT OK, absent). eth6 ICMP 0 of 4 (leg t76e6a).
+  A real client would browse from its leased 192.168.60.x address; putting that address (or a route to
+  192.168.60.0/24) on a tb5 interface is root on tb5 (as D2), not approved. Not measured.
+
+== HEALTH AFTER (tools/tb health ... --before /tmp/wa1528/health-u2-20261029T162724.out.json --label T44276-run2-after) ==
+  reboots ......... no new entry (newest stays 2026-10-28 21:19:45 Expected   CLI(user request))
+  exception log ... None -> None
+  log (filtered) .. 0 new non-echo lines
+  cpu ............. 1% -> 1%  (1 s busy average)
+  memory .......... free 15375148 -> 15370512 kB (-4636; one case cannot show a leak)
+  VERDICT ......... CLEAN
+
+== TEARDOWN (16:37) (raw work/run2-teardown.out) ==
+  | no auth-web-server dhcp lease / no auth-web-server dhcp ipaddress / auth-web-server ipaddress 192.168.50.1
+  | no service dhcp-server / radius-server local -> no user ckdhcp / dot1x initialize interface port1.0.81
+  No `%`. totalSupplicantNum: 0; Server address 192.168.50.1; DHCP server: disabled; boot config
+  flash:/x980-autoorder.cfg. rcdiff baseline vs post: only the echoed command line (restored).
+  tb5 hostnet route-del: absent, RESULT route-del: OK.
+
+Run: clean.
+VERDICT: PARTIAL -- with service dhcp-server enabled the web-auth DHCP server OFFERed/ACKed incremental addresses from 192.168.60.0/24 to several supplicant MACs from the DUT's MAC, lease 20 s by default and 45 s when set (each MAC's first DISCOVER unanswered); the login from the client's leased address could not be run (needs root on tb5 to give the client that address).
