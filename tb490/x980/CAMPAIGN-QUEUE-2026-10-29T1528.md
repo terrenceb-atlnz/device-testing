@@ -265,7 +265,7 @@ eth6's web session (deleted user ckrestore) may end during the case.
 | T33354 | (191) Authentication&Security_IEEE 802.1X - EAP-Notification | C | PASS | "Pass" — already tested and finished, stated by the Test Engineer 2026-10-29 15:5x; not run in this campaign | — | Test Engineer |
 | T44274 | (204) Authentication&Security_WebAuthentication - Multiple Authentication | A | PASS | web (W ckweb), MAC (M ff01) and 802.1X (D ckdot1x) authenticated together on port1.0.81, 4/4 ICMP each; wrong-password and unknown-MAC controls 0/4; health CLEAN | webauth-2026-10-29T1528/T44274/work/run1.log | tester |
 | T44275 | (207) Authentication&Security_WebAuthentication - Proxy Server for Web Authentication | A | PASS | with intercept-port 8080 a proxied request (8.8.8.8:8080) got the login page from the DUT's MAC, not without it (4 SYNs unanswered) nor on 8081; direct login wrong 0/4, right 4/4; routed after login. Info: a login POST sent THROUGH the proxy got no response (Tips&Tricks: login network must be No Proxy) | webauth-2026-10-29T1528/T44275/work/run1.log | tester |
-| T44276 | (208) Authentication&Security_WebAuthentication - DHCP Server for Web Authentication | A | PARTIAL | run 2 (run 1 FAIL withdrawn: `service dhcp-server` was off, sentinel catch 16:26): with it on, the web-auth DHCP server OFFERs/ACKs incremental 192.168.60.x from the DUT's MAC to several MACs, lease 20 s default / 45 s set; each MAC's first DISCOVER unanswered; login from the leased address NOT measured (needs root on tb5, NEEDS TEST ENGINEER 16:37) | webauth-2026-10-29T1528/T44276/work/run2.log | tester |
+| T44276 | (208) Authentication&Security_WebAuthentication - DHCP Server for Web Authentication | A | PARTIAL | run 3 (2026-10-30): steps 1-4 PASS (run 2: with `service dhcp-server` the web-auth DHCP OFFERs/ACKs incremental 192.168.60.x to several MACs, lease 20 default / 45-60 set, range 20-60; first DISCOVER per MAC unanswered); step 5: lease + TCP/80 SYN-ACK from leased 192.168.60.3 measured, web login NOT MEASURED: tb5 eth6 now 10.37.5.129/27 (not 192.168.50.10/24, Test Engineer's change), so route60-add failed ("Nexthop has invalid gateway"). Run 1 FAIL withdrawn (service dhcp-server off) | webauth-2026-10-29T1528/T44276/work/run3.log | tester |
 | T44277 | (214) Authentication&Security - Supplicant MAC | B | PASS | per-MAC force-authorized admitted ff41 with no auth (3/4, 4/4) vs unnamed ff42 0/4; force-unauthorized ended eth6's web session and ignored a valid login (0/4) until removed (4/4); auto/removal back to 0/4; finding F1 = x960 §7K.1 (a 2nd `auth supplicant-mac` parameter silently replaces the 1st) | dot1x-2026-10-29T1528/T44277/work/run1.log | tester |
 
 ## Issues
@@ -275,3 +275,10 @@ eth6's web session (deleted user ckrestore) may end during the case.
 T44276's last leg (web login from the client's LEASED address) needs root on tb5: a 192.168.60.x address on eth6, or a
 route to 192.168.60.0/24 via 192.168.50.1 (`hostnet` allows only 8.8.8.0/24). The login page is served only to clients in
 the DHCP subnet. Approve a narrow `hostnet` addition for a re-run, or leave it PARTIAL. — **answered 2026-10-30 (resume): "Approve the route, re-run"**. `tools/hostnet.py` gained `route60-add|route60-del` (192.168.60.0/24 via 192.168.50.1 dev eth6), commit 74f32d0; T44276 run 3 for that leg only.
+
+### 2026-10-30 08:05 — tb5 eth6 readdressed (T44276 run 3)
+
+tb5 eth6 no longer holds 192.168.50.10/24 (now 10.37.5.129/27; tb5 up since 2026-10-19, no reboot). Test Engineer:
+"mine, you have approval to re-add the route". route60-add cannot install without 192.168.50.10 on eth6 (gateway
+192.168.50.1 not on-link). eth6 is NOT web-authenticated on port1.0.81 any more (run 3's dot1x initialize ended the
+ckrestore session; re-login needs 192.168.50.10 back). DUT itself is at baseline (rcdiff 0).
