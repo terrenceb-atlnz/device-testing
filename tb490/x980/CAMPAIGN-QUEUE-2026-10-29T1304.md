@@ -189,7 +189,7 @@ dev eth6` and jm links up.
 
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
-| T33375 | (219) Authentication&Security - MAC Auth/Web Auth | A | PASS | known MAC M 4/4 vs unknown 0/4; wrong web pw 0/4 vs ckweb W 4/4; M+W together | auth-2026-10-29T1304/T33375/work/run1.log | |
+| T33375 | (219) Authentication&Security - MAC Auth/Web Auth | A | PASS | known MAC M 4/4 vs unknown 0/4; wrong web pw 0/4 vs ckweb W 4/4; M+W together | auth-2026-10-29T1304/T33375/work/run1.log | tester |
 
 ## Issues
 
