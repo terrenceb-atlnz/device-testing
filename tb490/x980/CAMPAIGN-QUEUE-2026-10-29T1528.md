@@ -229,5 +229,6 @@ from its encrypted line (as T33375 did 10-29). On tb5: route `8.8.8.0/24 via 192
 | T44271 | (197) Authentication&Security_IEEE 802.1XEncryptionType - EAP-LEAP | C | UNSUPPORTED | "Not Supported" — already tested and finished, stated by the Test Engineer 2026-10-29 15:5x; not run in this campaign (the DUT's local RADIUS offers MAC/MD5/TLS/PEAP only, measured at triage) | — | Test Engineer |
 | T44272 | (198) Authentication&Security_IEEE 802.1XEncryptionType - EAP-OTP | C | UNSUPPORTED | "Not Supported" — already tested and finished, stated by the Test Engineer 2026-10-29 15:5x; not run in this campaign (no EAP-OTP on the local RADIUS, measured at triage) | — | Test Engineer |
 | T33354 | (191) Authentication&Security_IEEE 802.1X - EAP-Notification | C | PASS | "Pass" — already tested and finished, stated by the Test Engineer 2026-10-29 15:5x; not run in this campaign | — | Test Engineer |
+| T44274 | (204) Authentication&Security_WebAuthentication - Multiple Authentication | A | PASS | web (W ckweb), MAC (M ff01) and 802.1X (D ckdot1x) authenticated together on port1.0.81, 4/4 ICMP each; wrong-password and unknown-MAC controls 0/4; health CLEAN | webauth-2026-10-29T1528/T44274/work/run1.log | tester |
 
 ## Issues
