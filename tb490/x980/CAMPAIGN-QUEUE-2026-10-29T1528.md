@@ -179,7 +179,7 @@ because none can run on the local RADIUS server.
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| A | T44274 (204) Multiple Authentication; T44275 (207) Proxy Server for Web Auth; T44276 (208) DHCP Server for Web Auth | `webauth-2026-10-29T1528` | RUNNING | 16:0x bench-runner RUN started; triage 15:41: all three runnable now; T44274 reading = D1 |
+| A | T44274 (204) Multiple Authentication; T44275 (207) Proxy Server for Web Auth; T44276 (208) DHCP Server for Web Auth | `webauth-2026-10-29T1528` | DONE | 16:41 bench-runner: T44274 PASS, T44275 PASS, T44276 PARTIAL (run 2; run 1 FAIL withdrawn); triage 15:41: all three runnable now; T44274 reading = D1 |
 | B | T44277 (214) Supplicant MAC | `dot1x-2026-10-29T1528` | RUNNABLE | regrouped at triage; T33355 removed 15:5x (already PASS, Test Engineer) |
 | C | T33358 (195) EAP-TTLS; T44271 (197) EAP-LEAP; T44272 (198) EAP-OTP; T33354 (191) EAP-Notification | `eap-2026-10-29T1528` | BLOCKED | D3 "don't test these right now" (needs an external RADIUS with TTLS/LEAP/OTP; local RADIUS has MAC/MD5/TLS/PEAP only); D4 T33354 "i'll deal with it " (Test Engineer) |
 
@@ -220,6 +220,13 @@ from its encrypted line (as T33375 did 10-29). On tb5: route `8.8.8.0/24 via 192
 4. eth6 web session: re-authenticate eth6 with a ck user (`ckrestore`), then delete that user (10-29 answer).
 5. `end`, `terminal no monitor`, `exit` on every console opened; re-probe both boxes read-only.
 
+**Group A restore, 2026-10-29 16:36-16:41 NZDT:** swi_dut running-config = baseline (rcdiff: only the echoed
+command line), build -90, `show boot` flash:/x980-tb490.rel + flash:/x980-autoorder.cfg; eth6 web-authenticated
+as `ckrestore` (4/4 ICMP), then the user deleted (10-29 answer), so the session persists under a deleted user.
+tb5 route 8.8.8.0/24 absent. Re-probe read-only: tb490 MATCH (captures/2026-10-29T033816Z); tb5 the same
+3 MISMATCH + 1 NEEDS-CHECK read-only artefacts (captures/2026-10-29T033824Z). All four consoles at `login:`;
+tb5's ckcon kept running after `exit` again (killmine'd). tb5 scratch /tmp/wa1528 left (tmpfs).
+
 ## Results
 
 | case | title | group | verdict | reason | working log | graded |
@@ -232,6 +239,9 @@ from its encrypted line (as T33375 did 10-29). On tb5: route `8.8.8.0/24 via 192
 | T44274 | (204) Authentication&Security_WebAuthentication - Multiple Authentication | A | PASS | web (W ckweb), MAC (M ff01) and 802.1X (D ckdot1x) authenticated together on port1.0.81, 4/4 ICMP each; wrong-password and unknown-MAC controls 0/4; health CLEAN | webauth-2026-10-29T1528/T44274/work/run1.log | tester |
 | T44275 | (207) Authentication&Security_WebAuthentication - Proxy Server for Web Authentication | A | PASS | with intercept-port 8080 a proxied request (8.8.8.8:8080) got the login page from the DUT's MAC, not without it (4 SYNs unanswered) nor on 8081; direct login wrong 0/4, right 4/4; routed after login. Info: a login POST sent THROUGH the proxy got no response (Tips&Tricks: login network must be No Proxy) | webauth-2026-10-29T1528/T44275/work/run1.log | tester |
 | T44276 | (208) Authentication&Security_WebAuthentication - DHCP Server for Web Authentication | A | PARTIAL | run 2 (run 1 FAIL withdrawn: `service dhcp-server` was off, sentinel catch 16:26): with it on, the web-auth DHCP server OFFERs/ACKs incremental 192.168.60.x from the DUT's MAC to several MACs, lease 20 s default / 45 s set; each MAC's first DISCOVER unanswered; login from the leased address NOT measured (needs root on tb5, NEEDS TEST ENGINEER 16:37) | webauth-2026-10-29T1528/T44276/work/run2.log | tester |
+| T44274 | (204) Authentication&Security_WebAuthentication - Multiple Authentication | A | PASS | web (W ckweb), MAC (M ff01) and 802.1X EAP-MD5 (D ckdot1x) authenticated together on port1.0.81, 4/4 ICMP each; wrong-password and unknown-MAC controls 0/4 | `webauth-2026-10-29T1528/T44274/work/run1.log` | bench-runner |
+| T44275 | (207) Authentication&Security_WebAuthentication - Proxy Server for Web Authentication | A | PASS | with intercept-port 8080 a proxied request (8.8.8.8:8080) got the login page from the DUT's MAC, not without it nor on 8081; direct login wrong 0/4, right 4/4; routed after login. A login POST sent through the proxy got no response (Tips&Tricks: login network must be No Proxy) | `webauth-2026-10-29T1528/T44275/work/run1.log` | bench-runner |
+| T44276 | (208) Authentication&Security_WebAuthentication - DHCP Server for Web Authentication | A | PARTIAL | run 2: with `service dhcp-server` the web-auth DHCP OFFERs/ACKs incremental 192.168.60.x to several MACs, lease 20 default / 45 set; login from the leased address not measured (root on tb5). Run 1 FAIL withdrawn (service was off) | `webauth-2026-10-29T1528/T44276/work/run2.log` | bench-runner |
 
 ## Issues
 
