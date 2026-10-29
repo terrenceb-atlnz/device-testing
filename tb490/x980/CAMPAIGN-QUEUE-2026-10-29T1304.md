@@ -138,6 +138,53 @@ T33375 was run on IE520 before (`IE520/auth-2026-09-22/33375.log`).
 | --- | --- | --- | --- | --- |
 | A | T33365 Web Auth – Public…; T33366 Web Auth – Promis…; T33357 802.1X EncryptionType…; T33375 MAC Auth/Web Auth | `auth-2026-10-29T1304` | RUNNABLE (D1–D4 answered 13:2x) | One group, one DUT console (tb490 u2); client NIC tb5 eth6. T33366 also waits on D2. See Triage. |
 
+### Group A — bench setup and restore recipe (bench-runner RUN, written 2026-10-29 13:3x NZDT, before the first case)
+
+**Bench (measured 2026-10-29 13:24–13:27 NZDT):** `.static` written for both boxes from D4, both
+setups applied (`/home/st-art/configs/tb490.setup`, `/home/st-art/configs/tb5.setup`), re-probe
+**MATCH** on both (commit a82c99e). Consoles used: tb490 u2 (swi_dut) only for config; tb5 u0/u1
+(swi_x950/swi_x530) read-only if needed; tb5 u2 (swi_ar) not used. tb490 u0/u1 never.
+Client: tb5 eth6 `00:90:0b:2a:11:c3` 192.168.50.10/24 -> swi_x530 port1.0.16 -> swi_x950
+port1.0.49 -> swi_dut port1.0.81 (vlan1 192.168.50.1, MAC e0:1a:ea:d5:04:56).
+
+**Baseline = the pre-run running-config, NOT the boot config.** Saved:
+`auth-2026-10-29T1304/baseline/swi_dut-pre-run-1327.out` (show running-config, show boot, show auth,
+supplicants, local-server users). `show boot`: image `flash:/x980-tb490.rel`, boot config
+`flash:/x980-autoorder.cfg`. The running-config differs from that file (diff measured 13:3x):
+users `00-90-0b-2a-11-c3`/`dot1xuser` in group TWOSTEP (file: v10); `lldp run` (the probe);
+`auth-web-server ipaddress 192.168.50.1`; port1.0.81 has `auth-web enable` (file: `auth-mac enable`,
+`dot1x port-control auto`, `auth dynamic-vlan-creation`, `auth two-step enable`); `interface vlan1`
+(file: vlan10). **So a reload does NOT restore the baseline, and nothing is ever `write`n.**
+
+**Inherited (not ours, left as found):** local RADIUS (`radius-server local`, server enable, nas
+127.0.0.1, groups TWOSTEP/v10, users 00-90-0b-2a-11-c3, 02-00-5e-00-01-02..05, dot1xuser, webuser);
+`radius-server host 127.0.0.1`; `aaa authentication dot1x|auth-mac|auth-web default group radius`;
+`auth-web-server ipaddress 192.168.50.1`; port1.0.81 `auth-web enable`, `auth host-mode
+multi-supplicant`, `auth forward arp|dhcp|dns`; `lldp run` (triage probe, unsaved); `service http`.
+**Live state inherited:** eth6's MAC holds a WEB-auth session as `webuser` (Mode W, 192.168.50.10) —
+triage called it "static-authorised"; it is not.
+
+**Added by the cases (each removed by its own teardown):** local-server users prefixed `ck`
+(and ck MAC users 02-00-5e-c0-ff-0N); port1.0.81 `auth-mac enable` / `dot1x port-control auto`
+as a case needs; `auth-web-server mode ...`, `auth-web-server ssl`, a `crypto pki trustpoint
+ck-web` and its RSA key `ck-web-key`; on tb5 (T33366, D2) the route `8.8.8.0/24 via 192.168.50.1
+dev eth6` and jm links up.
+
+**Restore recipe (anyone can run it):**
+1. swi_dut: `configure terminal`; on port1.0.81 `no auth-mac enable`, `no dot1x port-control`,
+   (re-)`auth-web enable`, `auth host-mode multi-supplicant`, `auth forward arp|dhcp|dns`;
+   `no auth-web-server mode`/`no auth-web-server ssl` (back to what the baseline file shows);
+   `radius-server local` -> `no user ck...`; `no crypto pki trustpoint ck-web`; `exit`;
+   `crypto key zeroize rsa ck-web-key`; `end`.
+2. `rcdiff.py` the new `show running-config` against `baseline/swi_dut-pre-run-1327.out`: must be
+   identical (exit 0). `show boot` must still read `flash:/x980-autoorder.cfg`.
+3. tb5: `ip route del 8.8.8.0/24 via 192.168.50.1 dev eth6`; `ip link set jm1..jm5 down`; prove
+   with `tools/tb nics tb5` (jm DOWN, no 8.8.8.0/24 route).
+4. eth6 web session: re-login as `webuser` needs its password (stored encrypted; asked of the
+   Test Engineer 13:3x). Without it eth6 is re-authenticated with a ck user before that user is
+   removed, and the log says so.
+5. `end`, `terminal no monitor` on every console opened; re-probe both boxes: MATCH.
+
 ## Results
 
 | case | title | group | verdict | reason | working log | graded |
