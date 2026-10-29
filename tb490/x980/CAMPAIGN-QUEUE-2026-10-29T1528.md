@@ -180,7 +180,7 @@ because none can run on the local RADIUS server.
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
 | A | T44274 (204) Multiple Authentication; T44275 (207) Proxy Server for Web Auth; T44276 (208) DHCP Server for Web Auth | `webauth-2026-10-29T1528` | DONE | 16:41 bench-runner: T44274 PASS, T44275 PASS, T44276 PARTIAL (run 2; run 1 FAIL withdrawn); triage 15:41: all three runnable now; T44274 reading = D1 |
-| B | T44277 (214) Supplicant MAC | `dot1x-2026-10-29T1528` | RUNNING | regrouped at triage; T33355 removed 15:5x (already PASS, Test Engineer) |
+| B | T44277 (214) Supplicant MAC | `dot1x-2026-10-29T1528` | DONE | 19:3x bench-runner: T44277 PASS (run 1, case 16:47-17:00, log written after the 17:02 usage cut; finding F1 = x960 §7K.1 silent per-MAC parameter replace); restore rcdiff identical, after-run probes tb490 MATCH / tb5 known artefacts; regrouped at triage; T33355 removed 15:5x (already PASS, Test Engineer) |
 | C | T33358 (195) EAP-TTLS; T44271 (197) EAP-LEAP; T44272 (198) EAP-OTP; T33354 (191) EAP-Notification | `eap-2026-10-29T1528` | BLOCKED | D3 "don't test these right now" (needs an external RADIUS with TTLS/LEAP/OTP; local RADIUS has MAC/MD5/TLS/PEAP only); D4 T33354 "i'll deal with it " (Test Engineer) |
 
 ### Group A — bench setup and restore recipe (bench-runner RUN, written 2026-10-29 16:0x NZDT, before the first case)
