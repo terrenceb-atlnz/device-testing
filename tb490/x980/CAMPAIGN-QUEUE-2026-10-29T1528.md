@@ -259,7 +259,7 @@ eth6's web session (deleted user ckrestore) may end during the case.
 | case | title | group | verdict | reason | working log | graded |
 | --- | --- | --- | --- | --- | --- | --- |
 | T33355 | (192) Authentication&Security_IEEE 802.1X - IEEE 802.1X-2004 | B | PASS | "Pass" — already tested and finished, stated by the Test Engineer 2026-10-29 15:5x; not run in this campaign | — | Test Engineer |
-| T33358 | (195) Authentication&Security_IEEE 802.1XEncryptionType - EAP-TTLS | C | NOT TESTED | BLOCKED D3: needs an external RADIUS with EAP-TTLS (the DUT's local RADIUS offers MAC/MD5/TLS/PEAP only); Test Engineer: "don't test these right now" | — | Test Engineer |
+| T33358 | (195) Authentication&Security_IEEE 802.1XEncryptionType - EAP-TTLS | C | NOT TESTED | not required: Test Engineer 2026-10-30 (`--resume`): "do not need to test T33358" (earlier D3: "don't test these right now"; needs an external RADIUS with EAP-TTLS) | — | Test Engineer |
 | T44271 | (197) Authentication&Security_IEEE 802.1XEncryptionType - EAP-LEAP | C | UNSUPPORTED | "Not Supported" — already tested and finished, stated by the Test Engineer 2026-10-29 15:5x; not run in this campaign (the DUT's local RADIUS offers MAC/MD5/TLS/PEAP only, measured at triage) | — | Test Engineer |
 | T44272 | (198) Authentication&Security_IEEE 802.1XEncryptionType - EAP-OTP | C | UNSUPPORTED | "Not Supported" — already tested and finished, stated by the Test Engineer 2026-10-29 15:5x; not run in this campaign (no EAP-OTP on the local RADIUS, measured at triage) | — | Test Engineer |
 | T33354 | (191) Authentication&Security_IEEE 802.1X - EAP-Notification | C | PASS | "Pass" — already tested and finished, stated by the Test Engineer 2026-10-29 15:5x; not run in this campaign | — | Test Engineer |
