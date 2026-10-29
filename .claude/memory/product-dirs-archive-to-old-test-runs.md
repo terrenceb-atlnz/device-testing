@@ -1,9 +1,9 @@
 ---
 name: product-dirs-archive-to-old-test-runs
-description: A finished product campaign's top-level dir (IE520/ today) is archived into "old test runs/" and a new product dir takes its place; "old test runs/" is Terrence's history — leave it alone, never sweep or tidy it
+description: A finished product campaign's top-level dir is archived (IE520/ was, 2026-10-30) into "old test runs/" and a new product dir takes its place; "old test runs/" is Terrence's history — leave it alone, never sweep or tidy it
 metadata:
   type: project
-  verified: 2026-10-02
+  verified: 2026-10-30
 ---
 
 Terrence, 2026-10-02: *"leave the old test runs/ directory. its fine. after the IE520 platform
@@ -26,5 +26,12 @@ material must not be load-bearing for the shared tooling, because it will move.
   move what it needs into `tools/` first.
 - Links from live documents into a product directory will go stale at the archive. That is
   accepted, as for any historical record.
+
+**DONE 2026-10-30:** Terrence moved `IE520/` to `old test runs/IE520/` on the share; commit
+`35baaf7` records it (2424 pure renames, blobs verified identical; two `.gitignore` lines for the
+>10 MB random-reboot transcripts repointed). Live IE520 work is under `<TB>/IE520/` (tb470, tb101),
+which did NOT move. Text references to `IE520/…` remain in orient-dt (§0 table, §0b rule 2
+globs), test-mode, bench-runner, tools/README.md, logged-output.md and platforms/IE520.md;
+repointing them was put to Terrence and is unanswered.
 
 Related: [[no-stray-scripts]], [[tb470-topology-and-setup]].
