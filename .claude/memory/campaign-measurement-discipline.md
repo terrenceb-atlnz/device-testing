@@ -60,3 +60,19 @@ destination that cannot transmit because nothing is cabled to it.
 Deliverables: per-case `<case-id>.log` ([[log-is-the-deliverable]]) plus a per-group
 `README.md` whose headline carries the PASS/UNMEASURED split and the reasons, so a reader
 gets the true picture without opening every file.
+
+## 5. A "nothing happened" control must be sampled past the platform's first-packet drop (2026-10-30)
+
+tb490 x980, T44276 (web-auth DHCP server). Run 1 sent ONE DISCOVER per try, got no OFFER in five
+configurations, and the result became a platform fact: "needs `service dhcp-server`". Two more runs
+"confirmed" it, because only the second and later DISCOVERs were ever answered. Run 5 measured the
+truth: the x980 never answers a MAC's FIRST DISCOVER, and the web-auth DHCP serves with the service
+off. One under-sampled control cost four extra runs and a wrong line in platforms/x980.md.
+
+- Before grading an absence, send enough tries (at least 2-3 per source) for any known first-packet
+  drop: DHCP's first DISCOVER, the first ICMP leg after an auth change (lost 1-3 of 4 on the x980),
+  ARP resolution.
+- A hypothesis that "explains" a negative result is not proven until the same test is run with the
+  suspected cause removed AND enough samples. Run 2 changed two things at once (service on + retries).
+- A platform fact written from one run gets the run and sample count beside it, so the next session
+  can see how thin it is.

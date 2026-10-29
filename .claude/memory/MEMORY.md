@@ -42,7 +42,7 @@
 - [AW+ CLI wiki on the share](awplus-cli-wiki-on-the-share.md) — 3437 command pages with syntax, MODE and platform tables; NO IE520 pages (cousins IE560/IE360/x230v2/IE340 absent too) → read x230; the IE520 mode can differ
 - [ck.db: look a case up by its AWPTCM id](ckdb-case-lookup-by-title.md) — CORRECTED 10-16: `zephyr_cases` IS keyed on AWPTCM-T<id>, so run `tools/ckcase.py <KEY>` FIRST; title-join is the legacy fallback
 - [tb470 bench structural limits](tb470-bench-structural-limits.md) — CORRECTED 09-23 (ports) + 09-24: tcpreplay gives LINE RATE (~983 Mbps/NIC); left: no MRP, TACACS+, SFP+ link faulty
-- [Campaign measurement discipline](campaign-measurement-discipline.md) — baseline the feature OFF first, make traffic TRANSIT the DUT, split PROVEN from NOT MEASURABLE
+- [Campaign measurement discipline](campaign-measurement-discipline.md) — baseline the feature OFF first, make traffic TRANSIT the DUT, split PROVEN from NOT MEASURABLE; sample a "nothing happened" control past first-packet drops (x980 2026-10-30)
 - [Traffic tests use scapy, not ping](scapy-for-traffic-tests.md) — Test Engineer 2026-10-15, ALL cases: craft the exact frame + a control flow that must NOT match, count both; ping proves reachability only. STANDING-ORDERS §7; tools/ already has 10 scapy helpers
 - [Three ways a tcpdump capture lies](tcpdump-nfs-root-squash-capture.md) — root-squash gives header-only pcaps; a SIZE read before the writer exits reads 0; a daemon's back-off empties short windows
 - [STP mode change re-enables spanning tree](stp-mode-change-reenables-spanning-tree.md) — a `spanning-tree mode` change silently drops `no spanning-tree <mode> enable`
