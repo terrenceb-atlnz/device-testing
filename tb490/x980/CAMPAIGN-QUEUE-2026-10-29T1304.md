@@ -136,7 +136,7 @@ T33375 was run on IE520 before (`IE520/auth-2026-09-22/33375.log`).
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| A | T33365 Web Auth – Public…; T33366 Web Auth – Promis…; T33357 802.1X EncryptionType…; T33375 MAC Auth/Web Auth | `auth-2026-10-29T1304` | RUNNING (bench-runner 13:25): T33375 PASS; T33365 PASS; T33366 PASS; DONE 14:13 NZDT: 4/4 PASS, restored, re-probe MATCH both boxes | One group, one DUT console (tb490 u2); client NIC tb5 eth6. T33366 also waits on D2. See Triage. |
+| A | T33365 Web Auth – Public…; T33366 Web Auth – Promis…; T33357 802.1X EncryptionType…; T33375 MAC Auth/Web Auth | `auth-2026-10-29T1304` | **DONE** 14:13 NZDT: 4/4 PASS (T33375, T33365, T33366, T33357), restored, re-probe MATCH both boxes | One group, one DUT console (tb490 u2); client NIC tb5 eth6. T33366 also waits on D2. See Triage. |
 
 ### Group A — bench setup and restore recipe (bench-runner RUN, written 2026-10-29 13:3x NZDT, before the first case)
 
