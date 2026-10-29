@@ -19,7 +19,7 @@ Recorded 2026-10-29 13:0x NZDT from the Test Engineer's own answers to `/test-mo
 
 Test Engineer: jacobm@jacobm-dl
 Testbox: tb490 (DUT, and the box that runs the cases) + tb5 (the rest of the network: "tb5 is for console access and logging")
-Consoles: tb490 u2 = the DUT. tb5: "run the bench probe on tb5" — all its consoles, u0, u1, u2 (cleared by the Test Engineer 2026-10-29, see below)
+Consoles: tb490 u2 = swi_dut (the DUT; names added 13:2x: "tb490 u2=swi_dut; tb5 u0=swi_x950, u1=swi_x530, u2=swi_ar"). tb5: "run the bench probe on tb5" — all its consoles, u0, u1, u2 (cleared by the Test Engineer 2026-10-29, see below)
 PDU: "no pdus" (both boxes). The framework's post-failure power cycle therefore does nothing (STANDING-ORDERS §1).
 Constraints: "no shared boxes all mine, run the test probe, u0 and u1 on tb490 are not to be touched"
              Both boxes are the Test Engineer's own ("tb5 is mine yes same with tb490 is mine").
@@ -130,13 +130,13 @@ T33375 was run on IE520 before (`IE520/auth-2026-09-22/33375.log`).
 - **D1:** "Yes, use tb5 eth6 + run" — tb5 eth6 / 192.168.50.0/24 (and jm1–jm5) carry the client traffic; the run proceeds.
 - **D2:** "Allow route + macvlans" — the tester may add the off-subnet route via the DUT (e.g. `sudo ip route add 8.8.8.0/24 via 192.168.50.1 dev eth6`) and bring jm1–jm5 up on tb5, and **removes both when the case is done**.
 - **D3:** "Use the local RADIUS" — T33365 uses the DUT's local RADIUS instead of the authored external freeradius; the difference is noted in the working log.
-- **D4:** "Let me name them" — names to follow from the Test Engineer; no `.static` written until they give them.
+- **D4:** "Let me name them" — given 2026-10-29 13:2x NZDT, verbatim: "tb490 u2=swi_dut; tb5 u0=swi_x950, u1=swi_x530, u2=swi_ar"
 
 ## Queue
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| A | T33365 Web Auth – Public…; T33366 Web Auth – Promis…; T33357 802.1X EncryptionType…; T33375 MAC Auth/Web Auth | `auth-2026-10-29T1304` | RUNNABLE (D1–D3 answered 13:2x; D4 names pending) | One group, one DUT console (tb490 u2); client NIC tb5 eth6. T33366 also waits on D2. See Triage. |
+| A | T33365 Web Auth – Public…; T33366 Web Auth – Promis…; T33357 802.1X EncryptionType…; T33375 MAC Auth/Web Auth | `auth-2026-10-29T1304` | RUNNABLE (D1–D4 answered 13:2x) | One group, one DUT console (tb490 u2); client NIC tb5 eth6. T33366 also waits on D2. See Triage. |
 
 ## Results
 
