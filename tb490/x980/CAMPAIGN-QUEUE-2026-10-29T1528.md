@@ -20,6 +20,8 @@ Constraints: "Same as 10-29": "no shared boxes all mine, run the test probe, u0 
 Session: run in the editor (Test Engineer accepted the risk of a cut; `--resume` covers it).
 Added 15:3x: "just heads up, the python3 scripts running on the tb490 are my scripts and does not touch u0 at all so the x980-dut is safe from that"
              (python3 processes on tb490 in a precheck are the Test Engineer's own: not a stop, never touched; an fuser holder of /dev/u2 still is.)
+Added 15:3x: "okay yes so if anything touvhes u2 please stop, i'll make sure here it doesn't n my end"
+             (any other process, output, login, reload or build change on tb490 u2 = the tester STOPS and reports; no retry, no grading of the case in flight.)
 Sentinel until: when the campaign ends (stands down at /wrap-dt).
 
 ### Occupancy check, 2026-10-29 15:21 NZDT (sentinel, no console opened)
