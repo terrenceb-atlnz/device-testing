@@ -1,0 +1,412 @@
+================================================================================
+TEST 44275 -- (207) Authentication&Security_WebAuthentication - Proxy Server for Web Authentication
+================================================================================
+Run:      2026-10-29 16:06-16:13 NZDT.  A client that uses an HTTP proxy was sent to the DUT's login page.
+          swi_dut's clock reads UTC, 25-35 s behind tb490.
+Bench:    tb490 (DUT) + tb5 (network), consoles tb490 u2 (swi_dut), tb5 u0 (swi_x950),
+          tb5 u1 (swi_x530); Test Engineer jacobm@jacobm-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T44275. The test-case database has no objective and one empty step.
+          The case was run from its title. The step names below are the tester's.
+          The test plan: with `auth-web-server intercept-port 8080`, an unauthenticated client
+          whose browser uses a proxy on port 8080 gets the DUT's login page. Without it, it does not.
+          References: AAA and Port Authentication Feature Overview and Configuration Guide
+          C613-22088-00 rev P p.52; Technical Tips and Tricks AW+ rev D p.65 ("Web Auth proxy").
+Build:    swi_dut  x980-awplus_main-20261029-90.rel (build date Wed Oct 28 20:43:01 UTC 2026)
+          swi_x950, swi_x530: transit only, not configured. Their build was not recorded.
+
+x980-CDQ#show system
+System Status                                           Thu Oct 29 03:07:07 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       688  Base    AT-x980-16CDQ                     X2-0  A10732A263200035
+Expansion  616  Bay1    AT-XEM3-12YS                      X1-0  A10599A232800007
+Expansion  617  Bay2    AT-XEM3-8CQ                       X3-0  A10534A241600051
+PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104R3027Q
+Fan module 715  FAN1    AT-FAN18                          A-0   A12345A12345678
+Fan module 715  FAN2    AT-FAN18                          A-0   A12345A12345678
+Fan module 715  FAN3    AT-FAN18                          A-0   A12345A12345678
+Fan module 715  FAN4    AT-FAN18                          A-0   A12345A12345678
+Fan module 715  FAN5    AT-FAN18                          A-0   A12345A12345678
+--------------------------------------------------------------------------------
+RAM: Total: 16033676 kB Free: 15374452 kB
+Flash: 127.9GB Used: 271.6MB Available: 126.6GB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 05:46:59
+Bootloader version : 260616
+BIOS version       : B7E3R911
+
+Current software   : x980-tb490.rel
+Software version   : awplus_main-20261029-90
+Build date         : Wed Oct 28 20:43:01 UTC 2026
+
+Current boot config: flash:/x980-autoorder.cfg (file exists)
+
+System Name
+ x980-CDQ
+System Contact
+
+System Location
+Configs:  swi_dut.cfg (running-config after setup; saved to startup: no)
+
+VERDICT: PASS -- with intercept-port 8080, the DUT answered a proxied request with its own login page.
+      no intercept-port 8080 (control) ....... PASS  (4 SYNs to 8.8.8.8:8080, 0 answered)
+      intercept-port 8080 .................... PASS  (HTTP 200, login FORM, sent from the DUT's MAC)
+      proxy port 8081 (control) .............. PASS  (timed out, not intercepted)
+      direct login, wrong password ........... PASS  ("Login incorrect", ICMP 0 of 4)
+      direct login, right password ........... PASS  ("Web Authentication successful", ICMP 4 of 4)
+      after login, port 8080 ................. PASS  (routed, not intercepted: ICMP net unreachable)
+CAVEAT:  The client sent the login POST to the DUT directly, not through the proxy.
+         A login POST sent through the proxy got no answer (STEP 3).
+         The Tips and Tricks guide says the login network must be a "No Proxy" network.
+         No real proxy server existed. 8.8.8.8:8080 was only the address the client asked for.
+HEALTH:  reboots ......... no new entry (newest stays 2026-10-28 21:19:45 Expected   CLI(user request))
+         exception log ... None
+         log ............. no crash, daemon restart or kernel error (0 new non-echo lines)
+         CPU ............. busy 1% before -> 1% after (1 s average. show cpu prints busy time, not idle time.)
+         memory .......... free 15374528 kB before -> 15374912 kB after, of 16033676 kB
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+        tb5 eth6 00:90:0b:2a:11:c3 192.168.50.10/24
+        (web client, browser proxy 8.8.8.8:8080, route 8.8.8.0/24 via 192.168.50.1)
+             |
+             v  HTTP to "proxy" 8.8.8.8:8080, HTTP login, ICMP
+        swi_x530 port1.0.16      (transit, not configured)
+             |
+             v
+        swi_x950                 (transit, not configured)
+             |
+             v
+    +------------------------------------------+
+    |  swi_dut  AT-x980-16CDQ           DUT    |
+    |  port1.0.81: auth-web                    |
+    |  vlan1 192.168.50.1, local RADIUS server |
+    |  no route to 8.8.8.8                     |
+    +------------------------------------------+
+
+  DUT     : swi_dut (AT-x980-16CDQ) console tb490 u2 115200, S/N A10732A263200035,
+            MAC e0:1a:ea:d5:04:56, vlan1 192.168.50.1, client port port1.0.81
+  transit : swi_x950 (tb5 u0), swi_x530 (tb5 u1). Not configured for this case.
+  link    : tb5 eth6 -> swi_x530 port1.0.16 -> swi_x950 -> swi_dut port1.0.81
+  host    : tb5 eth6 00:90:0b:2a:11:c3 192.168.50.10/24
+  tools   : all on tb5, run through tools/tb:
+            tools/httpq.py: tools/tb tool tb5 wa1528 httpq <url> --proxy 8.8.8.8:8080
+              (sends the request line `GET http://www.example.com/ HTTP/1.1` to the proxy)
+            tools/arpleg.py capture: tools/tb sudotool tb5 wa1528 arpleg --tag <t> --out /tmp/wa1528/t75
+              --iface eth6 --sniff-only --filter 'tcp port 8080 or icmp' --wait 35|40
+            tools/arpleg.py ICMP: ... --icmp 192.168.50.1 --gw-mac e0:1a:ea:d5:04:56 --count 4
+              --sender-mac 00:90:0b:2a:11:c3 --sender-ip 192.168.50.10
+            tools/hostnet.py: tools/tb sudotool tb5 wa1528 hostnet route-add
+            tools/ckcon.py: tools/tb ckcon tb490 wa1528 u2 115200 --stop-on-error --verbatim
+            tools/health.py: tools/tb health tb490 wa1528 u2 115200
+
+STEP 0 -- setup: one web user, the default intercept ports, a host route   done
+--------------------------------------------------------------------------------
+x980-CDQ#configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+x980-CDQ(config)#radius-server local
+x980-CDQ(config-radsrv)#user ckproxy password CkProxy-1528x
+x980-CDQ(config-radsrv)#end
+x980-CDQ#dot1x initialize interface port1.0.81
+x980-CDQ#show auth supplicant brief
+Interface port1.0.81
+  authenticationMethod: web
+  totalSupplicantNum: 0
+  authorizedSupplicantNum: 0
+  untaggedVlansupplicantNum: 0
+  taggedVlansupplicantNum: 0
+No supplicants
+x980-CDQ#show auth-web-server
+Web authentication server
+  Server status: enabled
+  Server address: 192.168.50.1
+  Server Host-Name: --
+  Server protocol: HTTP
+  DHCP server: disabled
+  DHCP lease time: 20
+  DHCP WPAD option URL: --
+  HTTP Port No: --
+  Certification: default
+  HTTP Intercept Port No: 80                            <-- default: port 80 only
+  HTTPS Intercept Port No: 443
+  Redirect URL: --
+  Redirect delay time: 5
+  Session keep: disabled
+  Login URL: --
+  Webauth IP conflict logoff supplicant: newer
+  PingPolling: disabled
+  PingPollingType: Ping
+  PingInterval: 30
+  Timeout: 1
+  FailCount: 5
+  ReauthTimerRefresh: disabled
+x980-CDQ#show ip route
+Codes: C - connected, S - static, R - RIP, B - BGP
+       O - OSPF, D - DHCP, IA - OSPF inter area
+       N1 - OSPF NSSA external type 1, N2 - OSPF NSSA external type 2
+       E1 - OSPF external type 1, E2 - OSPF external type 2
+       i - IS-IS, L1 - IS-IS level 1, L2 - IS-IS level 2, ia - IS-IS inter area
+       * - candidate default
+
+C       10.38.235.0/27 is directly connected, eth0
+C       192.168.50.0/24 is directly connected, vlan1     <-- no route to 8.8.8.8
+
+Gateway of last resort is not set
+host# tools/tb sudotool tb5 wa1528 hostnet route-add
+route 8.8.8.0/24: absent
+ip route add 8.8.8.0/24 via 192.168.50.1 dev eth6 -> rc 0
+route 8.8.8.0/24: PRESENT -- 8.8.8.0/24 via 192.168.50.1 dev eth6
+RESULT route-add: OK
+  The DUT printed no `%` error line. eth6 sends proxy traffic for 8.8.8.8 to the DUT.
+
+STEP 1 -- "control: proxied request WITHOUT intercept-port 8080"              PASS
+--------------------------------------------------------------------------------
+host# tools/tb tool tb5 wa1528 httpq http://www.example.com/ --proxy 8.8.8.8:8080 --timeout 10
+=== GET http://www.example.com/ via proxy 8.8.8.8:8080 ===
+TLS: NOT verified
+TRANSPORT FAILED: <urlopen error timed out>             <-- exit 4
+host# tools/tb sudotool tb5 wa1528 arpleg --tag t75c1 --out /tmp/wa1528/t75 --iface eth6 --sniff-only ...
+LEG t75c1  iface=eth6 watch=- count=3
+  sniff-only, 40.0 s
+  sent total: 0 frame(s)
+  cap t75c1-eth6.pcap: 4 frame(s)
+    x4     TCP  192.168.50.10  :54424 -> 8.8.8.8        :8080  S      [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]
+  pcaps: /tmp/wa1528/t75/t75c1-eth6.pcap                   <-- 4 SYNs, no answer
+  => STEP 1 PASS: The client sent 4 SYNs to the DUT's MAC. Nothing answered them.
+     So by default the DUT does not intercept port 8080.
+
+STEP 2 -- "intercept-port 8080: the proxied request gets the DUT's login page"  PASS
+--------------------------------------------------------------------------------
+x980-CDQ#configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+x980-CDQ(config)#auth-web-server intercept-port 8080
+x980-CDQ(config)#end
+x980-CDQ#show auth-web-server
+Web authentication server
+  Server status: enabled
+  Server address: 192.168.50.1
+  Server Host-Name: --
+  Server protocol: HTTP
+  DHCP server: disabled
+  DHCP lease time: 20
+  DHCP WPAD option URL: --
+  HTTP Port No: --
+  Certification: default
+  HTTP Intercept Port No: 80 8080                       <-- 8080 added
+  HTTPS Intercept Port No: 443
+  Redirect URL: --
+  Redirect delay time: 5
+  Session keep: disabled
+  Login URL: --
+  Webauth IP conflict logoff supplicant: newer
+  PingPolling: disabled
+  PingPollingType: Ping
+  PingInterval: 30
+  Timeout: 1
+  FailCount: 5
+  ReauthTimerRefresh: disabled
+host# tools/tb tool tb5 wa1528 httpq http://www.example.com/ --proxy 8.8.8.8:8080
+=== GET http://www.example.com/ via proxy 8.8.8.8:8080 ===
+TLS: NOT verified
+HTTP 200 OK                                             <-- exit 0
+  Cache-Control: no-cache
+  Content-type: text/html; charset=utf-8
+  Expires: Thu, 01 Dec 1994 16:00:00 GMT
+  Pragma: no-cache
+  The full reply body holds the DUT's login form (lines copied from the body):
+              <STRONG>Web Access Authentication Gateway</STRONG>
+                  <FORM action="http://192.168.50.1/index.cgi" autocomplete="off" target="_self" name="AUTH" method="POST">
+                            <INPUT size="30" type="text" maxlength="64" name="USERNAME" tabindex="0">
+                            <INPUT size="30" type="password" maxlength="64" name="PASSWORD" tabindex="0">
+                            <INPUT class="btncolor" type="submit" name="ACTION" value="login" tabindex="0">
+host# tools/tb sudotool tb5 wa1528 arpleg --tag t75c2 --out /tmp/wa1528/t75 --iface eth6 --sniff-only ...
+LEG t75c2  iface=eth6 watch=- count=3
+  sniff-only, 40.0 s
+  sent total: 0 frame(s)
+  cap t75c2-eth6.pcap: 11 frame(s)
+    x2     TCP  192.168.50.10  :54426 -> 8.8.8.8        :8080  S      [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]
+    x2     TCP  192.168.50.10  :54426 -> 8.8.8.8        :8080  A      [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]
+    x2     TCP  8.8.8.8        :8080  -> 192.168.50.10  :54426 A      [eth e0:1a:ea:d5:04:56 -> 00:90:0b:2a:11:c3]
+    x1     TCP  8.8.8.8        :8080  -> 192.168.50.10  :54426 SA     [eth e0:1a:ea:d5:04:56 -> 00:90:0b:2a:11:c3]
+    x1     TCP  192.168.50.10  :54426 -> 8.8.8.8        :8080  PA     [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]
+    x1     TCP  8.8.8.8        :8080  -> 192.168.50.10  :54426 PA     [eth e0:1a:ea:d5:04:56 -> 00:90:0b:2a:11:c3]
+    x1     TCP  8.8.8.8        :8080  -> 192.168.50.10  :54426 FA     [eth e0:1a:ea:d5:04:56 -> 00:90:0b:2a:11:c3]
+    x1     TCP  192.168.50.10  :54426 -> 8.8.8.8        :8080  FA     [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]
+  pcaps: /tmp/wa1528/t75/t75c2-eth6.pcap        <-- "8.8.8.8" answers from the DUT's MAC e0:1a:ea:d5:04:56
+host# tools/tb tool tb5 wa1528 httpq http://www.example.com/ --proxy 8.8.8.8:8081
+=== GET http://www.example.com/ via proxy 8.8.8.8:8081 ===
+TLS: NOT verified
+TRANSPORT FAILED: <urlopen error timed out>             <-- control: 8081 is not intercepted
+  => STEP 2 PASS: With intercept-port 8080, the DUT answered the proxied request itself.
+     The answer was the DUT's login page, sent from the DUT's MAC.
+     A proxy on port 8081 still timed out in the same configuration.
+
+STEP 3 -- "the login POST sent THROUGH the proxy" (observation, not graded)     done
+--------------------------------------------------------------------------------
+host# tools/tb tool tb5 wa1528 httpq http://192.168.50.1/index.cgi --proxy 8.8.8.8:8080 --method POST --data 'USERNAME=ckproxy&PASSWORD=WrongPass-99&ACTION=login'
+=== POST http://192.168.50.1/index.cgi via proxy 8.8.8.8:8080 ===
+TLS: NOT verified
+TRANSPORT FAILED: Remote end closed connection without response
+host# ... the same with PASSWORD=<correct>, sent twice
+=== POST http://192.168.50.1/index.cgi via proxy 8.8.8.8:8080 ===
+TLS: NOT verified
+TRANSPORT FAILED: Remote end closed connection without response
+=== POST http://192.168.50.1/index.cgi via proxy 8.8.8.8:8080 ===
+TLS: NOT verified
+TRANSPORT FAILED: Remote end closed connection without response
+host# tools/tb sudotool tb5 wa1528 arpleg --tag t75e6a ... --sender-mac 00:90:0b:2a:11:c3 --sender-ip 192.168.50.10
+LEG t75e6a  iface=eth6 watch=- count=4
+  sent: icmp 192.168.50.10 -> 192.168.50.1 (eth dst e0:1a:ea:d5:04:56)  x4
+  sent total: 4 frame(s)
+  cap t75e6a-eth6.pcap: 4 frame(s)
+    x4     ICMP t8/c0 192.168.50.10   -> 192.168.50.1    [ours]   [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]
+  pcaps: /tmp/wa1528/t75/t75e6a-eth6.pcap                  <-- 0 of 4
+host# tools/tb sudotool tb5 wa1528 arpleg --tag t75e6b ... (same client)
+LEG t75e6b  iface=eth6 watch=- count=4
+  sent: icmp 192.168.50.10 -> 192.168.50.1 (eth dst e0:1a:ea:d5:04:56)  x4
+  sent total: 4 frame(s)
+  cap t75e6b-eth6.pcap: 4 frame(s)
+    x4     ICMP t8/c0 192.168.50.10   -> 192.168.50.1    [ours]   [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]
+  pcaps: /tmp/wa1528/t75/t75e6b-eth6.pcap                  <-- 0 of 4
+x980-CDQ#show auth supplicant brief
+Interface port1.0.81
+  authenticationMethod: web
+  totalSupplicantNum: 1
+  authorizedSupplicantNum: 0
+  untaggedVlansupplicantNum: 0
+  taggedVlansupplicantNum: 0
+
+Interface   VID  Mode MAC Address    Status            IP Address      Username
+=========== ==== ==== ============== ================= =============== ========
+port1.0.81  1    W    0090.0b2a.11c3 Connecting        192.168.50.10   --
+x980-CDQ#show log | include ckproxy|Login|Web Auth|auth-web|webauth|httpd
+  (Lines from before this case are not shown. This case's lines start at 03:06:57.)
+2026 Oct 29 03:06:57 user.notice x980-CDQ IMISH[19091]: [manager@ttyS0]user ckproxy ********
+2026 Oct 29 03:07:05 user.notice x980-CDQ IMISH[19091]: [manager@ttyS0]show auth-web-server
+2026 Oct 29 03:08:29 user.notice x980-CDQ IMISH[19091]: [manager@ttyS0]auth-web-server intercept-port 8080
+2026 Oct 29 03:08:32 user.notice x980-CDQ IMISH[19091]: [manager@ttyS0]show auth-web-server
+2026 Oct 29 03:10:43 user.notice x980-CDQ IMISH[19091]: [manager@ttyS0]show log | include ckproxy|Login|Web Auth|auth-web|webauth|httpd
+                                    <-- no radiusd "Login" line: the DUT did not process the proxied POSTs
+host# tools/tb tool tb5 wa1528 httpq http://192.168.50.1/ --proxy 8.8.8.8:8080
+=== GET http://192.168.50.1/ via proxy 8.8.8.8:8080 ===
+TLS: NOT verified
+HTTP 200 OK
+  Cache-control: no-cache
+  Content-type: text/html; charset=utf-8
+  Pragma: no-cache
+--- body (300 bytes shown, TRUNCATED) ---
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <title>Web Authentication Error</title>
+  </head>
+  <body>
+    <h1>Invalid proxy setting detected</h1>
+    <p>
+    Web proxy setting on your device does not match with the proxy setting on the
+  => STEP 3 done (not graded): The DUT closed each proxied login POST without an answer.
+     The DUT logged no login attempt, and eth6 stayed Connecting with 0 of 4 replies.
+     A proxied GET of the login address got the page "Invalid proxy setting detected".
+     This matches the guide: the login network must be a "No Proxy" network. STEP 4 logs in directly.
+
+STEP 4 -- "login direct (the 'No Proxy' network), wrong password control first"  PASS
+--------------------------------------------------------------------------------
+host# tools/tb tool tb5 wa1528 httpq http://192.168.50.1/index.cgi --method POST --data 'USERNAME=ckproxy&PASSWORD=WrongPass-99&ACTION=login'
+=== POST http://192.168.50.1/index.cgi ===
+TLS: NOT verified
+HTTP 200 OK
+  Cache-Control: no-cache
+  Content-type: text/html; charset=utf-8
+  Expires: Thu, 01 Dec 1994 16:00:00 GMT
+  Pragma: no-cache
+--- body (200 bytes shown, TRUNCATED) ---
+<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\">
+<HTML>
+<HEAD>
+<META http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<META name="robots" content="noindex,nofollow,noarch
+host# tools/tb sudotool tb5 wa1528 arpleg --tag t75e6c ... (eth6)
+LEG t75e6c  iface=eth6 watch=- count=4
+  sent: icmp 192.168.50.10 -> 192.168.50.1 (eth dst e0:1a:ea:d5:04:56)  x4
+  sent total: 4 frame(s)
+  cap t75e6c-eth6.pcap: 4 frame(s)
+    x4     ICMP t8/c0 192.168.50.10   -> 192.168.50.1    [ours]   [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]
+  pcaps: /tmp/wa1528/t75/t75e6c-eth6.pcap                  <-- wrong password: 0 of 4
+host# tools/tb tool tb5 wa1528 httpq http://192.168.50.1/index.cgi --method POST --data 'USERNAME=ckproxy&PASSWORD=<correct>&ACTION=login'
+=== POST http://192.168.50.1/index.cgi ===
+TLS: NOT verified
+HTTP 200 OK
+  Cache-Control: no-cache
+  Content-type: text/html; charset=utf-8
+  Expires: Thu, 01 Dec 1994 16:00:00 GMT
+  Pragma: no-cache
+--- body (200 bytes shown, TRUNCATED) ---
+<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\">
+<HTML>
+<HEAD>
+<META http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<META name="robots" content="noindex,nofollow,noarch
+host# tools/tb sudotool tb5 wa1528 arpleg --tag t75e6d ... (eth6)
+LEG t75e6d  iface=eth6 watch=- count=4
+  sent: icmp 192.168.50.10 -> 192.168.50.1 (eth dst e0:1a:ea:d5:04:56)  x4
+  sent total: 4 frame(s)
+  cap t75e6d-eth6.pcap: 8 frame(s)
+    x4     ICMP t8/c0 192.168.50.10   -> 192.168.50.1    [ours]   [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]
+    x4     ICMP t0/c0 192.168.50.1    -> 192.168.50.10   [ours]   [eth e0:1a:ea:d5:04:56 -> 00:90:0b:2a:11:c3]
+  pcaps: /tmp/wa1528/t75/t75e6d-eth6.pcap                  <-- right password: 4 of 4
+DUT log (from the `show log` in STEP 5):
+2026 Oct 29 03:11:05 daemon.notice x980-CDQ radiusd[19651]: (0) Login incorrect (pap: Cleartext password does not match "known good" password): [ckproxy] (from client 127.0.0.1 port 5081 cli 00-90-0b-2a-11-c3)
+2026 Oct 29 03:11:07 user.notice x980-CDQ 802.1X[1116]: Web Authentication failed (retry=0) for ckproxy@0090.0b2a.11c3(192.168.50.10) on port1.0.81
+2026 Oct 29 03:11:18 daemon.notice x980-CDQ radiusd[19651]: (1) Login OK: [ckproxy] (from client 127.0.0.1 port 5081 cli 00-90-0b-2a-11-c3)
+2026 Oct 29 03:11:18 user.notice x980-CDQ 802.1X[1116]: Web Authentication successful for ckproxy@0090.0b2a.11c3(192.168.50.10) on port1.0.81
+  => STEP 4 PASS: The DUT refused the wrong password, and eth6 got 0 of 4 replies.
+     The DUT accepted the right password, and eth6 then got 4 of 4.
+
+STEP 5 -- "after login the proxy port is no longer intercepted"                PASS
+--------------------------------------------------------------------------------
+host# tools/tb tool tb5 wa1528 httpq http://www.example.com/ --proxy 8.8.8.8:8080
+=== GET http://www.example.com/ via proxy 8.8.8.8:8080 ===
+TLS: NOT verified
+TRANSPORT FAILED: <urlopen error [Errno 101] Network is unreachable>
+host# tools/tb sudotool tb5 wa1528 arpleg --tag t75c5 --out /tmp/wa1528/t75 --iface eth6 --sniff-only ...
+LEG t75c5  iface=eth6 watch=- count=3
+  sniff-only, 35.0 s
+  sent total: 0 frame(s)
+  cap t75c5-eth6.pcap: 2 frame(s)
+    x1     TCP  192.168.50.10  :54448 -> 8.8.8.8        :8080  S      [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]
+    x1     ICMP t3/c0 192.168.50.1    -> 192.168.50.10     [eth e0:1a:ea:d5:04:56 -> 00:90:0b:2a:11:c3]
+  pcaps: /tmp/wa1528/t75/t75c5-eth6.pcap        <-- ICMP type 3 code 0: network unreachable, from 192.168.50.1
+x980-CDQ#show auth supplicant brief
+Interface port1.0.81
+  authenticationMethod: web
+  totalSupplicantNum: 1
+  authorizedSupplicantNum: 1
+  untaggedVlansupplicantNum: 1
+  taggedVlansupplicantNum: 0
+    macBasedAuthenticationSupplicantNum: 0
+    dot1xAuthenticationSupplicantNum: 0
+    webBasedAuthenticationSupplicantNum: 1
+    otherAuthenticationSupplicantNum: 0
+
+Interface   VID  Mode MAC Address    Status            IP Address      Username
+=========== ==== ==== ============== ================= =============== ========
+port1.0.81  1    W    0090.0b2a.11c3 Authenticated     192.168.50.10   ckproxy
+x980-CDQ#show log | include ckproxy|Web Authentication|Supplicant
+  (Lines from before this case are not shown. This case's lines start at 03:06:57.)
+2026 Oct 29 03:06:57 user.notice x980-CDQ IMISH[19091]: [manager@ttyS0]user ckproxy ********
+2026 Oct 29 03:10:43 user.notice x980-CDQ IMISH[19091]: [manager@ttyS0]show log | include ckproxy|Login|Web Auth|auth-web|webauth|httpd
+2026 Oct 29 03:11:05 daemon.notice x980-CDQ radiusd[19651]: (0) Login incorrect (pap: Cleartext password does not match "known good" password): [ckproxy] (from client 127.0.0.1 port 5081 cli 00-90-0b-2a-11-c3)
+2026 Oct 29 03:11:07 user.notice x980-CDQ 802.1X[1116]: Web Authentication failed (retry=0) for ckproxy@0090.0b2a.11c3(192.168.50.10) on port1.0.81
+2026 Oct 29 03:11:18 daemon.notice x980-CDQ radiusd[19651]: (1) Login OK: [ckproxy] (from client 127.0.0.1 port 5081 cli 00-90-0b-2a-11-c3)
+2026 Oct 29 03:11:18 user.notice x980-CDQ 802.1X[1116]: Web Authentication successful for ckproxy@0090.0b2a.11c3(192.168.50.10) on port1.0.81
+2026 Oct 29 03:11:59 user.notice x980-CDQ IMISH[19091]: [manager@ttyS0]show log | include ckproxy|Web Authentication|Supplicant
+  => STEP 5 PASS: After login, the DUT no longer answered port 8080 itself.
+     It routed the SYN and sent back "network unreachable", because it has no route to 8.8.8.8.
+     So the DUT intercepts port 8080 only for clients that are not yet authenticated.
+================================================================================
