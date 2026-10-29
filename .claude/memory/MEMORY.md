@@ -104,3 +104,4 @@
 - [ER-3353 guest VLAN = hw-forwarding](er-3353-guest-vlan-is-hw-forwarding.md) — 'Suppress unicast flooding' TFS only specifies hw-forwarding + S3353.1.6/1.7 subnet rules; no unknown-unicast blocking; read the TFS, not the folder name
 - [Two-box campaign: DUT and client on different testboxes](two-box-campaign-dut-and-client-on-different-testboxes.md) — tb490 DUT + tb5 client side 2026-10-29: each box its own bench; client NIC on the far box; sentinel BOX = DUT box
 - [AW+ default password list](awplus-default-password-list.md) — NOT just manager/friend: framework list is 5 passwords since 2026-10-19; 5 = lockout threshold, never walk it on an unknown unit
+- [Dev host VS Code update process](dev-host-vscode-update-process.md) — 2026-10-29: `~/bin/update-vscode.sh` + "Update VS Code" desktop icon; apt from the MS repo, debconf preseeded, never restarts VS Code on its own
