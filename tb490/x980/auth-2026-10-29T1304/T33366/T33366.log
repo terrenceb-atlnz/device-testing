@@ -1,0 +1,330 @@
+================================================================================
+TEST T33366 -- (206) Authentication&Security_WebAuthentication - Promiscuous / Intercept web Authentication
+================================================================================
+Run:      2026-10-29 13:49-13:56 NZDT.  The DUT's web intercept was checked before and after login.
+          swi_dut's clock reads UTC, 34 s behind the box.
+Bench:    tb490, console u2 (swi_dut); client traffic from tb5 eth6 through tb5's swi_x530 and swi_x950;
+          Test Engineer jacobm@jacobm-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T33366, no objective, 1 authored step, and that step is empty.  The steps below come
+          from the title.  Each STEP heading says what that step checked.
+Build:    swi_dut AT-x980-16CDQ, software awplus_main-20261029-90 (x980-tb490.rel, build date
+          Wed Oct 28 20:43:01 UTC 2026)
+
+          Read at 13:49:38 NZDT, at the start of this case.  The DUT's own `show system`:
+
+x980-CDQ#show system
+  System Status                                           Thu Oct 29 00:49:04 2026
+  
+  Board      ID   Bay     Board Name                        Rev   Serial number
+  --------------------------------------------------------------------------------
+  Base       688  Base    AT-x980-16CDQ                     X2-0  A10732A263200035
+  Expansion  616  Bay1    AT-XEM3-12YS                      X1-0  A10599A232800007
+  Expansion  617  Bay2    AT-XEM3-8CQ                       X3-0  A10534A241600051
+  PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104R3027Q 
+  Fan module 715  FAN1    AT-FAN18                          A-0   A12345A12345678 
+  Fan module 715  FAN2    AT-FAN18                          A-0   A12345A12345678 
+  Fan module 715  FAN3    AT-FAN18                          A-0   A12345A12345678 
+  Fan module 715  FAN4    AT-FAN18                          A-0   A12345A12345678 
+  Fan module 715  FAN5    AT-FAN18                          A-0   A12345A12345678 
+  --------------------------------------------------------------------------------
+  RAM: Total: 16033676 kB Free: 15373056 kB
+  Flash: 127.9GB Used: 271.6MB Available: 126.6GB
+  --------------------------------------------------------------------------------
+  Environment Status : Normal
+  Uptime             : 0 days 03:28:56
+  Bootloader version : 260616
+  BIOS version       : B7E3R911
+  
+  Current software   : x980-tb490.rel
+  Software version   : awplus_main-20261029-90
+  Build date         : Wed Oct 28 20:43:01 UTC 2026
+  
+  Current boot config: flash:/x980-autoorder.cfg (file exists)
+  
+  System Name
+   x980-CDQ
+  System Contact
+  
+  System Location
+Configs:  swi_dut.cfg (running-config after setup, before STEP 1; saved to startup: no)
+
+VERDICT: PASS -- the DUT intercepts web requests before login, and stops after login.
+      TCP 80 to an off-subnet address, before login .... intercepted  (HTTP 200 login page; the SYN-ACK
+                                                                       comes from the DUT's MAC)
+      TCP 8080 and 8081 by default ...................... not intercepted  (4 SYNs each, 0 answered)
+      `auth-web-server intercept-port 8080` ............. 8080 intercepted, 8081 still not
+      `auth-web-server intercept-port any` .............. 8081 intercepted too
+      after a web login ................................. nothing intercepted  (the DUT routes the
+                                                           traffic and sends ICMP net unreachable)
+      `auth-web-server mode` ............................ not on this build  (% Unrecognized command)
+CAVEAT:  The title names two modes, "promiscuous" and "intercept".  This build has no command to choose a
+         mode.  Interception is on without any configuration.  The AW+ Technical Tips and Tricks guide
+         (p.73, p.78) describes the older modes.  In "promiscuous" mode the switch also acts as the
+         client's gateway.  This run did not test that part.  The port has `auth forward arp`, so the DUT
+         forwards the client's ARP.  HTTPS (TCP 443) interception was not tested.  Only one destination
+         address, 8.8.8.8, was used.
+HEALTH:  before 13:49:45 NZDT, after 13:55:12 NZDT, compared as a difference.
+         reboots ......... no new entry (newest stays 2026-10-28 21:19:45 Expected   CLI(user request))
+         exception log ... None -> None
+         log ............. 0 new lines that match kernel, exception, crash, restart or Unexpected,
+                           other than the echoes of our own commands
+         CPU ............. 0% -> 1% busy, 1 s average (`show cpu` prints busy averages, not idle);
+                           load 1.13 -> 1.21
+         memory .......... 4.1% used before -> 4.1% used after
+                           (free 15371544 -> 15374968 kB of 16033676 kB)
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  One client on one port.  The client has not logged in at the start.  It sends web requests to
+  8.8.8.8, which is not on the DUT's subnet.  A route on tb5 sends that traffic to the DUT.
+
+        tb5  eth6  00:90:0b:2a:11:c3  192.168.50.10
+             route 8.8.8.0/24 via 192.168.50.1 dev eth6   (added for this case, present in every step)
+             |
+             |  (to DUT)   TCP SYNs to 8.8.8.8 ports 80, 8080, 8081; HTTP GET; one login POST; ICMP echo
+             |  (from DUT) SYN-ACKs and the login page as "8.8.8.8"; ICMP unreachable; ICMP echo replies
+             v
+    +----------------------------------+
+    |  tb5's swi_x530 and swi_x950     |   carry the traffic only
+    +----------------------------------+
+             |
+             v  port1.0.81
+    +----------------------------------------------------+
+    |  swi_dut   AT-x980-16CDQ                  <-- DUT  |
+    |  port1.0.81: auth-web enable,                      |
+    |              auth host-mode multi-supplicant,      |
+    |              auth forward arp / dhcp / dns         |
+    |  vlan1 192.168.50.1/24, MAC e0:1a:ea:d5:04:56      |
+    |  auth-web-server ipaddress 192.168.50.1, HTTP      |
+    |  radius-server local, user ckweb (this case)       |
+    |  no route to 8.8.8.8 (connected routes only)       |
+    +----------------------------------------------------+
+             ^
+             |  console, 115200 baud
+        tb490  console u2
+
+  DUT     : swi_dut (AT-x980-16CDQ) on tb490 console u2 at 115200 baud, S/N A10732A263200035,
+            software awplus_main-20261029-90.  Bays: AT-XEM3-12YS (Bay1), AT-XEM3-8CQ (Bay2).
+            vlan1 192.168.50.1/24, MAC e01a.ead5.0456.
+  routes  : the DUT has only two connected routes: 10.38.235.0/27 on eth0 and 192.168.50.0/24 on
+            vlan1.  So it has no route to 8.8.8.8.
+  server  : the DUT's own local RADIUS server.  This case added the user `ckweb`.
+  client  : tb5 eth6, MAC 00:90:0b:2a:11:c3, address 192.168.50.10.  The sub-interfaces jm1 to jm5
+            on eth6 were DOWN and were not used.
+  host    : tb5 route 8.8.8.0/24 via 192.168.50.1 dev eth6, added with tools/hostnet.py before STEP 1.
+  link    : tb5 eth6 -> tb5's swi_x530 and swi_x950 -> swi_dut port1.0.81
+  tools   : tools/tb ckcon (console), tools/tb health (health reads), tools/qmark.py (help read),
+            tools/httpq.py on tb5 (web requests), tools/arpleg.py --sniff-only on tb5 eth6 (captures),
+            tools/hostnet.py (the tb5 route), tools/tb ping and tools/tb ps on tb5, tools/rc2cfg.py
+            (swi_dut.cfg)
+
+STEP A -- read the command surface on this build                            done
+--------------------------------------------------------------------------------
+  Method: read with tools/qmark.py at 13:30 NZDT, before the setup.  The tester recorded the help
+  lists as below.
+
+  `auth-web-server ?`: dhcp, host-name, intercept-port, ip-conflict-prefer-newer-supplicant,
+    ipaddress, login-url, page, ping-poll, port, redirect-delay-time, redirect-url, session-keep, ssl, trustpoint.
+  `auth-web-server mode ?` -> % Unrecognized command.
+
+  Command Reference 5.5.6-1, `auth-web-server intercept-port`:
+    "If this command is not specified, AlliedWare Plus Web-Authentication intercepts the supplicant's
+    initial TCP port 80 connection to a web page and sends it the Web-Authentication Login page"
+    `intercept-port <1-65535>|any` adds ports.  `any` means all TCP ports.
+
+  => STEP A done: this build has no `auth-web-server mode` command.  It also has no
+     `auth-web-server gateway` command.  Interception of TCP port 80 is on by default.
+     `intercept-port` adds more ports.  So this case tests the default interception and
+     `intercept-port`.
+
+STEP B -- setup, and the default intercept ports (baseline)                 done
+--------------------------------------------------------------------------------
+x980-CDQ#show auth-web-server
+  Web authentication server
+    Server status: enabled
+    Server address: 192.168.50.1
+    Server Host-Name: --
+    Server protocol: HTTP
+    DHCP server: disabled
+    DHCP lease time: 20
+    DHCP WPAD option URL: --
+    HTTP Port No: --
+    Certification: default
+    HTTP Intercept Port No: 80   <-- the default: only port 80
+    HTTPS Intercept Port No: 443   <-- HTTPS, not tested in this case
+    Redirect URL: --
+    Redirect delay time: 5
+    Session keep: disabled
+    Login URL: --
+    Webauth IP conflict logoff supplicant: newer
+    PingPolling: disabled
+    PingPollingType: Ping
+    PingInterval: 30
+    Timeout: 1
+    FailCount: 5
+    ReauthTimerRefresh: disabled
+
+x980-CDQ#configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+x980-CDQ(config)#radius-server local
+x980-CDQ(config-radsrv)#user ckweb password CkWeb-2026x
+x980-CDQ(config-radsrv)#end
+
+  Method: tools/hostnet.py added the route on tb5.
+host tb5# tools/tb sudotool tb5 auth1304 hostnet route-add
+  BEFORE:
+  route 8.8.8.0/24: absent
+  link  jm1  jm1@eth6         DOWN           02:00:5e:00:00:99 <BROADCAST,MULTICAST>
+  link  jm2  jm2@eth6         DOWN           02:00:5e:00:01:02 <BROADCAST,MULTICAST>
+  link  jm3  jm3@eth6         DOWN           02:00:5e:00:01:03 <BROADCAST,MULTICAST>
+  link  jm4  jm4@eth6         DOWN           02:00:5e:00:01:04 <BROADCAST,MULTICAST>
+  link  jm5  jm5@eth6         DOWN           02:00:5e:00:01:05 <BROADCAST,MULTICAST>
+  ip route add 8.8.8.0/24 via 192.168.50.1 dev eth6 -> rc 0 
+  AFTER:
+  route 8.8.8.0/24: PRESENT -- 8.8.8.0/24 via 192.168.50.1 dev eth6   <-- tb5 now sends 8.8.8.0/24 to the DUT
+  link  jm1  jm1@eth6         DOWN           02:00:5e:00:00:99 <BROADCAST,MULTICAST>
+  link  jm2  jm2@eth6         DOWN           02:00:5e:00:01:02 <BROADCAST,MULTICAST>
+  link  jm3  jm3@eth6         DOWN           02:00:5e:00:01:03 <BROADCAST,MULTICAST>
+  link  jm4  jm4@eth6         DOWN           02:00:5e:00:01:04 <BROADCAST,MULTICAST>
+  link  jm5  jm5@eth6         DOWN           02:00:5e:00:01:05 <BROADCAST,MULTICAST>
+  RESULT route-add: OK
+
+  => STEP B done: the DUT intercepts TCP 80 only.  The local user ckweb exists.  tb5 sends
+     traffic for 8.8.8.8 to the DUT.
+
+STEP 1 -- before login: port 80 is intercepted, 8080 and 8081 are not       PASS
+--------------------------------------------------------------------------------
+  Method: the capture on tb5 eth6 started first, then the three requests were sent.
+    capture: tools/tb sudotool tb5 auth1304 arpleg --tag t66s1 --out /tmp/auth1304/t66 --iface eth6 --sniff-only --filter 'host 8.8.8.8' --wait 40
+host tb5$ httpq http://8.8.8.8/ --timeout 8
+  TLS: NOT verified
+  HTTP 200 OK
+  <FORM action="http://192.168.50.1/index.cgi" autocomplete="off" target="_self" name="AUTH" method="POST">   <-- the DUT's login page, posting to 192.168.50.1
+host tb5$ httpq http://8.8.8.8:8080/ --timeout 8
+  TRANSPORT FAILED: <urlopen error timed out>   <-- control: not intercepted
+host tb5$ httpq http://8.8.8.8:8081/ --timeout 8
+  TRANSPORT FAILED: <urlopen error timed out>   <-- control: not intercepted
+
+  capture on tb5 eth6:
+  LEG t66s1  iface=eth6 watch=- count=3
+    sniff-only, 40.0 s
+    sent total: 0 frame(s)
+    cap t66s1-eth6.pcap: 19 frame(s)
+      x4     TCP  192.168.50.10  :54350 -> 8.8.8.8        :8080  S      [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]   <-- 4 SYNs to 8080, no answer
+      x4     TCP  192.168.50.10  :39272 -> 8.8.8.8        :8081  S      [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]   <-- 4 SYNs to 8081, no answer
+      x2     TCP  192.168.50.10  :47684 -> 8.8.8.8        :80    S      [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]
+      x2     TCP  192.168.50.10  :47684 -> 8.8.8.8        :80    A      [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]
+      x2     TCP  8.8.8.8        :80    -> 192.168.50.10  :47684 A      [eth e0:1a:ea:d5:04:56 -> 00:90:0b:2a:11:c3]
+      x1     TCP  8.8.8.8        :80    -> 192.168.50.10  :47684 SA     [eth e0:1a:ea:d5:04:56 -> 00:90:0b:2a:11:c3]   <-- SYN-ACK "from 8.8.8.8" with the DUT's MAC
+      x1     TCP  192.168.50.10  :47684 -> 8.8.8.8        :80    PA     [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]
+      x1     TCP  8.8.8.8        :80    -> 192.168.50.10  :47684 PA     [eth e0:1a:ea:d5:04:56 -> 00:90:0b:2a:11:c3]   <-- the login page "from 8.8.8.8", DUT's MAC
+      x1     TCP  8.8.8.8        :80    -> 192.168.50.10  :47684 FA     [eth e0:1a:ea:d5:04:56 -> 00:90:0b:2a:11:c3]
+      x1     TCP  192.168.50.10  :47684 -> 8.8.8.8        :80    FA     [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]
+    pcaps: /tmp/auth1304/t66/t66s1-eth6.pcap
+
+  => STEP 1 PASS: the client asked 8.8.8.8 for a web page on port 80.  The DUT answered in place of
+     8.8.8.8.  The SYN-ACK and the page carry the DUT's MAC e0:1a:ea:d5:04:56.  The DUT has no route
+     to 8.8.8.8, so it could not have forwarded the request.  The page is the DUT's login form.
+     Ports 8080 and 8081 got 4 SYNs each and 0 answers.  So the DUT intercepts port 80 only, and it
+     does this without any intercept configuration.
+
+STEP 2 -- `auth-web-server intercept-port 8080` adds port 8080 only         PASS
+--------------------------------------------------------------------------------
+  Method: sent at 13:51:12-13:51:16 NZDT.  The tester recorded the two intercept lines of
+  `show auth-web-server`.  The capture for this step and STEP 3 is shown in STEP 3.
+x980-CDQ#configure terminal
+x980-CDQ(config)#auth-web-server intercept-port 8080
+x980-CDQ(config)#end
+x980-CDQ#show auth-web-server
+    HTTP Intercept Port No: 80 8080   <-- 8080 added
+    HTTPS Intercept Port No: 443
+host tb5$ httpq http://8.8.8.8:8080/
+  HTTP 200 OK
+  <FORM action="http://192.168.50.1/index.cgi" autocomplete="off" target="_self" name="AUTH" method="POST">   <-- login page on 8080
+host tb5$ httpq http://8.8.8.8:8081/ (control)
+  TRANSPORT FAILED: <urlopen error timed out>   <-- control: 8081 still not intercepted
+
+  => STEP 2 PASS: after the command, port 8080 gets the DUT's login page.  In STEP 1 the same request
+     got no answer.  Port 8081 still times out.  So the command added exactly one port.
+
+STEP 3 -- `auth-web-server intercept-port any` adds every TCP port          PASS
+--------------------------------------------------------------------------------
+  Method: sent at 13:51:55-13:51:59 NZDT.  The capture t66s34 on tb5 eth6 ran for 75 s across
+  STEP 2 and STEP 3.
+x980-CDQ#configure terminal
+x980-CDQ(config)#auth-web-server intercept-port any
+x980-CDQ(config)#end
+x980-CDQ#show auth-web-server
+    HTTP Intercept Port No: any   <-- 'any' replaces '80 8080'
+    HTTPS Intercept Port No: 443
+host tb5$ httpq http://8.8.8.8:8081/
+  HTTP 200 OK
+  <FORM action="http://192.168.50.1/index.cgi" autocomplete="off" target="_self" name="AUTH" method="POST">   <-- login page on 8081
+
+  capture on tb5 eth6 (STEP 2 and STEP 3):
+  LEG t66s34  iface=eth6 watch=- count=3
+    sniff-only, 75.0 s
+    sent total: 0 frame(s)
+    cap t66s34-eth6.pcap: 25 frame(s)
+      x4     TCP  192.168.50.10  :39278 -> 8.8.8.8        :8081  S      [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]   <-- STEP 2 control: 4 SYNs to 8081, no answer
+      x2     TCP  192.168.50.10  :54354 -> 8.8.8.8        :8080  S      [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]
+      x2     TCP  192.168.50.10  :54354 -> 8.8.8.8        :8080  A      [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]
+      x2     TCP  8.8.8.8        :8080  -> 192.168.50.10  :54354 A      [eth e0:1a:ea:d5:04:56 -> 00:90:0b:2a:11:c3]
+      x2     TCP  192.168.50.10  :39280 -> 8.8.8.8        :8081  A      [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]
+      x2     TCP  8.8.8.8        :8081  -> 192.168.50.10  :39280 A      [eth e0:1a:ea:d5:04:56 -> 00:90:0b:2a:11:c3]   <-- STEP 3: 8081 answered from the DUT's MAC
+      x1     TCP  8.8.8.8        :8080  -> 192.168.50.10  :54354 SA     [eth e0:1a:ea:d5:04:56 -> 00:90:0b:2a:11:c3]   <-- STEP 2: 8080 SYN-ACK from the DUT's MAC
+      x1     TCP  192.168.50.10  :54354 -> 8.8.8.8        :8080  PA     [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]
+      x1     TCP  8.8.8.8        :8080  -> 192.168.50.10  :54354 PA     [eth e0:1a:ea:d5:04:56 -> 00:90:0b:2a:11:c3]   <-- STEP 2: the page on 8080
+      x1     TCP  8.8.8.8        :8080  -> 192.168.50.10  :54354 FA     [eth e0:1a:ea:d5:04:56 -> 00:90:0b:2a:11:c3]
+      x1     TCP  192.168.50.10  :54354 -> 8.8.8.8        :8080  FA     [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]
+      x1     TCP  192.168.50.10  :39280 -> 8.8.8.8        :8081  S      [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]
+      ... 5 more distinct flow(s)
+    pcaps: /tmp/auth1304/t66/t66s34-eth6.pcap
+
+  The running-config keeps both lines, `auth-web-server intercept-port any` and
+  `auth-web-server intercept-port 8080`.  `show auth-web-server` prints only `any`.
+
+  => STEP 3 PASS: port 8081 got no answer in STEP 1 and STEP 2.  After `intercept-port any`, port
+     8081 gets the DUT's login page.  The 8081 connection is answered from the DUT's MAC.  So `any`
+     makes the DUT intercept every TCP port.
+
+STEP 4 -- after a web login, nothing is intercepted                         PASS
+--------------------------------------------------------------------------------
+  Method: the client logged in as ckweb.  Then the requests to 8.8.8.8 ports 80 and 8081 were sent
+  again.  `auth-web-server intercept-port any` was still configured.
+host tb5$ ping eth6 192.168.50.1 x4 (before login): 4 packets transmitted, 0 received, 100% packet loss, time 3075ms   <-- not logged in: 0 of 4
+host tb5$ httpq http://192.168.50.1/index.cgi --method POST --data 'USERNAME=ckweb&PASSWORD=<correct>&ACTION=login' -> HTTP 200 OK
+host tb5$ ping x4 (after): 4 packets transmitted, 4 received, 0% packet loss, time 3058ms   <-- logged in: 4 of 4
+
+  The DUT's supplicant table after the login:
+    totalSupplicantNum: 1
+    authorizedSupplicantNum: 1   <-- 1 client authorised
+    untaggedVlansupplicantNum: 1
+    taggedVlansupplicantNum: 0
+      macBasedAuthenticationSupplicantNum: 0
+      dot1xAuthenticationSupplicantNum: 0
+      webBasedAuthenticationSupplicantNum: 1   <-- by web authentication
+      otherAuthenticationSupplicantNum: 0
+  port1.0.81  1    W    0090.0b2a.11c3 Authenticated     192.168.50.10   ckweb   <-- tb5 eth6, Authenticated, user ckweb
+
+  Method: capture t66s5b on tb5 eth6.  `tools/tb ps tb5 'tcpdump.*t66s5b'` showed tcpdump running
+  before the two requests were sent.
+  httpq http://8.8.8.8/ -> TRANSPORT FAILED: <urlopen error [Errno 101] Network is unreachable>
+  httpq http://8.8.8.8:8081/ -> TRANSPORT FAILED: <urlopen error [Errno 101] Network is unreachable>
+  LEG t66s5b  iface=eth6 watch=- count=3
+    sniff-only, 45.0 s
+    sent total: 0 frame(s)
+    cap t66s5b-eth6.pcap: 4 frame(s)
+      x2     ICMP t3/c0 192.168.50.1    -> 192.168.50.10     [eth e0:1a:ea:d5:04:56 -> 00:90:0b:2a:11:c3]   <-- the DUT, from 192.168.50.1: net unreachable
+      x1     TCP  192.168.50.10  :47710 -> 8.8.8.8        :80    S      [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]   <-- SYN to port 80, sent to the DUT, no SYN-ACK
+      x1     TCP  192.168.50.10  :39294 -> 8.8.8.8        :8081  S      [eth 00:90:0b:2a:11:c3 -> e0:1a:ea:d5:04:56]   <-- SYN to port 8081, sent to the DUT, no SYN-ACK
+    pcaps: /tmp/auth1304/t66/t66s5b-eth6.pcap
+
+  => STEP 4 PASS: after the login, the same SYNs went to the DUT's MAC.  The DUT did not answer
+     them as 8.8.8.8.  It sent 2 ICMP type 3 code 0 (network unreachable) from 192.168.50.1.  The
+     host reports this ICMP as Errno 101.  So the DUT routed the traffic, and it has no route to
+     8.8.8.8.  The intercept stops for a client that has logged in, even with `intercept-port any`.
+================================================================================

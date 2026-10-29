@@ -1,0 +1,432 @@
+================================================================================
+TEST T33365 -- (205) Authentication&Security_WebAuthentication - Public key encryption(X509)
+================================================================================
+Run:      2026-10-29 13:41-13:46 NZDT.  A client logged in to the DUT's web authentication
+          server over HTTPS, and the server used a new X.509 certificate.
+          swi_dut's clock reads UTC, about 34 s behind the box.
+Bench:    tb490, console u2 (swi_dut); client traffic from tb5 eth6 through tb5's
+          swi_x530 and swi_x950; Test Engineer jacobm@jacobm-dl
+Tester:   bench-runner
+Graded:   tester
+Case:     AWPTCM-T33365, objective "To make sure that x509 public key can import with Web
+          authentication", 7 steps.  No step has an authored expected result.  The
+          precondition gives the expected outcome: `show auth supplicant brief` lists the web
+          client with Mode W, Authenticated, and its user name.
+Build:    swi_dut AT-x980-16CDQ, software awplus_main-20261029-90 (x980-tb490.rel, build
+          date Wed Oct 28 20:43:01 UTC 2026)
+
+          Read at 13:41:14 NZDT, before this case started.  The DUT's own `show system`:
+
+x980-CDQ#show system
+System Status                                           Thu Oct 29 00:40:40 2026
+
+Board      ID   Bay     Board Name                        Rev   Serial number
+--------------------------------------------------------------------------------
+Base       688  Base    AT-x980-16CDQ                     X2-0  A10732A263200035
+Expansion  616  Bay1    AT-XEM3-12YS                      X1-0  A10599A232800007
+Expansion  617  Bay2    AT-XEM3-8CQ                       X3-0  A10534A241600051
+PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104R3027Q
+Fan module 715  FAN1    AT-FAN18                          A-0   A12345A12345678
+Fan module 715  FAN2    AT-FAN18                          A-0   A12345A12345678
+Fan module 715  FAN3    AT-FAN18                          A-0   A12345A12345678
+Fan module 715  FAN4    AT-FAN18                          A-0   A12345A12345678
+Fan module 715  FAN5    AT-FAN18                          A-0   A12345A12345678
+--------------------------------------------------------------------------------
+RAM: Total: 16033676 kB Free: 15373480 kB
+Flash: 127.9GB Used: 271.6MB Available: 126.6GB
+--------------------------------------------------------------------------------
+Environment Status : Normal
+Uptime             : 0 days 03:20:32
+Bootloader version : 260616
+BIOS version       : B7E3R911
+
+Current software   : x980-tb490.rel
+Software version   : awplus_main-20261029-90
+Build date         : Wed Oct 28 20:43:01 UTC 2026
+
+Current boot config: flash:/x980-autoorder.cfg (file exists)
+
+System Name
+ x980-CDQ
+System Contact
+
+System Location
+Configs:  swi_dut.cfg (running-config after setup; saved to startup: no)
+
+VERDICT: PASS -- the DUT used a new X.509 certificate for web authentication over HTTPS.
+      RSA key pair created (2048 bits) ...... YES   (Created the key "ck-web-key".)
+      trustpoint created and enrolled ....... YES   (Type: Self-signed certificate
+                                                     authority (RSA + ECDSA))
+      CA certificate exported in PEM ........ YES   (RSA and ECDSA certificates printed;
+                                                     fingerprints match the trustpoint)
+      web server presents the new cert ...... YES   (subject CN=192.168.50.1; before the
+                                                     change it was AlliedwarePlusDefault)
+      client trusts it only with the CA ..... YES   (chain verified with the exported CA;
+                                                     verify failed with the system store)
+      wrong password refused (control) ...... YES   (Mode W, Connecting, 0 of 4 pings)
+      web login over HTTPS, right password .. YES   (Mode W, Authenticated, ckweb,
+                                                     4 of 4 pings)
+      authored STEP 6 (copy CA to freeradius)  NOT RUN  (local RADIUS used instead)
+CAVEAT:  The certificate has no subjectAltName.  Its subject is only /CN=192.168.50.1.
+         So the client checked the chain with the hostname check off.  With the hostname
+         check on, the client rejected the certificate: "IP address mismatch".  The
+         trustpoint help lists `subject-alt-name`, but the case does not ask for it, so it
+         was not used.
+         Authored STEP 6 was not run.  The DUT's own local RADIUS server checked the
+         password, so no external freeradius server took part.
+         The server address and subject were 192.168.50.1, not the authored 1.1.1.1.
+         The configuration was not saved, so this run did not test a reboot.
+HEALTH:  before 13:41:22 NZDT, after 13:45:42 NZDT, compared as a difference.
+         reboots ......... no new entry (newest stays 2026-10-28 21:19:45 Expected
+                           CLI(user request))
+         exception log ... None
+         log ............. no crash, daemon restart or kernel error (0 new non-echo lines)
+         CPU ............. 1% busy before -> 1% busy after (1 s average; `show cpu` prints
+                           busy, not idle)
+         memory .......... 4.1% used before -> 4.1% used after (free 15372836 -> 15378460
+                           kB of 16033676 kB)
+
+--------------------------------------------------------------------------------
+TOPOLOGY AS TESTED
+--------------------------------------------------------------------------------
+  One client logs in over HTTPS.  The DUT is the web server and the RADIUS server.
+
+        tb5  eth6  00:90:0b:2a:11:c3  192.168.50.10       (web client)
+             |
+             |  (to DUT)    TLS to 192.168.50.1:443, the login POST, ICMP echo
+             |  (from DUT)  the X.509 certificate, HTTP responses, echo replies
+             v
+        tb5's swi_x530 and swi_x950       (pass the traffic through; not tested)
+             |
+             v  port1.0.81
+    +--------------------------------------------------------+
+    |  swi_dut   AT-x980-16CDQ                       <-- DUT  |
+    |  port1.0.81: auth-web enable, multi-supplicant,        |
+    |              auth forward arp / dhcp / dns             |
+    |  auth-web-server 192.168.50.1, ssl,                    |
+    |              trustpoint ck-web (key ck-web-key)        |
+    |         |                                              |
+    |         +--> radius-server local, user ckweb (PAP)     |
+    +--------------------------------------------------------+
+             ^
+             |  console, 115200 baud
+        tb490  u2
+
+  DUT     : swi_dut (AT-x980-16CDQ) console u2 at 115200 baud, S/N A10732A263200035,
+            software awplus_main-20261029-90.  vlan1 address 192.168.50.1,
+            MAC e01a.ead5.0456.
+  server  : the DUT's own local RADIUS server, user ckweb, added for this case.
+  link    : tb5 eth6 -> tb5's swi_x530 and swi_x950 -> swi_dut port1.0.81 (vlan 1)
+  host    : tb5 eth6 00:90:0b:2a:11:c3 192.168.50.10
+  tools   : tools/tb ckcon and tools/tb ckyn (DUT console), tools/tb qmark (help only),
+            tools/tb health (the two health reads), tools/tb tool httpq on tb5 with
+            --cafile, --no-hostname-check and --peer-cert, tools/tb ping on tb5,
+            tools/tb put (copied the CA file to tb5), tools/rc2cfg.py and tools/rcdiff.py
+            (config files), openssl x509 on the dev host (decoded the CA files)
+
+STEP 0 -- baseline: the HTTPS certificate before any change                  done
+--------------------------------------------------------------------------------
+host tb5$ tools/tb tool tb5 auth1304 httpq https://192.168.50.1/ --peer-cert --max-body 200 --timeout 8
+=== GET https://192.168.50.1/ ===
+TLS: NOT verified
+PEER CERT (TLSv1.3): subject organizationName=Allied-Telesis, commonName=AlliedwarePlusDefault, serialNumber=e01a.ead5.0456
+  issuer   organizationName=Allied Telesis, Inc., commonName=AlliedWarePlusCA, serialNumber=e01a.ead5.0456
+  SAN      -
+  valid    Aug 13 05:59:48 2026 GMT -> Jul 31 05:59:48 2076 GMT   serial BD1FB60A451E88EE
+  sha256   ef7a4ffc0d3dc46aa1900e5ee036061ba2e29fef7d2a98ffb29e6daa5cc2a35a
+HTTP 200 OK
+  Cache-Control: no-cache
+
+  => STEP 0 done: before the case, the server shows the default certificate,
+     AlliedwarePlusDefault.  STEP B compares against this.
+
+STEP 1 -- "Using the attached config"                                        done
+--------------------------------------------------------------------------------
+  Method: the case has no attached config.  The web authentication setup already on
+  port1.0.81 was used.  It has auth-web enable, multi-supplicant, and auth forward
+  arp, dhcp and dns.  `aaa authentication auth-web` points to the local RADIUS server.
+  swi_dut.cfg holds the full running-config.
+
+  => STEP 1 done: the port is ready for a web login.
+
+STEP 7 -- "Create the RSA key pair for use with the web-authentication server certificate"   PASS
+--------------------------------------------------------------------------------
+  Method: this step ran FIRST.  STEP 2 names the key, so the key must exist before it.
+  The key label is ck-web-key, not the authored web-server.  So it cannot clash with
+  the DUT's own keys.
+
+x980-CDQ#crypto key generate rsa label ck-web-key 2048
+Generating 2048-bit key...
+Created the key "ck-web-key".                         <-- the key exists
+
+  => STEP 7 PASS: the DUT created a 2048-bit RSA key pair named ck-web-key.
+
+STEP 2 -- "Create a trustpoint to use a local self-signed CA"                PASS
+--------------------------------------------------------------------------------
+  Method: the trustpoint name is ck-web, not the authored web-ca.  The subject is the
+  DUT's web server address, 192.168.50.1.
+
+x980-CDQ#configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+x980-CDQ(config)#crypto pki trustpoint ck-web
+Created trustpoint "ck-web".
+x980-CDQ(ca-trustpoint)#enrollment selfsigned
+x980-CDQ(ca-trustpoint)#rsakeypair ck-web-key
+x980-CDQ(ca-trustpoint)#subject /CN=192.168.50.1
+x980-CDQ(ca-trustpoint)#exit
+x980-CDQ(config)#end
+x980-CDQ#show crypto pki trustpoint ck-web
+--------------------
+Trustpoint "ck-web"
+   Type                 : Non-authenticated trustpoint        <-- no CA yet
+   Authentication and Enrollment Parameters
+      Enrollment      : selfsigned
+      RSA Key Pair    : ck-web-key (2048 bits)               <-- the STEP 7 key
+      Subject         : /CN=192.168.50.1
+
+  => STEP 2 PASS: the trustpoint exists.  It uses self-signed enrollment and the
+     key from STEP 7.
+
+STEP 3 -- "Create a local self-signed Root CA certificate"                   PASS
+--------------------------------------------------------------------------------
+x980-CDQ#crypto pki authenticate ck-web
+Generating 2048-bit key for RSA local CA...
+Generating P-384 ECDSA key for ECDSA local CA...
+Successfully authenticated trustpoint "ck-web".       <-- the root CA exists
+x980-CDQ#
+
+  => STEP 3 PASS: the DUT created a self-signed root CA for ck-web.  It made two: one
+     RSA and one ECDSA.  The trustpoint read in STEP 4 shows both.
+
+STEP 4 -- "Create a web-authentication server certificate using the RSA keypair specified in the trustpoint parameters"   PASS
+--------------------------------------------------------------------------------
+x980-CDQ#crypto pki enroll ck-web
+Successfully enrolled the local server.
+Using ECDSA private key "server-default-ecdsa"...     <-- an existing key, not a new one
+Successfully created ECDSA server certificate.
+x980-CDQ#show crypto pki trustpoint ck-web
+--------------------
+Trustpoint "ck-web"
+   Type                 : Self-signed certificate authority (RSA + ECDSA)
+   Root Certificate     : RSA:  19A2ACC1 3D8F17A9 5432DC3E 5831CDF6 A67CA6EB
+                        : ECDSA: 54FB7995 DF99553E BF7DA42E A18B0603 B3DD8C5C
+   Local Server (RSA)   : Enrolled with this trustpoint.     <-- the server certificate
+   Local Server (ECDSA) : Enrolled with this trustpoint.
+   Server Key           : RSA: ck-web-key                    <-- the STEP 7 key
+                        : ECDSA: server-default-ecdsa
+   Authentication and Enrollment Parameters
+      Enrollment      : selfsigned
+      RSA Key Pair    : ck-web-key (2048 bits)
+      Subject         : /CN=192.168.50.1
+x980-CDQ#
+
+  => STEP 4 PASS: the RSA server certificate is enrolled, and it uses ck-web-key.
+     The ECDSA server certificate uses server-default-ecdsa, a key that already
+     belongs to trustpoint local.  That key was left in place.
+
+STEP 5 -- "Exporting a local self-signed CA certificate to the web-authentication client"   PASS
+--------------------------------------------------------------------------------
+  Method: this build exports to the terminal and asks for a key type, rsa or ecdsa.
+  Both CA certificates were exported.
+
+x980-CDQ#crypto pki export ck-web pem terminal rsa
+-----------------------------------------------------------------
+-----BEGIN CERTIFICATE-----
+MIIDdDCCAlygAwIBAgIJAInFDixg9NPhMA0GCSqGSIb3DQEBCwUAMEoxHTAbBgNV
+BAoMFEFsbGllZCBUZWxlc2lzLCBJbmMuMSkwJwYDVQQDDCBBbGxpZWRXYXJlUGx1
+c0NBQTEwNzMyQTI2MzIwMDAzNTAeFw0yNjEwMjkwMDQxNTlaFw0zMTEwMjgwMDQx
+NTlaMEoxHTAbBgNVBAoMFEFsbGllZCBUZWxlc2lzLCBJbmMuMSkwJwYDVQQDDCBB
+bGxpZWRXYXJlUGx1c0NBQTEwNzMyQTI2MzIwMDAzNTCCASIwDQYJKoZIhvcNAQEB
+BQADggEPADCCAQoCggEBAN88w5KJJBgnpcZFoYFLPOPtNhPb47YJu8CzL+lC5qUW
+2/3z+rJPTSijOHcIQqDr3nDNc4eu7oeD8tfRdrtcBBiV4JXDkntIJJMTTwUMjn7y
++lBkVUdJcG31FXirL3eY3O0nO/zDk32ws/DJK2na1+pvY2aDOKImHFDbdzaRiWXC
+YgVwPyuVw36CKwMJ19Mv+NKi8X9l2Tveo+pnXsZu2kUsZqIzs7i8/uJmuwwAS9rC
+wKekDpnz8cY+qkPnl+yX+YAAHLARR/Duh2raHu9PmvSSRMbfIfsJgKGPbY4ytGy9
+fmJsiVkZNw94oxPKlURa/RzPpqIjnUlN5xlBKxERKH0CAwEAAaNdMFswHQYDVR0O
+BBYEFFQnGE0lCanGyP6Jpf9IwnWu9SLTMB8GA1UdIwQYMBaAFFQnGE0lCanGyP6J
+pf9IwnWu9SLTMAsGA1UdDwQEAwIBBjAMBgNVHRMEBTADAQH/MA0GCSqGSIb3DQEB
+CwUAA4IBAQAKizrGiBFP233ll42YFo3n8lU6KYj642K87S2+ENEYAxzT94TrcyyR
+JJqV0cL6Fbby0i8M6qYR3QT1Ls5+J8eZ3db8Oo+byG6GUR0uG+p7nva9oajmGpr0
+pj76G+SNVx2K7amkNgUn3EWdfawnKuHoIhnd0rMEhZg4yVtGQbKquUubt9vFchnk
+KKF/h1Oz92HgrdOsQza+I4lFmz8Mzr57yE9bD1Vr8XryCbMcgIxLr8YhKE+fA456
+epcYf7S6+7UgDB5DIXHVtbcGnbaAQoo6dGkxYpCpOhZTuNVF9EZqAJx9Z/w5dahu
+SDsrvqh+XTDQ2ezCYVzpVdxc3Pf4lmGJ
+-----END CERTIFICATE-----
+-----------------------------------------------------------------
+x980-CDQ#crypto pki export ck-web pem terminal ecdsa
+-----------------------------------------------------------------
+-----BEGIN CERTIFICATE-----
+MIICJDCCAaugAwIBAgIJAMt9fXgdLX0SMAoGCCqGSM49BAMCMEoxHTAbBgNVBAoM
+FEFsbGllZCBUZWxlc2lzLCBJbmMuMSkwJwYDVQQDDCBBbGxpZWRXYXJlUGx1c0NB
+QTEwNzMyQTI2MzIwMDAzNTAeFw0yNjEwMjkwMDQxNTlaFw0zMTEwMjgwMDQxNTla
+MEoxHTAbBgNVBAoMFEFsbGllZCBUZWxlc2lzLCBJbmMuMSkwJwYDVQQDDCBBbGxp
+ZWRXYXJlUGx1c0NBQTEwNzMyQTI2MzIwMDAzNTB2MBAGByqGSM49AgEGBSuBBAAi
+A2IABDAcsQ4Kjkp0UAhZxQcy+Zf/ojxjCmSiADinuWTlWTTQHtMUi7dZPFt+9XkY
+LoHOm8wASbkcotAbwWoA5tfSd2pZdzNiGW/nPzuPs3yJVSlEHhMOWr1Wybnqce3U
+sSXKBKNdMFswHQYDVR0OBBYEFGjLlu3txAoILyDqnb/++xfP6vzUMB8GA1UdIwQY
+MBaAFGjLlu3txAoILyDqnb/++xfP6vzUMAsGA1UdDwQEAwIBBjAMBgNVHRMEBTAD
+AQH/MAoGCCqGSM49BAMCA2cAMGQCMHYkkhX+/0thcjmzOL33cKTq+6C7PIeVhSX3
+hkNZxHcPnfoXvAR3gjGifj7DGY6+AwIwbNQJ+Ta+rYQf00q6gxGxuojmeKNi7Sbs
+KRv0rCotIqjg3NQus7Td1V8rKqb5q596
+-----END CERTIFICATE-----
+-----------------------------------------------------------------
+
+  The DUT log recorded the export (the health read counted this line 2 times):
+2026 Oct 29 00:43:11 user.notice x980-CDQ IMISH[12126]: Trustpoint ck-web exported
+
+  Method: the two PEM blocks were decoded with openssl x509 on the dev host.  The
+  result:
+    both CA:TRUE, subject = issuer = O=Allied Telesis, Inc., CN=AlliedWarePlusCAA10732A263200035
+    RSA   sha1 19:A2:AC:C1:3D:8F:17:A9:54:32:DC:3E:58:31:CD:F6:A6:7C:A6:EB = trustpoint Root Certificate RSA 19A2ACC1 ...
+    ECDSA sha1 54:FB:79:95:DF:99:55:3E:BF:7D:A4:2E:A1:8B:06:03:B3:DD:8C:5C = trustpoint Root Certificate ECDSA 54FB7995 ...
+
+  Both PEM blocks were saved as one file, ck-web-ca.pem.  tools/tb put copied it to the
+  client, tb5, as /tmp/auth1304/ck-web-ca.pem.
+
+  => STEP 5 PASS: the DUT exported both CA certificates in PEM.  Each fingerprint
+     matches the root certificate in STEP 4.  So the exported file is the CA that
+     signed the server certificate.  The client got this file.
+
+STEP 6 -- "Copy certificate to freeradius server"                            NOT RUN
+--------------------------------------------------------------------------------
+  => STEP 6 NOT RUN: the Test Engineer chose the DUT's own local RADIUS server, not an
+     external freeradius server.  So there was no freeradius server to copy the CA to.
+     The local server checks a PAP password and needs no copy of the CA.  The exported
+     CA was used by the client instead, in STEP B.
+
+STEP A -- bind the web authentication server to the trustpoint               done
+--------------------------------------------------------------------------------
+x980-CDQ#configure terminal
+Enter configuration commands, one per line.  End with CNTL/Z.
+x980-CDQ(config)#radius-server local
+x980-CDQ(config-radsrv)#user ckweb password CkWeb-2026x
+x980-CDQ(config-radsrv)#exit
+x980-CDQ(config)#auth-web-server ssl
+x980-CDQ(config)#auth-web-server trustpoint ck-web
+x980-CDQ(config)#end
+x980-CDQ#show auth-web-server
+Web authentication server
+  Server status: enabled
+  Server address: 192.168.50.1
+  Server Host-Name: --
+  Server protocol: HTTPS                              <-- HTTPS is on
+  DHCP server: disabled
+  DHCP lease time: 20
+  DHCP WPAD option URL: --
+  HTTP Port No: --
+  Certification: user                                <-- a user trustpoint, not the default
+  HTTP Intercept Port No: 80
+  HTTPS Intercept Port No: 443
+  Redirect URL: --
+  Redirect delay time: 5
+  Session keep: disabled
+  Login URL: --
+  Webauth IP conflict logoff supplicant: newer
+  PingPolling: disabled
+  PingPollingType: Ping
+  PingInterval: 30
+  Timeout: 1
+  FailCount: 5
+  ReauthTimerRefresh: disabled
+
+  The running-config gained exactly these lines (tools/rcdiff.py, before -> after setup):
++!
++crypto pki trustpoint ck-web
++ enrollment selfsigned
++ rsakeypair ck-web-key 2048
++ subject-name /CN=192.168.50.1
++ user ckweb encrypted password ZuswYfZ1DvfWIXjVPDDFbYTHOp45vDhRzr/iNTPUxsk=
++auth-web-server ssl
++auth-web-server trustpoint ck-web
+
+  => STEP A done: the web server uses HTTPS and the ck-web trustpoint.  Nothing else
+     in the configuration changed.
+
+STEP B -- the client checks the server certificate with the exported CA      PASS
+--------------------------------------------------------------------------------
+host tb5$ httpq https://192.168.50.1/ --peer-cert --cafile /tmp/auth1304/ck-web-ca.pem --no-hostname-check
+=== GET https://192.168.50.1/ ===
+TLS: chain verified against /tmp/auth1304/ck-web-ca.pem, hostname NOT checked     <-- trusted
+PEER CERT (TLSv1.3): subject commonName=192.168.50.1                              <-- the new cert
+  issuer   organizationName=Allied Telesis, Inc., commonName=AlliedWarePlusCAA10732A263200035
+  SAN      -                                                                      <-- no subjectAltName
+  valid    Oct 29 00:41:59 2026 GMT -> Oct 28 00:41:59 2031 GMT   serial E8DEB21787FB1227
+  sha256   bbbee77c5c823c51d952eaf8ba36163b0bf238811ea63f3c1e453834945fc778
+HTTP 200 OK
+  Cache-Control: no-cache
+
+  Control 1: the same request, checked against the client's system store, not the CA:
+host tb5$ httpq https://192.168.50.1/ --verify --no-hostname-check
+=== GET https://192.168.50.1/ ===
+TLS: chain verified against the system store, hostname NOT checked
+TRANSPORT FAILED: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1108)>
+
+  Control 2: the exported CA with the hostname check ON:
+host tb5$ httpq https://192.168.50.1/ --cafile /tmp/auth1304/ck-web-ca.pem
+=== GET https://192.168.50.1/ ===
+TLS: chain verified against /tmp/auth1304/ck-web-ca.pem
+TRANSPORT FAILED: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: IP address mismatch, certificate is not valid for '192.168.50.1'. (_ssl.c:1108)>
+
+  Why control 2 fails.  The subject holds only a common name, CN=192.168.50.1.  A client
+  that follows RFC 6125 matches an IP address only against a subjectAltName iPAddress.
+  This certificate has no subjectAltName.
+
+  The plain HTTP page at http://192.168.50.1/ still answers 200.  Its login form now
+  sends to HTTPS:
+<FORM action="https://192.168.50.1/index.cgi" autocomplete="off" target="_self" name="AUTH" method="POST">
+
+  => STEP B PASS: the server now shows the ck-web certificate, not the STEP 0
+     default.  The client trusts it with the exported CA.  The client does not trust it
+     with the system store.  So the trust comes from the exported CA and nothing else.
+
+STEP C -- web authentication over HTTPS with the X.509 certificate           PASS
+--------------------------------------------------------------------------------
+  Method: the wrong password ran FIRST, as the control.  Every POST checked the chain
+  with the exported CA.  The ping from tb5 eth6 to 192.168.50.1 tests the dataplane.
+
+host tb5$ ping eth6 192.168.50.1 x4 (before login): 4 packets transmitted, 0 received, 100% packet loss, time 3054ms
+
+host tb5$ httpq https://192.168.50.1/index.cgi --cafile /tmp/auth1304/ck-web-ca.pem --no-hostname-check --method POST --data 'USERNAME=ckweb&PASSWORD=WRONGPASSWORD9&ACTION=login'
+TLS: chain verified against /tmp/auth1304/ck-web-ca.pem, hostname NOT checked
+HTTP 200 OK
+host tb5$ ping x4: 4 packets transmitted, 0 received, 100% packet loss, time 3049ms
+  [the DUT's supplicant table; only these lines were kept]
+  totalSupplicantNum: 1
+  authorizedSupplicantNum: 0
+  untaggedVlansupplicantNum: 0
+  taggedVlansupplicantNum: 0
+port1.0.81  1    W    0090.0b2a.11c3 Connecting        192.168.50.10   --        <-- not let in
+
+  Then the same request with the correct password:
+host tb5$ httpq ... same, PASSWORD=<correct>
+TLS: chain verified against /tmp/auth1304/ck-web-ca.pem, hostname NOT checked
+HTTP 200 OK
+host tb5$ ping x4: 4 packets transmitted, 4 received, 0% packet loss, time 3052ms
+  [the DUT's supplicant table; only these lines were kept]
+  totalSupplicantNum: 1
+  authorizedSupplicantNum: 1
+  untaggedVlansupplicantNum: 1
+  taggedVlansupplicantNum: 0
+    macBasedAuthenticationSupplicantNum: 0
+    dot1xAuthenticationSupplicantNum: 0
+    webBasedAuthenticationSupplicantNum: 1
+    otherAuthenticationSupplicantNum: 0
+port1.0.81  1    W    0090.0b2a.11c3 Authenticated     192.168.50.10   ckweb     <-- logged in
+
+  DUT log (UTC clock):
+2026 Oct 29 00:44:30 daemon.notice x980-CDQ radiusd[12140]: (0) Login incorrect (pap: Cleartext password does not match "known good" password): [ckweb] (from client 127.0.0.1 port 5081 cli 00-90-0b-2a
+2026 Oct 29 00:44:32 user.notice x980-CDQ 802.1X[1116]: Web Authentication failed (retry=0) for ckweb@0090.0b2a.11c3(192.168.50.10) on port1.0.81
+2026 Oct 29 00:44:42 daemon.notice x980-CDQ radiusd[12140]: (1) Login OK: [ckweb] (from client 127.0.0.1 port 5081 cli 00-90-0b-2a-11-c3)
+2026 Oct 29 00:44:42 user.notice x980-CDQ 802.1X[1116]: Web Authentication successful for ckweb@0090.0b2a.11c3(192.168.50.10) on port1.0.81
+
+  | login over HTTPS  | DUT status        | user  | ping from tb5 eth6 |
+  | ----------------- | ----------------- | ----- | ------------------ |
+  | before login      | --                | --    | 0 of 4             |
+  | wrong password    | W, Connecting     | --    | 0 of 4             |
+  | correct password  | W, Authenticated  | ckweb | 4 of 4             |
+
+  => STEP C PASS: the web login worked over TLS with the ck-web certificate.  The
+     wrong password left the client in Connecting, with 0 of 4 pings.  The correct
+     password gave Mode W, Authenticated, user ckweb, and 4 of 4 pings.  This is the
+     expected outcome from the case's precondition.
+================================================================================
