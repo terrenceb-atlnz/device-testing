@@ -822,6 +822,21 @@ The IPv4 counterpart of `nsresp.py` (which answers IPv6 Neighbor Solicitations).
   a clean Up -> Down -> Up transition pair that the DUT's own trigger log matched to within
   1 s, with a never-muted second address as the in-leg control.
 
+### `hostnet.py`
+The **one** root host-network change the Test Engineer approved for tb5 (auth campaign
+2026-10-29T1304, decision D2 and the answer "Yes, add the narrow helper"): the route
+`8.8.8.0/24 via 192.168.50.1 dev eth6` and the macvlans `jm1`-`jm5` up or down. Nothing else.
+- **Why it exists:** a web-authentication *intercept* leg needs an unauthenticated client's
+  HTTP to an OFF-subnet address to reach the DUT, which needs a host route via the DUT; `tools/tb`
+  refuses root route changes by design and hand-built ssh is forbidden (Ask-CK D6).
+- **Run:** `tools/tb sudotool tb5 <scratch> hostnet route-add|route-del|show` or
+  `... hostnet link-up|link-down jmN`
+- **Where:** tb5 (root); **needs:** iproute2. **Imports:** none
+- **Output:** BEFORE state, the `ip` command and its rc, AFTER state, `RESULT <action>: OK`;
+  exit 3 when the after-state is not what was asked. So the removal is proved by the same call.
+- **Limits:** no address, prefix, gateway or interface comes from the command line -- widening it
+  is the Test Engineer's decision (STANDING-ORDERS §4), not a flag.
+
 ### `filewin.py`
 Reads a **window** of a growing text file: the bytes it gained since a byte offset the caller
 recorded earlier. The instrument for grading a case against a file some **other** process keeps
