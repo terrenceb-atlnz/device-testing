@@ -274,4 +274,4 @@ eth6's web session (deleted user ckrestore) may end during the case.
 
 T44276's last leg (web login from the client's LEASED address) needs root on tb5: a 192.168.60.x address on eth6, or a
 route to 192.168.60.0/24 via 192.168.50.1 (`hostnet` allows only 8.8.8.0/24). The login page is served only to clients in
-the DHCP subnet. Approve a narrow `hostnet` addition for a re-run, or leave it PARTIAL. — unanswered
+the DHCP subnet. Approve a narrow `hostnet` addition for a re-run, or leave it PARTIAL. — **answered 2026-10-30 (resume): "Approve the route, re-run"**. `tools/hostnet.py` gained `route60-add|route60-del` (192.168.60.0/24 via 192.168.50.1 dev eth6), commit 74f32d0; T44276 run 3 for that leg only.
