@@ -284,3 +284,5 @@ tb5 eth6 no longer holds 192.168.50.10/24 (now 10.37.5.129/27; tb5 up since 2026
 ckrestore session; re-login needs 192.168.50.10 back). DUT itself is at baseline (rcdiff 0).
 
 Test Engineer 08:2x: "I'll re-add the address" (192.168.50.10/24 on tb5 eth6, theirs). Then T44276 run 4 = route60 + the login leg only, and eth6's web session restored. HOLD until they say it is back.
+
+Test Engineer 08:27: re-added 192.168.50.10/24 on tb5 eth6 (`sudo ip addr add 192.168.50.10/24 dev eth6`, runtime only); sentinel confirmed. T44276 run 4 dispatched.
