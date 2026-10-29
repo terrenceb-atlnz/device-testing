@@ -140,3 +140,10 @@ tools/tb sudotool tb5 <scratch> hostnet route-add    # ... then route-del, then 
   updated `campaigns-measured-for-token-waste`, `console-driver-retries-are-lockout-generators`,
   `testbox-console-access`.
 - orient-dt trap 2 (framework credentials) updated for the new password list.
+
+## Update, 2026-10-29 after the wrap (Test Engineer's answers)
+
+- OPEN 3 closed: `tb5:/tftpboot/cktls.p12` deleted by the Test Engineer ("deleted").
+- OPEN 2 closed: "approved. the list". `bench-setup/bench_probe.py` `PASSWORDS` is now the framework's five, in its
+  order, and the login loop stops at AW+'s "account is locked" reply. `tools/console.py` is unchanged (one
+  password, `friend` unless `CK_PASSWORD` is set); `tools/README.md` says so and points to the list.

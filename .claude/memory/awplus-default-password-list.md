@@ -27,9 +27,10 @@ five defaults against a unit whose password is none of them **locks it in one pa
 - A unit whose password is unknown: **do not walk the list.** Ask the Test Engineer. If it is already logged in
   at a prompt, do not log it out unless you can log back in (2026-10-29: tb5 u1's swi_x530 was logged in all day;
   the wrap's logout left it at `login:`, and the next open made 5 failed attempts).
-- Know what each repo tool tries (2026-10-29): `bench-setup/bench_probe.py` `PASSWORDS` = `friend, P@ssw0rd,
-  awplus` (stale: misses three, still has `awplus`); `tools/console.py` = `friend` only unless `CK_PASSWORD` is
-  set, but its login also sends CRs at a `Password:` prompt, and each CR is a failed attempt.
+- Know what each repo tool tries: `bench-setup/bench_probe.py` `PASSWORDS` = the framework's five (updated
+  2026-10-29, Test Engineer approved), and it stops at AW+'s "account is locked" reply; `tools/console.py` = ONE
+  password, `friend` unless `CK_PASSWORD` is set. Either tool can also spend attempts with bare CRs at a
+  `Password:` prompt (the 2026-10-29 tb5 u1 case: 5 failures from one `ckcon` open).
 
 **Why:** the in-house security changes mean units are increasingly NOT on `friend`, and a wrong list either
 misses the real password or spends the lockout budget.

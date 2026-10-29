@@ -160,7 +160,10 @@ SOCK = os.environ.get("SSH_AUTH_SOCK_TB") or "/run/user/{}/keyring/ssh".format(o
 
 BAUDS = [115200, 9600]
 USERNAME = "manager"
-PASSWORDS = ["friend", "P@ssw0rd", "awplus"]
+# The framework's default list, in its order (ATDrivers/ATSwitch.py __resolve_username_and_password(),
+# dated 2026-10-19; Test Engineer approved 2026-10-29). Five tries = AW+'s lockout threshold, so a unit on
+# none of these is locked by one pass: give it CK_PASSWORD_U<n> instead (memory awplus-default-password-list).
+PASSWORDS = ["friend", "P@ssw0rd", "A11iedWare+", "0neC0nnect", "V1staManager"]
 
 
 def creds_for(port):
@@ -438,6 +441,8 @@ class Probe:
                 out = self._line(pw, timeout=15.0)
                 if "new password" in out.lower():
                     return False, "forced password-change dialog; refused"
+                if "account is locked" in out.lower():   # every further try re-arms the lock
+                    return False, "account locked; stopped. tail={!r}".format(out[-160:])
                 if PROMPT_ANYWHERE_RE.search(out) or not out.rstrip().lower().endswith("login:"):
                     break
         if "new password" in out.lower():

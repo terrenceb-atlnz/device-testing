@@ -89,8 +89,12 @@ The one way a device-testing session reaches a testbox: `tools/tb <action> <box>
   - `<tty>` is the unit's console on the box, for example `/dev/u3`.
   - `<transcript>` is where every byte sent and received is written. Put it at
     `/tmp/<campaign>/console-<uN>.log`, the path the sentinel watches.
-- **Login credentials** default to AW+'s `manager` / `friend`. Set `CK_USER` and `CK_PASSWORD`
-  to change them for every tool at once.
+- **Login credentials:** the console tools (`console.py` and the tools built on it) try ONE password,
+  `manager` / `friend` by default. Set `CK_USER` and `CK_PASSWORD` to change them for every tool at
+  once. `friend` is no longer the only default: since 2026-10-19 the framework's default list is five
+  passwords, and `bench-setup/bench_probe.py` walks that list (memory `awplus-default-password-list`).
+  Five tries equals AW+'s lockout threshold, so for a unit with a known non-default password always set
+  `CK_PASSWORD` (or `CK_PASSWORD_U<n>` for the probe) rather than relying on a default.
 - **Output goes only where the arguments say**, or to the current directory. A tool never
   writes into the repo, the deployed `.setup` or the framework.
 - **Argument errors** print a usage line and exit 2. Run with `-h` for help.
