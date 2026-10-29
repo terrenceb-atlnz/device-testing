@@ -180,7 +180,7 @@ because none can run on the local RADIUS server.
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
 | A | T44274 (204) Multiple Authentication; T44275 (207) Proxy Server for Web Auth; T44276 (208) DHCP Server for Web Auth | `webauth-2026-10-29T1528` | DONE | 16:41 bench-runner: T44274 PASS, T44275 PASS, T44276 PARTIAL (run 2; run 1 FAIL withdrawn); triage 15:41: all three runnable now; T44274 reading = D1 |
-| B | T44277 (214) Supplicant MAC | `dot1x-2026-10-29T1528` | RUNNABLE | regrouped at triage; T33355 removed 15:5x (already PASS, Test Engineer) |
+| B | T44277 (214) Supplicant MAC | `dot1x-2026-10-29T1528` | RUNNING | regrouped at triage; T33355 removed 15:5x (already PASS, Test Engineer) |
 | C | T33358 (195) EAP-TTLS; T44271 (197) EAP-LEAP; T44272 (198) EAP-OTP; T33354 (191) EAP-Notification | `eap-2026-10-29T1528` | BLOCKED | D3 "don't test these right now" (needs an external RADIUS with TTLS/LEAP/OTP; local RADIUS has MAC/MD5/TLS/PEAP only); D4 T33354 "i'll deal with it " (Test Engineer) |
 
 ### Group A — bench setup and restore recipe (bench-runner RUN, written 2026-10-29 16:0x NZDT, before the first case)
@@ -226,6 +226,33 @@ as `ckrestore` (4/4 ICMP), then the user deleted (10-29 answer), so the session 
 tb5 route 8.8.8.0/24 absent. Re-probe read-only: tb490 MATCH (captures/2026-10-29T033816Z); tb5 the same
 3 MISMATCH + 1 NEEDS-CHECK read-only artefacts (captures/2026-10-29T033824Z). All four consoles at `login:`;
 tb5's ckcon kept running after `exit` again (killmine'd). tb5 scratch /tmp/wa1528 left (tmpfs).
+
+### Group B — bench setup and restore recipe (bench-runner RUN, written 2026-10-29 16:5x NZDT, before the case)
+
+**Gate (16:45–16:48 NZDT):** precheck tb490 u2 CLEAR (only `python3 -m x980nos`, PID 198602, pts/1, started
+16:42:33, no `-u`, not a /dev/u2 holder: the Test Engineer's own, ignored); tb5 u0-u2 free, FOUND only `ser2net`
+pid 593 (known). Probes `--read-only --baud 115200`: tb490 u2 **MATCH** against `dot1x-2026-10-29T1528/tb490-u2.setup`
+(`captures/2026-10-29T034622Z`; the template must be given by its box-side path /home/jacobm/claude/...);
+tb5 the same 3 MISMATCH + 1 NEEDS-CHECK read-only artefacts (`captures/2026-10-29T034630Z`). /nfsHome not mounted
+and no deployed tb490.setup: no framework run here, so not needed. swi_dut: build -90, uptime 6 h 26 m (no reload),
+`show boot` flash:/x980-tb490.rel + flash:/x980-autoorder.cfg; running-config = group A baseline (rcdiff: only the
+echoed command line), copied to `dot1x-2026-10-29T1528/baseline/swi_dut-pre-run.out`. eth6 = Mode W, `ckres...`.
+
+**Setup:** none beyond group A's bench (client tb5 eth6 -> swi_x530 -> swi_x950 -> swi_dut port1.0.81, port in
+auth-web + multi-supplicant + `auth forward arp|dhcp|dns`, so the dataplane probe is ICMP from scapy, `arpleg --icmp`).
+**Added by T44277 (all removed by its teardown):** on port1.0.81 `auth supplicant-mac <MAC> ...` entries for
+`0200.5ec0.ff41`, `0200.5ec0.ff42` and `0090.0b2a.11c3` (eth6); local-server user `ckweb77` (web login for eth6).
+eth6's web session (deleted user ckrestore) may end during the case.
+
+**Restore recipe (anyone can run it):**
+1. swi_dut `configure terminal`, `interface port1.0.81`: `no auth supplicant-mac 0200.5ec0.ff41`,
+   `no auth supplicant-mac 0200.5ec0.ff42`, `no auth supplicant-mac 0090.0b2a.11c3`; `exit`.
+2. eth6 web session: `radius-server local` -> `user ckrestore password <any>`; from tb5
+   `tools/tb tool tb5 sm1528 httpq http://192.168.50.1/index.cgi --method POST --data 'USERNAME=ckrestore&PASSWORD=<pw>&ACTION=login'`;
+   check `show auth supplicant brief` (Mode W, Authenticated); then `no user ckrestore` and `no user ckweb77`; `end`.
+3. `rcdiff.py` the new `show running-config` against `baseline/swi_dut-pre-run.out`: identical apart from the echoed
+   command line. `show boot` still flash:/x980-autoorder.cfg. Nothing is `write`n.
+4. `end`, `terminal no monitor`, `exit` on every console opened; re-probe both boxes read-only.
 
 ## Results
 
