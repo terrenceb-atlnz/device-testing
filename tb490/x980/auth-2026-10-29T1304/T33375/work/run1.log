@@ -1,0 +1,439 @@
+WORKING LOG -- AWPTCM-T33375 run 1 -- bench-runner, campaign tb490+tb5 auth 2026-10-29T1304, group A
+==========================================================================================
+Session facts (Test Engineer jacobm@jacobm-dl, verbatim in tb490/x980/CAMPAIGN-QUEUE-2026-10-29T1304.md):
+  box: tb490 (DUT, runs the cases) + tb5 ("tb5 is for console access and logging"; client host)
+  consoles: tb490 u2 = swi_dut (AT-x980-16CDQ); tb5 u0 = swi_x950, u1 = swi_x530, u2 = swi_ar
+  pdu: none ("no pdus")  -- no power cycle is possible or used
+  constraints: "no shared boxes all mine, run the test probe, u0 and u1 on tb490 are not to be touched"
+  decisions: D1 tb5 eth6/192.168.50.0/24 carries client traffic; D2 route+macvlans allowed (T33366);
+             D3 local RADIUS for T33365; D4 names as above.
+Probe before the group: tb490 MATCH (exit 0), tb5 MATCH (exit 0), 2026-10-29 13:25 NZDT (commit a82c99e).
+
+CASE: AWPTCM-T33375  (219) Authentication&Security - MAC Auth/Web Auth
+  ck.db: folder /New Platform Test (MASTER)/New Platform Template/Authentication & Security,
+         status Draft, STEP_BY_STEP, num_steps 1, has_objective 0. The step text is EMPTY in ck.db
+         (53-char raw column = an empty step). No objective, no precondition, no expected result authored.
+  Steps used here are derived from the title (as on IE520 2026-09-22, IE520/auth-2026-09-22/33375.log):
+    S1 control  -- an unauthenticated client gets no ICMP through port1.0.81 (auth-web only).
+    S2 web auth -- wrong password stays blocked; correct password -> Mode W Authenticated, ICMP passes.
+    S3 MAC auth -- `auth-mac enable` added: a MAC in the RADIUS table -> Mode M Authenticated, ICMP passes;
+                   a MAC not in it -> blocked.
+    S4 both     -- MAC and web sessions held on the one port at the same time.
+    S5 health after, teardown, rcdiff against the pre-case running-config.
+
+Devices:
+  swi_dut  tb490 /dev/u2 115200  AT-x980-16CDQ S/N A10732A263200035 (+XEM3-12YS bay1, XEM3-8CQ bay2)
+           awplus_main-20261029-90, boot image flash:/x980-tb490.rel, boot cfg flash:/x980-autoorder.cfg
+           vlan1 192.168.50.1/24, MAC e01a.ead5.0456 (show interface vlan1). Port under test port1.0.81.
+  swi_x950 tb5 /dev/u0 AT-x950-52XTQm S/N A10307A213600014 awplus_main-20261020-78 -- transit only (port1.0.49 <-> DUT, port1.0.39 <-> x530); not configured, console not opened
+  swi_x530 tb5 /dev/u1 AT-x530-18GHXm S/N A10402G214500008 awplus_main-20261028-87 -- transit only (port1.0.16 <-> tb5 eth6); not configured, console not opened
+Client host: tb5 eth6 00:90:0b:2a:11:c3, 192.168.50.10/24 (also 10.37.5.129/27). Crafted MAC clients sent from eth6 with
+  tools/arpleg.py (sudotool on tb5). Path: tb5 eth6 -> x530 port1.0.16 .. port1.0.1 -> x950 port1.0.39 .. port1.0.49 -> DUT port1.0.81.
+Clocks: DUT `show clock` 00:30:12 UTC (= 13:30:12 NZDT) at tb490 time 13:30:46 NZDT -> DUT ~34 s behind the box.
+  Box timestamps in this log are tb490/tb5 NZDT; DUT log times are UTC.
+
+Inherited rig (NOT added by this run; see queue "Group A -- bench setup and restore recipe"): local RADIUS server with
+  users incl. webuser; aaa dot1x/auth-mac/auth-web -> group radius; auth-web-server ipaddress 192.168.50.1;
+  port1.0.81 auth-web enable, auth host-mode multi-supplicant, auth forward arp|dhcp|dns. Live: eth6 web-authenticated
+  as `webuser`. Pre-case running-config: auth-2026-10-29T1304/baseline/swi_dut-pre-run-1327.out.
+Licence: show license brief (triage) Full, RADIUS-FULL present.
+
+--- SETUP READS (13:30 NZDT) ---
+  13:30:44 >>> show system
+  System Status                                           Thu Oct 29 00:30:11 2026
+  
+  Board      ID   Bay     Board Name                        Rev   Serial number
+  --------------------------------------------------------------------------------
+  Base       688  Base    AT-x980-16CDQ                     X2-0  A10732A263200035
+  Expansion  616  Bay1    AT-XEM3-12YS                      X1-0  A10599A232800007
+  Expansion  617  Bay2    AT-XEM3-8CQ                       X3-0  A10534A241600051
+  PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104R3027Q 
+  Fan module 715  FAN1    AT-FAN18                          A-0   A12345A12345678 
+  Fan module 715  FAN2    AT-FAN18                          A-0   A12345A12345678 
+  Fan module 715  FAN3    AT-FAN18                          A-0   A12345A12345678 
+  Fan module 715  FAN4    AT-FAN18                          A-0   A12345A12345678 
+  Fan module 715  FAN5    AT-FAN18                          A-0   A12345A12345678 
+  --------------------------------------------------------------------------------
+  RAM: Total: 16033676 kB Free: 15373996 kB
+  Flash: 127.9GB Used: 271.6MB Available: 126.6GB
+  --------------------------------------------------------------------------------
+  Environment Status : Normal
+  Uptime             : 0 days 03:10:02
+  Bootloader version : 260616
+  BIOS version       : B7E3R911
+  
+  Current software   : x980-tb490.rel
+  Software version   : awplus_main-20261029-90
+  Build date         : Wed Oct 28 20:43:01 UTC 2026
+  
+  Current boot config: flash:/x980-autoorder.cfg (file exists)
+  
+  System Name
+   x980-CDQ
+  System Contact
+  
+  System Location
+
+--- HEALTH BEFORE (tools/tb health tb490 auth1304 u2 115200 --label T33375-before) ---
+  file on box: /tmp/auth1304/health-u2-20261029T133051.out ; summary:
+  reboots 29 entries, newest 2026-10-28 21:19:45 Expected CLI(user request); exception log None;
+  log filter 2 lines (our own command echoes); cpu 1%/0%/0% busy; memory free 15373312 of 16033676 kB
+  raw:
+  | # health.py u2 20261029T133051 T33375-before
+  | 13:30:56 >>> show reboot history
+  | <date> <time> <type> <description>
+  | -------------------------------------------------------------------------
+  | 2026-10-28 21:19:45 Expected   CLI(user request)
+  | 2026-10-28 02:04:38 Expected   CLI(user request)
+  | 2026-10-27 23:52:06 Expected   CLI(user request)
+  | 2026-10-27 23:23:04 Expected   CLI(user request)
+  | 2026-10-27 21:28:23 Unexpected System reboot
+  | 2026-10-27 03:07:37 Expected   CLI(user request)
+  | 2026-10-27 02:56:43 Expected   CLI(user request)
+  | 2026-10-27 01:26:17 Expected   CLI(user request)
+  | 2026-10-27 01:22:59 Expected   CLI(user request)
+  | 2026-10-26 22:49:41 Expected   CLI(user request)
+  | 2026-10-20 00:18:21 Expected   CLI(user request)
+  | 2026-10-20 00:02:52 Expected   CLI(user request)
+  | 2026-10-20 00:00:27 Expected   CLI(user request)
+  | 2026-10-19 23:13:58 Expected   CLI(user request)
+  | 2026-10-19 22:57:08 Expected   CLI(user request)
+  | 2026-10-19 22:44:28 Expected   CLI(user request)
+  | 2026-10-19 22:30:17 Expected   CLI(user request)
+  | 2026-10-19 21:26:29 Expected   CLI(user request)
+  | 2026-10-19 21:12:39 Unexpected System reboot
+  | 2026-10-19 21:11:26 Expected   CLI(user request)
+  | 2026-10-19 20:45:31 Unexpected System reboot
+  | 2026-09-21 23:31:19 Unexpected System reboot
+  | 2026-08-31 23:29:42 Unexpected System reboot
+  | 2026-08-31 22:25:40 Unexpected System reboot
+  | 2026-08-31 19:03:33 Unexpected System reboot
+  | 2026-08-31 18:54:52 Unexpected System reboot
+  | 2026-08-13 09:39:20 Unexpected System reboot
+  | 2026-08-13 05:59:55 Expected   CLI(user request)
+  | 2026-08-13 05:59:03 Unexpected System reboot
+  | -------------------------------------------------------------------------
+  | 13:30:57 >>> show exception log
+  | <date> <time> <facility>.<severity> <program[<pid>]>: <message>
+  | -------------------------------------------------------------------------
+  | None
+  | -------------------------------------------------------------------------
+  | 13:31:02 >>> show log | include kernel|exception|crash|restart|Unexpected
+  | 2026 Oct 29 00:30:24 user.notice x980-CDQ IMISH[10939]: [manager@ttyS0]show exception log
+  | 2026 Oct 29 00:30:28 user.notice x980-CDQ IMISH[10939]: [manager@ttyS0]show log | include kernel|exception|crash|restart|Unexpected
+  | 13:31:05 >>> show cpu
+  | CPU averages:
+  |  1 second: 1%, 20 seconds: 0%, 60 seconds: 0%
+  | System load averages:
+  |  1 minute: 1.47, 5 minutes: 1.30, 15 minutes: 1.23
+  | Current CPU load:
+  |  userspace: 0%, kernel: 0%, interrupts: 0% iowaits: 0%
+  | 
+  | user processes
+  | ==============
+  |   pid name            thrds  cpu%   pri     state   runtime
+  |  1250 corosync            6   0.1  -100     sleep       173
+  |   795 hostd              10   0.1    20       run       201
+  | 11346 imish               1   0.0    20     sleep         0
+  | 10939 imish               3   0.0    20     sleep        18
+  | 10930 login               1   0.0    20     sleep         0
+  |  3838 httpredirect        1   0.0    20     sleep         0
+  |  3831 shttpd              1   0.0    39     sleep         1
+  |  3820 logwatch            1   0.0    20     sleep        11
+  |  2908 radiusd             1   0.0    20     sleep         2
+  |  2593 agetty              1   0.0    20     sleep         0
+  |  2275 console_log_ale     1   0.0    20     sleep        11
+  |  1866 snmpd               4   0.0    20     sleep        49
+  |  1849 nginx               1   0.0    20     sleep         0
+  |  1848 nginx               1   0.0    20     sleep         0
+  |  1847 nginx               1   0.0    20     sleep         0
+  |  1773 shellinaboxd        1   0.0    20     sleep         0
+  |  1771 shellinaboxd        1   0.0    20     sleep         0
+  |  1770 apteryx-rest        5   0.0    20     sleep        13
+  |  1768 cmsg-proxy-fcgi     7   0.0    20     sleep        19
+  |  1672 bgpd                3   0.0    20     sleep        35
+  |  1619 tail                1   0.0    20     sleep         7
+  |  1322 exfx               45   0.0    20     sleep      7791
+  |  1221 sshd                1   0.0    20     sleep         0
+  |  1149 stackd              5   0.0    20     sleep         7
+  |  1136 udldd               2   0.0    20     sleep         9
+  |  1130 sflowd              5   0.0    20     sleep        32
+  |  1129 rmond               5   0.0    20     sleep        12
+  |  1128 mstpd               5   0.0    20     sleep        43
+  |  1127 loopprotd           5   0.0    20     sleep        13
+  |  1124 lldpd               7   0.0    20     sleep        22
+  |  1121 lacpd               5   0.0    20     sleep        32
+  |  1120 irdpd               3   0.0    20     sleep         5
+  |  1117 imiproxyd           2   0.0    20     sleep         7
+  |  1116 authd               9   0.0    20     sleep       104
+  |  1109 atmfd              10   0.0    20     sleep        76
+  |  1041 platform_eventd     3   0.0    20     sleep         0
+  |   970 atmffsd             7   0.0    20     sleep         4
+  |   960 atmf_agentd         3   0.0    20     sleep         5
+  |   945 amfappsd            8   0.0    20     sleep        12
+  |   939 nsm                11   0.0    20     sleep       173
+  |   907 linkmond           11   0.0    20     sleep       117
+  |   897 licd                5   0.0    20     sleep         2
+  |   883 hsl                 9   0.0    20     sleep       281
+  |   877 imi                 6   0.0    20     sleep        71
+  |   871 eventwatch         10   0.0    20     sleep         7
+  |   845 mnt-monitor.sh      1   0.0    20     sleep         0
+  |   844 inotifywait         1   0.0    20     sleep         1
+  |   811 cwmd               18   0.0    20     sleep        24
+  |   797 mnt-monitor.sh      1   0.0    20     sleep         1
+  |   792 filesysd            7   0.0    20     sleep         4
+  |   786 cmlplatformd        7   0.0    20     sleep        59
+  |   728 appmond             2   0.0    20     sleep       172
+  |   680 delaybuffer         1   0.0    20     sleep        11
+  |   679 fibermond           8   0.0    20     sleep         2
+  |   605 plugman             8   0.0    20     sleep        59
+  |   599 platformd           9   0.0    20     sleep      6378
+  |   579 stashd              3   0.0    20     sleep         4
+  |   576 snmp-discovery      5   0.0    20     sleep         4
+  |   538 alfred              7   0.0    20     sleep       212
+  |   537 procmond            4   0.0    20     sleep         0
+  |   534 kermond             7   0.0    20     sleep         6
+  |   530 apteryx-sync        6   0.0    20     sleep         4
+  |   527 crond               1   0.0    20     sleep         1
+  |   520 syslog-ng           2   0.0    20     sleep       139
+  |   496 earlyoom            1   0.0     0     sleep        28
+  |   493 ulogd               1   0.0  -100     sleep         2
+  |   484 rpcbind             1   0.0    20     sleep         0
+
+--- CASE SETUP (13:31:52 NZDT; tools/tb ckcon tb490 auth1304 u2 115200 --stop-on-error --verbatim ...) ---
+  Added ck users to the local RADIUS server; then reset port1.0.81's supplicants so eth6 starts unauthenticated.
+  (No 'clear auth' command exists on this build: 'clear auth ?' -> % Unrecognized command. 'dot1x initialize interface' does it.)
+  | 13:31:52 >>> configure terminal
+  | x980-CDQ#configure terminal
+  | Enter configuration commands, one per line.  End with CNTL/Z.
+  | 13:31:53 >>> radius-server local
+  | x980-CDQ(config)#radius-server local
+  | 13:31:55 >>> user ckweb password CkWeb-2026x
+  | x980-CDQ(config-radsrv)#user ckweb password CkWeb-2026x
+  | 13:31:56 >>> user 02-00-5e-c0-ff-01 password 02-00-5e-c0-ff-01
+  | x980-CDQ(config-radsrv)#user 02-00-5e-c0-ff-01 password 02-00-5e-c0-ff-01
+  | 13:31:57 >>> end
+  | x980-CDQ(config-radsrv)#end
+  | 13:31:58 >>> dot1x initialize interface port1.0.81
+  | x980-CDQ#dot1x initialize interface port1.0.81
+  | 13:31:58 >>> @sleep 3
+  | 13:32:02 >>> show auth supplicant brief
+  | x980-CDQ#show auth supplicant brief
+  | Interface port1.0.81
+  |   authenticationMethod: web
+  |   totalSupplicantNum: 0
+  |   authorizedSupplicantNum: 0
+  |   untaggedVlansupplicantNum: 0
+  |   taggedVlansupplicantNum: 0
+  | No supplicants
+  Log: 00:31:25 UTC 802.1X: port1.0.81: Supplicant webuser unauthorized, Mac 0090.0b2a.11c3  <- the inherited session, ended by us.
+  Saved: T33375/swi_dut.cfg (python3 tools/rc2cfg.py, 3 header + 108 config lines), 13:32 NZDT, before step 1.
+
+--- S1 control: unauthenticated clients get no ICMP through port1.0.81 (auth-web only) ---  PASS
+host tb5$ tools/tb ping tb5 eth6 192.168.50.1 4
+  | --- 192.168.50.1 ping statistics ---
+  | 4 packets transmitted, 0 received, 100% packet loss, time 3076ms
+  | 
+host tb5# tools/tb sudotool tb5 auth1304 arpleg --tag t75s1u --out /tmp/auth1304/t75 --iface eth6 --icmp 192.168.50.1 --gw-mac e0:1a:ea:d5:04:56 --sender-mac 02:00:5e:c0:ff:09 --sender-ip 192.168.50.29 --answer 192.168.50.29=02:00:5e:c0:ff:09 --count 4
+  | LEG t75s1u  iface=eth6 watch=- count=4
+  |   answering ARP for: 192.168.50.29=02:00:5e:c0:ff:09  on eth6
+  |   sent: icmp 192.168.50.29 -> 192.168.50.1 (eth dst e0:1a:ea:d5:04:56)  x4
+  |   answerer sent 0 ARP reply/replies (eth6:0)
+  |   sent total: 4 frame(s)
+  |   cap t75s1u-eth6.pcap: 4 frame(s)
+  |     x4     ICMP t8/c0 192.168.50.29   -> 192.168.50.1    [ours]   [eth 02:00:5e:c0:ff:09 -> e0:1a:ea:d5:04:56]
+  |   pcaps: /tmp/auth1304/t75/t75s1u-eth6.pcap
+awplus# show auth supplicant brief
+  |   totalSupplicantNum: 1
+  |   authorizedSupplicantNum: 0
+  |   untaggedVlansupplicantNum: 0
+  |   taggedVlansupplicantNum: 0
+  | port1.0.81  1    W    0200.5ec0.ff09 Connecting        192.168.50.29   --
+  Result: eth6 0/4, crafted unknown MAC 0/4; the crafted client is held as W Connecting.
+
+--- S2 web authentication from eth6 (tools/httpq.py on tb5) ---  PASS
+host tb5$ tools/tb tool tb5 auth1304 httpq http://192.168.50.1/ --max-body 700   -> HTTP 200 OK, the login page itself:
+  | <FORM action="http://192.168.50.1/index.cgi" autocomplete="off" target="_self" name="AUTH" method="POST">
+  (GET / returns the login page directly with 200; the form is a POST of USERNAME, PASSWORD, ACTION=login to /index.cgi.)
+host tb5$ httpq http://192.168.50.1/index.cgi --method POST --data 'USERNAME=ckweb&PASSWORD=WRONGPASSWORD9&ACTION=login'
+  | HTTP 200 OK; body: <meta http-equiv="refresh" content="3;URL=http://192.168.50.1/index.cgi?authenticating=1">
+host tb5$ ping eth6 192.168.50.1 x4:  4 packets transmitted, 0 received, 100% packet loss, time 3056ms
+  |   totalSupplicantNum: 1
+  |   authorizedSupplicantNum: 0
+  |   untaggedVlansupplicantNum: 0
+  |   taggedVlansupplicantNum: 0
+  | port1.0.81  1    W    0090.0b2a.11c3 Connecting        192.168.50.10   --
+  DUT log: 00:32:30 radiusd: Login incorrect (pap: Cleartext password does not match "known good" password): [ckweb]
+           00:32:31 802.1X: Web Authentication failed (retry=0) for ckweb@0090.0b2a.11c3(192.168.50.10) on port1.0.81
+host tb5$ httpq http://192.168.50.1/index.cgi --method POST --data 'USERNAME=ckweb&PASSWORD=<correct>&ACTION=login'
+  | HTTP 200 OK; body again refreshes to index.cgi?authenticating=1 -- the HTTP body does NOT discriminate success; the DUT state does.
+host tb5$ ping eth6 192.168.50.1 x4:  4 packets transmitted, 4 received, 0% packet loss, time 3073ms
+  |   totalSupplicantNum: 1
+  |   authorizedSupplicantNum: 1
+  |   untaggedVlansupplicantNum: 1
+  |   taggedVlansupplicantNum: 0
+  |     macBasedAuthenticationSupplicantNum: 0
+  |     dot1xAuthenticationSupplicantNum: 0
+  |     webBasedAuthenticationSupplicantNum: 1
+  |     otherAuthenticationSupplicantNum: 0
+  | port1.0.81  1    W    0090.0b2a.11c3 Authenticated     192.168.50.10   ckweb
+  DUT log: 00:32:55 radiusd: (1) Login OK: [ckweb] (from client 127.0.0.1 port 5081 cli 00-90-0b-2a-11-c3)
+           00:32:55 802.1X: Web Authentication successful for ckweb@0090.0b2a.11c3(192.168.50.10) on port1.0.81
+  Result: wrong password -> W Connecting, 0/4; correct password -> W Authenticated ckweb, 4/4.
+
+--- S3 MAC authentication added: auth-mac enable on port1.0.81 ---  PASS
+  | x980-CDQ(config-if)#auth-mac enable
+  | 13:34:03 >>> end
+  | x980-CDQ(config-if)#end
+  | 13:34:04 >>> show running-config interface port1.0.81
+  | x980-CDQ#show running-config interface port1.0.81
+  | !
+  | interface port1.0.81
+  |  switchport
+  |  switchport mode access
+  |  auth-mac enable
+  |  auth-web enable
+  |  auth host-mode multi-supplicant
+  |  auth forward arp
+  |  auth forward dhcp
+  |  auth forward dns
+  | !
+  Legs (each: tools/tb sudotool tb5 auth1304 arpleg --tag <t> --out /tmp/auth1304/t75 --iface eth6 --icmp 192.168.50.1 --gw-mac e0:1a:ea:d5:04:56 --count 4 --sender-mac M --sender-ip I --answer I=M):
+  [k1]
+  | LEG t75s3k1  iface=eth6 watch=- count=4
+  |   sent: icmp 192.168.50.21 -> 192.168.50.1 (eth dst e0:1a:ea:d5:04:56)  x4
+  |     x4     ICMP t8/c0 192.168.50.21   -> 192.168.50.1    [ours]   [eth 02:00:5e:c0:ff:01 -> e0:1a:ea:d5:04:56]
+  |     x3     ICMP t0/c0 192.168.50.1    -> 192.168.50.21   [ours]   [eth e0:1a:ea:d5:04:56 -> 02:00:5e:c0:ff:01]
+  |     x1     ARP-REQ  who-has 192.168.50.21   tell 192.168.50.1      [eth e0:1a:ea:d5:04:56 -> ff:ff:ff:ff:ff:ff]
+  |     x1     ARP-REPLY 192.168.50.21   is-at 02:00:5e:c0:ff:01   [eth 02:00:5e:c0:ff:01 -> e0:1a:ea:d5:04:56]
+  [k2]
+  | LEG t75s3k2  iface=eth6 watch=- count=4
+  |   sent: icmp 192.168.50.21 -> 192.168.50.1 (eth dst e0:1a:ea:d5:04:56)  x4
+  |     x4     ICMP t8/c0 192.168.50.21   -> 192.168.50.1    [ours]   [eth 02:00:5e:c0:ff:01 -> e0:1a:ea:d5:04:56]
+  |     x4     ICMP t0/c0 192.168.50.1    -> 192.168.50.21   [ours]   [eth e0:1a:ea:d5:04:56 -> 02:00:5e:c0:ff:01]
+  [u]
+  | LEG t75s3u  iface=eth6 watch=- count=4
+  |   sent: icmp 192.168.50.29 -> 192.168.50.1 (eth dst e0:1a:ea:d5:04:56)  x4
+  |     x4     ICMP t8/c0 192.168.50.29   -> 192.168.50.1    [ours]   [eth 02:00:5e:c0:ff:09 -> e0:1a:ea:d5:04:56]
+  |     x1     ARP-REQ  who-has 192.168.50.1    tell 192.168.50.1      [eth e0:1a:ea:d5:04:56 -> ff:ff:ff:ff:ff:ff]
+  [u2]
+  | LEG t75s3u2  iface=eth6 watch=- count=4
+  |   sent: icmp 192.168.50.29 -> 192.168.50.1 (eth dst e0:1a:ea:d5:04:56)  x4
+  |     x4     ICMP t8/c0 192.168.50.29   -> 192.168.50.1    [ours]   [eth 02:00:5e:c0:ff:09 -> e0:1a:ea:d5:04:56]
+  known MAC 02:00:5e:c0:ff:01 (ck RADIUS user): 3/4 on the first leg (the first echo triggers MAC auth), 4/4 on the second.
+  unknown MAC 02:00:5e:c0:ff:09: 0/4 and 0/4.
+  DUT log: 00:33:40 802.1X: MAC Authentication successful for 02-00-5e-c0-ff-01@0200.5ec0.ff01 on port1.0.81
+
+  OBSERVATION (not graded as a defect): applying 'auth-mac enable' ended eth6's existing WEB session:
+    00:33:28 UTC 802.1X: port1.0.81: Supplicant ckweb unauthorized, Mac 0090.0b2a.11c3
+    (MSTP: CIST port1.0.81 now forwarding ... at 00:33:17 around the same change).
+  eth6's MAC 00-90-0b-2a-11-c3 is an INHERITED RADIUS user, so its next frame MAC-authenticated it instead:
+    00:34:20 802.1X: MAC Authentication successful for 00-90-0b-2a-11-c3@0090.0b2a.11c3 on port1.0.81
+    eth6 ping: 4 packets transmitted, 3 received, 25% packet loss, time 3049ms   (first echo lost while MAC auth ran)
+  |   authenticationMethod: mac/web
+  |   totalSupplicantNum: 3
+  |   authorizedSupplicantNum: 2
+  |   untaggedVlansupplicantNum: 2
+  |   taggedVlansupplicantNum: 0
+  |     macBasedAuthenticationSupplicantNum: 2
+  |     dot1xAuthenticationSupplicantNum: 0
+  |     webBasedAuthenticationSupplicantNum: 0
+  |     otherAuthenticationSupplicantNum: 0
+  | port1.0.81  1    M    0200.5ec0.ff01 Authenticated     192.168.50.21   02-00...
+  | port1.0.81  1    W    0200.5ec0.ff09 Connecting        192.168.50.29   --
+  | port1.0.81  1    M    0090.0b2a.11c3 Authenticated     192.168.50.10   00-90...
+
+--- S4 MAC and web sessions on the one port at the same time ---  PASS
+  To get a WEB session beside a MAC one, eth6 must fail MAC auth, so the inherited user 00-90-0b-2a-11-c3 was removed
+  for this step and put back verbatim (encrypted line) at teardown.
+  | 13:35:55 >>> configure terminal
+  | x980-CDQ#configure terminal
+  | Enter configuration commands, one per line.  End with CNTL/Z.
+  | 13:35:56 >>> radius-server local
+  | x980-CDQ(config)#radius-server local
+  | 13:35:58 >>> no user 00-90-0b-2a-11-c3
+  | x980-CDQ(config-radsrv)#no user 00-90-0b-2a-11-c3
+  | 13:35:59 >>> end
+  | x980-CDQ(config-radsrv)#end
+  | 13:36:00 >>> dot1x initialize interface port1.0.81
+  | x980-CDQ#dot1x initialize interface port1.0.81
+  | 13:36:00 >>> @sleep 3
+  | 13:36:04 >>> show auth supplicant brief
+  | x980-CDQ#show auth supplicant brief
+  | Interface port1.0.81
+  |   authenticationMethod: mac/web
+  |   totalSupplicantNum: 0
+  |   authorizedSupplicantNum: 0
+  |   untaggedVlansupplicantNum: 0
+  |   taggedVlansupplicantNum: 0
+  | No supplicants
+host tb5$ ping eth6 x4 (no session):  4 packets transmitted, 0 received, 100% packet loss, time 3079ms
+host tb5$ httpq POST ckweb/<correct>  -> HTTP 200 OK
+  [arpleg k1]
+  | LEG t75s4k1  iface=eth6 watch=- count=4
+  |     x4     ICMP t8/c0 192.168.50.21   -> 192.168.50.1    [ours]   [eth 02:00:5e:c0:ff:01 -> e0:1a:ea:d5:04:56]
+  |     x3     ICMP t0/c0 192.168.50.1    -> 192.168.50.21   [ours]   [eth e0:1a:ea:d5:04:56 -> 02:00:5e:c0:ff:01]
+  [arpleg k2]
+  | LEG t75s4k2  iface=eth6 watch=- count=4
+  |     x4     ICMP t8/c0 192.168.50.21   -> 192.168.50.1    [ours]   [eth 02:00:5e:c0:ff:01 -> e0:1a:ea:d5:04:56]
+  |     x4     ICMP t0/c0 192.168.50.1    -> 192.168.50.21   [ours]   [eth e0:1a:ea:d5:04:56 -> 02:00:5e:c0:ff:01]
+  [arpleg u]
+  | LEG t75s4u  iface=eth6 watch=- count=4
+  |     x4     ICMP t8/c0 192.168.50.29   -> 192.168.50.1    [ours]   [eth 02:00:5e:c0:ff:09 -> e0:1a:ea:d5:04:56]
+host tb5$ ping eth6 x4 (after login):  4 packets transmitted, 4 received, 0% packet loss, time 3078ms
+awplus# show auth supplicant brief
+  |   authenticationMethod: mac/web
+  |   totalSupplicantNum: 3
+  |   authorizedSupplicantNum: 2
+  |   untaggedVlansupplicantNum: 2
+  |   taggedVlansupplicantNum: 0
+  |     macBasedAuthenticationSupplicantNum: 1
+  |     dot1xAuthenticationSupplicantNum: 0
+  |     webBasedAuthenticationSupplicantNum: 1
+  |     otherAuthenticationSupplicantNum: 0
+  | port1.0.81  1    W    0090.0b2a.11c3 Authenticated     192.168.50.10   ckweb
+  | port1.0.81  1    M    0200.5ec0.ff01 Authenticated     192.168.50.21   02-00...
+  | port1.0.81  1    W    0200.5ec0.ff09 Connecting        192.168.50.29   --
+  Result: W Authenticated (eth6, ckweb, 4/4) and M Authenticated (02:00:5e:c0:ff:01, 4/4) held together; unknown MAC 0/4.
+
+--- HEALTH AFTER (tools/tb health ... --before /tmp/auth1304/health-u2-20261029T133051.out.json --label T33375-after) ---
+  | HEALTH u2 13:37:09-13:37:31 T33375-after  saved /tmp/auth1304/health-u2-20261029T133709.out  json /tmp/auth1304/health-u2-20261029T133709.out.json
+  |   reboots ......... 29 entries, newest 2026-10-28 21:19:45 Expected   CLI(user request)
+  |   exception log ... None
+  |   log (filtered) .. 4 lines: 4 echoes of our own commands, 0 other
+  |   cpu ............. 1% / 0% / 0%  (show cpu prints BUSY averages 1 s / 20 s / 60 s, not idle); load 1.16
+  |   memory .......... free 15377952 of 16033676 kB (buffers 32)
+  | HEALTH-DIFF u2 vs health-u2-20261029T133051.out.json (13:30:51 T33375-before)
+  |   reboots ......... no new entry (newest stays 2026-10-28 21:19:45 Expected   CLI(user request))
+  |   exception log ... None -> None
+  |   log (filtered) .. 0 new non-echo lines
+  |   log tail 150 .... 150 lines, 125 echoes of our own commands; other lines by signature:
+  |         3 x  2026 Oct 29 00:33:17 user.notice x980-CDQ MSTP[1128]: CIST port1.0.81 now forwarding, propagating TC to other ports
+  |         2 x  2026 Oct 29 00:24:43 user.err x980-CDQ IMISH[10939]: Command [end] failed
+  |         2 x  2026 Oct 29 00:32:55 daemon.notice x980-CDQ radiusd[11401]: (1) Login OK: [ckweb] (from client 127.0.0.1 port 5081 cli 00-90-0b-2a-11-c3)
+  |         2 x  2026 Oct 29 00:32:55 user.notice x980-CDQ 802.1X[1116]: Web Authentication successful for ckweb@0090.0b2a.11c3(192.168.50.10) on port1.0.81
+  |         2 x  2026 Oct 29 00:33:40 daemon.notice x980-CDQ radiusd[11401]: (2) Login OK: [02-00-5e-c0-ff-01] (from client 127.0.0.1 port 5081 cli 02-00-5e-c0-ff-01)
+  |         2 x  2026 Oct 29 00:33:40 user.notice x980-CDQ 802.1X[1116]: MAC Authentication successful for 02-00-5e-c0-ff-01@0200.5ec0.ff01 on port1.0.81
+  |   cpu ............. 1% -> 1%  (1 s busy average)
+  |   memory .......... free 15373312 -> 15377952 kB (+4640; one case cannot show a leak)
+  |   VERDICT ......... CLEAN
+  Note: 'Command [end] failed' at 00:24:43 UTC predates this case (probe/triage window, 13:24:43 NZDT minus clock offset).
+
+--- TEARDOWN (13:3x NZDT) ---
+  | 13:37:39 >>> configure terminal
+  | 13:37:40 >>> radius-server local
+  | 13:37:41 >>> user 00-90-0b-2a-11-c3 encrypted password mssv+c7URUgtfltKy46Rt1ydpHKUTY8WiQr1zgQjGbY= group TWOSTEP
+  | 13:37:42 >>> no user 02-00-5e-c0-ff-01
+  | 13:37:43 >>> no user ckweb
+  | 13:37:45 >>> exit
+  | 13:37:46 >>> interface port1.0.81
+  | 13:37:47 >>> no auth-mac enable
+  | 13:37:48 >>> end
+  | 13:37:49 >>> terminal length 0
+  rcdiff: python3 tools/rcdiff.py baseline/swi_dut-pre-run-1327.out <post show running-config> -> exit 1, the ONLY difference is the
+  echoed command line '+x980-CDQ#show running-config' (a --verbatim capture keeps the prompt). Configuration: identical to the baseline.
+  Live state after teardown: eth6 has no session (it will be re-authenticated with a ck user at the group's end, TE answer 13:3x).
+
+Run: clean. Tools: tools/tb ckcon/qmark/health (tb490 u2), tools/tb ping + tool httpq + sudotool arpleg (tb5 eth6), tools/rc2cfg.py, tools/rcdiff.py.
+Captures on tb5: /tmp/auth1304/t75/*.pcap. Health raw: tb490 /tmp/auth1304/health-u2-20261029T133051.out and the -after file.
+VERDICT: PASS -- MAC auth and web auth both work on port1.0.81 alone and together: known MAC M 4/4 vs unknown 0/4, wrong web password 0/4 vs correct W 4/4, M and W sessions held at once
