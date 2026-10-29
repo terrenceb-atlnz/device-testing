@@ -109,6 +109,7 @@ T33375 was run on IE520 before (`IE520/auth-2026-09-22/33375.log`).
 | T33366 | (206) Authentication&Security_WebAuthentication - Promiscuous / Intercept web Authentication | none (empty) | from the title; after D1, and the intercept leg needs an off-subnet destination routed via the DUT from tb5 eth6 (D2, root) |
 | T33357 | (194) Authentication&Security_IEEE 802.1XEncryptionType - EAP-TLS | none (empty) | from the title; after D1. `wpasup.py --method tls` on tb5 eth6 (TLS 1.2 supplicant, memory eap-tls-needs-tls12-supplicant) against the DUT's local RADIUS; `sudotool` works on tb5 |
 | T33375 | (219) Authentication&Security - MAC Auth/Web Auth | none (empty) | from the title (as on IE520 2026-09-22); after D1 |
+| T33365 | (205) Authentication&Security_WebAuthentication - Public key encryption(X509) | A | PASS | ck-web trustpoint bound to auth-web-server ssl; chain verified with exported CA (fails without); HTTPS login wrong 0/4, ckweb W 4/4; STEP 6 skipped (D3) | auth-2026-10-29T1304/T33365/work/run1.log | |
 
 ### Decisions for the Test Engineer
 
@@ -136,7 +137,7 @@ T33375 was run on IE520 before (`IE520/auth-2026-09-22/33375.log`).
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| A | T33365 Web Auth – Public…; T33366 Web Auth – Promis…; T33357 802.1X EncryptionType…; T33375 MAC Auth/Web Auth | `auth-2026-10-29T1304` | RUNNING (bench-runner 13:25): T33375 PASS; T33365 next | One group, one DUT console (tb490 u2); client NIC tb5 eth6. T33366 also waits on D2. See Triage. |
+| A | T33365 Web Auth – Public…; T33366 Web Auth – Promis…; T33357 802.1X EncryptionType…; T33375 MAC Auth/Web Auth | `auth-2026-10-29T1304` | RUNNING (bench-runner 13:25): T33375 PASS; T33365 PASS; T33366 next | One group, one DUT console (tb490 u2); client NIC tb5 eth6. T33366 also waits on D2. See Triage. |
 
 ### Group A — bench setup and restore recipe (bench-runner RUN, written 2026-10-29 13:3x NZDT, before the first case)
 

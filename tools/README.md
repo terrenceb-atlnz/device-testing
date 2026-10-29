@@ -1480,7 +1480,8 @@ status line, the response headers and the (optionally truncated) body.
   returns. It is also how a device's REST/RestCONF surface is checked without adding a
   dependency to the box.
 - **Run:** `httpq.py <url> [--method M] [--user U --password P] [--data STR]
-  [--header 'K: V']... [--timeout S] [--max-body N] [--verify] [--head-only]`, or
+  [--header 'K: V']... [--timeout S] [--max-body N] [--verify] [--head-only]
+  [--cafile CA.pem] [--no-hostname-check] [--peer-cert]`, or
   `tools/tb tool <TB> <scratch> httpq <url> ...`
 - **Where:** testbox (it must reach the device's management address); **needs:** nothing
   beyond Python
@@ -1498,6 +1499,14 @@ status line, the response headers and the (optionally truncated) body.
     cookie.
   - The password is an argv value and is visible in `ps` on the box; use a worthless
     credential.
+- **X.509 options (2026-10-29, tb490 T33365):** `--cafile F` verifies the server chain against
+  that CA (implies `--verify`); `--no-hostname-check` keeps the chain check but skips the name
+  match (an IP URL against a CN-only certificate has no SAN to match, and Python rejects it as
+  `IP address mismatch` -- correctly, per RFC 6125); `--peer-cert` first prints the certificate
+  the server presents (subject, issuer, SAN, validity, SHA-256) without trusting it. A `TLS:` line
+  says on every run whether, and against what, the chain was verified. Verified on tb5 against an
+  x980-16CDQ web-auth server bound to a `crypto pki` trustpoint: chain OK with the exported CA,
+  `unable to get local issuer certificate` against the system store.
 - **Status:** verified 2026-10-20 on tb277, x960-56YSQ (T47199): 404 from `/` and `/login`
   with no GUI file installed (`show http` -> `GUI file in use : -`), 501
   `ANT_CODE_UNIMPLEMENTED` from `/api/v1/system`, and **200 OK with 11848 B of

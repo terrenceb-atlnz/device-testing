@@ -41,6 +41,14 @@ def main():
     ap.add_argument("--verify", action="store_true",
                     help="verify TLS (off by default: device certs are self-signed)")
     ap.add_argument("--head-only", action="store_true", help="do not print the body")
+    ap.add_argument("--cafile", default=None,
+                    help="verify the server chain against THIS CA file (PEM); implies --verify")
+    ap.add_argument("--no-hostname-check", action="store_true",
+                    help="with --verify/--cafile: check the chain but not the name (an IP URL "
+                         "against a CN-only cert has no SAN to match)")
+    ap.add_argument("--peer-cert", action="store_true",
+                    help="https only: first print the certificate the server presents "
+                         "(subject, issuer, SAN, validity, SHA-256), read without verification")
     args = ap.parse_args()
 
     method = args.method.upper()
@@ -67,12 +75,22 @@ def main():
     # plain http with a 301 to https, urllib follows it, and a context attached only to an
     # https starting URL is not in play by then -- the redirect then dies on
     # CERTIFICATE_VERIFY_FAILED against the device's self-signed cert (tb277 2026-10-20).
-    ctx = ssl.create_default_context()
+    if args.cafile:
+        args.verify = True
+    ctx = ssl.create_default_context(cafile=args.cafile) if args.cafile else ssl.create_default_context()
+    if args.verify and args.no_hostname_check:
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_REQUIRED
     if not args.verify:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
 
     print("=== %s %s ===" % (method, args.url))
+    print("TLS: %s" % ("chain verified against %s%s" % (args.cafile or "the system store",
+                                                        ", hostname NOT checked" if args.no_hostname_check else "")
+                       if args.verify else "NOT verified"))
+    if args.peer_cert and args.url.lower().startswith("https://"):
+        show_peer_cert(args.url, args.timeout)
     try:
         resp = urllib.request.urlopen(req, timeout=args.timeout, context=ctx)
         status, reason, headers = resp.status, resp.reason, resp.headers
@@ -95,6 +113,41 @@ def main():
     sys.stdout.write(payload[:args.max_body].decode("utf-8", "replace"))
     print()
     return 0
+
+
+def show_peer_cert(url, timeout):
+    """Print the server's certificate as presented, without trusting it."""
+    import hashlib, socket, tempfile, os
+    from urllib.parse import urlsplit
+    u = urlsplit(url)
+    host, port = u.hostname, u.port or 443
+    c = ssl.create_default_context()
+    c.check_hostname = False
+    c.verify_mode = ssl.CERT_NONE
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as s:
+            with c.wrap_socket(s, server_hostname=host) as ss:
+                der = ss.getpeercert(binary_form=True)
+                ver = ss.version()
+    except (OSError, ssl.SSLError) as exc:
+        print("PEER CERT: connect failed: %s" % exc)
+        return
+    pem = ssl.DER_cert_to_PEM_cert(der)
+    fd, path = tempfile.mkstemp(suffix=".pem")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(pem)
+        d = ssl._ssl._test_decode_cert(path)
+    except Exception as exc:                      # decoding is a convenience, never fatal
+        d = {"error": str(exc)}
+    finally:
+        os.unlink(path)
+    flat = lambda x: ", ".join("%s=%s" % kv for rdn in x for kv in rdn) if x else "-"
+    print("PEER CERT (%s): subject %s" % (ver, flat(d.get("subject"))))
+    print("  issuer   %s" % flat(d.get("issuer")))
+    print("  SAN      %s" % (", ".join("%s:%s" % kv for kv in d.get("subjectAltName", ())) or "-"))
+    print("  valid    %s -> %s   serial %s" % (d.get("notBefore"), d.get("notAfter"), d.get("serialNumber")))
+    print("  sha256   %s" % hashlib.sha256(der).hexdigest())
 
 
 if __name__ == "__main__":
