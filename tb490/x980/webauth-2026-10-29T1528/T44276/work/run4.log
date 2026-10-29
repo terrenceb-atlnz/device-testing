@@ -1,0 +1,121 @@
+T44276 DHCP Server for Web Auth -- working log, run 4 (step 5 login leg only)
+Tester: bench-runner (RUN, 2026-10-30), sentinel: parent. tb490 u2 = swi_dut (x980-16CDQ); tb5 eth6 = client.
+Steps 1-4: run 2 (work/run2.log). Run 3 (work/run3.log): lease + TCP/80 SYN-ACK from the leased address
+measured; login not measured because tb5 eth6 had been readdressed. Test Engineer's answer, relayed 2026-10-30:
+the eth6 change was theirs; they re-added 192.168.50.10/24 on eth6 (runtime) and approved re-adding route60.
+
+== GATE (08:27 NZDT) ==
+  precheck tb490 u2 CLEAR. scratch wa1030 refreshed on tb490 and tb5. tb5 consoles not opened.
+  tb5 eth6 (work/run4-tb5-hostinfo.out): UP 10.37.5.129/27 192.168.50.10/24 fd32:b1f0:dff7:506::1/64 (as relayed).
+  peek u2: `x980-CDQ#`. Pre-run running-config vs baseline/swi_dut-pre-run.out: rcdiff exit 0.
+  Build x980-awplus_main-20261029-90.rel; show boot flash:/x980-tb490.rel + flash:/x980-autoorder.cfg.
+  Before setup: no port1.0.81 supplicant entry (lost in run 3). DUT clock is UTC (NZDT-13).
+
+== show system (swi_dut, verbatim; raw work/run4-show-system.out) ==
+  | System Status                                           Thu Oct 29 19:27:43 2026
+  | 
+  | Board      ID   Bay     Board Name                        Rev   Serial number
+  | --------------------------------------------------------------------------------
+  | Base       688  Base    AT-x980-16CDQ                     X2-0  A10732A263200035
+  | Expansion  616  Bay1    AT-XEM3-12YS                      X1-0  A10599A232800007
+  | Expansion  617  Bay2    AT-XEM3-8CQ                       X3-0  A10534A241600051
+  | PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104R3027Q 
+  | Fan module 715  FAN1    AT-FAN18                          A-0   A12345A12345678 
+  | Fan module 715  FAN2    AT-FAN18                          A-0   A12345A12345678 
+  | Fan module 715  FAN3    AT-FAN18                          A-0   A12345A12345678 
+  | Fan module 715  FAN4    AT-FAN18                          A-0   A12345A12345678 
+  | Fan module 715  FAN5    AT-FAN18                          A-0   A12345A12345678 
+  | --------------------------------------------------------------------------------
+  | RAM: Total: 16033676 kB Free: 15372788 kB
+  | Flash: 127.9GB Used: 271.6MB Available: 126.6GB
+  | --------------------------------------------------------------------------------
+  | Environment Status : Normal
+  | Uptime             : 0 days 22:07:35
+  | Bootloader version : 260616
+  | BIOS version       : B7E3R911
+  | 
+  | Current software   : x980-tb490.rel
+  | Software version   : awplus_main-20261029-90
+  | Build date         : Wed Oct 28 20:43:01 UTC 2026
+  | 
+  | Current boot config: flash:/x980-autoorder.cfg (file exists)
+  | 
+  | System Name
+  |  x980-CDQ
+  | System Contact
+  | 
+  | System Location
+
+== HEALTH BEFORE (tools/tb health tb490 wa1030 u2 115200 --label T44276-run4-before; raw on box
+   /tmp/wa1030/health-u2-20261030T082736.out, summary work/run4-health-before.out) ==
+  reboots ......... 29 entries, newest 2026-10-28 21:19:45 Expected   CLI(user request)
+  exception log ... None
+  log (filtered) .. 42 lines: 42 echoes of our own commands, 0 other
+  cpu ............. 1% / 0% / 0%; load 1.16
+  memory .......... free 15372524 of 16033676 kB
+
+== SETUP (08:28) (raw work/run4-setup.out) ==
+  | x980-CDQ(config)#service dhcp-server
+  | x980-CDQ(config)#no auth-web-server ipaddress
+  | x980-CDQ(config)#auth-web-server dhcp ipaddress 192.168.60.1/24
+  | x980-CDQ(config)#auth-web-server dhcp lease 60
+  | x980-CDQ(config-radsrv)#user ckdhcp password <pw>
+  | x980-CDQ#dot1x initialize interface port1.0.81
+  No `%`. show auth-web-server: Server address: 192.168.60.1/24, DHCP server: enabled, DHCP lease time: 60.
+  Saved T44276/swi_dut.cfg (run 4; overwrites run 3's).
+
+STEP 5 -- unauthenticated client gets a lease, then logs in via web-auth at 192.168.60.1   PASS (login sourced 192.168.50.10, see note)
+  5a route: `tools/tb sudotool tb5 wa1030 hostnet route60-add` (work/run4-route60-add.out):
+  | ip route add 192.168.60.0/24 via 192.168.50.1 dev eth6 -> rc 0
+  | route 192.168.60.0/24: PRESENT -- 192.168.60.0/24 via 192.168.50.1 dev eth6     RESULT route60-add: OK
+  5b lease (08:29), `dhcp4 client eth6 --mac 00:90:0b:2a:11:c3 --wait 10`:
+  | try1 OFFER NONE (first DISCOVER unanswered, as runs 2-3); try2 OFFER 192.168.60.2, ACK 192.168.60.2
+  5c login page: httpq http://192.168.60.1/ -> HTTP 200 (login page; work/run4-s5-get.out). The DUT serves the
+     login at 192.168.60.1 to eth6 sourcing 192.168.50.10 via the route: the "only to a 192.168.60.x source"
+     refusal did NOT occur.
+  5d WRONG password (08:29:4x): POST /index.cgi USERNAME=ckdhcp PASSWORD=WrongPass-99 -> HTTP 200 (not graded on body)
+  | show auth supplicant brief: port1.0.81  1    W    0090.0b2a.11c3 Connecting        192.168.50.10   --
+  | log: radiusd Login incorrect ... [ckdhcp] (cli 00-90-0b-2a-11-c3)
+  |      802.1X Web Authentication failed (retry=0) for ckdhcp@0090.0b2a.11c3(192.168.50.10) on port1.0.81
+  | dataplane arpleg r4wrong2 (eth6, 192.168.50.10 -> 192.168.50.1 ICMP x4): replies 0/4             PASS
+  |   (an earlier leg r4wrong was sent with arpleg's default sender 192.168.10.2/00:11:22:33:44:01 by
+  |    mistake -- not eth6's identity; discarded, not graded)
+  5e RIGHT password (08:30:3x): POST USERNAME=ckdhcp PASSWORD=<correct> -> HTTP 200
+  | show auth supplicant brief: port1.0.81  1    W    0090.0b2a.11c3 Authenticated     192.168.50.10   ckdhcp
+  | log: radiusd Login OK: [ckdhcp]; 802.1X Web Authentication successful for ckdhcp@0090.0b2a.11c3(192.168.50.10)
+  | dataplane r4right: 3/4 echo replies (first leg after auth; the DUT broadcast one ARP for 192.168.50.1
+  |   in the window); r4right2 (immediately after): 4/4 replies                                    PASS
+  | r4right60: ICMP 192.168.50.10 -> 192.168.60.1 x4 -> 2 x ICMP type 3 code 0 (net unreachable) from
+  |   192.168.50.1: 192.168.60.1 is the web-auth server's address only, not a routed interface address.
+  NOTE (scope): the client holding the lease (MAC 0090.0b2a.11c3, leased 192.168.60.2) logged in with eth6's
+  address 192.168.50.10 as source; the DUT recorded 192.168.50.10 as the supplicant IP. A login SOURCED from
+  the leased 192.168.60.x address was not done (no such host address on tb5; not widened). Run 3 measured
+  that the DUT accepts TCP/80 from 192.168.60.3 (SYN -> SYN-ACK).
+
+== HEALTH AFTER (--before /tmp/wa1030/health-u2-20261030T082736.out.json --label T44276-run4-after;
+   summary work/run4-health-after.out) ==
+  reboots ......... no new entry; exception log None -> None; filtered log 0 new non-echo lines
+  log tail: only our own events (ckdhcp login incorrect/OK, Web Authentication failed/successful; run 3's
+  ckrestore unauthorized; "Default password for user 'manager'" at 19:10:08 UTC = run 3's re-probe login)
+  cpu 1% -> 1%; memory free 15372524 -> 15376036 kB
+  VERDICT ......... CLEAN
+
+== TEARDOWN / RESTORE (08:31-08:34) ==
+  tb5 `hostnet route60-del`: rc 0, route 192.168.60.0/24 absent (RESULT route60-del: OK); hostnet show at
+  the end: 8.8.8.0/24 absent, 192.168.60.0/24 absent. eth6's 192.168.50.10/24 left in place (Test Engineer's).
+  DUT (work/run4-teardown.out): no auth-web-server dhcp lease; no auth-web-server dhcp ipaddress;
+  auth-web-server ipaddress 192.168.50.1; no service dhcp-server; radius-server local -> no user ckdhcp,
+  user ckrestore password <pw>; end; dot1x initialize interface port1.0.81. No `%`.
+  eth6 re-web-authenticated: POST http://192.168.50.1/index.cgi USERNAME=ckrestore -> HTTP 200;
+  | port1.0.81  1    W    0090.0b2a.11c3 Authenticated     192.168.50.10   ckres...
+  | arpleg r4restore ICMP 192.168.50.10 -> 192.168.50.1: 4/4 replies
+  then radius-server local -> no user ckrestore (session persists: Authenticated ckres... after the delete).
+  rcdiff baseline/swi_dut-pre-run.out vs work/run4-post-rc.out: exit 0 (identical). show boot unchanged.
+  u2: `exit` -> `x980-CDQ login:`; the ckcon hung after exit (PID 269812, ours) and was killmine'd; no ckcon left.
+  Re-probe read-only: MATCH (exit 0), capture bench-setup/tb490/captures/2026-10-29T193405Z.
+
+VERDICT: PASS -- steps 1-4 PASS (run 2: no OFFER with service off; the built-in DHCP server serves
+unauthenticated supplicants; configured lease honoured (range 20-60 s); incremental allocation); step 5 PASS
+(run 4): the unauthenticated client was leased 192.168.60.2, the DUT served the login at 192.168.60.1, a wrong
+password left it Connecting with 0/4 ICMP, the right password made it Authenticated (ckdhcp) with 4/4 ICMP.
+Caveat: the login was sourced from eth6's 192.168.50.10 via the approved route, not from the leased address.
