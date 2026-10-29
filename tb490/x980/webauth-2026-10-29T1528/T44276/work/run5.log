@@ -1,0 +1,304 @@
+T44276 DHCP Server for Web Auth -- working log, run 5 (FULL case, steps 1-5, in one run)
+Case: AWPTCM-T44276 (1.0) "(208) Authentication&Security_WebAuthentication - DHCP Server for Web Authentication".
+ck.db has no authored steps for this case (Test Engineer / sentinel); the steps below are the campaign's
+(queue triage row + sentinel's run-5 dispatch). `tools/ckcase.py AWPTCM-T44276` could not open ck.db on this
+host or tb490 ("unable to open database file"), so the title is quoted from the campaign queue.
+Tester: bench-runner (RUN, 2026-10-30), sentinel: parent session. Run 5 replaces runs 1-4 as the case's
+evidence run (Test Engineer: "Full re-run (run 5)").
+
+== SESSION FACTS (Test Engineer's, from the queue CAMPAIGN-QUEUE-2026-10-29T1528.md) ==
+  box: tb490 (DUT; runs the cases) + tb5 (the rest of the network; consoles for access and logging)
+  consoles: tb490 u2 = swi_dut; tb5 u0 = swi_x950, u1 = swi_x530, u2 = swi_ar   (tb5 consoles not opened this run)
+  pdu: none on either box (no power cycles); outlets: none
+  constraints: "no shared boxes all mine, run the test probe, u0 and u1 on tb490 are not to be touched";
+    `lldp run` stays off -> probes --read-only, baud 115200; stop rule "if anything touvhes u2 please stop".
+  session dir tb490/x980/, stamp 2026-10-29T1528, group webauth-2026-10-29T1528.
+  Topology: client = tb5 eth6 (00:90:0b:2a:11:c3, 192.168.50.10/24 -- re-added by the Test Engineer on
+    2026-10-30, runtime, beside 10.37.5.129/27) -> swi_x530 port1.0.16 -> swi_x950 -> swi_dut port1.0.81
+    (vlan1 192.168.50.1/24, MAC e0:1a:ea:d5:04:56). Web-auth on port1.0.81 (multi-supplicant, auth forward
+    arp|dhcp|dns), DUT local RADIUS. Fake supplicants by scapy from eth6 with MACs 02:00:5e:c0:ff:NN.
+  Approved root change on tb5 for this case: `hostnet route60-add|route60-del`
+    (= ip route add|del 192.168.60.0/24 via 192.168.50.1 dev eth6); nothing else.
+
+== TOOLS (all from the repo root through tools/tb; scratch wa1030 on tb490 and tb5) ==
+  tools/tb precheck tb490 u2 ; tools/tb scratch tb490|tb5 wa1030 ; tools/tb peek tb490 wa1030 u2 115200
+  tools/tb health tb490 wa1030 u2 115200 --label T44276-run5-before | --before <json> --label T44276-run5-after
+  tools/tb ckcon tb490 wa1030 u2 115200 [--stop-on-error] --verbatim "<cmd>" ...   (DUT console)
+  tools/tb sudotool tb5 wa1030 dhcp4 client eth6 --mac <MAC> --wait 10|8 [--pcap /tmp/wa1030/<f>.pcap]
+  tools/tb sudotool tb5 wa1030 dhcp4 decode /tmp/wa1030/<f>.pcap
+  tools/tb sudotool tb5 wa1030 hostnet route60-add | route60-del | show
+  tools/tb tool tb5 wa1030 httpq http://192.168.60.1/[index.cgi] [--method POST --data 'USERNAME=..&PASSWORD=..&ACTION=login'] --timeout 8 --max-body N
+  tools/tb sudotool tb5 wa1030 arpleg --tag <t> --out /tmp/wa1030/r5 --iface eth6 --icmp 192.168.50.1
+      --gw-mac e0:1a:ea:d5:04:56 --sender-mac 00:90:0b:2a:11:c3 --sender-ip 192.168.50.10 --count 4
+  tools/tb probe tb490 --consoles u2 --no-prompt --read-only --baud 115200 --name u2=swi_dut
+      --template tb490/x980/webauth-2026-10-29T1528/tb490-u2.setup
+  python3 tools/rcdiff.py baseline/swi_dut-pre-run.out <post> ; python3 tools/rc2cfg.py
+  Grading: on `show auth supplicant brief` and the dataplane (ICMP, STANDING-ORDERS §7), never on the HTTP body.
+  Test passwords are worthless and shown as <pw>.
+
+== GATE (08:43-08:45 NZDT 2026-10-30) ==
+  Sentinel 08:43: tb490 u2 CLEAR; tb5 u0-u2 free (ser2net only); eth6 10.37.5.129/27 + 192.168.50.10/24.
+  precheck tb490 u2: CLEAR. tb5 hostinfo: eth6 UP 10.37.5.129/27 192.168.50.10/24 (work/run5-tb5-hostinfo.out).
+  hostnet show: 8.8.8.0/24 absent, 192.168.60.0/24 absent. peek u2: `x980-CDQ#` (exec, not parked).
+  Pre-run running-config (work/run5-pre-rc.out) vs baseline/swi_dut-pre-run.out: rcdiff exit 0 (identical).
+  Read-only probe tb490 u2 (same facts) at the end of run 4 (08:34): MATCH; again after this run: MATCH.
+  Clocks: DUT `show clock` 19:44:45 UTC Thu 29 Oct = host 08:45 NZDT Fri 30 Oct (DUT log times are UTC).
+
+== show system (swi_dut, 08:45 NZDT, verbatim and in full; raw work/run5-show-system.out) ==
+  | System Status                                           Thu Oct 29 19:44:43 2026
+  | 
+  | Board      ID   Bay     Board Name                        Rev   Serial number
+  | --------------------------------------------------------------------------------
+  | Base       688  Base    AT-x980-16CDQ                     X2-0  A10732A263200035
+  | Expansion  616  Bay1    AT-XEM3-12YS                      X1-0  A10599A232800007
+  | Expansion  617  Bay2    AT-XEM3-8CQ                       X3-0  A10534A241600051
+  | PSU        683  PSU1    AT-PWRSYS4                        D-0   6L6L20104R3027Q 
+  | Fan module 715  FAN1    AT-FAN18                          A-0   A12345A12345678 
+  | Fan module 715  FAN2    AT-FAN18                          A-0   A12345A12345678 
+  | Fan module 715  FAN3    AT-FAN18                          A-0   A12345A12345678 
+  | Fan module 715  FAN4    AT-FAN18                          A-0   A12345A12345678 
+  | Fan module 715  FAN5    AT-FAN18                          A-0   A12345A12345678 
+  | --------------------------------------------------------------------------------
+  | RAM: Total: 16033676 kB Free: 15375256 kB
+  | Flash: 127.9GB Used: 271.6MB Available: 126.6GB
+  | --------------------------------------------------------------------------------
+  | Environment Status : Normal
+  | Uptime             : 0 days 22:24:35
+  | Bootloader version : 260616
+  | BIOS version       : B7E3R911
+  | 
+  | Current software   : x980-tb490.rel
+  | Software version   : awplus_main-20261029-90
+  | Build date         : Wed Oct 28 20:43:01 UTC 2026
+  | 
+  | Current boot config: flash:/x980-autoorder.cfg (file exists)
+  | 
+  | System Name
+  |  x980-CDQ
+  | System Contact
+  | 
+  | System Location
+
+== HEALTH BEFORE (08:44:35-08:44:52; raw on box /tmp/wa1030/health-u2-20261030T084435.out; summary work/run5-health-before.out) ==
+    reboots ......... 29 entries, newest 2026-10-28 21:19:45 Expected   CLI(user request)
+    exception log ... None
+    log (filtered) .. 46 lines: 46 echoes of our own commands, 0 other
+    cpu ............. 1% / 0% / 0%  (show cpu prints BUSY averages 1 s / 20 s / 60 s, not idle); load 1.25
+    memory .......... free 15375004 of 16033676 kB (buffers 36)
+
+== SETUP (08:45) (raw work/run5-setup.out) ==
+  | x980-CDQ#show boot
+  | x980-CDQ#show auth supplicant brief
+  | x980-CDQ#configure terminal
+  | x980-CDQ(config)#no service dhcp-server
+  | x980-CDQ(config)#no auth-web-server ipaddress
+  | x980-CDQ(config)#auth-web-server dhcp ipaddress 192.168.60.1/24
+  | x980-CDQ(config)#radius-server local
+  | x980-CDQ(config-radsrv)#user ckdhcp password <pw>
+  | x980-CDQ(config-radsrv)#end
+  | x980-CDQ#dot1x initialize interface port1.0.81
+  | x980-CDQ#show auth-web-server
+  | x980-CDQ#show running-config | include dhcp|auth-web-server
+  | x980-CDQ#show auth supplicant brief
+  No `%`. Before: port1.0.81  1    W    0090.0b2a.11c3 Authenticated     192.168.50.10   ckres... ;
+  after `dot1x initialize`: no port1.0.81 entry. show boot: flash:/x980-tb490.rel, flash:/x980-autoorder.cfg.
+  show running-config | include dhcp|auth-web-server:
+  |  user ckdhcp encrypted password LZPzOiUO3PAu58V9xkla3xfHaxgIKguvZXNIcP6E524=
+  | no service dhcp-server
+  | auth-web-server dhcp ipaddress 192.168.60.1/24
+  |  auth forward dhcp
+  show auth-web-server: Server address: 192.168.60.1/24 ; DHCP server: enabled ; DHCP lease time: 20
+  Saved T44276/swi_dut.cfg (3-line header; captured 08:45 NZDT after setup, before step 1).
+
+STEP 1 -- control: no OFFER while the DHCP service is off                       PASS (1b); 1a FINDING
+  1a 08:46-08:47, AS DISPATCHED: web-auth DHCP configured (auth-web-server dhcp ipaddress 192.168.60.1/24),
+     `no service dhcp-server` (running-config shows it; `show ip dhcp server summary`: "DHCP Server service is
+     disabled" / "DHCP Server is not running"). dhcp4 client eth6 --mac M --wait 10 (work/run5-s1-dhcp.out):
+  | 08:46:00 00:90:0b:2a:11:c3 OFFER: NONE   ACK: NONE
+  | 08:46:16 00:90:0b:2a:11:c3 OFFER: 192.168.60.2  ACK: ACK 192.168.60.2   (pcap r5s1-2)
+  | 08:46:22 00:90:0b:2a:11:c3 OFFER: 192.168.60.3  ACK: ACK 192.168.60.3
+  | 08:46:29 02:00:5e:c0:ff:51 OFFER: NONE   ACK: NONE
+  | 08:46:45 02:00:5e:c0:ff:51 OFFER: 192.168.60.4  ACK: ACK 192.168.60.4
+  decode r5s1-2: OFFER/ACK yiaddr 192.168.60.2 from eth e0:1a:ea:d5:04:56 ip 192.168.60.1, server_id 192.168.60.1, lease 20.
+  => The web-auth DHCP server serves regardless of `service dhcp-server`. The expectation "service off ->
+     no OFFER" does NOT hold on this build. This agrees with the command reference (auth-web-server dhcp
+     ipaddress: "assign an IP address and enable the DHCP service on the Web-Authentication server", 5.5.6-1),
+     which names no dependency on `service dhcp-server`. It contradicts runs 1-2, which attributed run 1's
+     missing OFFER to the service being off; run 1's single DISCOVER would have gone unanswered anyway
+     (each MAC's first DISCOVER is unanswered: steps 2-5), and its server address was in the host subnet.
+  1b 08:48-08:49, the real control: web-auth DHCP NOT configured, service off (work/run5-s1b-cfg.out):
+  | x980-CDQ#configure terminal
+  | x980-CDQ(config)#no auth-web-server dhcp ipaddress
+  | x980-CDQ(config)#auth-web-server ipaddress 192.168.50.1
+  | x980-CDQ(config)#end
+  | x980-CDQ#show running-config | include service dhcp|auth-web-server
+  | x980-CDQ#show auth-web-server
+  | no service dhcp-server
+  | auth-web-server ipaddress 192.168.50.1
+  |   Server address: 192.168.50.1 ; DHCP server: disabled
+  dhcp4 client eth6 --mac M --wait 10 (work/run5-s1b-dhcp.out):
+  | 08:48:11 / 08:48:28 / 08:48:44 00:90:0b:2a:11:c3  OFFER: NONE x3
+  | 08:49:00 / 08:49:16 02:00:5e:c0:ff:53             OFFER: NONE x2
+  => 0 OFFERs in 5 DISCOVERs (3 more than the first-DISCOVER gap).                       PASS
+
+STEP 2 -- the built-in DHCP serves an unauthenticated supplicant (default lease)  PASS
+  08:49:50 (work/run5-s2-cfg.out):
+  | x980-CDQ#configure terminal
+  | x980-CDQ(config)#service dhcp-server
+  | x980-CDQ(config)#no auth-web-server ipaddress
+  | x980-CDQ(config)#auth-web-server dhcp ipaddress 192.168.60.1/24
+  | x980-CDQ(config)#end
+  | x980-CDQ#dot1x initialize interface port1.0.81
+  | x980-CDQ#show running-config | include service dhcp|auth-web-server
+  | x980-CDQ#show auth-web-server
+  | x980-CDQ#show ip dhcp server summary
+  | service dhcp-server
+  | auth-web-server dhcp ipaddress 192.168.60.1/24
+  |   Server address: 192.168.60.1/24 ; DHCP server: enabled ; DHCP lease time: 20
+  | DHCP Server service is enabled / DHCP Server is running
+  dhcp4 client eth6 --mac 00:90:0b:2a:11:c3 --wait 10 --pcap (work/run5-s2-dhcp.out):
+  | 08:49:59 OFFER: NONE (first DISCOVER)
+  | 08:50:16 OFFER: 192.168.60.2 lease_time=20 ; ACK 192.168.60.2 lease_time=20 renewal=10 rebinding=12
+  | 08:50:22 OFFER: 192.168.60.3 lease_time=20 ; ACK 192.168.60.3
+  dhcp4 decode /tmp/wa1030/r5s2-2.pcap (work/run5-s2-decode-summary.out):
+  | DISCOVER 00:90:0b:2a:11:c3 yiaddr 0.0.0.0 eth 00:90:0b:2a:11:c3 -> ff:ff:ff:ff:ff:ff ip 0.0.0.0 -> 255.255.255.255 
+  | OFFER 00:90:0b:2a:11:c3 yiaddr 192.168.60.2 eth e0:1a:ea:d5:04:56 -> ff:ff:ff:ff:ff:ff ip 192.168.60.1 -> 255.255.255.255 {'server_id': '192.168.60.1', 'subnet_mask': '255.255.255.0', 'lease_time': 20, 'renewal_time': 10, 'rebinding_time': 12, 'router': '192.168.60.1', 'name_server': '192.168.60.1'}
+  | REQUEST 00:90:0b:2a:11:c3 yiaddr 0.0.0.0 eth 00:90:0b:2a:11:c3 -> ff:ff:ff:ff:ff:ff ip 0.0.0.0 -> 255.255.255.255 
+  | ACK 00:90:0b:2a:11:c3 yiaddr 192.168.60.2 eth e0:1a:ea:d5:04:56 -> ff:ff:ff:ff:ff:ff ip 192.168.60.1 -> 255.255.255.255 {'server_id': '192.168.60.1', 'subnet_mask': '255.255.255.0', 'lease_time': 20, 'renewal_time': 10, 'rebinding_time': 12, 'router': '192.168.60.1', 'name_server': '192.168.60.1'}
+  => OFFER/ACK from the DUT's MAC e0:1a:ea:d5:04:56, ip 192.168.60.1, yiaddr 192.168.60.2, server_id and
+     router 192.168.60.1, mask /24, lease 20 s (the default, = show auth-web-server). The client is
+     unauthenticated (no web login yet).
+
+STEP 3 -- the configured lease is served                                          PASS
+  | x980-CDQ#configure terminal
+  | x980-CDQ(config)#auth-web-server dhcp lease 45
+  | x980-CDQ(config)#end
+  | x980-CDQ#show auth-web-server
+  |   DHCP lease time: 45      (range: help `auth-web-server dhcp lease ?` -> "<20-60>  The lease time in second(s)", read 2026-10-30 08:03 on this DUT, work/run3-qmark-lease.out)
+  dhcp4 client eth6 --mac 02:00:5e:c0:ff:54 --wait 10 --pcap (work/run5-s3-dhcp.out):
+  | 08:51:13 OFFER: NONE ; 08:51:29 OFFER: 192.168.60.4 lease_time=45 ; ACK 192.168.60.4 lease_time=45 renewal=10 rebinding=12
+  decode r5s3-2 (work/run5-s3-decode-summary.out):
+  | OFFER 02:00:5e:c0:ff:54 yiaddr 192.168.60.4 eth e0:1a:ea:d5:04:56 -> ff:ff:ff:ff:ff:ff ip 192.168.60.1 -> 255.255.255.255 {'server_id': '192.168.60.1', 'subnet_mask': '255.255.255.0', 'lease_time': 45, 'renewal_time': 10, 'rebinding_time': 12, 'router': '192.168.60.1', 'name_server': '192.168.60.1'}
+  | ACK 02:00:5e:c0:ff:54 yiaddr 192.168.60.4 eth e0:1a:ea:d5:04:56 -> ff:ff:ff:ff:ff:ff ip 192.168.60.1 -> 255.255.255.255 {'server_id': '192.168.60.1', 'subnet_mask': '255.255.255.0', 'lease_time': 45, 'renewal_time': 10, 'rebinding_time': 12, 'router': '192.168.60.1', 'name_server': '192.168.60.1'}
+  | x980-CDQ#show auth supplicant brief
+  | port1.0.81  1    W    0200.5ec0.ff54 Connecting        192.168.60.4    --
+  => option 51 = 45 as configured (T1/T2 stay 10/12).
+
+STEP 4 -- several supplicants, addresses allocated incrementally                 PASS
+  dhcp4 client eth6 --mac M --wait 8, 3 tries per MAC (work/run5-s4-dhcp.out):
+  | == 08:51:56 00:90:0b:2a:11:c3 try1	OFFER: NONE	ACK  : NONE
+  | == 08:52:11 00:90:0b:2a:11:c3 try2	OFFER: 192.168.60.5	ACK  : ACK 192.168.60.5
+  | == 08:52:17 00:90:0b:2a:11:c3 try3	OFFER: 192.168.60.6	ACK  : ACK 192.168.60.6
+  | == 08:52:24 02:00:5e:c0:ff:55 try1	OFFER: NONE	ACK  : NONE
+  | == 08:52:38 02:00:5e:c0:ff:55 try2	OFFER: 192.168.60.7	ACK  : ACK 192.168.60.7
+  | == 08:52:44 02:00:5e:c0:ff:55 try3	OFFER: 192.168.60.8	ACK  : ACK 192.168.60.8
+  | == 08:52:50 02:00:5e:c0:ff:56 try1	OFFER: NONE	ACK  : NONE
+  | == 08:53:05 02:00:5e:c0:ff:56 try2	OFFER: 192.168.60.9	ACK  : ACK 192.168.60.9
+  | == 08:53:11 02:00:5e:c0:ff:56 try3	OFFER: 192.168.60.10	ACK  : ACK 192.168.60.10
+  | x980-CDQ#show auth supplicant brief
+  | port1.0.81  1    W    0200.5ec0.ff56 Connecting        192.168.60.10   --
+  => Each MAC's first DISCOVER is unanswered; every later DISCOVER gets the next free address, also from
+     the same MAC (.5, .6, .7, .8, .9, .10). Only the newest supplicant was listed at the read (older W
+     Connecting entries had already aged out).
+
+STEP 5 -- lease, then web login at 192.168.60.1 (wrong then right password)       PASS (login sourced 192.168.50.10)
+  5a route (work/run5-route60-add.out):
+  | ip route add 192.168.60.0/24 via 192.168.50.1 dev eth6 -> rc 0
+  | route 192.168.60.0/24: PRESENT -- 192.168.60.0/24 via 192.168.50.1 dev eth6      RESULT route60-add: OK
+  5b lease (work/run5-s5-lease.out): 08:53:34 OFFER NONE; 08:53:51 ACK 192.168.60.11 lease 45; 08:53:57 ACK 192.168.60.12
+  | x980-CDQ#show auth supplicant brief
+  | port1.0.81  1    W    0090.0b2a.11c3 Connecting        192.168.60.12   --
+  5c httpq http://192.168.60.1/ -> HTTP 200 (login page; work/run5-s5-get.out)
+  5d WRONG password: httpq http://192.168.60.1/index.cgi --method POST --data 'USERNAME=ckdhcp&PASSWORD=WrongPass-99&ACTION=login' -> HTTP 200
+  | x980-CDQ#show auth supplicant brief
+  | port1.0.81  1    W    0090.0b2a.11c3 Connecting        192.168.50.10   --
+  | 2026 Oct 29 19:53:50 daemon.notice x980-CDQ radiusd[30436]: (0) Login incorrect (pap: Cleartext password does not match "known good" password): [ckdhcp] (from client 127.0.0.1 port 5081 cli 00-90-0b-2a-11-c3)
+  | 2026 Oct 29 19:53:52 user.notice x980-CDQ 802.1X[1116]: Web Authentication failed (retry=0) for ckdhcp@0090.0b2a.11c3(192.168.50.10) on port1.0.81
+  arpleg r5wrong (ICMP 192.168.50.10 -> 192.168.50.1 x4; work/run5-s5-wrong-icmp.out):
+  |   sent: icmp 192.168.50.10 -> 192.168.50.1 (eth dst e0:1a:ea:d5:04:56)  x4
+  |   x4     ICMP t8/c0 192.168.50.10   -> 192.168.50.1    [ours]   (no reply rows)
+  => Connecting, 0/4.                                                                    PASS
+  5e RIGHT password: same POST with PASSWORD=<correct> -> HTTP 200
+  | x980-CDQ#show auth supplicant brief
+  | port1.0.81  1    W    0090.0b2a.11c3 Authenticated     192.168.50.10   ckdhcp
+  | 2026 Oct 29 19:54:27 daemon.notice x980-CDQ radiusd[30436]: (1) Login OK: [ckdhcp] (from client 127.0.0.1 port 5081 cli 00-90-0b-2a-11-c3)
+  | 2026 Oct 29 19:54:27 user.notice x980-CDQ 802.1X[1116]: Web Authentication successful for ckdhcp@0090.0b2a.11c3(192.168.50.10) on port1.0.81
+  arpleg r5right (first leg after the login): 1/4 echo replies
+  arpleg r5right2 (immediately after):
+  |   x4     ICMP t8/c0 192.168.50.10   -> 192.168.50.1    [ours]
+  |   x4     ICMP t0/c0 192.168.50.1    -> 192.168.50.10   [ours]   [eth e0:1a:ea:d5:04:56 -> 00:90:0b:2a:11:c3]
+  |   x1     ARP-REQ  who-has 192.168.50.1    tell 192.168.50.1      [eth e0:1a:ea:d5:04:56 -> ff:ff:ff:ff:ff:ff]
+  => Authenticated (ckdhcp), 4/4.                                                        PASS
+  Note: the first ICMP leg after a successful login lost replies here (1/4) and in run 4 (3/4); the next
+  leg was 4/4 both times. Recorded, not graded as a fault.
+  Note (scope): the client that took the lease (MAC 0090.0b2a.11c3) logged in from eth6's 192.168.50.10 via
+  the approved route to 192.168.60.0/24; the DUT accepted it and records 192.168.50.10 as the supplicant IP.
+  No login was sourced from the leased 192.168.60.x address (no such host address on tb5; not widened).
+
+== HEALTH AFTER (08:56:00-08:56:22; raw /tmp/wa1030/health-u2-20261030T085600.out; summary work/run5-health-after.out) ==
+    reboots ......... 29 entries, newest 2026-10-28 21:19:45 Expected   CLI(user request)
+    exception log ... None
+    log (filtered) .. 48 lines: 48 echoes of our own commands, 0 other
+    cpu ............. 1% / 0% / 0%  (show cpu prints BUSY averages 1 s / 20 s / 60 s, not idle); load 1.17
+    memory .......... free 15375536 of 16033676 kB (buffers 36)
+  HEALTH-DIFF u2 vs health-u2-20261030T084435.out.json (08:44:35 T44276-run5-before)
+    reboots ......... no new entry (newest stays 2026-10-28 21:19:45 Expected   CLI(user request))
+    exception log ... None -> None
+    log (filtered) .. 0 new non-echo lines
+    log tail 150 .... 150 lines, 140 echoes of our own commands; other lines by signature:
+          2 x  2026 Oct 29 19:33:35 user.err x980-CDQ IMISH[29754]: Command [end] failed
+          1 x  2026 Oct 29 19:33:34 user.warning x980-CDQ IMI[877]: Default password for user 'manager' needs to be changed.
+          1 x  2026 Oct 29 19:45:04 user.notice x980-CDQ 802.1X[1116]: port1.0.81: Supplicant ckrestore unauthorized, Mac 0090.0b2a.11c3
+          1 x  2026 Oct 29 19:53:50 daemon.notice x980-CDQ radiusd[30436]: (0) Login incorrect (pap: Cleartext password does not match "known good" password): [ckdhcp] (from client 127.0.0.1 port 5081 cli 00-90-0b-2a-11-c3)
+          1 x  2026 Oct 29 19:53:52 user.notice x980-CDQ 802.1X[1116]: Web Authentication failed (retry=0) for ckdhcp@0090.0b2a.11c3(192.168.50.10) on port1.0.81
+          1 x  2026 Oct 29 19:54:27 daemon.notice x980-CDQ radiusd[30436]: (1) Login OK: [ckdhcp] (from client 127.0.0.1 port 5081 cli 00-90-0b-2a-11-c3)
+    cpu ............. 1% -> 1%  (1 s busy average)
+    memory .......... free 15375004 -> 15375536 kB (+532; one case cannot show a leak)
+    VERDICT ......... CLEAN
+  (every listed log line is this campaign's own: the `end`/default-password lines are run 4's logout/probe
+   login at 19:33 UTC, the 802.1X/radiusd lines are this run's setup and step 5.)
+
+== TEARDOWN / RESTORE (08:56-08:58) ==
+  tb5 route (work/run5-route60-del.out):
+  | ip route del 192.168.60.0/24 via 192.168.50.1 dev eth6 -> rc 0 ; route 192.168.60.0/24: absent ; RESULT route60-del: OK
+  hostnet show at the end: 8.8.8.0/24 absent, 192.168.60.0/24 absent. eth6's 192.168.50.10/24 left (Test Engineer's).
+  DUT (work/run5-teardown.out):
+  | x980-CDQ#configure terminal
+  | x980-CDQ(config)#no auth-web-server dhcp lease
+  | x980-CDQ(config)#no auth-web-server dhcp ipaddress
+  | x980-CDQ(config)#auth-web-server ipaddress 192.168.50.1
+  | x980-CDQ(config)#no service dhcp-server
+  | x980-CDQ(config)#radius-server local
+  | x980-CDQ(config-radsrv)#no user ckdhcp
+  | x980-CDQ(config-radsrv)#user ckrestore password <pw>
+  | x980-CDQ(config-radsrv)#end
+  | x980-CDQ#dot1x initialize interface port1.0.81
+  | x980-CDQ#show auth-web-server
+  | x980-CDQ#show auth supplicant brief
+  No `%`. Server address: 192.168.50.1 ; DHCP server: disabled.
+  eth6 re-web-authenticated: httpq http://192.168.50.1/index.cgi POST USERNAME=ckrestore -> HTTP 200;
+  arpleg r5restore ICMP 192.168.50.10 -> 192.168.50.1: 4/4 replies (work/run5-restore-icmp.out).
+  (work/run5-post-rc.out):
+  | x980-CDQ#show auth supplicant brief
+  | port1.0.81  1    W    0090.0b2a.11c3 Authenticated     192.168.50.10   ckres...
+  | x980-CDQ(config-radsrv)#no user ckrestore
+  | x980-CDQ#show auth supplicant brief
+  | port1.0.81  1    W    0090.0b2a.11c3 Authenticated     192.168.50.10   ckres...   (session persists)
+  | Current boot image : flash:/x980-tb490.rel (file exists)
+  | Current boot config: flash:/x980-autoorder.cfg (file exists)
+  Teardown diff, rcdiff baseline/swi_dut-pre-run.out vs work/run5-post-rc.out (exit 1; work/run5-rcdiff.out):
+  | @@ -1 +1,2 @@
+  | +x980-CDQ#show running-config
+  |  !
+  Only the echoed command line (this capture was taken with --verbatim); the configuration is identical.
+  u2: `exit` -> `x980-CDQ login:`; ckcon then hung holding /dev/ttyUSB0 (PID 282094, ours) -> killmine'd;
+  no lock, no holder, no ckcon left. Re-probe read-only: MATCH (exit 0), capture
+  bench-setup/tb490/captures/2026-10-29T195823Z. tb5 consoles were not opened.
+
+VERDICT: PASS -- with `service dhcp-server` on, the web-auth DHCP server (192.168.60.1/24) leased addresses
+to unauthenticated supplicants from the DUT's MAC (default lease 20 s, configured 45 s honoured, range 20-60),
+allocated incrementally across several MACs (each MAC's first DISCOVER unanswered), and a leased client then
+logged in at 192.168.60.1: wrong password Connecting with 0/4 ICMP, right password Authenticated (ckdhcp) with
+4/4. The control with no web-auth DHCP configured gave 0 OFFERs. Finding: the web-auth DHCP server also serves
+with `no service dhcp-server` (step 1a), so the service is not what gates it; consistent with the command
+reference. Caveat: the login was sourced from 192.168.50.10 via the approved route, not the leased address.
