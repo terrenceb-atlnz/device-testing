@@ -147,3 +147,10 @@ tools/tb sudotool tb5 <scratch> hostnet route-add    # ... then route-del, then 
 - OPEN 2 closed: "approved. the list". `bench-setup/bench_probe.py` `PASSWORDS` is now the framework's five, in its
   order, and the login loop stops at AW+'s "account is locked" reply. `tools/console.py` is unchanged (one
   password, `friend` unless `CK_PASSWORD` is set); `tools/README.md` says so and points to the list.
+- OPEN 1 closed: tb5 re-probed **with swi_x530** at 2026-10-29T021845Z (Test Engineer: its password "is one of the
+  five"; the probe logged in, no lockout). Run **`--read-only`** so `lldp run` stayed off on every unit (the wrap's
+  ruling). Result MISMATCH (3) + NEEDS-CHECK (1), all from read-only mode, not from the bench: with no LLDP the
+  x530↔x950 link cannot be proven and eth6 (learned on swi_x950 port1.0.39 AND swi_x530 port1.0.16) is placed on
+  the wrong switch; eth4→swi_ar shows no learned MAC because no traffic crossed it. The deployed `tb5.setup` is
+  still correct; nothing was applied. A full (non-read-only) probe will MATCH but turns `lldp run` on again.
+  swi_x530: AT-x530-18GHXm S/N A10402G214500008, awplus_main-20261028-87, boot image "Not set".
