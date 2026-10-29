@@ -65,16 +65,111 @@ Sentinel until: when the campaign ends (stands down at /wrap-dt).
 | AWPTCM-T33354 (1.0) | (191) Authentication&Security_IEEE 802.1X - EAP-Notification… | not executed |
 | AWPTCM-T44277 (1.0) | (214) Authentication&Security - Supplicant MAC | not executed |
 
-## Triage
+## Triage — 2026-10-29 15:29–15:41 NZDT (bench-runner, TRIAGE)
 
-(filled by bench-runner TRIAGE)
+### Gate
+
+- Precheck 15:29: tb490 u2 CLEAR (exit 0); tb5 u0-u2 free, FOUND only `ser2net` pid 593 (known, not a holder).
+- Probes, `--read-only --baud 115200`, names from the session facts:
+  - **tb490 u2: MATCH** (exit 0), capture `bench-setup/tb490/captures/2026-10-29T023114Z/`.
+  - **tb5 u0-u2: MISMATCH 3 + NEEDS-CHECK 1** (exit 1), capture `bench-setup/tb5/captures/2026-10-29T023125Z/`.
+    The same four lines as the 15:22 probe, all read-only artefacts: no LLDP to prove
+    x530 port1.0.1 - x950 port1.0.39; eth6 placed on swi_x950 port1.0.39 instead of swi_x530 port1.0.16;
+    eth4 - swi_ar port1.0.8 has no learned MAC. Nothing moved. The deployed `tb5.setup` was not changed.
+- No template under `/nfsHome` on either box (not mounted); the deployed `/home/st-art/configs/<TB>.setup` is the template.
+- Every console opened was logged out (`login:` in each transcript `/tmp/tri1528/console-uN.log`); no holder left on either box.
+  tb490 u0/u1 never opened. No device state changed (help probes `qmark` only; the line was erased each time).
+- Gate 6 (pt_preflight) does not apply: no case has a script; all nine are title-only manual-CLI cases.
+
+### swi_dut after the Test Engineer's 15:16 `x980nos load-release -u u2` — NOTHING changed
+
+Measured 15:32 NZDT. **The release load left no trace on swi_dut:**
+- `show version`: `x980-awplus_main-20261029-90.rel` (the build `platforms/x980.md` was measured on);
+  `show system`: build date Wed Oct 28 20:43:01 UTC 2026, **uptime 5 h 10 m** (no reload since before the 10-29 campaign).
+- `show boot`: image `flash:/x980-tb490.rel` (file exists), config `flash:/x980-autoorder.cfg` (file exists), backup
+  image/config Not set, autoboot disabled — identical to the wrap capture `2026-10-29T020348Z`.
+- `dir flash:/*.rel`: `x980-tb490.rel` dated **Oct 28 2026 21:19:40 (UTC)**, i.e. before today's 13:04 campaign;
+  no new .rel. No new .cfg (newest `x980-macweb-90.cfg`, Oct 28 21:42 UTC).
+- `show running-config` vs the wrap capture: identical except `lldp run`, which the wrap reverted after that probe.
+- `show auth supplicant brief`: eth6 (`0090.0b2a.11c3`) still web-authenticated (Mode W, 192.168.50.10, user `ckres...`),
+  as the handover left it. Local RADIUS users unchanged (00-90-0b-2a-11-c3, 02-00-5e-00-01-02..05, dot1xuser, webuser).
+- DUT clock UTC, ~35 s behind tb5 (`show clock` 02:32:04 vs `date -u` 02:32:39).
+- **For the Test Engineer:** you confirmed the load-release targeted u2, but swi_dut's flash and boot show no new
+  image. Either it did not complete, or it wrote somewhere this read cannot see. Re-read `show version` before group A's
+  first case and stop if it moves (campaign rule: anything else touching u2 = stop).
+
+### Platform reads that decide the verdicts (measured, help only)
+
+- `show license brief`: Full (ATL-NZ internal), RADIUS-FULL present.
+- **`show radius local-server statistics`: Available methods `MAC EAP-MD5 EAP-TLS EAP-PEAP`** (Enabled: the same).
+  The AW+ command reference and Local RADIUS guide document the same four. **No EAP-TTLS, LEAP or OTP on the DUT's
+  local RADIUS server.**
+- config: `auth-web-server dhcp ?` -> `ipaddress | lease | wpad-option`; `auth-web-server intercept-port ?` ->
+  `<1-65535> | any`.
+- config-if port1.0.81: `dot1x eapol-version ?` -> `<1-2>` (default 1); `auth supplicant-mac ?` -> MAC (HHHH.HHHH.HHHH);
+  `auth ?` includes `priority`, `max-supplicant`, `host-mode`, `two-step`, `supplicant-mac`, `profile`.
+
+### Verdict per case (ck.db `zephyr_cases`, read on tb490 from `/home/terrenceb/claude/Test-cases/ask-ck/db/ck.db`)
+
+**Authored content: none of the nine has steps.** Each `steps` column is one empty step
+(`[{"description": "", "testData": "", "expected": ""}]`); none has a precondition; only T33354 has an objective,
+and it is the two words **"Not Support"**. All are Status Draft, folder New Platform Template / Authentication & Security.
+Every runnable case is therefore run from its title (as T33366/T33357/T33375 were on 10-29).
+
+| case | full title (ck.db) | authored | triage |
+| --- | --- | --- | --- |
+| T44274 | (204) Authentication&Security_WebAuthentication - Multiple Authentication | none | **RUNNABLE now** (group A). Read as several auth methods and supplicants on one port: port1.0.81 multi-supplicant with auth-web + auth-mac + dot1x (and `auth priority` if wanted); eth6 web-auth with a ck user, eth6 dot1x via `wpasup --method md5/peap`, and MAC-auth of the existing RADIUS MAC users 02-00-5e-00-01-02..05 from fake-MAC frames (`vsend`/`hostsim`, sudotool, no host change). Grade on `show auth supplicant brief` (Mode W/M/D per MAC). Interpretation note in D1 |
+| T44275 | (207) Authentication&Security_WebAuthentication - Proxy Server for Web Authentication | none | **RUNNABLE now** (group A). Unauthenticated eth6 (after `dot1x initialize interface port1.0.81`) sends an HTTP proxy request (absolute-URI GET) to 8.8.8.8:8080 via the approved `hostnet route-add`; `auth-web-server intercept-port 8080` must return the DUT's login page from the DUT's MAC, and NOT without it (control). Login, then restore with a ck user and delete it (10-29 pattern); `hostnet route-del`, proved |
+| T44276 | (208) Authentication&Security_WebAuthentication - DHCP Server for Web Authentication | none | **RUNNABLE now** (group A). `auth-web-server dhcp ipaddress <net>` + `lease`; unauthenticated client = `sudotool dhcp4 client eth6 --mac <eth6 MAC>` (crafted at L2, changes no host IP): grade the OFFER/ACK address, lease (opt 51) and server; login from eth6's own MAC (web-auth binds the MAC). A second client on a jm MAC (02-00-5e-00-01-0N) via `dhcp4 --mac` covers multi-supplicant DHCP. The full "client then browses with the leased address" leg from a second MAC needs D2 |
+| T33358 | (195) Authentication&Security_IEEE 802.1XEncryptionType - EAP-TTLS | none | **BLOCKED (decision D3)**: the DUT's local RADIUS has no EAP-TTLS (measured). The authenticator part is method-agnostic, so the case needs an EXTERNAL RADIUS server that speaks TTLS. `wpasup --method ttls` exists |
+| T44271 | (197) Authentication&Security_IEEE 802.1XEncryptionType - EAP-LEAP | none | **BLOCKED (D3)**: no LEAP on the local RADIUS. Needs an external server with LEAP (FreeRADIUS has it); `wpasup.py` needs a `leap` method added (a tools change, mine to make) |
+| T44272 | (198) Authentication&Security_IEEE 802.1XEncryptionType - EAP-OTP | none | **BLOCKED (D3)**: no OTP on the local RADIUS, and stock FreeRADIUS has no EAP-OTP module either (it has GTC, which is NOT a substitute). Needs a server that speaks EAP-OTP (type 5); `wpasup.py` needs an `otp` method |
+| T33355 | (192) Authentication&Security_IEEE 802.1X - IEEE 802.1X-2004 | none | **RUNNABLE now** (group B). `dot1x eapol-version 2` on port1.0.81 vs default 1; supplicant `wpasup --eapol-version 1|2 --method md5` (and peap) on eth6 against the local RADIUS with a ck user; grade the EAPOL protocol-version byte in both directions from the pcap and the outcome; restore eth6's web session |
+| T33354 | (191) Authentication&Security_IEEE 802.1X - EAP-Notification | objective: **"Not Support"** | **BLOCKED (decision D4)**: the author records it as not supported. It can be measured: `radeap.py --notify` (no root, port >= 1024) on **tb490 eth1 10.38.235.1**, which reaches the DUT's eth0 (10.38.235.3) without crossing the controlled port; DUT `radius-server host 10.38.235.1 auth-port <N> key ...` in a ck server group for dot1x; supplicant `wpasup --method md5` on eth6; grade whether the EAP-Request/Notification reaches eth6 |
+| T44277 | (214) Authentication&Security - Supplicant MAC | none | **RUNNABLE now** (group B). `auth supplicant-mac <mac>` per-MAC overrides on port1.0.81 (e.g. `port-control force-authorized` / `force-unauthorized` / `auto` for eth6 `0090.0b2a.11c3` and a fake jm MAC); grade `show auth supplicant` and the dataplane (ICMP from eth6 / fake-MAC frames), with the port's own control as the contrast; `no auth supplicant-mac` restores |
+
+**Summary: 5 runnable now, 0 blocked by topology, 4 blocked otherwise.**
+- Runnable, in queue order: T44274, T44275, T44276, T33355, T44277.
+- Blocked by topology: none. Every client leg runs from tb5 eth6 -> swi_x530 port1.0.16 -> swi_x950 -> swi_dut
+  port1.0.81, as on 10-29; RADIUS for T33354 from tb490 eth1 -> swi_dut eth0.
+- Blocked otherwise: T33358, T44271, T44272 (D3: an external RADIUS server), T33354 (D4: authored "Not Support").
+- MANUAL-ONLY: none of the nine is listed, and none needs a person (web login by `httpq`, no browser). Nothing added.
+
+### Regrouping (the full titles split differently from the panel's two groups)
+
+| group | cases | dir | state |
+| --- | --- | --- | --- |
+| A — web auth, local RADIUS | T44274, T44275, T44276 | `webauth-2026-10-29T1528` | runnable |
+| B — 802.1X / port auth, local RADIUS | T33355, T44277 | `dot1x-2026-10-29T1528` | runnable |
+| C — needs a decision | T33358, T44271, T44272 (external RADIUS); T33354 ("Not Support") | `eap-2026-10-29T1528` | blocked |
+
+T44277 (Supplicant MAC) is port-auth, not an EAP type, so it stays with T33355 in B; the three EAP types move to C
+because none can run on the local RADIUS server.
+
+### Decisions for the Test Engineer
+
+- **D1 — T44274 "Multiple Authentication"**: proposed reading = several methods (web + MAC + 802.1X) and several
+  supplicants on one port. If it means several WEB-auth logins from different MACs, it needs D2.
+- **D2 — a web login from a MAC other than eth6's** (T44274 alt. reading, T44276's second-client browse leg): the
+  macvlans jm1-jm5 share 192.168.50.0/24 with eth6, so the kernel sends their HTTP out of eth6 with eth6's MAC. It
+  needs either a new root tool (an HTTP login over a crafted TCP stack from a fake MAC, added to `tools/tb` SUDO_TOOLS),
+  or root policy routing on tb5. Both are root on tb5: yours.
+- **D3 — T33358 / T44271 / T44272**: an external RADIUS server with EAP-TTLS, LEAP and EAP-OTP. Installing or configuring
+  FreeRADIUS on a box is root (STANDING-ORDERS §4). FreeRADIUS covers TTLS and LEAP, but not EAP-OTP. Options: provide or
+  approve a server (which box, which port; tb490 eth1 10.38.235.1 reaches the DUT's eth0 without the controlled port),
+  or leave the three blocked. Whether FreeRADIUS is installed on tb490/tb5 was NOT checked (no wrapper action reads it).
+- **D4 — T33354**: the authored objective is "Not Support". Record it so (UNSUPPORTED from the author, nothing run), or
+  measure it with `radeap.py --notify` on tb490 as above (adds a temporary `radius-server host 10.38.235.1` + a ck server
+  group on the DUT, removed by the teardown).
+- **Info — load-release**: see "swi_dut after ... load-release" above: no change to build, boot or flash.
 
 ## Queue
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| A | T44274 Web Auth – Multip…; T44275 Web Auth – Proxy S…; T44276 Web Auth – DHCP S… | `webauth-2026-10-29T1528` | TRIAGE | |
-| B | T33358, T44271, T44272 802.1X EncryptionType…; T33355 802.1X-2004…; T33354 EAP-Notification…; T44277 Supplicant MAC | `dot1x-2026-10-29T1528` | TRIAGE | |
+| A | T44274 (204) Multiple Authentication; T44275 (207) Proxy Server for Web Auth; T44276 (208) DHCP Server for Web Auth | `webauth-2026-10-29T1528` | RUNNABLE | triage 15:41: all three runnable now; T44274 reading = D1 |
+| B | T33355 (192) IEEE 802.1X-2004; T44277 (214) Supplicant MAC | `dot1x-2026-10-29T1528` | RUNNABLE | regrouped at triage |
+| C | T33358 (195) EAP-TTLS; T44271 (197) EAP-LEAP; T44272 (198) EAP-OTP; T33354 (191) EAP-Notification | `eap-2026-10-29T1528` | BLOCKED | D3 (external RADIUS with TTLS/LEAP/OTP; local RADIUS has MD5/TLS/PEAP only); D4 (T33354 authored "Not Support") |
 
 ## Results
 

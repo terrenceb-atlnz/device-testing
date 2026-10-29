@@ -1,6 +1,6 @@
 # tb490 — bench state
 
-> **Generated 2026-10-29T020348Z by `bench_probe.py`** from `captures/2026-10-29T020348Z/` on tb490. Measured state only;
+> **Generated 2026-10-29T023114Z by `bench_probe.py`** from `captures/2026-10-29T023114Z/` on tb490. Measured state only;
 > nothing here is hand-written. Regenerate with `./bench_probe.py --box tb490 run` on tb490. The
 > `setup` fence at the end IS `tb490.setup`; `./bench_probe.py apply` writes it to the box.
 > Names and PDU outlets come from `tb490.static`; platform mechanics live in the orient-dt
@@ -26,13 +26,12 @@
 
 ## Advisories
 
-- `lldp run` was OFF on x980-CDQ (/dev/u2); the probe switched it on and left it on (running-config only -- a reboot drops it and the next run re-applies it)
-- x980-CDQ (/dev/u2): LLDP wait capped at 35 s; not seen: port1.0.81 -- a link there may read `lldp one end` or be missing
+- none
 
 ## tb490.setup
 
 ```setup
-### GENERATED 2026-10-29T020348Z by bench_probe.py from a console capture -- DO NOT HAND-EDIT.
+### GENERATED 2026-10-29T023114Z by bench_probe.py from a console capture -- DO NOT HAND-EDIT.
 ### Source: claude/device-testing/bench-setup/bench-state.md (regenerate with
 ### `bench_probe.py run` on tb490; `bench_probe.py apply` writes this file).
 ### Names and PDU outlets come from bench-setup/tb490/tb490.static.
@@ -69,5 +68,5 @@ eth7 down -
 ```
 
 ```probe-meta
-capture 2026-10-29T020348Z
+capture 2026-10-29T023114Z
 ```
