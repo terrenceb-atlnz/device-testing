@@ -18,6 +18,8 @@ Constraints: "Same as 10-29": "no shared boxes all mine, run the test probe, u0 
              plus the 2026-10-29 wrap ruling that `lldp run` stays off, so every probe runs `--read-only`.
              tb490 runs the cases; tb5's consoles are for access and logging (10-29).
 Session: run in the editor (Test Engineer accepted the risk of a cut; `--resume` covers it).
+Added 15:3x: "just heads up, the python3 scripts running on the tb490 are my scripts and does not touch u0 at all so the x980-dut is safe from that"
+             (python3 processes on tb490 in a precheck are the Test Engineer's own: not a stop, never touched; an fuser holder of /dev/u2 still is.)
 Sentinel until: when the campaign ends (stands down at /wrap-dt).
 
 ### Occupancy check, 2026-10-29 15:21 NZDT (sentinel, no console opened)
