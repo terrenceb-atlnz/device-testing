@@ -179,9 +179,46 @@ because none can run on the local RADIUS server.
 
 | # | case(s) | group dir | state | note |
 | --- | --- | --- | --- | --- |
-| A | T44274 (204) Multiple Authentication; T44275 (207) Proxy Server for Web Auth; T44276 (208) DHCP Server for Web Auth | `webauth-2026-10-29T1528` | RUNNABLE | triage 15:41: all three runnable now; T44274 reading = D1 |
+| A | T44274 (204) Multiple Authentication; T44275 (207) Proxy Server for Web Auth; T44276 (208) DHCP Server for Web Auth | `webauth-2026-10-29T1528` | RUNNING | 16:0x bench-runner RUN started; triage 15:41: all three runnable now; T44274 reading = D1 |
 | B | T44277 (214) Supplicant MAC | `dot1x-2026-10-29T1528` | RUNNABLE | regrouped at triage; T33355 removed 15:5x (already PASS, Test Engineer) |
 | C | T33358 (195) EAP-TTLS; T44271 (197) EAP-LEAP; T44272 (198) EAP-OTP; T33354 (191) EAP-Notification | `eap-2026-10-29T1528` | BLOCKED | D3 "don't test these right now" (needs an external RADIUS with TTLS/LEAP/OTP; local RADIUS has MAC/MD5/TLS/PEAP only); D4 T33354 "i'll deal with it " (Test Engineer) |
+
+### Group A — bench setup and restore recipe (bench-runner RUN, written 2026-10-29 16:0x NZDT, before the first case)
+
+**Gate (15:50–15:58 NZDT):** precheck tb490 u2 CLEAR; tb5 u0-u2 free, FOUND only `ser2net` pid 593 (known).
+Probes `--read-only --baud 115200`: tb490 u2 **MATCH** (`captures/2026-10-29T025037Z`); tb5 the same
+3 MISMATCH + 1 NEEDS-CHECK read-only artefacts as at triage (`captures/2026-10-29T025049Z`). Run setups:
+`webauth-2026-10-29T1528/tb490-u2.setup` (swi_dut) and `tb5-u0u1.setup` (swi_x950, swi_x530; swi_ar dropped).
+No framework script, so no preflight. Consoles used for config: tb490 u2 only. tb5 u0/u1/u2 opened by the
+probe only and logged out (tb5's ckcon kept running after `exit` on u1 and u2, as at triage; killmine'd).
+
+**Baseline = the pre-run running-config**, `webauth-2026-10-29T1528/baseline/swi_dut-pre-run.out` (15:51):
+build `x980-awplus_main-20261029-90.rel`, uptime 5 h 30 m (no reload since 15:32: campaign rule OK);
+`show boot` image `flash:/x980-tb490.rel`, config `flash:/x980-autoorder.cfg`. Nothing is ever `write`n.
+eth6 (`0090.0b2a.11c3`) holds a web session as the deleted user `ckrestore` (Mode W).
+
+**Client:** tb5 eth6 `00:90:0b:2a:11:c3` 192.168.50.10/24 -> swi_x530 port1.0.16 -> swi_x950 -> swi_dut
+port1.0.81 (vlan1 192.168.50.1, MAC e0:1a:ea:d5:04:56). Fake supplicants from eth6 by scapy
+(`arpleg --sender-mac`, `eapol.py`, `dhcp4.py --mac`), MACs `02:00:5e:c0:ff:xx`.
+
+**Added by the cases (each removed by its own teardown):** local-server users prefixed `ck` (and ck MAC
+users `02-00-5e-c0-ff-xx`); on port1.0.81 `auth-mac enable`, `dot1x port-control auto` (T44274);
+`auth-web-server intercept-port 8080` (T44275); `auth-web-server dhcp ipaddress|lease` (T44276).
+T44274 removes the inherited MAC user `00-90-0b-2a-11-c3` (so eth6 falls through to web) and re-adds it
+from its encrypted line (as T33375 did 10-29). On tb5: route `8.8.8.0/24 via 192.168.50.1 dev eth6`
+(T44275, `hostnet route-add`, removed by `route-del`).
+
+**Restore recipe (anyone can run it):**
+1. swi_dut `configure terminal`: `interface port1.0.81` -> `no auth-mac enable`, `no dot1x port-control`,
+   (re-)`auth-web enable`, `auth host-mode multi-supplicant`, `auth forward arp|dhcp|dns`; `exit`;
+   `no auth-web-server intercept-port 8080`; `no auth-web-server dhcp ipaddress`, `no auth-web-server dhcp lease`;
+   `radius-server local` -> `no user ck...`, `no user 02-00-5e-c0-ff-..`; if missing,
+   `user 00-90-0b-2a-11-c3 encrypted password mssv+c7URUgtfltKy46Rt1ydpHKUTY8WiQr1zgQjGbY= group TWOSTEP`; `end`.
+2. `rcdiff.py` the new `show running-config` against `baseline/swi_dut-pre-run.out`: identical (exit 0).
+   `show boot` still `flash:/x980-autoorder.cfg`.
+3. tb5: `tools/tb sudotool tb5 wa1528 hostnet route-del`, then `hostnet show`: no 8.8.8.0/24 route.
+4. eth6 web session: re-authenticate eth6 with a ck user (`ckrestore`), then delete that user (10-29 answer).
+5. `end`, `terminal no monitor`, `exit` on every console opened; re-probe both boxes read-only.
 
 ## Results
 
